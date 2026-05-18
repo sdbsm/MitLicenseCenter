@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using MitLicenseCenter.Domain.Infobases;
+using MitLicenseCenter.Domain.Publications;
 using MitLicenseCenter.Domain.Tenants;
 using MitLicenseCenter.Infrastructure.Audit;
 using MitLicenseCenter.Infrastructure.Identity;
@@ -13,6 +15,8 @@ public sealed class AppDbContext : IdentityDbContext<AppUser, AppRole, Guid>
     }
 
     public DbSet<Tenant> Tenants => Set<Tenant>();
+    public DbSet<Infobase> Infobases => Set<Infobase>();
+    public DbSet<Publication> Publications => Set<Publication>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
     protected override void OnModelCreating(ModelBuilder builder)
@@ -38,6 +42,52 @@ public sealed class AppDbContext : IdentityDbContext<AppUser, AppRole, Guid>
             e.Property(x => x.CreatedAt).IsRequired();
             e.Property(x => x.UpdatedAt);
             e.HasIndex(x => x.Name).IsUnique();
+        });
+
+        builder.Entity<Infobase>(e =>
+        {
+            e.ToTable("Infobases", "dbo");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.TenantId).IsRequired();
+            e.Property(x => x.Name).IsRequired().HasMaxLength(200);
+            e.Property(x => x.ClusterInfobaseId).IsRequired();
+            e.Property(x => x.DatabaseServer).IsRequired().HasMaxLength(200);
+            e.Property(x => x.DatabaseName).IsRequired().HasMaxLength(200);
+            e.Property(x => x.Status).HasConversion<int>().IsRequired();
+            e.Property(x => x.CreatedAt).IsRequired();
+            e.Property(x => x.UpdatedAt);
+            // Имя инфобазы уникально в пределах клиента — два разных клиента могут иметь
+            // одноимённые базы (например, «Бухгалтерия»), но один клиент — нет.
+            e.HasIndex(x => new { x.TenantId, x.Name }).IsUnique();
+            // Restrict: Infobase — часть aggregate Tenant'а, удаление tenant'а
+            // с непустым набором инфобаз блокируется guard'ом в endpoint'е (409),
+            // SQL Server поднимет FK violation как fallback.
+            e.HasOne<Tenant>()
+                .WithMany()
+                .HasForeignKey(x => x.TenantId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        builder.Entity<Publication>(e =>
+        {
+            e.ToTable("Publications", "dbo");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.InfobaseId).IsRequired();
+            e.Property(x => x.SiteName).IsRequired().HasMaxLength(200);
+            e.Property(x => x.VirtualPath).IsRequired().HasMaxLength(200);
+            e.Property(x => x.PlatformVersion).IsRequired().HasMaxLength(50);
+            e.Property(x => x.EnableOData).IsRequired();
+            e.Property(x => x.EnableHttpServices).IsRequired();
+            e.Property(x => x.VrdCustomXml);
+            e.Property(x => x.CreatedAt).IsRequired();
+            e.Property(x => x.UpdatedAt);
+            // 1-to-1 required: Publication — часть aggregate Infobase'а; удаление
+            // инфобазы каскадом сносит публикацию в БД (IIS-unpublish — Stage 3).
+            e.HasOne<Infobase>()
+                .WithOne()
+                .HasForeignKey<Publication>(x => x.InfobaseId)
+                .IsRequired()
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         builder.Entity<AuditLog>(e =>

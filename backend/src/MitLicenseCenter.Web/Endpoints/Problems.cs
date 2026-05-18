@@ -38,4 +38,10 @@ public static class Problems
             ProblemCodes.TenantHasInfobases,
             "Удаление невозможно",
             "У клиента есть инфобазы — сначала удалите их.");
+
+    public static ProblemDetails InfobaseNameDuplicateInTenant(string name) =>
+        Conflict(
+            ProblemCodes.NameDuplicateInTenant,
+            "Дубликат названия инфобазы",
+            $"Инфобаза с названием «{name}» уже существует у этого клиента.");
 }

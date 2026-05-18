@@ -14,27 +14,31 @@ Represents a customer who rents the 1C infrastructure.
 ## 2. Infobase (1C Base)
 Represents a specific 1C database assigned to a Tenant.
 - `Id` (Guid, PK)
-- `TenantId` (Guid, FK)
-- `Name` (String): Friendly name for the UI.
+- `TenantId` (Guid, FK) — `ON DELETE RESTRICT`. Удаление tenant'а блокируется guard'ом endpoint'а (`409 Conflict`, `code: TENANT_HAS_INFOBASES`) до того, как SQL поднимет FK violation.
+- `Name` (String, ≤200): Friendly name for the UI. Unique **per tenant** — composite index `IX_Infobases_TenantId_Name`. Два разных клиента могут иметь одноимённые инфобазы; внутри клиента — нет.
 - `ClusterInfobaseId` (Guid): The internal ID of this base inside the 1C Cluster.
-- `DatabaseServer` (String): SQL Server instance name.
-- `DatabaseName` (String): SQL Database name.
-- `Status` (Enum): Active, Maintenance, Suspended.
-- **Relationships:** Belongs to `Tenant`. Has One `Publication`.
+- `DatabaseServer` (String, ≤200): SQL Server instance name.
+- `DatabaseName` (String, ≤200): SQL Database name.
+- `Status` (Enum `InfobaseStatus`): `Active=0`, `Maintenance=1`, `Suspended=2`. Сохраняется как `int` (`HasConversion<int>`), на wire идёт строкой через `JsonStringEnumConverter`. Int-значения заморожены.
+- `CreatedAt` (DateTimeUtc).
+- `UpdatedAt` (DateTimeUtc, Nullable): обновляется в PUT-handler'е.
+- **Relationships:** Belongs to `Tenant`. Has One required `Publication`. Создание/удаление инфобазы оперирует aggregate'ом — публикация создаётся в том же POST и каскадно удаляется при DELETE.
 
 ## 3. Publication (IIS Configuration)
 Stores the *Desired State* of the IIS publication for a specific Infobase.
 - `Id` (Guid, PK)
-- `InfobaseId` (Guid, FK)
-- `SiteName` (String): IIS Site (e.g., "Default Web Site").
-- `VirtualPath` (String): The URL path (e.g., "/tenant-base1").
-- `PlatformVersion` (String): e.g., "8.3.23.1865". Used to locate `wsisapi.dll`.
+- `InfobaseId` (Guid, FK, **unique**) — `ON DELETE CASCADE`. 1-to-1 required: каждая инфобаза имеет ровно одну публикацию, удаление инфобазы каскадом сносит публикацию в БД (IIS-unpublish — Stage 3).
+- `SiteName` (String, ≤200): IIS Site (e.g., "Default Web Site").
+- `VirtualPath` (String, ≤200): The URL path (e.g., "/tenant-base1"). Валидация: должен начинаться с `/`, не содержит пробелов.
+- `PlatformVersion` (String, ≤50): e.g., "8.3.23.1865". Used to locate `wsisapi.dll`. Валидация: regex `^\d+\.\d+\.\d{2}\.\d{4}$`.
 - `EnableOData` (Boolean): Flag to manage standard OData interface.
-- `EnableHttpServices` (Boolean)
-- `VrdCustomXml` (String): Stores any custom XML fragments for `default.vrd` to ensure idempotency and prevent overwrite of custom configurations.
-- `LastDriftStatus` (Enum): `InSync`, `Drift`, `Missing`, `Error`. Updated by the drift-detection job.
-- `LastDriftCheckAt` (DateTimeUtc, Nullable): Timestamp of the most recent drift check.
-- `LastDriftDetails` (String, Nullable): Free-form description of detected differences (which nodes drifted, which file is missing, etc.).
+- `EnableHttpServices` (Boolean).
+- `VrdCustomXml` (`nvarchar(max)`, Nullable): Stores any custom XML fragments for `default.vrd` to ensure idempotency and prevent overwrite of custom configurations. Пустая строка / whitespace нормализуется в `NULL` при записи.
+- `CreatedAt` (DateTimeUtc).
+- `UpdatedAt` (DateTimeUtc, Nullable).
+- `LastDriftStatus` (Enum): `InSync`, `Drift`, `Missing`, `Error`. **Поле появится в Stage 3** вместе с drift-detection job — в Stage 2 не присутствует ни в БД, ни в API.
+- `LastDriftCheckAt` (DateTimeUtc, Nullable): **Stage 3.**
+- `LastDriftDetails` (String, Nullable): **Stage 3.**
 - **Relationships:** Belongs to `Infobase`.
 
 ## 4. AuditLog

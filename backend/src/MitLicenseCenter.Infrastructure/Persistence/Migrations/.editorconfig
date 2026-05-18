@@ -5,3 +5,5 @@ csharp_style_namespace_declarations = block_scoped:silent
 dotnet_diagnostic.IDE0161.severity = none
 dotnet_diagnostic.CA1062.severity = none
 dotnet_diagnostic.CA1822.severity = none
+# CreateIndex(columns: new[] { … }) — scaffold-pattern, статика тут лишняя.
+dotnet_diagnostic.CA1861.severity = none

@@ -9,6 +9,7 @@
     <ProjectReference Include="..\MitLicenseCenter.Infrastructure\MitLicenseCenter.Infrastructure.csproj" />
     <ProjectReference Include="..\MitLicenseCenter.Application\MitLicenseCenter.Application.csproj" />
     <ProjectReference Include="..\MitLicenseCenter.Domain\MitLicenseCenter.Domain.csproj" />
+    <InternalsVisibleTo Include="MitLicenseCenter.Tests.Unit" />
   </ItemGroup>
 
   <ItemGroup>

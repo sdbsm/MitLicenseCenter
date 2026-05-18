@@ -151,7 +151,7 @@ public static class TenantsEndpoints
         return TypedResults.Ok(tenant.ToResponse());
     }
 
-    private static async Task<Results<NoContent, NotFound, Conflict<ProblemDetails>>> DeleteAsync(
+    internal static async Task<Results<NoContent, NotFound, Conflict<ProblemDetails>>> DeleteAsync(
         Guid id,
         AppDbContext db,
         IAuditLogger audit,
@@ -164,7 +164,10 @@ public static class TenantsEndpoints
             return TypedResults.NotFound();
         }
 
-        // TODO PR 2.3: guard на db.Infobases.AnyAsync(x => x.TenantId == id, ct) → Problems.TenantHasInfobases().
+        if (await db.Infobases.AnyAsync(x => x.TenantId == id, ct).ConfigureAwait(false))
+        {
+            return TypedResults.Conflict(Problems.TenantHasInfobases());
+        }
 
         var name = tenant.Name;
         // Запись аудита кладём ДО удаления, пока tenant ещё существует — FK SetNull

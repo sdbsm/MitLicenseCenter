@@ -127,6 +127,8 @@ var versionSet = app.NewApiVersionSet()
 app.MapAuthEndpoints(versionSet);
 app.MapHealthEndpoints(versionSet);
 app.MapTenantsEndpoints(versionSet);
+app.MapInfobasesEndpoints(versionSet);
+app.MapPublicationsEndpoints(versionSet);
 
 app.UseSwagger(o => o.RouteTemplate = "api/docs/{documentName}/swagger.json");
 app.UseSwaggerUI(o =>
