@@ -9,4 +9,5 @@ public sealed class Tenant : IEntity
     public int MaxConcurrentLicenses { get; set; }
     public bool IsActive { get; set; }
     public DateTime CreatedAt { get; init; }
+    public DateTime? UpdatedAt { get; set; }
 }

@@ -20,6 +20,9 @@ builder.Services.Configure<JsonOptions>(o =>
 {
     o.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
     o.SerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+    // Enum'ы домена (AuditActionType, AuditReason и др.) сериализуются по имени —
+    // машинно-читаемый контракт для frontend, без хрупкой привязки к числам.
+    o.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
 });
 
 builder.Services.AddApplication();
@@ -123,6 +126,7 @@ var versionSet = app.NewApiVersionSet()
 
 app.MapAuthEndpoints(versionSet);
 app.MapHealthEndpoints(versionSet);
+app.MapTenantsEndpoints(versionSet);
 
 app.UseSwagger(o => o.RouteTemplate = "api/docs/{documentName}/swagger.json");
 app.UseSwaggerUI(o =>

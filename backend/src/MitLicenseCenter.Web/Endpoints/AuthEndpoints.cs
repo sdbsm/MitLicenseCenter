@@ -6,6 +6,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using MitLicenseCenter.Application.Auditing;
+using MitLicenseCenter.Domain.Audit;
 using MitLicenseCenter.Infrastructure.Identity;
 
 namespace MitLicenseCenter.Web.Endpoints;
@@ -30,6 +32,7 @@ public static class AuthEndpoints
         [FromBody] LoginRequest request,
         SignInManager<AppUser> signInManager,
         UserManager<AppUser> userManager,
+        IAuditLogger audit,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request.UserName) || string.IsNullOrWhiteSpace(request.Password))
@@ -58,12 +61,33 @@ public static class AuthEndpoints
         }
 
         var roles = await userManager.GetRolesAsync(user).ConfigureAwait(false);
+
+        await audit.LogAsync(
+            AuditActionType.AdminLoggedIn,
+            initiator: user.UserName!,
+            description: $"Администратор {user.UserName} вошёл в систему.",
+            ct: ct).ConfigureAwait(false);
+
         return TypedResults.Ok(new CurrentUserResponse(user.UserName!, roles.ToArray()));
     }
 
-    private static async Task<NoContent> LogoutAsync(HttpContext httpContext)
+    private static async Task<NoContent> LogoutAsync(
+        HttpContext httpContext,
+        IAuditLogger audit,
+        CancellationToken ct)
     {
+        var name = httpContext.User.Identity?.Name;
         await httpContext.SignOutAsync(IdentityConstants.ApplicationScheme).ConfigureAwait(false);
+
+        if (!string.IsNullOrEmpty(name))
+        {
+            await audit.LogAsync(
+                AuditActionType.AdminLoggedOut,
+                initiator: name,
+                description: $"Администратор {name} вышел из системы.",
+                ct: ct).ConfigureAwait(false);
+        }
+
         return TypedResults.NoContent();
     }
 
@@ -91,7 +115,9 @@ public static class AuthEndpoints
         [FromBody] ChangePasswordRequest request,
         HttpContext httpContext,
         UserManager<AppUser> userManager,
-        SignInManager<AppUser> signInManager)
+        SignInManager<AppUser> signInManager,
+        IAuditLogger audit,
+        CancellationToken ct)
     {
         var errors = new Dictionary<string, List<string>>(StringComparer.Ordinal);
 
@@ -149,6 +175,13 @@ public static class AuthEndpoints
         }
 
         await signInManager.RefreshSignInAsync(user).ConfigureAwait(false);
+
+        await audit.LogAsync(
+            AuditActionType.AdminPasswordChanged,
+            initiator: user.UserName!,
+            description: $"Администратор {user.UserName} сменил пароль.",
+            ct: ct).ConfigureAwait(false);
+
         return TypedResults.NoContent();
     }
 
