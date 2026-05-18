@@ -36,6 +36,8 @@ public sealed class AppDbContext : IdentityDbContext<AppUser, AppRole, Guid>
             e.Property(x => x.MaxConcurrentLicenses).IsRequired();
             e.Property(x => x.IsActive).IsRequired();
             e.Property(x => x.CreatedAt).IsRequired();
+            e.Property(x => x.UpdatedAt);
+            e.HasIndex(x => x.Name).IsUnique();
         });
 
         builder.Entity<AuditLog>(e =>
@@ -43,11 +45,18 @@ public sealed class AppDbContext : IdentityDbContext<AppUser, AppRole, Guid>
             e.ToTable("AuditLogs", "dbo");
             e.HasKey(x => x.Id);
             e.Property(x => x.Timestamp).IsRequired().HasDefaultValueSql("SYSUTCDATETIME()");
-            e.Property(x => x.ActionType).IsRequired().HasMaxLength(100);
+            e.Property(x => x.ActionType).HasConversion<int>().IsRequired();
+            e.Property(x => x.Reason).HasConversion<int?>();
             e.Property(x => x.Initiator).IsRequired().HasMaxLength(256);
             e.Property(x => x.Description).IsRequired();
             e.HasIndex(x => x.Timestamp);
             e.HasIndex(x => x.ActionType);
+            // SetNull: tenant deletion обнуляет ссылку, но запись аудита остаётся —
+            // история всегда сохраняется.
+            e.HasOne<Tenant>()
+                .WithMany()
+                .HasForeignKey(x => x.TenantId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
     }
 }

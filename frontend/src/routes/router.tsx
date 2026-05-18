@@ -5,6 +5,7 @@ import { LoginPage } from "@/features/auth/LoginPage";
 import { ProtectedRoute } from "@/features/auth/ProtectedRoute";
 import { DashboardPage } from "@/features/dashboard/DashboardPage";
 import { ProfilePage } from "@/features/profile/ProfilePage";
+import { TenantsPage } from "@/features/tenants/TenantsPage";
 
 export const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },
@@ -17,7 +18,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <DashboardPage /> },
       { path: "profile", element: <ProfilePage /> },
-      { path: "tenants", element: <ComingSoonPage titleKey="nav.tenants" /> },
+      { path: "tenants", element: <TenantsPage /> },
       { path: "infobases", element: <ComingSoonPage titleKey="nav.infobases" /> },
       { path: "publications", element: <ComingSoonPage titleKey="nav.publications" /> },
       { path: "sessions", element: <ComingSoonPage titleKey="nav.sessions" /> },

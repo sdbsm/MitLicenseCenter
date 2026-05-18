@@ -4,6 +4,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using MitLicenseCenter.Application.Auditing;
+using MitLicenseCenter.Infrastructure.Audit;
 using MitLicenseCenter.Infrastructure.Identity;
 using MitLicenseCenter.Infrastructure.Persistence;
 
@@ -49,7 +51,20 @@ public static class DependencyInjection
 
         AddDataProtection(services, environment);
 
+        services.TryAddSingletonTimeProvider();
+        services.AddScoped<IAuditLogger, AuditLogger>();
+
         return services;
+    }
+
+    private static void TryAddSingletonTimeProvider(this IServiceCollection services)
+    {
+        if (services.Any(d => d.ServiceType == typeof(TimeProvider)))
+        {
+            return;
+        }
+
+        services.AddSingleton(TimeProvider.System);
     }
 
     private static void AddDataProtection(IServiceCollection services, IHostEnvironment environment)
