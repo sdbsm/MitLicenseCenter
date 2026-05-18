@@ -8,14 +8,20 @@
 
 - Windows 10/11 или Windows Server.
 - **.NET 10 SDK** (10.0.100+). Проверка: `dotnet --version`.
-- **Node.js 20+ LTS**. Проверка: `node --version`.
-- **Corepack** включён (поставляется с Node 20+):
   ```pwsh
-  corepack enable
+  winget install Microsoft.DotNet.SDK.10
   ```
-  Это даст `pnpm` той версии, что зафиксирована в `frontend/package.json` (`packageManager` поле).
-- **MSSQL** (Express/Developer) с локальным экземпляром `.\SQLEXPRESS` либо строкой подключения, указанной в `appsettings.Development.json` / переменной окружения.
-- **Git for Windows** (включает Git Bash — нужен Husky pre-commit-хукам).
+- **Node.js 22.13+** (требование `pnpm` 11; на Node 20 падает с `No such built-in module: node:sqlite`). Проверка: `node --version`.
+  ```pwsh
+  winget install OpenJS.NodeJS.LTS
+  ```
+- **pnpm** (standalone-установка):
+  ```pwsh
+  winget install pnpm.pnpm
+  ```
+  Версия пнится через `packageManager` поле в `frontend/package.json`. Corepack тоже сработает на Linux/macOS или в elevated-shell на Windows, но обычному пользователю он не может записать в `C:\Program Files\nodejs\`, поэтому базовый путь — standalone-пакет.
+- **MSSQL** (Developer/Standard, локальный дефолтный экземпляр) с connection string `Server=.;Database=MitLicenseCenter;Trusted_Connection=True;TrustServerCertificate=True`. Перекрывается через User Secrets / переменные окружения `ConnectionStrings__Default` и `ConnectionStrings__Hangfire`.
+- **Git for Windows** (включает Git Bash — нужен pre-commit-хуку в `.husky/pre-commit`).
 
 ## Быстрый старт
 

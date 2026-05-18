@@ -103,8 +103,11 @@ This document tracks important architectural decisions, why they were made, and 
 
 ## Tooling Constraints (binding alongside ADR-13/14)
 
-- **Frontend package manager:** `pnpm` (not `npm` or `yarn`). Faster, disk-efficient, strict on phantom dependencies. Pinned via `packageManager` field in `package.json` and Corepack.
-- **Pre-commit hooks:** `husky` + `lint-staged`. Linter and formatter run on staged files before commit. Backend: `dotnet format --verify-no-changes` on staged `.cs` files via husky shell hook.
+- **.NET solution format:** `.slnx` (the XML solution format that became the SDK 10 default). All scripts and CI reference `backend/MitLicenseCenter.slnx`. The classic `.sln` is not used.
+- **Frontend package manager:** `pnpm` (not `npm` or `yarn`). Faster, disk-efficient, strict on phantom dependencies. Pinned via the `packageManager` field in `frontend/package.json`. **Corepack is optional, not mandatory** — on Windows under a non-admin user it cannot write to `C:\Program Files\nodejs\`, so the supported install path is the standalone winget package (`winget install pnpm.pnpm`). Corepack works fine on Linux/macOS and on an elevated Windows shell, but we cannot rely on it as the only path.
+- **Node.js minimum:** **Node 22.13+** (driven by pnpm 11 — older Node versions fail with `No such built-in module: node:sqlite`). Older Node versions are not supported.
+- **Pre-commit hooks:** custom `.husky/pre-commit` shell script registered via `git config core.hooksPath .husky` (the `core.hooksPath` value is set idempotently by `frontend/scripts/install-git-hooks.mjs`, which runs from `pnpm install`'s `prepare`). **The `husky` npm package itself is intentionally not installed** — it offers no extra value once `core.hooksPath` is set, and removing it shortens the dependency surface. The hook runs `lint-staged` on staged JS/TS/JSON/CSS in `frontend/` and `dotnet format --include … --verify-no-changes` on staged `.cs`. On Windows the hook requires Git Bash (ships with Git for Windows).
+- **PowerShell script encoding:** all `scripts/*.ps1` files must be saved as **UTF-8 with BOM**. Windows PowerShell 5.1 (still the default `powershell.exe` on Windows 10/11) reads BOM-less UTF-8 as cp1251 and corrupts Cyrillic strings inside scripts. PowerShell 7 (`pwsh`) handles BOM-less UTF-8 correctly, but the project supports both shells.
 - **Local dev scripts** (`scripts/`):
   - `build.ps1` — builds backend and frontend, runs tests and lint. Single command for "is the project healthy?".
   - `dev.ps1` — starts backend (`dotnet watch run`) and frontend (`pnpm dev`) in parallel for local development.

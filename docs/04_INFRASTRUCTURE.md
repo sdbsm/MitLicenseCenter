@@ -61,7 +61,9 @@ All components run on the same Windows Server host: the .NET backend service, th
   - Read/Write access to the backup destination folder (see ADR-9).
 
 ### Secrets Storage
-Secrets (1C cluster credentials, MSSQL connection strings, RAS credentials) are stored encrypted using the **ASP.NET Core Data Protection API**, which is DPAPI-backed on Windows. Keys live under `%ProgramData%\MitLicenseCenter\keys\` and are scoped to the service account. The key ring is included in the backup set — without it, restored backups cannot decrypt their own secrets. See ADR-8 for the full policy.
+Secrets (1C cluster credentials, MSSQL connection strings, RAS credentials) are stored encrypted using the **ASP.NET Core Data Protection API**, which is DPAPI-backed on Windows. Keys live under `%ProgramData%\MitLicenseCenter\keys\` in production (machine-scoped, service-account-readable) and are included in the backup set — without them restored backups cannot decrypt their own secrets. See ADR-8 for the full policy.
+
+**Development override:** when `ASPNETCORE_ENVIRONMENT=Development` the backend persists keys to `%LocalAppData%\MitLicenseCenter\keys\` instead. This avoids the need for elevation just to run the app locally. Local dev keys are NOT a substitute for the production key ring and must never be deployed alongside a production database backup.
 
 ### Admin Authentication
 Administrators authenticate against the panel using ASP.NET Core Identity with local accounts stored in the same MSSQL domain database (schema `auth`). Cookie-based session auth (HttpOnly, Secure, SameSite=Strict). Two roles: `Admin` and `Viewer`. See ADR-7.
