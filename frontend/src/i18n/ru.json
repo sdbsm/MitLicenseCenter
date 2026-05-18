@@ -132,6 +132,96 @@
       "loadFailed": "Не удалось загрузить список клиентов."
     }
   },
+  "infobases": {
+    "title": "Инфобазы",
+    "subtitle": "Информационные базы 1С с привязкой к клиенту и публикацией в IIS.",
+    "actions": {
+      "add": "Добавить инфобазу"
+    },
+    "filters": {
+      "tenant": "Клиент",
+      "allTenants": "Все клиенты"
+    },
+    "fields": {
+      "name": "Название",
+      "tenant": "Клиент",
+      "clusterInfobaseId": "ID в кластере 1С",
+      "databaseServer": "Сервер БД",
+      "databaseName": "Имя БД",
+      "status": "Статус",
+      "publication": "Публикация",
+      "updatedAt": "Обновлена"
+    },
+    "status": {
+      "Active": "Активна",
+      "Maintenance": "Обслуживание",
+      "Suspended": "Приостановлена"
+    },
+    "empty": {
+      "title": "Нет инфобаз",
+      "hint": "Создайте первую инфобазу клиента — публикация в IIS настраивается в этой же форме.",
+      "noTenantsHint": "Сначала добавьте хотя бы одного клиента на странице «Клиенты»."
+    },
+    "form": {
+      "createTitle": "Новая инфобаза",
+      "editTitle": "Изменить инфобазу",
+      "subtitle": "Запись о desired-state: какой клиент владеет базой, где она лежит и как опубликована. Stage 2: только БД, без вызовов 1С/IIS.",
+      "sectionInfobase": "Инфобаза",
+      "sectionInfobaseHint": "Привязка к клиенту, расположение БД и операционный статус.",
+      "sectionPublication": "Публикация в IIS",
+      "sectionPublicationHint": "Параметры desired-state публикации. Сама публикация в IIS появится в Stage 3 (admin-driven Reconcile).",
+      "tenantPlaceholder": "Выберите клиента",
+      "tenantLockedHint": "Клиент задаётся при создании инфобазы и не меняется.",
+      "namePlaceholder": "Например, Бухгалтерия",
+      "databaseServerPlaceholder": "Например, sql.local или (local)",
+      "databaseNamePlaceholder": "Например, acme_bp",
+      "clusterIdHint": "GUID базы в кластере 1С (берётся из rac / Cluster API)."
+    },
+    "delete": {
+      "title": "Удалить инфобазу?",
+      "body": "Запись об инфобазе «{{name}}» и связанная публикация в БД будут удалены. IIS не затрагивается. Это действие необратимо.",
+      "confirmLabel": "Для подтверждения введите название инфобазы: {{name}}",
+      "confirm": "Удалить"
+    },
+    "toasts": {
+      "created": "Инфобаза «{{name}}» создана.",
+      "updated": "Инфобаза «{{name}}» обновлена.",
+      "deleted": "Инфобаза «{{name}}» удалена."
+    },
+    "errors": {
+      "tenantRequired": "Выберите клиента.",
+      "tenantNotFound": "Клиент не найден.",
+      "nameRequired": "Укажите название инфобазы.",
+      "nameTooLong": "Название не длиннее 200 символов.",
+      "nameDuplicate": "У этого клиента уже есть инфобаза с таким названием.",
+      "clusterIdInvalid": "ID должен быть в формате GUID.",
+      "databaseServerRequired": "Укажите сервер БД.",
+      "databaseNameRequired": "Укажите имя БД.",
+      "fieldTooLong": "Значение не длиннее 200 символов.",
+      "loadFailed": "Не удалось загрузить список инфобаз."
+    }
+  },
+  "publications": {
+    "fields": {
+      "siteName": "Сайт IIS",
+      "virtualPath": "Виртуальный путь",
+      "platformVersion": "Версия платформы 1С",
+      "enableOData": "OData",
+      "enableHttpServices": "HTTP-сервисы"
+    },
+    "form": {
+      "virtualPathHint": "Например, /acme-bp — должен начинаться с «/» и не содержать пробелов.",
+      "platformVersionHint": "Формат «Мажор.Минор.Билд.Ревизия», например 8.3.23.1865."
+    },
+    "errors": {
+      "siteNameRequired": "Укажите имя сайта IIS.",
+      "virtualPathRequired": "Укажите виртуальный путь.",
+      "virtualPathLeadingSlash": "Виртуальный путь должен начинаться с «/».",
+      "virtualPathNoSpaces": "Виртуальный путь не должен содержать пробелов.",
+      "platformVersionRequired": "Укажите версию платформы 1С.",
+      "platformVersionFormat": "Используйте формат «8.3.23.1865»."
+    }
+  },
   "errors": {
     "generic": "Произошла ошибка. Попробуйте ещё раз.",
     "network": "Нет связи с сервером.",
