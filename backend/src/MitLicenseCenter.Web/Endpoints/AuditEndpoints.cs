@@ -1,0 +1,109 @@
+using Asp.Versioning;
+using Asp.Versioning.Builder;
+using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using MitLicenseCenter.Domain.Audit;
+using MitLicenseCenter.Infrastructure.Identity;
+using MitLicenseCenter.Infrastructure.Persistence;
+
+namespace MitLicenseCenter.Web.Endpoints;
+
+public static class AuditEndpoints
+{
+    private const int DefaultPageSize = 50;
+    // Server-side clamp: страница тяжелее tenants/infobases — фиксируем шаги вручную.
+    private static readonly int[] AllowedPageSizes = [25, 50, 100];
+
+    public static void MapAuditEndpoints(this IEndpointRouteBuilder endpoints, ApiVersionSet versionSet)
+    {
+        var group = endpoints
+            .MapGroup("/api/v{version:apiVersion}/audit")
+            .WithApiVersionSet(versionSet)
+            .HasApiVersion(new ApiVersion(1, 0))
+            .WithTags("Audit");
+
+        group.MapGet("/", ListAsync).RequireAuthorization(Roles.Viewer);
+    }
+
+    internal static async Task<Results<Ok<AuditPagedResponse>, ValidationProblem>> ListAsync(
+        AppDbContext db,
+        [FromQuery] string? actionType,
+        [FromQuery] Guid? tenantId,
+        [FromQuery] DateTime? from,
+        [FromQuery] DateTime? to,
+        [FromQuery] int? page,
+        [FromQuery] int? pageSize,
+        CancellationToken ct)
+    {
+        var errors = new Dictionary<string, string[]>(StringComparer.Ordinal);
+
+        AuditActionType? parsedActionType = null;
+        if (!string.IsNullOrWhiteSpace(actionType))
+        {
+            if (Enum.TryParse<AuditActionType>(actionType, ignoreCase: true, out var parsed)
+                && Enum.IsDefined(parsed))
+            {
+                parsedActionType = parsed;
+            }
+            else
+            {
+                errors[nameof(actionType)] = ["Неизвестный тип действия."];
+            }
+        }
+
+        if (from is { } f && to is { } t && t < f)
+        {
+            errors[nameof(to)] = ["Конец диапазона раньше начала."];
+        }
+
+        if (errors.Count > 0)
+        {
+            return TypedResults.ValidationProblem(errors);
+        }
+
+        var p = page is > 0 ? page.Value : 1;
+        var ps = pageSize is { } requested && AllowedPageSizes.Contains(requested)
+            ? requested
+            : DefaultPageSize;
+
+        var query = db.AuditLogs.AsNoTracking();
+        if (parsedActionType is { } action)
+        {
+            query = query.Where(x => x.ActionType == action);
+        }
+        if (tenantId is { } tid)
+        {
+            query = query.Where(x => x.TenantId == tid);
+        }
+        if (from is { } fromUtc)
+        {
+            query = query.Where(x => x.Timestamp >= fromUtc);
+        }
+        if (to is { } toUtc)
+        {
+            query = query.Where(x => x.Timestamp <= toUtc);
+        }
+
+        // CountAsync и Skip/Take по одному и тому же IQueryable — EF проводит их как
+        // два SQL-запроса; запускаем последовательно (один scoped DbContext не
+        // поддерживает параллельные операции).
+        var total = await query.CountAsync(ct).ConfigureAwait(false);
+        var items = await query
+            .OrderByDescending(x => x.Timestamp)
+            .ThenByDescending(x => x.Id)
+            .Skip((p - 1) * ps)
+            .Take(ps)
+            .Select(x => new AuditEntryResponse(
+                x.Id,
+                x.Timestamp,
+                x.ActionType,
+                x.Reason,
+                x.Initiator,
+                x.Description,
+                x.TenantId))
+            .ToListAsync(ct).ConfigureAwait(false);
+
+        return TypedResults.Ok(new AuditPagedResponse(items, total, p, ps));
+    }
+}
