@@ -58,7 +58,10 @@ try {
         '{ "name": "shadcn-add-temp", "private": true, "version": "0.0.0" }' |
             Out-File -FilePath (Join-Path $TempDir 'package.json') -Encoding utf8 -NoNewline
 
-        & pnpm add "shadcn@$Version" --config.node-linker=hoisted --silent
+        # --ignore-scripts: shadcn тянет в transitive deps msw, у которого build-script;
+        # pnpm 11 без allow-builds выходит с кодом 1 (ERR_PNPM_IGNORED_BUILDS),
+        # хотя сами модули уже распакованы. Скрипты пакетов нам не нужны — CLI это JS.
+        & pnpm add "shadcn@$Version" --config.node-linker=hoisted --ignore-scripts --silent
         if ($LASTEXITCODE -ne 0) {
             throw "pnpm add shadcn@$Version завершился с кодом $LASTEXITCODE."
         }
