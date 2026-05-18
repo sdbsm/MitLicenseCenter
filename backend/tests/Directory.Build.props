@@ -1,0 +1,12 @@
+<Project>
+  <Import Project="..\Directory.Build.props" />
+
+  <PropertyGroup>
+    <!--
+      CA1707: snake_case в именах test-методов — общепринятая xUnit-конвенция.
+      CA2007: ConfigureAwait не нужен в тестах.
+    -->
+    <NoWarn>$(NoWarn);CA1707;CA2007</NoWarn>
+  </PropertyGroup>
+
+</Project>

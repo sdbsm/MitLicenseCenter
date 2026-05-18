@@ -1,0 +1,87 @@
+# ─────────────────────────────────────────────────────────────
+# .NET / Visual Studio / Rider
+# ─────────────────────────────────────────────────────────────
+bin/
+obj/
+out/
+[Dd]ebug/
+[Rr]elease/
+[Bb]uilds/
+x64/
+x86/
+[Ll]ogs/
+TestResults/
+*.user
+*.suo
+*.userprefs
+*.userosscache
+*.sln.docstates
+*.cache
+*.pidb
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.opendb
+.vs/
+.idea/
+*.swp
+*~
+
+# NuGet
+*.nupkg
+*.snupkg
+packages/
+**/packages/build/
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# EF Core SQLite test artifacts
+*.sqlite
+*.sqlite-journal
+
+# ASP.NET Core
+appsettings.*.local.json
+secrets.json
+*.pfx
+*.pem
+
+# ─────────────────────────────────────────────────────────────
+# Node / pnpm / Vite
+# ─────────────────────────────────────────────────────────────
+node_modules/
+.pnpm-store/
+.pnpm-debug.log*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+frontend/dist/
+frontend/build/
+frontend/.vite/
+**/.vite/
+**/coverage/
+
+# ─────────────────────────────────────────────────────────────
+# OS / editor
+# ─────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+$RECYCLE.BIN/
+
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.shared.json
+
+# ─────────────────────────────────────────────────────────────
+# Local environment / secrets — never commit
+# ─────────────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.local
+
+# Data Protection key ring (just in case it leaks into the repo)
+keys/

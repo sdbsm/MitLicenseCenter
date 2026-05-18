@@ -1,0 +1,70 @@
+# UI & Frontend Requirements
+
+This document outlines the architecture and key views for the web-based administrative Control Panel. 
+The UI is strictly separated from the infrastructure logic and communicates ONLY with the Backend via REST API.
+
+## Language & Localization
+
+The Control Panel is delivered in **Russian** as the only shipping locale of v1 (target audience — Russian-speaking 1C hosting administrators; see `01_PROJECT_CONTEXT.md`).
+
+- All visible strings — labels, buttons, table headers, tooltips, validation, toasts, dialogs, empty states, error pages — are in Russian.
+- Strings are stored in a single `src/i18n/ru.json` and accessed via `react-i18next` (or equivalent). **No string is hardcoded in JSX**, even though only one locale ships in v1 — this lets a future locale slot in without component edits.
+- Locale: `ru-RU`. Use the browser `Intl` API (`Intl.DateTimeFormat('ru-RU')`, `Intl.NumberFormat('ru-RU')`) for formatting; do not roll a custom formatter.
+- Date input controls accept and display `ДД.ММ.ГГГГ`; under the hood always serialize as ISO-8601 UTC.
+- The backend's user-facing error payloads are already in Russian (per `01_PROJECT_CONTEXT.md`) — the SPA does not translate them, just displays them.
+
+## 1. Frontend Technology Stack
+- **Framework:** React (Single Page Application).
+- **Language:** TypeScript.
+- **State & Data Fetching:** React Query (or similar tool) for caching, background refetching, and polling.
+- **Component library:** **shadcn/ui** on top of **Radix UI**, styled with **Tailwind CSS** (see ADR-11). Mixing in other component libraries (MUI, Ant Design, etc.) is not allowed — if a control is missing, build it on top of Radix + Tailwind in the same style. Detailed visual language, status semantics, table patterns, and Russian microcopy are defined in `06_UI_DESIGN.md`.
+- **Constraint:** Desktop applications, ASP.NET MVC, and Blazor MUST NOT be used.
+
+## 2. UI Architecture & Communication
+- The React application is completely decoupled from the .NET backend.
+- It consumes a unified REST API provided by the Backend, versioned at `/api/v1/...` (see ADR-10). OpenAPI/Swagger UI is exposed at `/api/docs`; the TypeScript client is generated from the OpenAPI spec.
+- **Polling:** For live monitoring (like active sessions), the UI will poll specific "Snapshot" endpoints periodically (e.g., every 15 seconds) rather than maintaining complex WebSocket connections, keeping the architecture simple and scalable.
+- **Authentication:** Cookie-based session auth via ASP.NET Core Identity (see ADR-7). The SPA hits `POST /api/v1/auth/login` with username/password, the server sets an HttpOnly cookie, and subsequent requests are authenticated automatically. Logout clears the cookie. Unauthenticated requests to protected endpoints return `401` and the SPA redirects to the login screen. The `Viewer` role hides destructive UI controls (kill, reconcile, edit) and the backend additionally enforces role checks server-side.
+
+## 3. Key Views / Pages
+
+### 3.1. Main Dashboard
+- High-level overview of the hosting infrastructure.
+- **Metrics:** Total Tenants, Total Active Sessions, Total Consumed Licenses vs Global Allowed Limits.
+- **Health:** Server status, 1C Cluster API connectivity status.
+
+### 3.2. Tenants Management
+- List of all Clients.
+- Form to create/edit a Tenant (Name, `MaxConcurrentLicenses`, Status).
+- Overview of assigned Infobases per Tenant and current real-time license consumption for that specific Tenant.
+
+### 3.3. Infobases & Publications
+- List of all Infobases discovered in the 1C Cluster.
+- Assignment interface: Attach an Infobase to a specific Tenant.
+- **Publication Settings:** View/Edit desired IIS state (Site Name, Virtual Path, Target 1C Platform Version).
+- Toggles for `EnableOData` and `EnableHttpServices`.
+- **Drift Status:** Shows `LastDriftStatus` (`InSync` / `Drift` / `Missing` / `Error`), `LastDriftCheckAt`, and `LastDriftDetails`. Updated by the background drift-detection job (every 5 min) plus an on-demand "Check Now" button that calls `POST /api/v1/publications/{id}/check-drift`.
+- **Reconcile button** — visible only when drift is detected. Clicking it applies the desired state to IIS / `default.vrd` (XML-patch only, never `webinst`). Action is audited as `PublicationReconciled` with the admin as `Initiator`. Auto-reconcile never happens — drift correction is always an explicit human action.
+
+### 3.4. Active Sessions Monitor (The Kill Switch)
+- A combined table displaying current `ActiveSessionSnapshot` data.
+- **Columns:** Tenant Name, Infobase Name, Session ID, AppID, Duration, `ConsumesLicense` flag.
+- **Actions:** Administrators can manually select a session and click "Terminate", which triggers an API call to the backend to kill the session via the 1C REST API.
+
+### 3.5. Audit Logs
+- A read-only, filterable table displaying the `AuditLog` entity data.
+- Shows who (or what background job) killed a session, updated a publication, or changed a limit.
+- Filters: by `ActionType`, `Initiator`, `TenantId`, date range. For `SessionKilled` rows, the `Reason` column distinguishes `LimitExceeded` from `ManualByAdmin`.
+
+### 3.6. Backups & Maintenance
+- Status of the automatic backup schedule (full, differential, transaction log) and the location of the most recent backup files.
+- Result of the latest weekly **verification restore** to `MitLicenseCenter_RestoreTest` — green / red health indicator that mirrors the Dashboard signal.
+- Configuration form for retention policy, primary backup folder, and optional secondary network share.
+- Read-only view of the 1C Cluster Adapter circuit breaker state (`Closed` / `Open` / `HalfOpen`) and history of recent transitions.
+- Hangfire dashboard link for admins to inspect job execution history directly.
+
+### 3.7. Administrators
+- List of admin accounts (`Admin` and `Viewer` roles), last login timestamp, lockout status.
+- Create / disable / reset-password actions (the latter generates a temporary password printed to the audit log; user must change it on next login).
+- Toggle TOTP-based 2FA per account (off by default in v1).
+- All administrator-management actions are written to `AuditLog`.

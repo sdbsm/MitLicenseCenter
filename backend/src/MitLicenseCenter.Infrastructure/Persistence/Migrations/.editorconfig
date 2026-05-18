@@ -1,0 +1,7 @@
+# EF Core scaffold files использует block-scoped namespace.
+# Не переписывать вручную — будут конфликты при последующих add-migration.
+[*.cs]
+csharp_style_namespace_declarations = block_scoped:silent
+dotnet_diagnostic.IDE0161.severity = none
+dotnet_diagnostic.CA1062.severity = none
+dotnet_diagnostic.CA1822.severity = none

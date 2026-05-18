@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\); Set-Location \"F:\\\\dev\\\\MitLicense Center\\\\backend\"; dotnet new sln -n MitLicenseCenter; dotnet sln add src\\\\MitLicenseCenter.Domain\\\\MitLicenseCenter.Domain.csproj src\\\\MitLicenseCenter.Application\\\\MitLicenseCenter.Application.csproj src\\\\MitLicenseCenter.Infrastructure\\\\MitLicenseCenter.Infrastructure.csproj src\\\\MitLicenseCenter.Web\\\\MitLicenseCenter.Web.csproj tests\\\\MitLicenseCenter.Tests.Unit\\\\MitLicenseCenter.Tests.Unit.csproj)",
+      "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\); Set-Location \"F:\\\\dev\\\\MitLicense Center\\\\frontend\"; cmd /c \"pnpm lint 1>&2\"; Write-Host \"lint=$LASTEXITCODE\"; cmd /c \"pnpm build 1>&2\"; Write-Host \"build=$LASTEXITCODE\")",
+      "Bash(git add *)"
+    ]
+  }
+}

@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/MitLicenseCenter.Application/MitLicenseCenter.Application.csproj" />
+    <Project Path="src/MitLicenseCenter.Domain/MitLicenseCenter.Domain.csproj" />
+    <Project Path="src/MitLicenseCenter.Infrastructure/MitLicenseCenter.Infrastructure.csproj" />
+    <Project Path="src/MitLicenseCenter.Web/MitLicenseCenter.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/MitLicenseCenter.Tests.Unit/MitLicenseCenter.Tests.Unit.csproj" />
+  </Folder>
+</Solution>
