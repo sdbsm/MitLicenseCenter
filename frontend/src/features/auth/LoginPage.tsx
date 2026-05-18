@@ -43,11 +43,11 @@ export function LoginPage() {
   });
 
   return (
-    <div className="flex min-h-svh items-center justify-center bg-background px-4">
-      <div className="w-full max-w-sm rounded-xl border border-border bg-card p-8 shadow-sm">
+    <div className="bg-background flex min-h-svh items-center justify-center px-4">
+      <div className="border-border bg-card w-full max-w-sm rounded-xl border p-8 shadow-sm">
         <div className="mb-6 space-y-1">
           <h1 className="text-2xl font-semibold tracking-tight">{t("auth.title")}</h1>
-          <p className="text-sm text-muted-foreground">{t("auth.subtitle")}</p>
+          <p className="text-muted-foreground text-sm">{t("auth.subtitle")}</p>
         </div>
 
         <form onSubmit={onSubmit} className="space-y-4" noValidate>
@@ -60,10 +60,10 @@ export function LoginPage() {
               autoComplete="username"
               autoFocus
               {...register("userName")}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="border-input bg-background focus-visible:ring-ring w-full rounded-md border px-3 py-2 text-sm shadow-xs outline-none focus-visible:ring-2"
             />
             {errors.userName && (
-              <p className="text-xs text-status-danger">{t("auth.userNameRequired")}</p>
+              <p className="text-status-danger text-xs">{t("auth.userNameRequired")}</p>
             )}
           </div>
 
@@ -76,17 +76,17 @@ export function LoginPage() {
               type="password"
               autoComplete="current-password"
               {...register("password")}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="border-input bg-background focus-visible:ring-ring w-full rounded-md border px-3 py-2 text-sm shadow-xs outline-none focus-visible:ring-2"
             />
             {errors.password && (
-              <p className="text-xs text-status-danger">{t("auth.passwordRequired")}</p>
+              <p className="text-status-danger text-xs">{t("auth.passwordRequired")}</p>
             )}
           </div>
 
           <button
             type="submit"
             disabled={isSubmitting || login.isPending}
-            className="w-full rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition disabled:opacity-50"
+            className="bg-primary text-primary-foreground w-full rounded-md px-3 py-2 text-sm font-medium transition disabled:opacity-50"
           >
             {isSubmitting || login.isPending ? t("auth.signingIn") : t("auth.signIn")}
           </button>

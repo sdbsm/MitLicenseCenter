@@ -23,6 +23,7 @@ public static class AuthEndpoints
         group.MapPost("/login", LoginAsync).AllowAnonymous();
         group.MapPost("/logout", (Delegate)LogoutAsync).RequireAuthorization();
         group.MapGet("/me", MeAsync).RequireAuthorization();
+        group.MapPost("/change-password", ChangePasswordAsync).RequireAuthorization();
     }
 
     private static async Task<Results<Ok<CurrentUserResponse>, UnauthorizedHttpResult, ValidationProblem>> LoginAsync(
@@ -85,4 +86,95 @@ public static class AuthEndpoints
         var roles = await userManager.GetRolesAsync(user).ConfigureAwait(false);
         return TypedResults.Ok(new CurrentUserResponse(user.UserName!, roles.ToArray()));
     }
+
+    private static async Task<Results<NoContent, UnauthorizedHttpResult, ValidationProblem>> ChangePasswordAsync(
+        [FromBody] ChangePasswordRequest request,
+        HttpContext httpContext,
+        UserManager<AppUser> userManager,
+        SignInManager<AppUser> signInManager)
+    {
+        var errors = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+
+        if (string.IsNullOrWhiteSpace(request.CurrentPassword))
+        {
+            AddError(errors, nameof(request.CurrentPassword), "Укажите текущий пароль.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.NewPassword))
+        {
+            AddError(errors, nameof(request.NewPassword), "Укажите новый пароль.");
+        }
+        else if (request.NewPassword.Length < 12)
+        {
+            AddError(errors, nameof(request.NewPassword), "Новый пароль должен быть не короче 12 символов.");
+        }
+
+        if (!string.IsNullOrEmpty(request.CurrentPassword)
+            && !string.IsNullOrEmpty(request.NewPassword)
+            && string.Equals(request.CurrentPassword, request.NewPassword, StringComparison.Ordinal))
+        {
+            AddError(errors, nameof(request.NewPassword), "Новый пароль должен отличаться от текущего.");
+        }
+
+        if (errors.Count > 0)
+        {
+            return TypedResults.ValidationProblem(ToDictionary(errors));
+        }
+
+        var name = httpContext.User.Identity?.Name;
+        if (string.IsNullOrEmpty(name))
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        var user = await userManager.FindByNameAsync(name).ConfigureAwait(false);
+        if (user is null)
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        var result = await userManager
+            .ChangePasswordAsync(user, request.CurrentPassword, request.NewPassword)
+            .ConfigureAwait(false);
+
+        if (!result.Succeeded)
+        {
+            foreach (var error in result.Errors)
+            {
+                var (field, message) = MapIdentityError(error);
+                AddError(errors, field, message);
+            }
+
+            return TypedResults.ValidationProblem(ToDictionary(errors));
+        }
+
+        await signInManager.RefreshSignInAsync(user).ConfigureAwait(false);
+        return TypedResults.NoContent();
+    }
+
+    private static (string Field, string Message) MapIdentityError(IdentityError error) => error.Code switch
+    {
+        "PasswordMismatch" => (nameof(ChangePasswordRequest.CurrentPassword), "Неверный текущий пароль."),
+        "PasswordTooShort" => (nameof(ChangePasswordRequest.NewPassword), "Новый пароль должен быть не короче 12 символов."),
+        "PasswordRequiresDigit" => (nameof(ChangePasswordRequest.NewPassword), "Новый пароль должен содержать хотя бы одну цифру."),
+        "PasswordRequiresLower" => (nameof(ChangePasswordRequest.NewPassword), "Новый пароль должен содержать строчную букву."),
+        "PasswordRequiresUpper" => (nameof(ChangePasswordRequest.NewPassword), "Новый пароль должен содержать заглавную букву."),
+        "PasswordRequiresNonAlphanumeric" => (nameof(ChangePasswordRequest.NewPassword), "Новый пароль должен содержать хотя бы один спецсимвол."),
+        "PasswordRequiresUniqueChars" => (nameof(ChangePasswordRequest.NewPassword), "Новый пароль должен содержать больше уникальных символов."),
+        _ => (nameof(ChangePasswordRequest.NewPassword), error.Description),
+    };
+
+    private static void AddError(Dictionary<string, List<string>> errors, string field, string message)
+    {
+        if (!errors.TryGetValue(field, out var list))
+        {
+            list = [];
+            errors[field] = list;
+        }
+
+        list.Add(message);
+    }
+
+    private static Dictionary<string, string[]> ToDictionary(Dictionary<string, List<string>> errors) =>
+        errors.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.ToArray(), StringComparer.Ordinal);
 }
