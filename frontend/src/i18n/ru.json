@@ -222,6 +222,66 @@
       "platformVersionFormat": "Используйте формат «8.3.23.1865»."
     }
   },
+  "audit": {
+    "title": "Аудит",
+    "subtitle": "Журнал всех изменений и значимых событий системы.",
+    "filters": {
+      "actionType": "Тип действия",
+      "anyAction": "Любое действие",
+      "tenant": "Клиент",
+      "anyTenant": "Любой клиент",
+      "from": "С даты",
+      "to": "По дату",
+      "pageSize": "Размер страницы"
+    },
+    "fields": {
+      "timestamp": "Время",
+      "actionType": "Действие",
+      "initiator": "Инициатор",
+      "tenant": "Клиент",
+      "description": "Описание"
+    },
+    "actions": {
+      "TenantCreated": "Клиент создан",
+      "TenantUpdated": "Клиент изменён",
+      "TenantDeleted": "Клиент удалён",
+      "InfobaseCreated": "Инфобаза создана",
+      "InfobaseUpdated": "Инфобаза изменена",
+      "InfobaseDeleted": "Инфобаза удалена",
+      "PublicationCreated": "Публикация создана",
+      "PublicationUpdated": "Публикация изменена",
+      "PublicationDeleted": "Публикация удалена",
+      "AdminLoggedIn": "Вход администратора",
+      "AdminLoggedOut": "Выход администратора",
+      "AdminPasswordChanged": "Смена пароля"
+    },
+    "empty": {
+      "title": "Записей нет",
+      "hint": "Сбросьте фильтры или подождите, пока появятся события."
+    },
+    "pagination": {
+      "summary": "{{from}}–{{to}} из {{total}}",
+      "refreshing": "Обновление…"
+    },
+    "errors": {
+      "loadFailed": "Не удалось загрузить журнал аудита."
+    }
+  },
+  "sessions": {
+    "title": "Сеансы",
+    "subtitle": "Активные сеансы пользователей по инфобазам.",
+    "stub": {
+      "title": "Заглушка Stage 2",
+      "body": "Реальный мониторинг сеансов 1С и кнопка «Завершить сеанс» появятся в Stage 3 после подключения адаптера 1C Cluster REST API."
+    },
+    "fields": {
+      "active": "Активных сеансов",
+      "capturedAt": "Срез на"
+    },
+    "errors": {
+      "loadFailed": "Не удалось получить срез активных сеансов."
+    }
+  },
   "errors": {
     "generic": "Произошла ошибка. Попробуйте ещё раз.",
     "network": "Нет связи с сервером.",
