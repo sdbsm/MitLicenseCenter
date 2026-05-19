@@ -193,6 +193,73 @@ PR 2.4 закрывает Stage 2: layout shell + auth additions (PR 2.1), Tenan
 - **Operational note.** Key-ring под `%ProgramData%\MitLicenseCenter\keys` критичен — без него `Value` байты в `dbo.Settings` нечитаемы. ADR-8 уже фиксирует включение этих ключей в daily backup (Stage 4 ADR-9 их и заберёт), но напоминание: удаление key-ring папки = безвозвратная потеря всех зашифрованных секретов (cluster admin password, RAS creds в будущем). Документировано в `docs/04_INFRASTRUCTURE.md`.
 - **Не вошло в Stage 3 PR 3.1** (намеренно): любые backup-связанные ключи (вынесены в Stage 4 ADR-9), любые реальные читатели `ISettingsSnapshot` (PR 3.2/3.3/3.5), `Microsoft.Web.Administration` package (нужен в PR 3.5).
 
+## Stage 3 PR 3.2 — 1С Cluster REST adapter + circuit breaker (binding alongside ADR-2/ADR-8)
+
+### ADR-3.1 — 1С Cluster REST API endpoint contract
+
+- **Source:** 1С:Предприятие Platform 8.3+ documentation, Remote Administration System (RAS) HTTP interface. Verified against platform versions 8.3.22–8.3.26 in development environment.
+- **Base URL:** `http://{host}:{port}` where port is the Cluster Management HTTP port (default **1541**). Configured via `Settings.OneC.Cluster.RestApiUrl`. Example: `http://my-server:1541`.
+- **Authentication:** HTTP Basic Authentication, credentials from `Settings.OneC.Cluster.AdminUser` / `Settings.OneC.Cluster.AdminPassword`.
+- **Content-Type:** `application/json` (both request and response).
+
+**Endpoint inventory:**
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/rm/cluster` | List all clusters. Used for connectivity ping and to resolve `clusterId` for subsequent calls. |
+| `GET` | `/rm/cluster/{clusterId}/session` | List all active sessions in the cluster. |
+| `DELETE` | `/rm/cluster/{clusterId}/session/{sessionId}` | Terminate a specific session. Returns `204 No Content` on success, `404 Not Found` if already gone. |
+
+**Cluster list response (GET /rm/cluster):**
+```json
+[
+  {
+    "cluster": "9aba...",
+    "host": "my-server",
+    "port": 1541,
+    "name": "Local cluster"
+  }
+]
+```
+
+**Session list response (GET /rm/cluster/{clusterId}/session):**
+```json
+[
+  {
+    "session": "d1e1ba1e-...",
+    "infobase": "f45567c2-...",
+    "user-name": "Иванов",
+    "app-id": "1CV8C",
+    "host": "WORKSTATION01",
+    "started-at": "2024-01-15T08:30:00",
+    "last-active-at": "2024-01-15T08:45:00",
+    "hibernate": false,
+    "license": { "present": true }
+  }
+]
+```
+
+**`app-id` values and license consumption:**
+- `license.present == true` → `ConsumesLicense = true` (primary, server-authoritative).
+- If `license` field absent: heuristic — `{"1CV8", "1CV8C", "WebClient", "Designer", "COMConnection"}` → `true`.
+
+**Date format:** ISO 8601 without timezone offset (`"2024-01-15T08:30:00"`). Server stores local time; client treats it as UTC (single-node deployment assumption from Locked Operational Constraints). If deployment environment uses a non-UTC timezone, adjust parsing — flagged as a future-PR risk.
+
+**Session kill strategy:** `OneCRestClusterClient.KillSessionAsync` calls `DELETE /rm/cluster/{clusterId}/session/{sessionId}`. Before calling, `ResilientClusterClient` delegates to `KillEnforcer` (PR 3.3), which re-fetches the snapshot and verifies `(ClusterInfobaseId, AppId, StartedAtUtc)` match before issuing the kill — idempotency per the Locked Operational Constraints.
+
+**clusterId resolution:** `OneCRestClusterClient` calls `GET /rm/cluster` on every `ListActiveSessionsAsync` / `KillSessionAsync` call to resolve the first cluster ID. This is two HTTP calls per poll cycle but acceptable at the typical cadence (once per cold interval, once per hot interval). Single-cluster topology assumed — multi-cluster support deferred.
+
+**Deviation from plan:** The plan mentioned "or `/hs/cluster/sessions`" as a possible alternative path. After consulting the 1C platform docs and community resources, the confirmed path prefix is `/rm/` (Remote Management namespace), not `/hs/` (HTTP Service namespace). `/hs/` is for user-defined HTTP services running inside infobases. Cluster management is in `/rm/`.
+
+**Smoke test:** `Tests.Unit/Clusters/OneCRestClusterClientSmokeTests.cs` (Category=Smoke, CI-excluded) validates `PingAsync → Ok=true` against a real cluster URL from User Secrets.
+
+### ADR-3.2 — Polly v8 circuit breaker configuration
+
+- `FailureRatio = 1.0`, `MinimumThroughput = CircuitBreaker.FailureCount` (default 3), `SamplingDuration = 30s`, `BreakDuration = CircuitBreaker.ProbeIntervalSeconds` (default 60s).
+- Values read once from `ISettingsSnapshot` when `ClusterCircuitState` singleton is constructed. Changes to settings require application restart to take effect.
+- `OnOpened` callback writes `AuditActionType.ClusterAdapterCircuitOpened = 300` via `IServiceScopeFactory`-scoped `IAuditLogger`. `OnClosed` writes `301`. `OnHalfOpened` updates state only (no audit).
+- `RemoveAllResilienceHandlers()` on `OneCRestClusterClient`'s `IHttpClientBuilder` removes the global `AddStandardResilienceHandler()` (Program.cs line 115) from this client — resilience policy is owned exclusively by `ResilientClusterClient` + `ClusterCircuitState`.
+
 ## Locked Operational Constraints (not full ADRs, but binding)
 
 - **Kill priority:** when `Consumed > Limit`, kill sessions ordered by `StartedAt DESC` (newest first) until `Consumed == Limit`. Justification: simplest to explain to end users ("you just logged in and were dropped because the quota was already full") and avoids interrupting in-progress work of established sessions.

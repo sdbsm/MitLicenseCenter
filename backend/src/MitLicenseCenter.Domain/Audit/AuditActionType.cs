@@ -21,5 +21,9 @@ public enum AuditActionType
     AdminLoggedOut = 101,
     AdminPasswordChanged = 102,
 
+    // 1С Cluster adapter circuit-breaker transitions (PR 3.2).
+    ClusterAdapterCircuitOpened = 300,
+    ClusterAdapterCircuitClosed = 301,
+
     SettingChanged = 400,
 }

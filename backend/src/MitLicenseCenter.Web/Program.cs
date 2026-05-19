@@ -133,6 +133,7 @@ app.MapPublicationsEndpoints(versionSet);
 app.MapAuditEndpoints(versionSet);
 app.MapSessionsEndpoints(versionSet);
 app.MapSettingsEndpoints(versionSet);
+app.MapClusterEndpoints(versionSet);
 
 app.UseSwagger(o => o.RouteTemplate = "api/docs/{documentName}/swagger.json");
 app.UseSwaggerUI(o =>
