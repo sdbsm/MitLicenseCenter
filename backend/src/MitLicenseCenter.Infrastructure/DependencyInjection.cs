@@ -4,11 +4,16 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Http.Resilience;
 using MitLicenseCenter.Application.Auditing;
+using MitLicenseCenter.Application.Clusters;
+using MitLicenseCenter.Application.Publishing;
 using MitLicenseCenter.Application.Settings;
 using MitLicenseCenter.Infrastructure.Audit;
+using MitLicenseCenter.Infrastructure.Clusters;
 using MitLicenseCenter.Infrastructure.Identity;
 using MitLicenseCenter.Infrastructure.Persistence;
+using MitLicenseCenter.Infrastructure.Publishing;
 using MitLicenseCenter.Infrastructure.Settings;
 
 namespace MitLicenseCenter.Infrastructure;
@@ -60,6 +65,34 @@ public static class DependencyInjection
         // (DbContext-bound). Mutate через store → store.Invalidate() сбрасывает snapshot.
         services.AddSingleton<ISettingsSnapshot, SettingsSnapshot>();
         services.AddScoped<ISettingsStore, SettingsStore>();
+
+        // Cluster adapters: singleton circuit-state + typed REST HttpClient +
+        // scoped RAS stub + scoped resilient decorator (PR 3.2).
+        services.AddSingleton<ClusterCircuitState>();
+        services.AddSingleton<ICircuitStatusReader>(sp => sp.GetRequiredService<ClusterCircuitState>());
+
+        // RemoveAllResilienceHandlers() — снимаем глобальный AddStandardResilienceHandler
+        // с нашего именованного клиента, потому что resilience-политикой владеет
+        // ResilientClusterClient (Polly circuit breaker в ClusterCircuitState).
+        // EXTEXP0001: метод помечен [Experimental] в Microsoft.Extensions.Http.Resilience;
+        // подавляем, т.к. сознательно используем его по плану PR 3.2 ADR-3.2.
+#pragma warning disable EXTEXP0001
+        services.AddHttpClient<OneCRestClusterClient>((_, _) => { })
+            .RemoveAllResilienceHandlers();
+#pragma warning restore EXTEXP0001
+
+        services.AddScoped<IRasFallbackClusterClient, StubRasClusterClient>();
+
+        // Явная фабрика: ResilientClusterClient берёт конкретный OneCRestClusterClient
+        // как IClusterClient primary (из IHttpClientFactory), чтобы тесты могли
+        // подставить любой fake через конструктор без зависимости от HttpClient.
+        services.AddScoped<IClusterClient>(sp => new ResilientClusterClient(
+            primary: sp.GetRequiredService<OneCRestClusterClient>(),
+            fallback: sp.GetRequiredService<IRasFallbackClusterClient>(),
+            state: sp.GetRequiredService<ClusterCircuitState>()));
+
+        // IIS publishing: stub до PR 3.5.
+        services.AddScoped<IIisPublishingService, StubIisPublishingService>();
 
         return services;
     }
