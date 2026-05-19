@@ -3,43 +3,64 @@ set -e
 
 repo_root="$(git rev-parse --show-toplevel)"
 
-# Git Bash на Windows не наследует все Windows-каталоги в $PATH —
-# добавляем стандартные места установки dotnet и winget-инструментов вручную.
+# Git Bash on Windows inherits a limited environment — winget-installed tools
+# (pnpm, etc.) are often missing from $PATH.  Add the canonical locations.
 case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*)
-    for dir in \
-      "/c/Program Files/dotnet" \
-      "/c/Users/$USER/AppData/Local/Microsoft/WinGet/Links" \
-      "/c/Users/$USER/AppData/Local/pnpm" \
-      "/c/Users/$USER/AppData/Roaming/npm" \
-      "/c/Program Files/nodejs"; do
-      if [ -d "$dir" ]; then PATH="$dir:$PATH"; fi
-    done
+    if command -v cygpath >/dev/null 2>&1 && [ -n "$LOCALAPPDATA" ]; then
+      lad="$(cygpath -u "$LOCALAPPDATA")"
+      # Standard install locations
+      for dir in \
+        "$lad/Microsoft/WinGet/Links" \
+        "$lad/pnpm" \
+        "$lad/Programs/pnpm" \
+        "/c/Program Files/dotnet" \
+        "/c/Program Files/nodejs"; do
+        if [ -d "$dir" ]; then PATH="$dir:$PATH"; fi
+      done
+      # WinGet Packages layout (hash suffix varies per machine / install source)
+      for dir in "$lad"/Microsoft/WinGet/Packages/pnpm.pnpm_*/; do
+        if [ -d "$dir" ]; then PATH="$dir:$PATH"; fi
+      done
+    fi
     export PATH
     ;;
 esac
 
-# 1. Frontend: lint-staged (Prettier/ESLint на staged JS/TS/JSON/CSS).
+# Hard-fail if required tools are still missing — never silently skip checks.
+if ! command -v pnpm >/dev/null 2>&1; then
+  echo "pre-commit: pnpm not found on PATH." >&2
+  echo "  Install:  winget install pnpm.pnpm" >&2
+  echo "  Or fix PATH augmentation in .husky/pre-commit" >&2
+  exit 1
+fi
+if ! command -v dotnet >/dev/null 2>&1; then
+  echo "pre-commit: dotnet not found on PATH." >&2
+  echo "  Install:  winget install Microsoft.DotNet.SDK.10" >&2
+  echo "  Or fix PATH augmentation in .husky/pre-commit" >&2
+  exit 1
+fi
+
+# 1. Frontend: lint-staged (Prettier/ESLint on staged JS/TS/JSON/CSS).
 if [ -f "$repo_root/frontend/package.json" ]; then
-  staged_fe="$(git diff --cached --name-only --diff-filter=ACMR -- 'frontend/**/*.ts' 'frontend/**/*.tsx' 'frontend/**/*.js' 'frontend/**/*.jsx' 'frontend/**/*.json' 'frontend/**/*.css' 'frontend/**/*.md' 'frontend/**/*.html' || true)"
+  staged_fe="$(git diff --cached --name-only --diff-filter=ACMR \
+    -- 'frontend/**/*.ts' 'frontend/**/*.tsx' \
+       'frontend/**/*.js' 'frontend/**/*.jsx' \
+       'frontend/**/*.json' 'frontend/**/*.css' \
+       'frontend/**/*.md' 'frontend/**/*.html' \
+    || true)"
   if [ -n "$staged_fe" ]; then
-    if command -v pnpm >/dev/null 2>&1; then
-      (cd "$repo_root/frontend" && pnpm exec lint-staged)
-    else
-      echo "[pre-commit] pnpm не найден в PATH — фронтенд-проверки пропущены." >&2
-    fi
+    (cd "$repo_root/frontend" && pnpm exec lint-staged)
   fi
 fi
 
-# 2. Backend: dotnet format на staged .cs.
+# 2. Backend: dotnet format on staged .cs files.
 staged_cs="$(git diff --cached --name-only --diff-filter=ACM -- '*.cs' || true)"
 if [ -n "$staged_cs" ]; then
-  if command -v dotnet >/dev/null 2>&1; then
-    cs_files="$(echo "$staged_cs" | tr '\n' ' ')"
-    (cd "$repo_root" && dotnet format backend/MitLicenseCenter.slnx --include $cs_files --verify-no-changes --severity warn)
-  else
-    echo "[pre-commit] dotnet не найден в PATH — backend-проверки пропущены." >&2
-  fi
+  cs_files="$(echo "$staged_cs" | tr '\n' ' ')"
+  # shellcheck disable=SC2086  # word-splitting intentional for the file list
+  (cd "$repo_root" && dotnet format backend/MitLicenseCenter.slnx \
+    --include $cs_files --verify-no-changes --severity warn)
 fi
 
 exit 0
