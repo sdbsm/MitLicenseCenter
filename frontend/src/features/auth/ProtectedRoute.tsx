@@ -2,7 +2,15 @@ import type { ReactNode } from "react";
 import { Navigate } from "react-router";
 import { useMe } from "./useAuth";
 
-export function ProtectedRoute({ children }: { children: ReactNode }) {
+interface ProtectedRouteProps {
+  children: ReactNode;
+  requireAdmin?: boolean;
+}
+
+// requireAdmin: вложенно оборачивает admin-only страницы. Перенаправляет
+// на «/» (а не на /login), чтобы залогиненный Viewer не путался — у него уже
+// есть доступ к остальным разделам.
+export function ProtectedRoute({ children, requireAdmin = false }: ProtectedRouteProps) {
   const { data, isLoading, isError } = useMe();
 
   if (isLoading) {
@@ -15,6 +23,10 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
 
   if (isError || !data) {
     return <Navigate to="/login" replace />;
+  }
+
+  if (requireAdmin && !data.roles.includes("Admin")) {
+    return <Navigate to="/" replace />;
   }
 
   return <>{children}</>;

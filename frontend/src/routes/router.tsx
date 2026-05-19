@@ -8,6 +8,7 @@ import { DashboardPage } from "@/features/dashboard/DashboardPage";
 import { InfobasesPage } from "@/features/infobases/InfobasesPage";
 import { ProfilePage } from "@/features/profile/ProfilePage";
 import { SessionsPage } from "@/features/sessions/SessionsPage";
+import { SettingsPage } from "@/features/settings/SettingsPage";
 import { TenantsPage } from "@/features/tenants/TenantsPage";
 
 export const router = createBrowserRouter([
@@ -26,6 +27,14 @@ export const router = createBrowserRouter([
       { path: "publications", element: <ComingSoonPage titleKey="nav.publications" /> },
       { path: "sessions", element: <SessionsPage /> },
       { path: "audit", element: <AuditPage /> },
+      {
+        path: "settings",
+        element: (
+          <ProtectedRoute requireAdmin>
+            <SettingsPage />
+          </ProtectedRoute>
+        ),
+      },
       { path: "*", element: <Navigate to="/" replace /> },
     ],
   },

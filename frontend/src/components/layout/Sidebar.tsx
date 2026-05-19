@@ -5,6 +5,7 @@ import {
   GlobeIcon,
   MonitorPlayIcon,
   ScrollTextIcon,
+  SettingsIcon,
   UserIcon,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -17,10 +18,13 @@ import {
   SidebarHeader,
   SidebarMenu,
 } from "@/components/ui/sidebar";
+import { useMe } from "@/features/auth/useAuth";
 import { NavLinkItem } from "./NavLinkItem";
 
 export function Sidebar() {
   const { t } = useTranslation();
+  const { data: me } = useMe();
+  const isAdmin = me?.roles?.includes("Admin") ?? false;
 
   return (
     <SidebarRoot collapsible="icon">
@@ -58,6 +62,9 @@ export function Sidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               <NavLinkItem to="/audit" icon={ScrollTextIcon} label={t("nav.audit")} />
+              {isAdmin && (
+                <NavLinkItem to="/settings" icon={SettingsIcon} label={t("nav.settings")} />
+              )}
               <NavLinkItem to="/profile" icon={UserIcon} label={t("nav.profile")} />
             </SidebarMenu>
           </SidebarGroupContent>

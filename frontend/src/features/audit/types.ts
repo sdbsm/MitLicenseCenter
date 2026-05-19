@@ -13,7 +13,8 @@ export type AuditActionType =
   | "PublicationDeleted"
   | "AdminLoggedIn"
   | "AdminLoggedOut"
-  | "AdminPasswordChanged";
+  | "AdminPasswordChanged"
+  | "SettingChanged";
 
 export const AUDIT_ACTION_TYPES: readonly AuditActionType[] = [
   "TenantCreated",
@@ -28,6 +29,7 @@ export const AUDIT_ACTION_TYPES: readonly AuditActionType[] = [
   "AdminLoggedIn",
   "AdminLoggedOut",
   "AdminPasswordChanged",
+  "SettingChanged",
 ] as const;
 
 export type AuditReason = "LimitExceeded" | "ManualByAdmin";

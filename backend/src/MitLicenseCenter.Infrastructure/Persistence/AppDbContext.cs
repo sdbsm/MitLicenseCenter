@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using MitLicenseCenter.Domain.Infobases;
 using MitLicenseCenter.Domain.Publications;
+using MitLicenseCenter.Domain.Settings;
 using MitLicenseCenter.Domain.Tenants;
 using MitLicenseCenter.Infrastructure.Audit;
 using MitLicenseCenter.Infrastructure.Identity;
@@ -18,6 +19,7 @@ public sealed class AppDbContext : IdentityDbContext<AppUser, AppRole, Guid>
     public DbSet<Infobase> Infobases => Set<Infobase>();
     public DbSet<Publication> Publications => Set<Publication>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+    public DbSet<SettingEntry> Settings => Set<SettingEntry>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -107,6 +109,21 @@ public sealed class AppDbContext : IdentityDbContext<AppUser, AppRole, Guid>
                 .WithMany()
                 .HasForeignKey(x => x.TenantId)
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        builder.Entity<SettingEntry>(e =>
+        {
+            e.ToTable("Settings", "dbo");
+            e.HasKey(x => x.Key);
+            e.Property(x => x.Key).IsRequired().HasMaxLength(200);
+            // ValueText: plain payload; Value: DPAPI-зашифрованные UTF-8 байты.
+            // Ровно один из двух не-null в любой момент времени.
+            e.Property(x => x.ValueText);
+            e.Property(x => x.Value).HasColumnType("varbinary(max)");
+            e.Property(x => x.IsSecret).IsRequired();
+            e.Property(x => x.Description).HasMaxLength(500);
+            e.Property(x => x.UpdatedAt).IsRequired();
+            e.Property(x => x.UpdatedBy).IsRequired().HasMaxLength(256);
         });
     }
 }

@@ -10,6 +10,9 @@ public static class ProblemCodes
     public const string NameDuplicate = "NAME_DUPLICATE";
     public const string TenantHasInfobases = "TENANT_HAS_INFOBASES";
     public const string NameDuplicateInTenant = "NAME_DUPLICATE_IN_TENANT";
+
+    public const string SettingUnknownKey = "SETTING_UNKNOWN_KEY";
+    public const string SettingInvalidValue = "SETTING_INVALID_VALUE";
 }
 
 public static class Problems
