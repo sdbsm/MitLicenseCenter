@@ -11,6 +11,7 @@ using Microsoft.OpenApi.Models;
 using MitLicenseCenter.Application;
 using MitLicenseCenter.Infrastructure;
 using MitLicenseCenter.Infrastructure.Identity;
+using MitLicenseCenter.Infrastructure.Settings;
 using MitLicenseCenter.Web.Endpoints;
 using MitLicenseCenter.Web.Hangfire;
 
@@ -131,6 +132,7 @@ app.MapInfobasesEndpoints(versionSet);
 app.MapPublicationsEndpoints(versionSet);
 app.MapAuditEndpoints(versionSet);
 app.MapSessionsEndpoints(versionSet);
+app.MapSettingsEndpoints(versionSet);
 
 app.UseSwagger(o => o.RouteTemplate = "api/docs/{documentName}/swagger.json");
 app.UseSwaggerUI(o =>
@@ -153,11 +155,15 @@ app.Lifetime.ApplicationStarted.Register(() =>
     {
         try
         {
+            // IdentitySeeder применяет миграции (Migrate) до того, как создаёт
+            // admin/role'ы, поэтому SettingsSeeder идёт после — таблица dbo.Settings
+            // на этот момент гарантированно существует.
             await IdentitySeeder.EnsureSeededAsync(app.Services).ConfigureAwait(false);
+            await SettingsSeeder.EnsureSeededAsync(app.Services).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
-            app.Logger.LogCritical(ex, "Не удалось засеять первого администратора.");
+            app.Logger.LogCritical(ex, "Не удалось засеять первого администратора или параметры по умолчанию.");
             throw;
         }
     });

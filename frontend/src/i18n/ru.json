@@ -26,6 +26,7 @@
     "tenants": "Клиенты",
     "infobases": "Инфобазы",
     "audit": "Аудит",
+    "settings": "Параметры",
     "profile": "Профиль",
     "groups": {
       "operations": "Операции",
@@ -253,7 +254,8 @@
       "PublicationDeleted": "Публикация удалена",
       "AdminLoggedIn": "Вход администратора",
       "AdminLoggedOut": "Выход администратора",
-      "AdminPasswordChanged": "Смена пароля"
+      "AdminPasswordChanged": "Смена пароля",
+      "SettingChanged": "Параметр изменён"
     },
     "empty": {
       "title": "Записей нет",
@@ -280,6 +282,62 @@
     },
     "errors": {
       "loadFailed": "Не удалось получить срез активных сеансов."
+    }
+  },
+  "settings": {
+    "title": "Параметры",
+    "subtitle": "Настройки подключения к 1С-кластеру, IIS, частоты опроса и circuit-breaker. Секреты хранятся зашифрованными и не отображаются в открытом виде.",
+    "sections": {
+      "cluster": "1С Cluster и RAS",
+      "iis": "IIS",
+      "polling": "Опрос и дрейф",
+      "circuit": "Circuit breaker"
+    },
+    "labels": {
+      "OneC.Cluster.RestApiUrl": "URL 1С Cluster REST API",
+      "OneC.Cluster.AdminUser": "Логин администратора кластера",
+      "OneC.Cluster.AdminPassword": "Пароль администратора кластера",
+      "OneC.Cluster.RestApiTimeoutSeconds": "Тайм-аут REST-вызова, сек",
+      "OneC.RAS.Endpoint": "RAS endpoint (host:port)",
+      "OneC.RAS.ExePath": "Путь к rac.exe",
+      "IIS.ServiceAccount.UserName": "Учётка IIS",
+      "IIS.DefaultVrdRoot": "Корневая папка публикаций IIS",
+      "Polling.HotIntervalSeconds": "Период hot-цикла, сек",
+      "Polling.ColdIntervalSeconds": "Период cold-цикла, сек",
+      "Polling.HotThresholdPercent": "Порог перехода в hot, %",
+      "Drift.IntervalMinutes": "Период проверки дрейфа, мин",
+      "CircuitBreaker.ProbeIntervalSeconds": "Интервал probe-вызова, сек",
+      "CircuitBreaker.FailureCount": "Кол-во ошибок для размыкания"
+    },
+    "hints": {
+      "OneC.Cluster.RestApiUrl": "Абсолютный URL, http или https.",
+      "OneC.Cluster.AdminPassword": "Хранится зашифрованным DPAPI. После сохранения значение не отображается.",
+      "OneC.Cluster.RestApiTimeoutSeconds": "Диапазон 1–30. По умолчанию 5.",
+      "OneC.RAS.Endpoint": "Формат host:port, порт в диапазоне 1024–65535.",
+      "Polling.HotIntervalSeconds": "Диапазон 2–60. По умолчанию 4.",
+      "Polling.ColdIntervalSeconds": "Диапазон 10–300. По умолчанию 25.",
+      "Polling.HotThresholdPercent": "Диапазон 50–100. По умолчанию 90.",
+      "Drift.IntervalMinutes": "Диапазон 1–60. По умолчанию 5.",
+      "CircuitBreaker.ProbeIntervalSeconds": "Диапазон 10–300. По умолчанию 60.",
+      "CircuitBreaker.FailureCount": "Диапазон 2–10. По умолчанию 3."
+    },
+    "actions": {
+      "save": "Сохранить",
+      "edit": "Изменить",
+      "cancel": "Отмена",
+      "set": "Задать",
+      "clear": "Очистить"
+    },
+    "states": {
+      "notSet": "Не задано",
+      "secretSet": "Задано (скрыто)"
+    },
+    "toasts": {
+      "saved": "Параметр сохранён.",
+      "cleared": "Значение очищено."
+    },
+    "errors": {
+      "loadFailed": "Не удалось загрузить параметры."
     }
   },
   "errors": {

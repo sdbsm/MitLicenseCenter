@@ -20,4 +20,6 @@ public enum AuditActionType
     AdminLoggedIn = 100,
     AdminLoggedOut = 101,
     AdminPasswordChanged = 102,
+
+    SettingChanged = 400,
 }

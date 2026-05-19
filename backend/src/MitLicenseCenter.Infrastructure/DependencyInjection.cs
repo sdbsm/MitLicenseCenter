@@ -5,9 +5,11 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using MitLicenseCenter.Application.Auditing;
+using MitLicenseCenter.Application.Settings;
 using MitLicenseCenter.Infrastructure.Audit;
 using MitLicenseCenter.Infrastructure.Identity;
 using MitLicenseCenter.Infrastructure.Persistence;
+using MitLicenseCenter.Infrastructure.Settings;
 
 namespace MitLicenseCenter.Infrastructure;
 
@@ -53,6 +55,11 @@ public static class DependencyInjection
 
         services.TryAddSingletonTimeProvider();
         services.AddScoped<IAuditLogger, AuditLogger>();
+
+        // Settings: singleton snapshot (in-mem TTL ≈ 30s) + scoped store
+        // (DbContext-bound). Mutate через store → store.Invalidate() сбрасывает snapshot.
+        services.AddSingleton<ISettingsSnapshot, SettingsSnapshot>();
+        services.AddScoped<ISettingsStore, SettingsStore>();
 
         return services;
     }
