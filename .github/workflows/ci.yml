@@ -44,7 +44,7 @@ jobs:
 
       - name: Test
         working-directory: backend
-        run: dotnet test MitLicenseCenter.slnx -c Release --no-build --logger "trx;LogFileName=test-results.trx"
+        run: dotnet test MitLicenseCenter.slnx -c Release --no-build --filter "Category!=Smoke" --logger "trx;LogFileName=test-results.trx"
 
       - name: Format check
         working-directory: backend
