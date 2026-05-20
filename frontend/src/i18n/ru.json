@@ -203,6 +203,65 @@
     }
   },
   "publications": {
+    "title": "Публикации",
+    "table": {
+      "headers": {
+        "tenant": "Клиент",
+        "infobase": "Информационная база",
+        "siteName": "Сайт IIS",
+        "virtualPath": "Виртуальный путь",
+        "platformVersion": "Версия платформы",
+        "oData": "OData",
+        "httpServices": "HTTP-сервисы",
+        "drift": "Состояние",
+        "lastChecked": "Проверено",
+        "actions": "Действия"
+      }
+    },
+    "badges": {
+      "enabled": "Включён",
+      "disabled": "Выключен"
+    },
+    "driftStatus": {
+      "insync": "Синхронно",
+      "drift": "Расхождение",
+      "missing": "Файл отсутствует",
+      "error": "Ошибка проверки",
+      "unknown": "—",
+      "descriptions": {
+        "insync": "default.vrd на диске совпадает с состоянием в базе.",
+        "drift": "Кто-то изменил default.vrd вручную. Запустите «Согласовать состояние», чтобы вернуть желаемое состояние.",
+        "missing": "Файл default.vrd не найден. Запустите «Согласовать состояние», чтобы воссоздать публикацию.",
+        "error": "Не удалось проверить публикацию. Подробности в журнале аудита."
+      }
+    },
+    "filters": {
+      "tenant": "Клиент",
+      "driftStatus": "Состояние",
+      "all": "Все"
+    },
+    "actions": {
+      "checkDrift": "Проверить сейчас",
+      "reconcile": "Согласовать состояние"
+    },
+    "reconcile": {
+      "title": "Согласовать состояние публикации",
+      "body": "Публикация «{{siteName}}{{virtualPath}}» будет перезаписана: default.vrd и настройки IIS будут приведены к желаемому состоянию из базы данных. Кастомные XML-элементы публикации (vrdCustomXml) будут сохранены.",
+      "confirmLabel": "Для подтверждения введите «{{token}}»",
+      "confirm": "Согласовать",
+      "cancel": "Отмена"
+    },
+    "toasts": {
+      "checkStarted": "Проверка запущена",
+      "checkCompleted": "Проверка завершена",
+      "checkTimeout": "Проверка занимает дольше обычного, обновите страницу",
+      "reconciled": "Публикация согласована",
+      "reconcileFailed": "Не удалось согласовать публикацию"
+    },
+    "empty": {
+      "noPublications": "Публикаций пока нет. Создайте информационную базу с публикацией.",
+      "noMatchingFilter": "Нет публикаций, соответствующих фильтрам."
+    },
     "fields": {
       "siteName": "Сайт IIS",
       "virtualPath": "Виртуальный путь",
@@ -252,6 +311,8 @@
       "PublicationCreated": "Публикация создана",
       "PublicationUpdated": "Публикация изменена",
       "PublicationDeleted": "Публикация удалена",
+      "PublicationDriftDetected": "Расхождение публикации обнаружено",
+      "PublicationReconciled": "Публикация согласована",
       "AdminLoggedIn": "Вход администратора",
       "AdminLoggedOut": "Выход администратора",
       "AdminPasswordChanged": "Смена пароля",
