@@ -53,6 +53,11 @@ When a 1C Platform Update occurs, the system must ONLY:
   - **IIS Metabase read** at minimum (`ServerManager.OpenRemote(null)` / `new ServerManager()`). Sites enumeration is read-only — drift detection does not mutate IIS configuration; only `default.vrd` is mutated.
   - On permission failure (`UnauthorizedAccessException` / `COMException`) the adapter returns `Error` status. `POST /reconcile` translates the same exceptions into `409 ProblemDetails` with `code: IIS_RECONCILE_FAILED` (or `IIS_ACCESS_DENIED`) — see ADR-4.1 for the full mutation-and-merge contract.
 
+### Operational note (Stage 3 PR 3.6 verification gap)
+The drift detector resolves the on-disk VRD by composing `{Settings.IIS.DefaultVrdRoot}/{siteName}/{trimmedVirtualPath}/default.vrd`. This is **convention, not discovery** — if the actual physical path that IIS uses for a publication differs from this layout, drift detection reports `Missing` even when the publication is healthy. Two related requirements for the backend service account:
+1. **IIS-admin rights**: read `applicationHost.config` and `redirection.config`, run `ServerManager` against the local IIS without elevation prompts. `Network Service` is sufficient on a stock single-node install; custom accounts need to be added to the local `IIS_IUSRS` group (or granted equivalent ACLs) so `ServerManager.OpenRemote(null)` succeeds.
+2. **Path-layout convention**: when creating a publication, the operator must place the physical IIS folder at `{IIS.DefaultVrdRoot}/{siteName}/{virtualPath}` (with the leading slash trimmed from `virtualPath`). A publication created with a non-standard physical path will show as `Missing` in the drift UI until someone migrates the files or extends the resolver. Per-publication physical-path override is deferred to Stage 4.
+
 ## 3. Windows Server & Security Context
 
 ### Deployment Topology — Single Node
