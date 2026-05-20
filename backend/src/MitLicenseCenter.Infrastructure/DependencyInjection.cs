@@ -94,8 +94,12 @@ public static class DependencyInjection
             fallback: sp.GetRequiredService<IRasFallbackClusterClient>(),
             state: sp.GetRequiredService<ClusterCircuitState>()));
 
-        // IIS publishing: stub до PR 3.5.
-        services.AddScoped<IIisPublishingService, StubIisPublishingService>();
+        // IIS publishing: реальный адаптер ServerManager + XDocument (PR 3.5).
+        // Stub переехал в Publishing/Testing/ для unit-тестов, в production-DI
+        // не регистрируется — реальный OneCIisPublishingService требует Windows.
+#pragma warning disable CA1416 // Validate platform compatibility — single-node deployment is Windows-only by design (memory/infrastructure_integration.md).
+        services.AddScoped<IIisPublishingService, OneCIisPublishingService>();
+#pragma warning restore CA1416
 
         // Snapshot store + hot-tier registry (singletons, PR 3.3).
         services.AddSingleton<IActiveSessionSnapshotStore, ActiveSessionSnapshotStore>();
@@ -105,6 +109,11 @@ public static class DependencyInjection
         // Reconciliation job + kill enforcer (scoped — require DbContext + IClusterClient).
         services.AddScoped<IReconciliationJob, ReconciliationJob>();
         services.AddScoped<IKillEnforcer, KillEnforcer>();
+
+        // Drift check job (PR 3.5): scoped (зависит от DbContext + IAuditLogger),
+        // плюс singleton throttle-state по аналогии с ColdThrottleState.
+        services.AddSingleton<DriftThrottleState>();
+        services.AddScoped<IDriftCheckJob, DriftCheckJob>();
 
         // Hot-tier polling: BackgroundService для sub-minute hot-poll (Hangfire
         // CRON minimum = 1 мин, а нам нужно 3–5s). См. ADR-6.1.

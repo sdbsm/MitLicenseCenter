@@ -13,7 +13,17 @@ public sealed record PublicationResponse(
     bool EnableHttpServices,
     string? VrdCustomXml,
     DateTime CreatedAt,
-    DateTime? UpdatedAt);
+    DateTime? UpdatedAt,
+    PublicationDriftStatus LastDriftStatus,
+    DateTime? LastDriftCheckAt,
+    string? LastDriftDetails);
+
+public sealed record CheckDriftAcceptedResponse(string CorrelationId, Guid PublicationId);
+
+public sealed record DriftStatusResponse(
+    PublicationDriftStatus Status,
+    DateTime? CheckedAt,
+    string? Details);
 
 public sealed record CreatePublicationRequest(
     [property: Required, StringLength(200, MinimumLength = 1)] string SiteName,
@@ -34,5 +44,18 @@ public sealed record UpdatePublicationRequest(
 internal static class PublicationMappings
 {
     public static PublicationResponse ToResponse(this Publication x) =>
-        new(x.Id, x.InfobaseId, x.SiteName, x.VirtualPath, x.PlatformVersion, x.EnableOData, x.EnableHttpServices, x.VrdCustomXml, x.CreatedAt, x.UpdatedAt);
+        new(
+            x.Id,
+            x.InfobaseId,
+            x.SiteName,
+            x.VirtualPath,
+            x.PlatformVersion,
+            x.EnableOData,
+            x.EnableHttpServices,
+            x.VrdCustomXml,
+            x.CreatedAt,
+            x.UpdatedAt,
+            x.LastDriftStatus,
+            x.LastDriftCheckAt,
+            x.LastDriftDetails);
 }

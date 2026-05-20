@@ -83,6 +83,11 @@ public sealed class AppDbContext : IdentityDbContext<AppUser, AppRole, Guid>
             e.Property(x => x.VrdCustomXml);
             e.Property(x => x.CreatedAt).IsRequired();
             e.Property(x => x.UpdatedAt);
+            // Drift-поля (PR 3.5). LastDriftStatus = int с дефолтом InSync=0
+            // (миграция Stage3PublicationDrift ставит DEFAULT 0 на уровне БД).
+            e.Property(x => x.LastDriftStatus).HasConversion<int>().IsRequired();
+            e.Property(x => x.LastDriftCheckAt);
+            e.Property(x => x.LastDriftDetails);
             // 1-to-1 required: Publication — часть aggregate Infobase'а; удаление
             // инфобазы каскадом сносит публикацию в БД (IIS-unpublish — Stage 3).
             e.HasOne<Infobase>()

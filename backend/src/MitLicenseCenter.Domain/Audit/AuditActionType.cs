@@ -24,6 +24,12 @@ public enum AuditActionType
     SessionKilled = 200,
     LimitChanged = 201,
 
+    // Publication drift (PR 3.5). Detected — пишется drift-job'ом ТОЛЬКО на transition
+    // (статус изменился AND новый ∈ {Drift, Missing, Error}). Reconciled — пишется
+    // synchronously reconcile-endpoint'ом после успешного ApplyDesiredStateAsync.
+    PublicationDriftDetected = 210,
+    PublicationReconciled = 211,
+
     // 1С Cluster adapter circuit-breaker transitions (PR 3.2).
     ClusterAdapterCircuitOpened = 300,
     ClusterAdapterCircuitClosed = 301,

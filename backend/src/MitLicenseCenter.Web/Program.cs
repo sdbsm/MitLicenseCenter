@@ -158,6 +158,14 @@ RecurringJob.AddOrUpdate<IReconciliationJob>(
     j => j.RunColdAsync(CancellationToken.None),
     "* * * * *"); // Every minute; internal throttle enforces ColdIntervalSeconds.
 
+// Drift check (PR 3.5): тикаем каждые 5 мин, внутри throttle до
+// Settings.Drift.IntervalMinutes — оператор может уменьшить cadence до 1 мин
+// или увеличить до 60, и Hangfire-расписание сюда менять не придётся.
+RecurringJob.AddOrUpdate<IDriftCheckJob>(
+    "drift-check",
+    j => j.RunAllAsync(CancellationToken.None),
+    "*/5 * * * *");
+
 app.Lifetime.ApplicationStarted.Register(() =>
 {
     _ = Task.Run(async () =>

@@ -14,4 +14,11 @@ public sealed class Publication : IEntity
     public string? VrdCustomXml { get; set; }
     public DateTime CreatedAt { get; init; }
     public DateTime? UpdatedAt { get; set; }
+
+    // Drift-поля (PR 3.5). Заполняются Hangfire-job'ом DriftCheckJob и
+    // synchronously после reconcile. На новых публикациях LastDriftStatus = InSync (0)
+    // безопасный дефолт — следующий drift-цикл перепишет фактическим значением.
+    public PublicationDriftStatus LastDriftStatus { get; set; }
+    public DateTime? LastDriftCheckAt { get; set; }
+    public string? LastDriftDetails { get; set; }
 }

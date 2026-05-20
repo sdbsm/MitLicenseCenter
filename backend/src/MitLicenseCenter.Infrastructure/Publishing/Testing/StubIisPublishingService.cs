@@ -1,10 +1,12 @@
 using MitLicenseCenter.Application.Publishing;
 using MitLicenseCenter.Domain.Publications;
 
-namespace MitLicenseCenter.Infrastructure.Publishing;
+namespace MitLicenseCenter.Infrastructure.Publishing.Testing;
 
-// Заглушка до PR 3.5, где будет реализован OneCIisPublishingService через
-// Microsoft.Web.Administration + XDocument.
+// Заглушка для unit-тестов (DriftCheckTransitionAuditTests,
+// PublicationsReconcileTests), которым не нужен реальный ServerManager.
+// В production-DI больше не регистрируется — с PR 3.5 подключён реальный
+// адаптер OneCIisPublishingService.
 internal sealed class StubIisPublishingService : IIisPublishingService
 {
     private static readonly PublicationActualState NotImplementedState = new(

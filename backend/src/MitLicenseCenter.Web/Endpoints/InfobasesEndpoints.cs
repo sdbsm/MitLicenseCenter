@@ -91,7 +91,10 @@ public static partial class InfobasesEndpoints
                         pub.EnableHttpServices,
                         pub.VrdCustomXml,
                         pub.CreatedAt,
-                        pub.UpdatedAt)))
+                        pub.UpdatedAt,
+                        pub.LastDriftStatus,
+                        pub.LastDriftCheckAt,
+                        pub.LastDriftDetails)))
             .ToListAsync(ct).ConfigureAwait(false);
 
         return TypedResults.Ok(new InfobaseListResponse(items, total, p, ps));

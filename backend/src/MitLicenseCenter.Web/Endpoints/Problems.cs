@@ -13,6 +13,10 @@ public static class ProblemCodes
 
     public const string SettingUnknownKey = "SETTING_UNKNOWN_KEY";
     public const string SettingInvalidValue = "SETTING_INVALID_VALUE";
+
+    // PR 3.5 — IIS XML-patch reconciliation failures.
+    public const string IisReconcileFailed = "IIS_RECONCILE_FAILED";
+    public const string IisAccessDenied = "IIS_ACCESS_DENIED";
 }
 
 public static class Problems
@@ -47,4 +51,16 @@ public static class Problems
             ProblemCodes.NameDuplicateInTenant,
             "Дубликат названия инфобазы",
             $"Инфобаза с названием «{name}» уже существует у этого клиента.");
+
+    public static ProblemDetails IisReconcileFailed(string detail) =>
+        Conflict(
+            ProblemCodes.IisReconcileFailed,
+            "Согласование не удалось",
+            detail);
+
+    public static ProblemDetails IisAccessDenied(string detail) =>
+        Conflict(
+            ProblemCodes.IisAccessDenied,
+            "Нет доступа к IIS / default.vrd",
+            detail);
 }

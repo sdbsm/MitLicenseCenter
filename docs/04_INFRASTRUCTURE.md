@@ -46,6 +46,13 @@ When a 1C Platform Update occurs, the system must ONLY:
 - It can manage Application Pools (recycle, start, stop) and Sites.
 - Desired State: Ensure the IIS Virtual Directory points to the correct physical path containing the `default.vrd`.
 
+### Operational note (Stage 3 PR 3.5)
+- `OneCIisPublishingService` reads and patches `default.vrd` via `XDocument` + `Microsoft.Web.Administration.ServerManager`. Path layout is `{Settings.IIS.DefaultVrdRoot}/{siteName}/{trimmedVirtualPath}/default.vrd` — operator-configurable from the Settings page; per-publication override is deferred to Stage 4.
+- Service-account requirements specific to drift/reconcile (these add to the generic permissions in §3 below):
+  - **R/W** on every physical folder containing a managed `default.vrd` file. Reconcile writes to `default.vrd.mlc.tmp` and atomically swaps via `File.Replace`, so the account also needs delete-on-rename permission in that folder.
+  - **IIS Metabase read** at minimum (`ServerManager.OpenRemote(null)` / `new ServerManager()`). Sites enumeration is read-only — drift detection does not mutate IIS configuration; only `default.vrd` is mutated.
+  - On permission failure (`UnauthorizedAccessException` / `COMException`) the adapter returns `Error` status. `POST /reconcile` translates the same exceptions into `409 ProblemDetails` with `code: IIS_RECONCILE_FAILED` (or `IIS_ACCESS_DENIED`) — see ADR-4.1 for the full mutation-and-merge contract.
+
 ## 3. Windows Server & Security Context
 
 ### Deployment Topology — Single Node
