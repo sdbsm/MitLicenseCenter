@@ -274,6 +274,26 @@ PR 2.4 закрывает Stage 2: layout shell + auth additions (PR 2.1), Tenan
 - **Rejected Alternative:** Separate `SessionKilledManual = 201` enum value. Rejected because it doubles the enum surface without adding filtering capability that `AuditReason` doesn't already provide.
 - **Reason:** `LimitChanged = 201` is reserved for future tenant-limit-change audit, stabilizing the wire contract now. The description field in audit entries carries the human-readable context (operator reason, session details).
 
+## Stage 3 PR 3.5 — Publication drift detection + IIS XML patcher (binding alongside ADR-4)
+
+### ADR-4.1 — VRD surgical-patch and VrdCustomXml merge strategy
+
+- **Decision.** `OneCIisPublishingService.ApplyDesiredStateAsync` mutates `default.vrd` via `XDocument` strictly in-place. The patch is the **only** allowed mutation on an existing file — `webinst` is never invoked on existing publications, the file is never overwritten wholesale (memory `infrastructure_integration.md`).
+- **VRD path layout.** Resolved as `Path.Combine(Settings.IIS.DefaultVrdRoot, publication.SiteName, publication.VirtualPath.TrimStart('/'), "default.vrd")`. `IIS.DefaultVrdRoot` defaults to `C:\inetpub\1c-publications` and is operator-configurable from the Settings page. Per-publication overrides are **deferred to Stage 4** — if a test environment has a non-standard layout, the operator adjusts the IIS physical path or `IIS.DefaultVrdRoot`, not the schema.
+- **Three surgical mutations performed by `VrdPatcher.Patch`:**
+  1. **OData toggle.** `<standardOdata enable="true|false"/>` — attribute value flipped; if the node is missing it is created with only the `enable` attribute (operator can add OData-specific tuning via `VrdCustomXml`).
+  2. **HTTP Services toggle.** `<httpServices publishByDefault="true|false"/>` — same in-place attribute mutation.
+  3. **Platform version segment.** Any attribute value containing `wsisapi.dll` has its `\d+\.\d+\.\d+\.\d+` segment replaced with `publication.PlatformVersion`. The match is restricted to attribute values that literally contain `wsisapi.dll` so that no unrelated version-shaped numbers (e.g. comment text, custom version tags) get rewritten. If no `wsisapi.dll` path is present (newer 1C builds move the ISAPI handler to `web.config` next to `default.vrd`), the version patch is a silent no-op — the drift detector reads the platform version only if it could be parsed.
+- **VrdCustomXml overlay strategy (the previously-open question from the plan).** Operator-supplied `VrdCustomXml` is wrapped in a transient pseudo-root inheriting the VRD namespace, then merged into the live document with a **replace-child-by-LocalName / append-if-missing** strategy:
+  - Each child element of the overlay is matched against existing child elements of the VRD root by `XName.LocalName` (namespace-agnostic, because operators routinely write the overlay without an explicit `xmlns`).
+  - **Replace** if a sibling with the same local name exists — the overlay element wins verbatim. Example: an overlay `<standardOdata enable="true" sessionMaxAge="60"/>` *replaces* the boolean-only toggle node, so operator tuning survives reconcile.
+  - **Append** if no sibling matches — overlay content is added as a new child of the VRD root. Existing custom nodes that are *not* present in the overlay (e.g. `<openid>`, `<httpServicesPermissions>`) are **never** dropped. This is the cornerstone guarantee: reconcile cannot lose operator's custom configuration.
+  - A malformed `VrdCustomXml` (parse failure) surfaces as `InvalidOperationException` from `VrdPatcher.Patch`, which the reconcile endpoint maps to `409 ProblemDetails` with `code: IIS_RECONCILE_FAILED` — no half-applied write.
+- **Idempotency.** `Patch(xml, desired) == Patch(Patch(xml, desired), desired)`. The adapter compares the patched string with the original and writes the file only when it changed — preserving the file's mtime so operator diagnostics aren't polluted.
+- **Atomic write.** Patched content is written to `default.vrd.mlc.tmp` first, then `File.Replace` swaps it into place. A crash mid-write cannot leave an empty or truncated VRD.
+- **Drift audit semantics.** `DriftCheckJob` writes `AuditActionType.PublicationDriftDetected = 210` **only** on a status transition AND **only** when the new status is one of `{Drift, Missing, Error}`. `InSync → InSync` and `Drift → Drift` with identical details are silent. The `Drift → InSync` transition that results from a successful reconcile is audited by the reconcile endpoint as `PublicationReconciled = 211` — the drift job never writes `211`, the endpoint never writes `210`.
+- **Test strategy.** The XML logic lives in `VrdPatcher` and `PublicationDriftDetector` as pure static helpers so unit tests exercise them without `ServerManager` or a filesystem. `OneCIisPublishingService` is `[SupportedOSPlatform("windows")]` and validated only by smoke tests against a real publication.
+
 ## Locked Operational Constraints (not full ADRs, but binding)
 
 - **Kill priority:** when `Consumed > Limit`, kill sessions ordered by `StartedAt DESC` (newest first) until `Consumed == Limit`. Justification: simplest to explain to end users ("you just logged in and were dropped because the quota was already full") and avoids interrupting in-progress work of established sessions.
