@@ -52,7 +52,34 @@
   "dashboard": {
     "title": "Главная",
     "subtitle": "Обзор инфраструктуры 1С-хостинга",
-    "stub": "Этот раздел будет наполнен живыми данными в Stage 2 (клиенты, активные сеансы, состояние кластера и публикаций)."
+    "kpi": {
+      "tenants": "Клиенты",
+      "tenantsLabel": "активных из {{total}}",
+      "infobases": "Инфобазы",
+      "sessions": "Активные сеансы",
+      "consumed": "Использовано лицензий",
+      "available": "Свободно лицензий",
+      "clusterStatus": "Статус кластера"
+    },
+    "cluster": {
+      "closed": "В норме",
+      "open": "Цепь разомкнута",
+      "halfOpen": "Проба",
+      "activeAdapter": "Адаптер",
+      "adapterRest": "REST",
+      "adapterRas": "RAS",
+      "lastError": "Подробности",
+      "lastTransition": "Изменено"
+    },
+    "topTenants": {
+      "title": "Топ клиентов по нагрузке",
+      "empty": "Нет данных по активным сеансам.",
+      "consumedOf": "{{consumed}} / {{limit}}"
+    },
+    "refresh": {
+      "updated": "Обновлено",
+      "error": "Не удалось загрузить данные дашборда."
+    }
   },
   "profile": {
     "title": "Профиль",

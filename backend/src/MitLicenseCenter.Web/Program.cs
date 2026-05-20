@@ -30,6 +30,10 @@ builder.Services.Configure<JsonOptions>(o =>
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration, builder.Environment);
 
+// IMemoryCache: используется DashboardEndpoints (TTL=5s) и потенциально другими
+// hot-path ридерами. AddInfrastructure его не регистрирует — кэш живёт в Web-слое.
+builder.Services.AddMemoryCache();
+
 // Cookie auth tuned for an SPA (401 JSON, not 302 redirect).
 builder.Services
     .AddAuthentication(IdentityConstants.ApplicationScheme)
@@ -137,6 +141,7 @@ app.MapAuditEndpoints(versionSet);
 app.MapSessionsEndpoints(versionSet);
 app.MapSettingsEndpoints(versionSet);
 app.MapClusterEndpoints(versionSet);
+app.MapDashboardEndpoints(versionSet);
 
 app.UseSwagger(o => o.RouteTemplate = "api/docs/{documentName}/swagger.json");
 app.UseSwaggerUI(o =>
