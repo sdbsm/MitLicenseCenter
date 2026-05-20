@@ -11,6 +11,8 @@ export type AuditActionType =
   | "PublicationCreated"
   | "PublicationUpdated"
   | "PublicationDeleted"
+  | "PublicationDriftDetected"
+  | "PublicationReconciled"
   | "AdminLoggedIn"
   | "AdminLoggedOut"
   | "AdminPasswordChanged"
@@ -26,6 +28,8 @@ export const AUDIT_ACTION_TYPES: readonly AuditActionType[] = [
   "PublicationCreated",
   "PublicationUpdated",
   "PublicationDeleted",
+  "PublicationDriftDetected",
+  "PublicationReconciled",
   "AdminLoggedIn",
   "AdminLoggedOut",
   "AdminPasswordChanged",
