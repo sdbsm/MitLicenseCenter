@@ -8,7 +8,8 @@ export function useSessionsSnapshot() {
   return useQuery({
     queryKey: sessionsSnapshotQueryKey,
     queryFn: () => api<SessionsSnapshotResponse>("/api/v1/sessions/snapshot"),
-    // Stage 3: реальный adapter подключён, polling 15s (docs/05_UI_REQUIREMENTS.md §4).
     refetchInterval: 15_000,
+    refetchOnWindowFocus: true,
+    placeholderData: (prev) => prev,
   });
 }
