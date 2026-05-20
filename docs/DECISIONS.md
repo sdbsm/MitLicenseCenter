@@ -260,6 +260,20 @@ PR 2.4 закрывает Stage 2: layout shell + auth additions (PR 2.1), Tenan
 - `OnOpened` callback writes `AuditActionType.ClusterAdapterCircuitOpened = 300` via `IServiceScopeFactory`-scoped `IAuditLogger`. `OnClosed` writes `301`. `OnHalfOpened` updates state only (no audit).
 - `RemoveAllResilienceHandlers()` on `OneCRestClusterClient`'s `IHttpClientBuilder` removes the global `AddStandardResilienceHandler()` (Program.cs line 115) from this client — resilience policy is owned exclusively by `ResilientClusterClient` + `ClusterCircuitState`.
 
+## Stage 3 PR 3.3 — Reconciliation + kill enforcer (binding alongside ADR-3/ADR-6)
+
+### ADR-6.1 — Hot-tier polling lives in BackgroundService, not Hangfire
+
+- **Decision:** Hot-tier polling (3–5s cadence for tenants at ≥90% license consumption) runs as a `BackgroundService` (`HotTierPollingService`), not as a Hangfire recurring job.
+- **Rejected Alternative:** Hangfire recurring job with `"*/5 * * * * *"` (second-level cron). Not supported — Hangfire's minimum granularity is 1 minute.
+- **Reason:** Hangfire CRON minimum = 1 minute. The hot tier requires 3–5 second cadence to minimize the enforcement window for near-limit tenants. Cold reconciliation remains in Hangfire (`"* * * * *"` with internal throttle to `ColdIntervalSeconds`) for dashboard visibility and durability. Kill enforcer runs only at the end of each cold cycle — hot polling updates the UI-facing snapshot but does not kill sessions.
+
+### ADR-6.2 — SessionKilled=200 + AuditReason differentiator
+
+- **Decision:** A single `AuditActionType.SessionKilled = 200` covers both automatic (limit enforcement) and manual (operator-initiated) kills. The distinction is in `AuditReason`: `LimitExceeded = 1` for automated kills by the enforcer, `ManualByAdmin = 2` for operator-initiated kills via `POST /sessions/{id}/kill`.
+- **Rejected Alternative:** Separate `SessionKilledManual = 201` enum value. Rejected because it doubles the enum surface without adding filtering capability that `AuditReason` doesn't already provide.
+- **Reason:** `LimitChanged = 201` is reserved for future tenant-limit-change audit, stabilizing the wire contract now. The description field in audit entries carries the human-readable context (operator reason, session details).
+
 ## Locked Operational Constraints (not full ADRs, but binding)
 
 - **Kill priority:** when `Consumed > Limit`, kill sessions ordered by `StartedAt DESC` (newest first) until `Consumed == Limit`. Justification: simplest to explain to end users ("you just logged in and were dropped because the quota was already full") and avoids interrupting in-progress work of established sessions.

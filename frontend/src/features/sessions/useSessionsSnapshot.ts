@@ -8,8 +8,7 @@ export function useSessionsSnapshot() {
   return useQuery({
     queryKey: sessionsSnapshotQueryKey,
     queryFn: () => api<SessionsSnapshotResponse>("/api/v1/sessions/snapshot"),
-    // Stage 2: endpoint всегда возвращает пустоту, поэтому реальный polling
-    // (~15s, см. docs/05_UI_REQUIREMENTS.md) включаем в Stage 3.
-    refetchInterval: false,
+    // Stage 3: реальный adapter подключён, polling 15s (docs/05_UI_REQUIREMENTS.md §4).
+    refetchInterval: 15_000,
   });
 }

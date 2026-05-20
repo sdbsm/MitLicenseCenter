@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Http.Json;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.OpenApi.Models;
 using MitLicenseCenter.Application;
+using MitLicenseCenter.Application.Jobs;
 using MitLicenseCenter.Infrastructure;
 using MitLicenseCenter.Infrastructure.Identity;
 using MitLicenseCenter.Infrastructure.Settings;
@@ -106,8 +107,10 @@ builder.Services.AddHangfire(cfg => cfg
 
 builder.Services.AddHangfireServer(o =>
 {
-    o.WorkerCount = 1; // Stage 1: бэкграунд-джобы пока не нужны, но сервер пусть будет «прогретым».
+    o.WorkerCount = Math.Max(2, Environment.ProcessorCount);
 });
+
+// HotTierPollingService registered in Infrastructure.DependencyInjection.
 
 builder.Services.AddHttpClient().ConfigureHttpClientDefaults(http =>
 {
@@ -149,6 +152,11 @@ app.UseHangfireDashboard("/hangfire", new DashboardOptions
     DashboardTitle = "MitLicense Center · Hangfire",
     DisplayStorageConnectionString = false,
 });
+
+RecurringJob.AddOrUpdate<IReconciliationJob>(
+    "cold-snapshot",
+    j => j.RunColdAsync(CancellationToken.None),
+    "* * * * *"); // Every minute; internal throttle enforces ColdIntervalSeconds.
 
 app.Lifetime.ApplicationStarted.Register(() =>
 {
