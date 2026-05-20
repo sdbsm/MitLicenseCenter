@@ -7,11 +7,14 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Http.Resilience;
 using MitLicenseCenter.Application.Auditing;
 using MitLicenseCenter.Application.Clusters;
+using MitLicenseCenter.Application.Jobs;
 using MitLicenseCenter.Application.Publishing;
+using MitLicenseCenter.Application.Sessions;
 using MitLicenseCenter.Application.Settings;
 using MitLicenseCenter.Infrastructure.Audit;
 using MitLicenseCenter.Infrastructure.Clusters;
 using MitLicenseCenter.Infrastructure.Identity;
+using MitLicenseCenter.Infrastructure.Jobs;
 using MitLicenseCenter.Infrastructure.Persistence;
 using MitLicenseCenter.Infrastructure.Publishing;
 using MitLicenseCenter.Infrastructure.Settings;
@@ -93,6 +96,20 @@ public static class DependencyInjection
 
         // IIS publishing: stub до PR 3.5.
         services.AddScoped<IIisPublishingService, StubIisPublishingService>();
+
+        // Snapshot store + hot-tier registry (singletons, PR 3.3).
+        services.AddSingleton<IActiveSessionSnapshotStore, ActiveSessionSnapshotStore>();
+        services.AddSingleton<IHotTierRegistry, HotTierRegistry>();
+        services.AddSingleton<ColdThrottleState>();
+
+        // Reconciliation job + kill enforcer (scoped — require DbContext + IClusterClient).
+        services.AddScoped<IReconciliationJob, ReconciliationJob>();
+        services.AddScoped<IKillEnforcer, KillEnforcer>();
+
+        // Hot-tier polling: BackgroundService для sub-minute hot-poll (Hangfire
+        // CRON minimum = 1 мин, а нам нужно 3–5s). См. ADR-6.1.
+        services.AddSingleton<HotTierPollingService>();
+        services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<HotTierPollingService>());
 
         return services;
     }

@@ -1,17 +1,25 @@
 namespace MitLicenseCenter.Web.Endpoints;
 
-// Контракт snapshot'а активных сеансов: в Stage 2 endpoint возвращает пустой
-// список — реальные данные приходят из 1C Cluster REST API в Stage 3.
-// Поля заводим уже сейчас, чтобы клиент мог реализовать UI против стабильной схемы.
+// Контракт snapshot'а активных сеансов: Stage 3 — реальные данные из
+// IActiveSessionSnapshotStore, заполняемого ReconciliationJob (cold) и
+// HotTierPollingService (hot overlay).
 public sealed record SessionSnapshotEntry(
     Guid SessionId,
-    Guid InfobaseId,
+    Guid ClusterInfobaseId,
     Guid TenantId,
+    string TenantName,
+    string InfobaseName,
     string AppId,
+    string UserName,
+    string Host,
     bool ConsumesLicense,
-    DateTime StartedAt);
+    DateTime StartedAt,
+    int DurationSeconds);
 
 public sealed record SessionsSnapshotResponse(
     IReadOnlyList<SessionSnapshotEntry> Items,
     DateTime CapturedAt,
-    int TookMs);
+    int TookMs,
+    string Source);
+
+public sealed record KillSessionRequest(string? Reason);

@@ -255,6 +255,10 @@
       "AdminLoggedIn": "Вход администратора",
       "AdminLoggedOut": "Выход администратора",
       "AdminPasswordChanged": "Смена пароля",
+      "SessionKilled": "Сеанс завершён",
+      "LimitChanged": "Лимит изменён",
+      "ClusterAdapterCircuitOpened": "Цепь к 1С разомкнута",
+      "ClusterAdapterCircuitClosed": "Цепь к 1С замкнута",
       "SettingChanged": "Параметр изменён"
     },
     "empty": {
