@@ -57,14 +57,17 @@ public sealed class InfobasesValidationTests
     [Theory]
     [InlineData("8.3.23.1865", true)]
     [InlineData("8.3.24.1654", true)]
+    [InlineData("8.5.1.1302", true)]   // 1С 8.5 ранние сборки — build одноцифровой
+    [InlineData("8.3.1.1865", true)]   // build одноцифровой — допустимо
+    [InlineData("8.3.23.18", true)]    // короткая revision — допустимо
     [InlineData("10.0.10.0001", true)]
     [InlineData("8.3", false)]
     [InlineData("8.3.23", false)]
-    [InlineData("8.3.23.18", false)]   // revision слишком короткая
-    [InlineData("8.3.1.1865", false)]  // build слишком короткий
+    [InlineData("8.3.23.", false)]
     [InlineData("", false)]
     [InlineData("a.b.c.d", false)]
-    public void PlatformVersion_regex_matches_only_canonical_format(string value, bool expected)
+    [InlineData("8.3.23.1865.0", false)]
+    public void PlatformVersion_regex_requires_four_numeric_segments(string value, bool expected)
     {
         InfobasesEndpoints.IsValidPlatformVersion(value).Should().Be(expected);
     }

@@ -18,8 +18,9 @@ public static partial class InfobasesEndpoints
     private const int DefaultPageSize = 50;
     private const int MaxPageSize = 200;
 
-    // Версия платформы 1С — например, «8.3.23.1865». Major.Minor.Build(2)+.Revision(4).
-    [GeneratedRegex(@"^\d+\.\d+\.\d{2}\.\d{4}$", RegexOptions.CultureInvariant)]
+    // Версия платформы 1С — 4 числовых сегмента «Major.Minor.Build.Revision».
+    // Длины сегментов не фиксируем: реальные сборки бывают и «8.3.23.1865», и «8.5.1.1302».
+    [GeneratedRegex(@"^\d+\.\d+\.\d+\.\d+$", RegexOptions.CultureInvariant)]
     private static partial Regex PlatformVersionRegex();
 
     public static void MapInfobasesEndpoints(this IEndpointRouteBuilder endpoints, ApiVersionSet versionSet)
@@ -395,7 +396,7 @@ public static partial class InfobasesEndpoints
         }
         else if (!PlatformVersionRegex().IsMatch(version))
         {
-            errors[$"{nameof(CreateInfobaseRequest.Publication)}.{nameof(CreatePublicationRequest.PlatformVersion)}"] = ["Версия должна быть в формате «8.3.23.1865»."];
+            errors[$"{nameof(CreateInfobaseRequest.Publication)}.{nameof(CreatePublicationRequest.PlatformVersion)}"] = ["Версия должна состоять из четырёх числовых сегментов, например «8.3.23.1865» или «8.5.1.1302»."];
         }
     }
 

@@ -92,7 +92,7 @@ public static class PublicationsEndpoints
         }
         else if (!InfobasesEndpoints.IsValidPlatformVersion(platformVersion))
         {
-            errors[nameof(UpdatePublicationRequest.PlatformVersion)] = ["Версия должна быть в формате «8.3.23.1865»."];
+            errors[nameof(UpdatePublicationRequest.PlatformVersion)] = ["Версия должна состоять из четырёх числовых сегментов, например «8.3.23.1865» или «8.5.1.1302»."];
         }
         if (errors.Count > 0)
         {
