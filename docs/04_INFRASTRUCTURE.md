@@ -18,8 +18,10 @@ Before issuing a kill, the adapter:
 
 Every kill is recorded in `AuditLog` with reason (`LimitExceeded` or `ManualByAdmin`) and snapshot context.
 
-### Fallback Method: RAS (Remote Administration Server)
-If the REST API is unavailable, the system falls back to communicating with the RAS service via TCP (using custom C# wrappers or direct socket communication, avoiding excessive `rac.exe` process spawning).
+### Fallback Method: RAS (Remote Administration Server) — Stage 3 PR 3.8
+If the REST API is unavailable, the system falls back to driving the **RAS admin server (`ras.exe` listening on TCP 1545 by default)** through the standard `rac.exe` command-line client. Implementation: `RacExecutableRasClusterClient` (`Infrastructure/Clusters/`) spawns `rac.exe` once per `ListActiveSessionsAsync` / `KillSessionAsync` / `PingAsync` call — never once per session — and parses the vertical key-value stdout (UTF-8 no BOM) via the pure-static `RacOutputParser`. See `DECISIONS.md` **ADR-3.3** for the exact CLI contract, output grammar, kill-idempotency markers, and error semantics. Tool path lives in `Settings.OneC.RAS.ExePath` (operator-configured — version-specific, no seeded default since 1C 8.5 moved `rac.exe` out of `1cv8\common\`); endpoint in `Settings.OneC.RAS.Endpoint` (default `localhost:1545`).
+
+Long-lived TCP socket on 1545 (no `rac.exe` per cycle) is an optional Stage 4 optimisation tracked in `ROADMAP.md` — the current invocation budget (≤ 26 `rac.exe` processes per minute under sustained over-quota load) is well within OS / antivirus tolerances on a single-node deployment.
 
 ### REST → RAS Failover (Circuit Breaker)
 The 1C Cluster Adapter wraps REST calls in a Polly-based circuit breaker:
@@ -69,6 +71,7 @@ All components run on the same Windows Server host: the .NET backend service, th
   - Read/Write access to the physical folders where `default.vrd` files are stored.
   - Permissions to interact with the IIS Metabase.
   - Network access to the 1C Cluster API/RAS ports (default 1545, etc.).
+  - **Execute** permission on the resolved `Settings.OneC.RAS.ExePath` (typically `C:\Program Files\1cv8\<version>\bin\rac.exe`) and **read** access to the rest of `1cv8\<version>\bin\` so co-located DLLs load. Default ACLs grant this to `Users` on stock 1C installs; locked-down custom service accounts may need explicit Read+Execute grant.
   - Read/Write access to `%ProgramData%\MitLicenseCenter\keys\` (Data Protection key ring — see ADR-8).
   - Read/Write access to the backup destination folder (see ADR-9).
 
