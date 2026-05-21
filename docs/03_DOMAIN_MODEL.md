@@ -30,7 +30,7 @@ Stores the *Desired State* of the IIS publication for a specific Infobase.
 - `InfobaseId` (Guid, FK, **unique**) — `ON DELETE CASCADE`. 1-to-1 required: каждая инфобаза имеет ровно одну публикацию, удаление инфобазы каскадом сносит публикацию в БД (IIS-unpublish — Stage 3).
 - `SiteName` (String, ≤200): IIS Site (e.g., "Default Web Site").
 - `VirtualPath` (String, ≤200): The URL path (e.g., "/tenant-base1"). Валидация: должен начинаться с `/`, не содержит пробелов.
-- `PlatformVersion` (String, ≤50): e.g., "8.3.23.1865". Used to locate `wsisapi.dll`. Валидация: regex `^\d+\.\d+\.\d{2}\.\d{4}$`.
+- `PlatformVersion` (String, ≤50): e.g., "8.3.23.1865" или "8.5.1.1302". Used to locate `wsisapi.dll`. Валидация: regex `^\d+\.\d+\.\d+\.\d+$` — четыре числовых сегмента, длины не фиксируем (1С 8.5 ранние сборки имеют одноцифровой build).
 - `EnableOData` (Boolean): Flag to manage standard OData interface.
 - `EnableHttpServices` (Boolean).
 - `VrdCustomXml` (`nvarchar(max)`, Nullable): Stores any custom XML fragments for `default.vrd` to ensure idempotency and prevent overwrite of custom configurations. Пустая строка / whitespace нормализуется в `NULL` при записи.

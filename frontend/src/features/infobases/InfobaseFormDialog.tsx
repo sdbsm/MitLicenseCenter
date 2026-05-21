@@ -45,8 +45,9 @@ interface ConflictBody {
   code?: string;
 }
 
-const PLATFORM_VERSION_PATTERN = /^\d+\.\d+\.\d{2}\.\d{4}$/;
-const GUID_PATTERN = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+const PLATFORM_VERSION_PATTERN = /^\d+\.\d+\.\d+\.\d+$/;
+const GUID_PATTERN =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 const STATUSES: InfobaseStatus[] = ["Active", "Maintenance", "Suspended"];
 
 function buildSchema(t: (k: string) => string) {
@@ -252,11 +253,7 @@ export function InfobaseFormDialog({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>{t("infobases.fields.tenant")}</FormLabel>
-                  <Select
-                    value={field.value}
-                    onValueChange={field.onChange}
-                    disabled={isEdit}
-                  >
+                  <Select value={field.value} onValueChange={field.onChange} disabled={isEdit}>
                     <FormControl>
                       <SelectTrigger className="w-full">
                         <SelectValue placeholder={t("infobases.form.tenantPlaceholder")} />
@@ -499,11 +496,7 @@ export function InfobaseFormDialog({
                 {t("common.cancel")}
               </Button>
               <Button type="submit" disabled={pending}>
-                {pending
-                  ? t("common.loading")
-                  : isEdit
-                    ? t("common.save")
-                    : t("common.create")}
+                {pending ? t("common.loading") : isEdit ? t("common.save") : t("common.create")}
               </Button>
             </DialogFooter>
           </form>
