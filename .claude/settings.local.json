@@ -18,7 +18,10 @@
       "Bash(dotnet user-secrets *)",
       "Bash(git push *)",
       "Bash(gh pr create --title 'Stage 3 PR 3.8: Real rac.exe RAS adapter — Stage 3 closed' --body ' *)",
-      "Bash(git commit -m 'chore: refresh .claude/settings.local.json permission allowlist *)"
+      "Bash(git commit -m 'chore: refresh .claude/settings.local.json permission allowlist *)",
+      "Bash(pnpm typecheck *)",
+      "Bash(pnpm type-check *)",
+      "Bash(pnpm lint *)"
     ]
   }
 }
