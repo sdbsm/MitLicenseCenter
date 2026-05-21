@@ -60,12 +60,14 @@ public static class SettingDefinitions
                 Description: "Endpoint RAS-сервера в формате host:port (используется как fallback).",
                 Kind: SettingValueKind.HostPort),
 
+            // ADR-3.3: дефолт не сидируем — 1С 8.5 положил rac.exe в версионную
+            // папку (`1cv8\<version>\bin\`), в `1cv8\common\` его нет. Оператор
+            // обязан задать явно через «Параметры» при настройке RAS fallback'а.
             [SettingKey.OneCRasExePath] = new(
                 SettingKey.OneCRasExePath,
                 IsSecret: false,
-                Description: "Путь к rac.exe для RAS fallback.",
-                Kind: SettingValueKind.Path,
-                DefaultValue: @"C:\Program Files\1cv8\common\rac.exe"),
+                Description: "Путь к rac.exe для RAS fallback (например, C:\\Program Files\\1cv8\\8.5.1.1302\\bin\\rac.exe).",
+                Kind: SettingValueKind.Path),
 
             [SettingKey.IisServiceAccountUserName] = new(
                 SettingKey.IisServiceAccountUserName,

@@ -5,6 +5,7 @@ using MitLicenseCenter.Application.Auditing;
 using MitLicenseCenter.Application.Clusters;
 using MitLicenseCenter.Domain.Audit;
 using MitLicenseCenter.Infrastructure.Clusters;
+using MitLicenseCenter.Infrastructure.Clusters.Testing;
 using NSubstitute;
 using Xunit;
 

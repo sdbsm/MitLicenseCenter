@@ -294,6 +294,80 @@ PR 2.4 закрывает Stage 2: layout shell + auth additions (PR 2.1), Tenan
 - **Drift audit semantics.** `DriftCheckJob` writes `AuditActionType.PublicationDriftDetected = 210` **only** on a status transition AND **only** when the new status is one of `{Drift, Missing, Error}`. `InSync → InSync` and `Drift → Drift` with identical details are silent. The `Drift → InSync` transition that results from a successful reconcile is audited by the reconcile endpoint as `PublicationReconciled = 211` — the drift job never writes `211`, the endpoint never writes `210`.
 - **Test strategy.** The XML logic lives in `VrdPatcher` and `PublicationDriftDetector` as pure static helpers so unit tests exercise them without `ServerManager` or a filesystem. `OneCIisPublishingService` is `[SupportedOSPlatform("windows")]` and validated only by smoke tests against a real publication.
 
+## Stage 3 PR 3.8 — Real RAS adapter (rac.exe wrapper)
+
+### ADR-3.3 — 1С RAS `rac.exe` CLI contract
+
+> **Numbering note.** The plan-file called this "ADR-3.2" but that slot was already taken by the Polly circuit breaker config (above). Renumbered to **ADR-3.3** under the new PR 3.8 section. Memory mirror in `decisions.md` carries the same number.
+
+- **Source.** Live experiment against `rac.exe` v8.5.1.1302 on the local single-node test rig (1C:Enterprise 8.5 Server Agent x86-64 + manually-launched `ras.exe`). Verified against platform 8.5.1.1302; parser is intentionally permissive so 8.3.20–8.3.26 and minor 8.5.x bumps do not break it. The smoke test (`RacExecutableSmokeTests`) re-verifies on whatever platform the operator has installed.
+- **Tool path.** Operator-configurable via `Settings.OneC.RAS.ExePath`. **Plan default `C:\Program Files\1cv8\common\rac.exe` was wrong** — 1C 8.5 keeps `rac.exe` inside the version-specific `bin\` directory (`C:\Program Files\1cv8\8.5.1.1302\bin\rac.exe`), and `1cv8\common\` no longer ships the utility. PR 3.8 therefore **drops the seeded default** from `SettingDefinitions.OneCRasExePath` (matches the no-default treatment of `OneC.RAS.Endpoint`) so a fresh install forces the operator to enter the version-specific path in the «Параметры» UI. Existing installs that already seeded the wrong path are unaffected by the schema change (seeder is idempotent) — the operator must override via the UI when the circuit first opens.
+- **RAS endpoint.** Operator-configurable via `Settings.OneC.RAS.Endpoint` (default `localhost:1545`). Passed to `rac.exe` as the **first positional argument** (`rac.exe <host:port> <mode> <command> ...`). Omitting the positional defaults to `localhost:1545` inside `rac` itself; we always pass it explicitly so a misconfigured `Endpoint` surfaces as a connection error instead of silently hitting localhost.
+- **Authentication.** Cluster admin creds (`Settings.OneC.Cluster.AdminUser` / `OneC.Cluster.AdminPassword`) are reused — `rac.exe` does not have a separate auth source. Passed as **two separate flags** `--cluster-user=<name>` `--cluster-pwd=<password>` (the plan's `--auth=<user>:<pwd>` syntax does not exist in `rac.exe`). When both are empty in settings (typical for a default cluster with no admin registered), the flags are omitted entirely — `rac` allows anonymous administration of clusters that have no registered administrators, exactly matching the live test rig's behaviour.
+- **Encoding** (revised after smoke test on .NET `Process`). `rac.exe` writes stdout/stderr in the **parent process's active OEM code page**, NOT a fixed UTF-8 stream. The original belief — captured during the PowerShell-driven plan-mode experiment that showed clean UTF-8 bytes (`D0 A1 D0 B5 …` for «Сеанс») — was an artefact of PowerShell 7 / Windows Terminal silently activating `chcp 65001` for child processes. From a plain .NET test host or a Windows service running under `Network Service`, the active OEM CP on RU Windows is **866**, so the same stderr arrives as `91 A5 A0 AD E1 …` (CP866 for «Сеанс»). Setting `ProcessStartInfo.StandardOutputEncoding / StandardErrorEncoding = Encoding.UTF8` does **not** flip the child's output — it only tells the `StreamReader` how to interpret bytes that are already on the pipe, so the parent ends up with `U+FFFD` everywhere and the idempotent marker `«Сеанс с указанным идентификатором не найден»` fails to match. `SystemProcessRacRunner` therefore reads `process.StandardError.BaseStream` directly into a `MemoryStream` and decodes with `Encoding.GetEncoding(CultureInfo.CurrentCulture.TextInfo.OEMCodePage)` (registered via `CodePagesEncodingProvider.Instance` because .NET Core+ drops legacy code pages from the default provider). On RU Windows this yields CP866; on EN Windows it yields CP437; on locales where `OEMCodePage = 0` it falls back to UTF-8. **No `StandardOutputEncoding` / `StandardErrorEncoding` properties are set on `ProcessStartInfo`** — we own the decoding step end-to-end so the parent's `Console.OutputEncoding` cannot accidentally short-circuit our logic.
+- **Output format = vertical key-value blocks**, NOT tabular. The plan's hoped-for `--result-format=tab` flag does **not** exist in any of the help screens. Real format:
+
+  ```
+  field-name-1                              : value
+  field-name-2                              : "quoted value"
+  field-name-3                              :
+  field-name-4                              : 123
+  ⏎  (blank line ⇒ record separator)
+  field-name-1                              : <next record>
+  ...
+  ```
+
+  Field names are kebab-case ASCII; the colon is preceded by spaces (right-padded for visual alignment) and followed by exactly one space then the value. String values may be **unquoted** (when they contain no whitespace) or wrapped in double quotes (when they contain spaces — e.g. `name : "Локальный кластер"`). Empty values are an empty string after the colon-space (with trailing whitespace ignored). Line terminators are CRLF (`\r\n`). Records are separated by **one or more** blank lines.
+
+- **Parser strategy** (`RacOutputParser`, pure static helper). Defensive regex over the line shape `^\s*(?<key>[a-z0-9-]+)\s*:\s?(?<value>.*?)\s*$`. Records split on consecutive blank-only lines. Unknown keys ignored. Missing required keys (`session`, `infobase` for sessions; `cluster` for clusters) → record dropped + logged at Debug. Empty stdout → empty list (NOT an error). String values unquoted by stripping a matched pair of leading/trailing `"`; embedded quotes are not expected in 1C identifiers, so no escape handling. **Never throws** — parser failure on an unexpected line is a Debug-level skip, not an exception.
+
+- **Commands used by the adapter.**
+
+  | Adapter method | Invocation | Notes |
+  |---|---|---|
+  | `PingAsync` | `rac.exe <ras-endpoint> cluster list` | Exit 0 + at least one cluster record → `Ok=true`. Non-zero exit → `Ok=false`, `Error = stderr.Trim()`. |
+  | `ListActiveSessionsAsync` | `rac.exe <ras-endpoint> session list --cluster=<uuid> [--cluster-user=<u> --cluster-pwd=<p>]` | `<cluster-uuid>` is resolved from a prior `cluster list` call in the same invocation cycle (cached for the duration of one `ListActiveSessionsAsync`, NOT across cycles — operator can recreate the cluster between cycles). Single-cluster topology assumed (mirrors REST adapter). |
+  | `KillSessionAsync` | `rac.exe <ras-endpoint> session terminate --cluster=<uuid> --session=<session-uuid> [--cluster-user=<u> --cluster-pwd=<p>] --error-message="<reason>"` | The kill command is **`session terminate`**, not the plan's `session kill` (which does not exist). `--error-message` carries the operator's reason verbatim (`ManualByAdmin`) or a system tag (`LimitExceeded`) — 1C displays this string to the user being kicked. |
+
+- **Field mapping (session record → `ClusterSession`).**
+
+  | `ClusterSession` property | `rac` field | Notes |
+  |---|---|---|
+  | `SessionId` | `session` | UUID. This is the kill target. |
+  | `ClusterInfobaseId` | `infobase` | UUID. Matches `Infobase.ClusterInfobaseId` in our schema (same as REST). |
+  | `AppId` | `app-id` | String. Used for `ConsumesLicense` heuristic. |
+  | `UserName` | `user-name` | String. May be quoted. |
+  | `Host` | `host` | String. |
+  | `StartedAtUtc` | `started-at` | ISO `YYYY-MM-DDTHH:MM:SS` (no timezone suffix). Same as REST: parsed with `DateTimeStyles.AssumeUniversal | AdjustToUniversal`. Single-node deployment runs the cluster in the same timezone as the backend; if the deployment ever splits across timezones, this flag-day becomes a known footgun (same caveat as REST adapter — see ADR-3.1). |
+  | `ConsumesLicense` | derived | The default `session list` output does **NOT** include a `license-present` field (plan assumed it would). The `--licenses` flag changes the output shape entirely and is unsuitable for our parser. Fall back to the same `app-id` heuristic as the REST adapter: `{1CV8, 1CV8C, WebClient, Designer, COMConnection}` → `true`, anything else (e.g. `BackgroundJob`, `Job`, `SrvrConsole`) → `false`. Heuristic is shared with `OneCRestClusterClient.LicenseConsumingAppIds` via a single `static readonly HashSet`. |
+
+- **Error semantics (exit codes verified empirically — `rac` returns **non-zero = 255** for every failure path):**
+
+  | Scenario | stderr (Russian, UTF-8) | Adapter behaviour |
+  |---|---|---|
+  | success | (empty) | exit 0, parse stdout |
+  | unreachable RAS host/port | `Ошибка соединения с сервером\nПодключение не установлено, т.к. конечный компьютер отверг запрос на подключение` | `ListActiveSessionsAsync` → empty list + Warning log. `PingAsync` → `Ok=false`, `Error=stderr trimmed`. Circuit-breaker (owned by REST side) keeps the circuit open. |
+  | unknown cluster UUID | `Сервер <hostname> не является центральным для кластера <uuid>.` | Same as above — empty list + warning. Surface to operator via Settings page if circuit stays open >5min. |
+  | terminate: session not found | `Сеанс с указанным идентификатором не найден` | `KillSessionAsync` → `Killed=false, AlreadyGone=true` (idempotent — matches REST `404` semantics). Detection via `stderr.Contains("Сеанс с указанным идентификатором не найден")` — case-sensitive substring match, fine for current 1C platform. |
+  | terminate: malformed UUID arg | `Ошибка разбора параметра: session` | `KillSessionAsync` → `Killed=false, AlreadyGone=false` + Error log. Should never happen — `KillEnforcer` always passes a UUID it pulled from a parsed snapshot. |
+
+- **Process lifecycle.** Adapter spawns `rac.exe` via `System.Diagnostics.Process` with `UseShellExecute=false`, `RedirectStandardOutput=true`, `RedirectStandardError=true`. Wraps the entire invocation in `CancellationToken.Register(() => process.Kill(entireProcessTree: true))`. **`entireProcessTree: true`** is intentional — `rac` may spawn a transient child for the gRPC dialog with RAS; killing only the parent leaves the child as an orphan that eventually times out. Settings.OneC.Cluster.RestApiTimeoutSeconds is *not* reused here — instead the adapter uses a fixed 30-second deadline per invocation (longer than REST because the rac → ras → ragent chain has more hops). If the deadline expires, the `CancellationToken` fires, the process tree is killed, and the call returns the same way as a non-zero exit.
+
+- **Process abstraction = `IRacProcessRunner`** (`Infrastructure/Clusters/IRacProcessRunner.cs`). Hides `System.Diagnostics.Process` behind a `Task<RacInvocation>` API (`RacInvocation(int ExitCode, string Stdout, string Stderr)`) so `RacExecutableRasClusterClient` is unit-testable by substituting a fake runner. The real implementation (`SystemProcessRacRunner`) is the only thing that actually shells out. Unit tests pass canned `RacInvocation` instances; smoke tests exercise `SystemProcessRacRunner` directly against the live `rac.exe`.
+
+- **Spawn cadence guard rail (binding).** Adapter spawns **at most one** `rac.exe` per `ListActiveSessionsAsync` and **at most one** per `KillSessionAsync`. The cluster-UUID resolution (`cluster list`) and the session list happen **inside a single process invocation** by chaining stdout — wait, no, they don't: `rac` is one command per process. So the adapter caches the resolved `clusterUuid` for the duration of the *current `ListActiveSessionsAsync` call only* and emits two processes per call (one `cluster list`, one `session list`). At the cold cadence of 20–30s this is six processes per minute worst-case (3 list cycles × 2 procs) — well below the "no rac.exe per polling tick" memory rule, which exists to forbid per-session spawning. Kill enforcer adds **one extra `rac.exe`** per session killed; capped at 20 kills/cycle (PR 3.3 `KillEnforcer`) → worst-case 26 invocations per minute under sustained over-quota conditions. Plan-strategy B (long-lived TCP socket on 1545) remains deferred to Stage 4 — see ROADMAP.
+
+- **Source field propagation (decorator wiring sanity check).** `ResilientClusterClient` populates `SnapshotPayload.Source` indirectly via `ICircuitStatusReader.GetStatus().ActiveAdapter` in `ReconciliationJob`. `ActiveAdapter` already computes `"Ras"` when the circuit is `Open` and `"Rest"` otherwise (`ClusterCircuitState.GetStatus`). PR 3.8 does **not** introduce a new mechanism — it just makes the `"Ras"` branch produce real sessions instead of an empty stub. Dashboard cluster card and `/sessions/snapshot.source` therefore start showing `"Ras"` automatically once the circuit opens. Smoke test confirms the end-to-end loop.
+
+- **`StubRasClusterClient` retained for tests.** Moved from `Infrastructure/Clusters/` to `Infrastructure/Clusters/Testing/` and kept `internal sealed`. Existing PR 3.2/3.3 unit tests (`CircuitBreakerTransitionTests`, `SessionsSnapshotProjectionTests`, etc.) that referenced it directly continue to compile thanks to `InternalsVisibleTo MitLicenseCenter.Tests.Unit` already in `MitLicenseCenter.Infrastructure.csproj`. The stub is **not** registered in DI any longer — production wiring is `services.AddScoped<IRasFallbackClusterClient, RacExecutableRasClusterClient>()`.
+
+- **Test strategy.**
+  - `Tests.Unit/Clusters/RacOutputParserTests.cs` — `[Theory]` with `[InlineData]` containing the captured stdout from this very experiment (single-record, multi-record, empty, malformed-line skipped, unknown-key tolerated, quoted-and-unquoted strings, idle infobase with no sessions). No `IRacProcessRunner`, no `Process` — pure string-in, list-out.
+  - `Tests.Unit/Clusters/RacExecutableRasClusterClientTests.cs` — uses a fake `IRacProcessRunner` returning canned `RacInvocation`s. Covers: cluster-list-then-session-list happy path, `cluster list` failure short-circuits `ListActiveSessionsAsync` to empty, `session terminate` "session not found" stderr → `AlreadyGone=true`, cancellation token threading.
+  - `Tests.Unit/Clusters/RacExecutableSmokeTests.cs` `[Trait("Category","Smoke")]` — talks to a real `rac.exe` against a real `ras.exe` on `localhost:1545`. Asserts `PingAsync.Ok == true` and `ListActiveSessionsAsync` returns at least one session when a `BackgroundJob` is running. CI excludes via `--filter Category!=Smoke`.
+
+- **Service-account requirements (operational, mirrored in `docs/04_INFRASTRUCTURE.md`).** The backend service account needs (1) **execute** permission on the resolved `rac.exe` path, (2) **read** access to the `1cv8\<version>\bin\` directory so co-located DLLs (`backend.dll`, `nlsoft.dll`, etc.) load, (3) **network reach** to `Settings.OneC.RAS.Endpoint` (default `localhost:1545`). `Network Service` works out-of-the-box on a stock single-node install where `1cv8` is installed under `C:\Program Files\` — the default ACLs grant `Users` Read+Execute. Custom service accounts (locked-down domain users) may need explicit grant on `1cv8\<version>\bin\rac.exe`.
+
 ## Locked Operational Constraints (not full ADRs, but binding)
 
 - **Kill priority:** when `Consumed > Limit`, kill sessions ordered by `StartedAt DESC` (newest first) until `Consumed == Limit`. Justification: simplest to explain to end users ("you just logged in and were dropped because the quota was already full") and avoids interrupting in-progress work of established sessions.

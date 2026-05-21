@@ -84,7 +84,11 @@ public static class DependencyInjection
             .RemoveAllResilienceHandlers();
 #pragma warning restore EXTEXP0001
 
-        services.AddScoped<IRasFallbackClusterClient, StubRasClusterClient>();
+        // RAS fallback (PR 3.8): реальный rac.exe wrapper. Контракт CLI и парсер
+        // зафиксированы в ADR-3.3. Stub переехал в Clusters/Testing/ и в production-DI
+        // больше не регистрируется (только unit-тесты PR 3.2/3.3 берут его явно).
+        services.AddSingleton<IRacProcessRunner, SystemProcessRacRunner>();
+        services.AddScoped<IRasFallbackClusterClient, RacExecutableRasClusterClient>();
 
         // Явная фабрика: ResilientClusterClient берёт конкретный OneCRestClusterClient
         // как IClusterClient primary (из IHttpClientFactory), чтобы тесты могли
