@@ -15,7 +15,10 @@
       "PowerShell($psi = New-Object System.Diagnostics.ProcessStartInfo; $psi.FileName = 'C:\\\\Program Files\\\\1cv8\\\\8.5.1.1302\\\\bin\\\\rac.exe'; $psi.Arguments = \"session list --cluster=00000000-0000-0000-0000-000000000000\"; $psi.UseShellExecute = $false; $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true; $p = [System.Diagnostics.Process]::Start\\($psi\\); $msErr = New-Object System.IO.MemoryStream; $p.StandardError.BaseStream.CopyTo\\($msErr\\); $p.WaitForExit\\(\\); Write-Output \"ExitCode=$\\($p.ExitCode\\), StderrBytes=$\\($msErr.Length\\)\"; Write-Output \"--- StderrBytes \\(hex\\) ---\"; \\($msErr.ToArray\\(\\) | ForEach-Object { '{0:X2}' -f $_ }\\) -join ' '; Write-Output \"\"; Write-Output \"--- UTF-8 decode ---\"; [System.Text.Encoding]::UTF8.GetString\\($msErr.ToArray\\(\\)\\); Write-Output \"--- CP866 decode ---\"; [System.Text.Encoding]::GetEncoding\\(866\\).GetString\\($msErr.ToArray\\(\\)\\); Write-Output \"--- CP1251 decode ---\"; [System.Text.Encoding]::GetEncoding\\(1251\\).GetString\\($msErr.ToArray\\(\\)\\))",
       "Bash(dotnet build *)",
       "Bash(dotnet test *)",
-      "Bash(dotnet user-secrets *)"
+      "Bash(dotnet user-secrets *)",
+      "Bash(git push *)",
+      "Bash(gh pr create --title 'Stage 3 PR 3.8: Real rac.exe RAS adapter — Stage 3 closed' --body ' *)",
+      "Bash(git commit -m 'chore: refresh .claude/settings.local.json permission allowlist *)"
     ]
   }
 }
