@@ -52,17 +52,24 @@ The stage that turned a domain CRUD app into an actual control plane.
 **Acknowledged debts carried into Stage 4:**
 - No frontend test framework (Vitest deferred — listed under Open items in the Stage 3 plan as accepted risk).
 - `rac.exe`-per-cycle spawning works but burns ~26 processes/min under sustained over-quota load. Strategy B (long-lived TCP socket on 1545 → no per-cycle spawn) is the obvious next optimisation.
-- Per-publication physical-path override deferred (PR 3.6 verification gap — operator must align IIS physical path with `{IIS.DefaultVrdRoot}/{siteName}/{virtualPath}` convention or drift detection reports `Missing` on healthy publications).
+- ~~Per-publication physical-path override deferred~~ → **Closed by Stage 4 PR 4.1.** `PhysicalPathOverride` column on `Publication` + `VrdPathResolver` static helper; override-first, convention fallback. Section C of Stage 3 operator verification now unblocked.
 - Multi-cluster topology — `OneCRestClusterClient` and `RacExecutableRasClusterClient` both assume single-cluster, single-node deployment. ADR-3.1 documents this.
 
-## Stage 4 — Planned
+## Stage 4 — Operational hardening · **In Progress**
 
-Not started. Likely scope (subject to change once Stage 3 ships):
+Narrative: "Operational hardening release." Scope was pivoted and locked 2026-05-22 — backup orchestration (ADR-9) and TOTP 2FA permanently revoked as out-of-app scope (see ADR-15). Each sub-PR has its own deep-dive plan file in `~/.claude/plans/`.
 
-1. **Backup orchestration (ADR-9 activation).** Hangfire-driven `BACKUP DATABASE` / `BACKUP LOG`, full nightly + differential 6h + tx log 15min, weekly verify-restore to `MitLicenseCenter_RestoreTest`, daily companion-artifacts copy (DPAPI keys, `appsettings.Production.json`). Standalone `MitLicenseCenter.Restore.exe` CLI for DR.
-2. **RAS long-lived TCP socket strategy.** Replace `rac.exe`-per-cycle with a persistent connection to `ras.exe` on 1545. Removes the per-cycle process spawn cost. Tradeoff: protocol re-implementation work (rac.exe is the 1C-supplied wire-protocol implementation). Decide after measuring real-world per-cycle latency in Stage 3 production deployment.
-3. **Per-publication VRD path override.** Schema column on `Publication` for the absolute physical path of the IIS folder; resolver uses it when set, falls back to the `{IIS.DefaultVrdRoot}/{siteName}/{virtualPath}` convention otherwise. Closes the PR 3.6 verification gap for non-conventional layouts.
-4. **Frontend test framework.** Vitest + React Testing Library — the Stage 3 frontend shipped without coverage as accepted risk; back-fill happens here with a tooling PR before adding more UI features.
-5. **Audit retention.** Stage 3 writes audit rows indefinitely. Retention policy (e.g. roll over annually to a cold table) + Settings key for retention window. Already a frequent stakeholder ask in the plan margin.
-6. **TOTP 2FA for admin accounts (off by default per ADR-7).**
-7. **Multi-cluster / multi-node topology** if and when a deployment ever needs it. Currently locked at single-node — opening this means re-reviewing every adapter.
+| PR | Scope | Status | ADR(s) |
+|---|---|---|---|
+| 4.1 | Per-publication physical-path override — `PhysicalPathOverride` column on `Publication`, `VrdPathResolver` static helper, override-first + convention fallback, real-time placeholder in `InfobaseFormDialog`. Closes PR 3.6 Section C verification gap. | **Done** | ADR-4.1 updated |
+| 4.2 | Frontend Vitest + React Testing Library setup — tooling PR, no feature coverage yet; back-fills the Stage 3 accepted risk before more UI lands. | Planned | — |
+| 4.3 | Audit retention policy — `Audit.RetentionDays` Settings key (15th key in catalog), Hangfire purge job, `AuditLogsPurged=500` action type, surfaced on Dashboard health card. | Planned | — |
+| 4.4 | ADR revocations + docs/memory cleanup — ADR-9 (backup) formally revoked, ADR-7 TOTP mention removed, ADR-15 (backup/2FA responsibility boundary) locked, MEMORY.md + memory/ consistency pass. | Planned | ADR-9 revoked, ADR-15 new, ADR-7 updated |
+
+**Revoked from original Stage 4 scope:**
+- ~~Backup orchestration (ADR-9)~~ — out of application scope permanently. Operator uses SQL Maintenance Plans / Veeam / Windows Server Backup. New ADR-15 documents the responsibility boundary.
+- ~~TOTP 2FA~~ — internal LAN/VPN deployment; network-level auth protection (firewall + AD/SSO + physical access) is sufficient. `TwoFactorEnabled` column stays (Identity base class) but is never activated. ADR-7 updated accordingly.
+
+**Deferred beyond Stage 4:**
+- RAS long-lived TCP socket (Strategy B) — `rac.exe`-per-cycle budget (~26 processes/min) is within OS/AV tolerances on single-node; re-evaluate after real-world production latency measurement.
+- Multi-cluster / multi-node topology — single-node assumption locked; opening it requires re-review of every adapter.

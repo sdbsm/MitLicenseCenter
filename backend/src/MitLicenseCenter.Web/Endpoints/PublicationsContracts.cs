@@ -16,7 +16,8 @@ public sealed record PublicationResponse(
     DateTime? UpdatedAt,
     PublicationDriftStatus LastDriftStatus,
     DateTime? LastDriftCheckAt,
-    string? LastDriftDetails);
+    string? LastDriftDetails,
+    string? PhysicalPathOverride);
 
 public sealed record CheckDriftAcceptedResponse(string CorrelationId, Guid PublicationId);
 
@@ -31,7 +32,8 @@ public sealed record CreatePublicationRequest(
     [property: Required, StringLength(50, MinimumLength = 1)] string PlatformVersion,
     bool EnableOData,
     bool EnableHttpServices,
-    [property: StringLength(8000)] string? VrdCustomXml);
+    [property: StringLength(8000)] string? VrdCustomXml,
+    [property: StringLength(260)] string? PhysicalPathOverride);
 
 public sealed record UpdatePublicationRequest(
     [property: Required, StringLength(200, MinimumLength = 1)] string SiteName,
@@ -39,7 +41,8 @@ public sealed record UpdatePublicationRequest(
     [property: Required, StringLength(50, MinimumLength = 1)] string PlatformVersion,
     bool EnableOData,
     bool EnableHttpServices,
-    [property: StringLength(8000)] string? VrdCustomXml);
+    [property: StringLength(8000)] string? VrdCustomXml,
+    [property: StringLength(260)] string? PhysicalPathOverride);
 
 internal static class PublicationMappings
 {
@@ -57,5 +60,6 @@ internal static class PublicationMappings
             x.UpdatedAt,
             x.LastDriftStatus,
             x.LastDriftCheckAt,
-            x.LastDriftDetails);
+            x.LastDriftDetails,
+            x.PhysicalPathOverride);
 }

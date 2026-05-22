@@ -48,17 +48,21 @@ When a 1C Platform Update occurs, the system must ONLY:
 - It can manage Application Pools (recycle, start, stop) and Sites.
 - Desired State: Ensure the IIS Virtual Directory points to the correct physical path containing the `default.vrd`.
 
-### Operational note (Stage 3 PR 3.5)
-- `OneCIisPublishingService` reads and patches `default.vrd` via `XDocument` + `Microsoft.Web.Administration.ServerManager`. Path layout is `{Settings.IIS.DefaultVrdRoot}/{siteName}/{trimmedVirtualPath}/default.vrd` — operator-configurable from the Settings page; per-publication override is deferred to Stage 4.
+### Operational note (Stage 3 PR 3.5 + Stage 4 PR 4.1)
+- `OneCIisPublishingService` reads and patches `default.vrd` via `XDocument` + `Microsoft.Web.Administration.ServerManager`. Path resolution (via `VrdPathResolver.Resolve`):
+  - **Override-first (PR 4.1)**: if the Publication has `PhysicalPathOverride` set, the resolver uses `{PhysicalPathOverride}\default.vrd`. The operator sets this in the Infobase edit form — it is the physical folder of the IIS application, exactly as shown in IIS Manager.
+  - **Convention fallback**: `{Settings.IIS.DefaultVrdRoot}/{siteName}/{trimmedVirtualPath}/default.vrd` — operator-configurable from the Settings page.
 - Service-account requirements specific to drift/reconcile (these add to the generic permissions in §3 below):
   - **R/W** on every physical folder containing a managed `default.vrd` file. Reconcile writes to `default.vrd.mlc.tmp` and atomically swaps via `File.Replace`, so the account also needs delete-on-rename permission in that folder.
   - **IIS Metabase read** at minimum (`ServerManager.OpenRemote(null)` / `new ServerManager()`). Sites enumeration is read-only — drift detection does not mutate IIS configuration; only `default.vrd` is mutated.
   - On permission failure (`UnauthorizedAccessException` / `COMException`) the adapter returns `Error` status. `POST /reconcile` translates the same exceptions into `409 ProblemDetails` with `code: IIS_RECONCILE_FAILED` (or `IIS_ACCESS_DENIED`) — see ADR-4.1 for the full mutation-and-merge contract.
 
-### Operational note (Stage 3 PR 3.6 verification gap)
-The drift detector resolves the on-disk VRD by composing `{Settings.IIS.DefaultVrdRoot}/{siteName}/{trimmedVirtualPath}/default.vrd`. This is **convention, not discovery** — if the actual physical path that IIS uses for a publication differs from this layout, drift detection reports `Missing` even when the publication is healthy. Two related requirements for the backend service account:
-1. **IIS-admin rights**: read `applicationHost.config` and `redirection.config`, run `ServerManager` against the local IIS without elevation prompts. `Network Service` is sufficient on a stock single-node install; custom accounts need to be added to the local `IIS_IUSRS` group (or granted equivalent ACLs) so `ServerManager.OpenRemote(null)` succeeds.
-2. **Path-layout convention**: when creating a publication, the operator must place the physical IIS folder at `{IIS.DefaultVrdRoot}/{siteName}/{virtualPath}` (with the leading slash trimmed from `virtualPath`). A publication created with a non-standard physical path will show as `Missing` in the drift UI until someone migrates the files or extends the resolver. Per-publication physical-path override is deferred to Stage 4.
+### Operational note (IIS physical-path alignment)
+The drift detector resolves the on-disk VRD path as described above. **If the path is wrong, drift detection reports `Missing` even for a healthy publication.** Two resolution strategies:
+1. **Per-publication override (recommended for non-standard layouts, PR 4.1)**: set `PhysicalPathOverride` in the Infobase edit form to the exact physical folder path shown in IIS Manager (e.g., `C:\inetpub\wwwroot\mitpro`). Drift detection will use this path immediately.
+2. **Convention alignment**: ensure IIS physical path matches `{IIS.DefaultVrdRoot}/{siteName}/{trimmedVirtualPath}`. This is automatic for publications created with the default layout. Service account also needs:
+   - **IIS-admin rights**: read `applicationHost.config` and `redirection.config`, run `ServerManager` against the local IIS. `Network Service` is sufficient on a stock single-node install; custom accounts need `IIS_IUSRS` membership.
+   - **R/W access** to the physical folder path (the one referenced by the resolved VRD path).
 
 ## 3. Windows Server & Security Context
 

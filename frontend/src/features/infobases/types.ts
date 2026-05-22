@@ -9,6 +9,7 @@ export interface Publication {
   enableOData: boolean;
   enableHttpServices: boolean;
   vrdCustomXml: string | null;
+  physicalPathOverride: string | null;
   createdAt: string;
   updatedAt: string | null;
 }
@@ -49,6 +50,7 @@ export interface PublicationInput {
   enableOData: boolean;
   enableHttpServices: boolean;
   vrdCustomXml: string | null;
+  physicalPathOverride: string | null;
 }
 
 export interface CreateInfobaseInput {

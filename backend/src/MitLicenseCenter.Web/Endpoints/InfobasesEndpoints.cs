@@ -95,7 +95,8 @@ public static partial class InfobasesEndpoints
                         pub.UpdatedAt,
                         pub.LastDriftStatus,
                         pub.LastDriftCheckAt,
-                        pub.LastDriftDetails)))
+                        pub.LastDriftDetails,
+                        pub.PhysicalPathOverride)))
             .ToListAsync(ct).ConfigureAwait(false);
 
         return TypedResults.Ok(new InfobaseListResponse(items, total, p, ps));
@@ -175,6 +176,9 @@ public static partial class InfobasesEndpoints
             EnableOData = request.Publication.EnableOData,
             EnableHttpServices = request.Publication.EnableHttpServices,
             VrdCustomXml = string.IsNullOrWhiteSpace(request.Publication.VrdCustomXml) ? null : request.Publication.VrdCustomXml,
+            PhysicalPathOverride = string.IsNullOrWhiteSpace(request.Publication.PhysicalPathOverride)
+                ? null
+                : request.Publication.PhysicalPathOverride.Trim().TrimEnd('\\', '/'),
             CreatedAt = now,
         };
 
@@ -252,6 +256,9 @@ public static partial class InfobasesEndpoints
         publication.EnableOData = request.Publication.EnableOData;
         publication.EnableHttpServices = request.Publication.EnableHttpServices;
         publication.VrdCustomXml = string.IsNullOrWhiteSpace(request.Publication.VrdCustomXml) ? null : request.Publication.VrdCustomXml;
+        publication.PhysicalPathOverride = string.IsNullOrWhiteSpace(request.Publication.PhysicalPathOverride)
+            ? null
+            : request.Publication.PhysicalPathOverride.Trim().TrimEnd('\\', '/');
         publication.UpdatedAt = now;
 
         await db.SaveChangesAsync(ct).ConfigureAwait(false);
@@ -354,21 +361,24 @@ public static partial class InfobasesEndpoints
         Dictionary<string, string[]> errors,
         CreatePublicationRequest publication)
     {
-        AppendPublicationFieldErrors(errors, publication.SiteName, publication.VirtualPath, publication.PlatformVersion);
+        AppendPublicationFieldErrors(errors, publication.SiteName, publication.VirtualPath,
+            publication.PlatformVersion, publication.PhysicalPathOverride);
     }
 
     private static void AppendPublicationErrors(
         Dictionary<string, string[]> errors,
         UpdatePublicationRequest publication)
     {
-        AppendPublicationFieldErrors(errors, publication.SiteName, publication.VirtualPath, publication.PlatformVersion);
+        AppendPublicationFieldErrors(errors, publication.SiteName, publication.VirtualPath,
+            publication.PlatformVersion, publication.PhysicalPathOverride);
     }
 
     private static void AppendPublicationFieldErrors(
         Dictionary<string, string[]> errors,
         string? siteName,
         string? virtualPath,
-        string? platformVersion)
+        string? platformVersion,
+        string? physicalPathOverride)
     {
         if (string.IsNullOrWhiteSpace(siteName))
         {
@@ -397,6 +407,15 @@ public static partial class InfobasesEndpoints
         else if (!PlatformVersionRegex().IsMatch(version))
         {
             errors[$"{nameof(CreateInfobaseRequest.Publication)}.{nameof(CreatePublicationRequest.PlatformVersion)}"] = ["Версия должна состоять из четырёх числовых сегментов, например «8.3.23.1865» или «8.5.1.1302»."];
+        }
+
+        // Physical-path override (PR 4.1): если задан — принимаем только абсолютные пути
+        // (local C:\... или UNC \\server\share\...). Relative-пути отклоняем.
+        if (!string.IsNullOrWhiteSpace(physicalPathOverride)
+            && !Path.IsPathFullyQualified(physicalPathOverride.Trim()))
+        {
+            errors[$"{nameof(CreateInfobaseRequest.Publication)}.{nameof(CreatePublicationRequest.PhysicalPathOverride)}"] =
+                ["Укажите абсолютный путь к папке (например, C:\\pub\\app или \\\\server\\share\\app)."];
         }
     }
 

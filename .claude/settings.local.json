@@ -21,7 +21,14 @@
       "Bash(git commit -m 'chore: refresh .claude/settings.local.json permission allowlist *)",
       "Bash(pnpm typecheck *)",
       "Bash(pnpm type-check *)",
-      "Bash(pnpm lint *)"
+      "Bash(pnpm lint *)",
+      "Bash(gh run *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\andre\\\\.claude\\\\projects\\\\F--dev-MitLicense-Center\\\\memory\\\\\" -Filter \"*.md\" | Select-Object -ExpandProperty FullName | Sort-Object)",
+      "Bash(ls \"C:\\\\Users\\\\andre\\\\.claude\\\\plans\\\\\" 2>&1 | head -20)",
+      "Bash(xargs grep -l \"PublicationConfiguration\\\\|class PublicationConfiguration\")",
+      "Bash(grep -E \"\\\\.cs$\")",
+      "Bash(xargs grep -l \"InternalsVisibleTo\")",
+      "Bash(grep \"\\\\.cs$\")"
     ]
   }
 }

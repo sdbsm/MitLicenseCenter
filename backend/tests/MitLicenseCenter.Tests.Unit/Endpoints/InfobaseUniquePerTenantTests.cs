@@ -26,7 +26,8 @@ public sealed class InfobaseUniquePerTenantTests
                 PlatformVersion: "8.3.23.1865",
                 EnableOData: false,
                 EnableHttpServices: false,
-                VrdCustomXml: null));
+                VrdCustomXml: null,
+                PhysicalPathOverride: null));
 
     private static Tenant SeedTenant(string name) => new()
     {

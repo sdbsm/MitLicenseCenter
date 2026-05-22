@@ -1,6 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { useTranslation } from "react-i18next";
+import { useSettings } from "@/features/settings/useSettings";
 import { toast } from "sonner";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
@@ -96,6 +97,10 @@ function buildSchema(t: (k: string) => string) {
       enableOData: z.boolean(),
       enableHttpServices: z.boolean(),
       vrdCustomXml: z.string().optional(),
+      physicalPathOverride: z
+        .string()
+        .max(260, t("publications.errors.physicalPathOverrideTooLong"))
+        .optional(),
     }),
   });
 }
@@ -123,6 +128,10 @@ export function InfobaseFormDialog({
   const create = useCreateInfobase();
   const update = useUpdateInfobase();
 
+  // PR 4.1: физический путь override — placeholder вычисляется в реальном времени
+  // по значениям siteName + virtualPath + IIS.DefaultVrdRoot из Settings.
+  const { data: settings } = useSettings();
+
   const form = useForm<FormValues>({
     resolver: zodResolver(buildSchema(t)),
     defaultValues: infobase
@@ -140,6 +149,7 @@ export function InfobaseFormDialog({
             enableOData: infobase.publication.enableOData,
             enableHttpServices: infobase.publication.enableHttpServices,
             vrdCustomXml: infobase.publication.vrdCustomXml ?? "",
+            physicalPathOverride: infobase.publication.physicalPathOverride ?? "",
           },
         }
       : {
@@ -156,9 +166,25 @@ export function InfobaseFormDialog({
             enableOData: false,
             enableHttpServices: false,
             vrdCustomXml: "",
+            physicalPathOverride: "",
           },
         },
   });
+
+  const defaultVrdRoot =
+    settings?.find((s) => s.key === "IIS.DefaultVrdRoot")?.value ?? "C:\\inetpub\\1c-publications";
+
+  const [watchedSiteName, watchedVirtualPath] = useWatch({
+    control: form.control,
+    name: ["publication.siteName", "publication.virtualPath"],
+  });
+
+  const computedDefaultPath = (() => {
+    const site = (watchedSiteName ?? "").trim();
+    const vp = (watchedVirtualPath ?? "").trim().replace(/^\//, "");
+    if (!site) return t("publications.form.physicalPathOverridePlaceholderGeneric");
+    return `${defaultVrdRoot}\\${site}${vp ? `\\${vp}` : ""}`;
+  })();
 
   const onSubmit = form.handleSubmit(async (values) => {
     const publicationInput = {
@@ -170,6 +196,7 @@ export function InfobaseFormDialog({
       vrdCustomXml: values.publication.vrdCustomXml?.trim()
         ? values.publication.vrdCustomXml.trim()
         : null,
+      physicalPathOverride: values.publication.physicalPathOverride?.trim() || null,
     };
 
     try {
@@ -436,6 +463,29 @@ export function InfobaseFormDialog({
                     />
                   </FormControl>
                   <FormDescription>{t("publications.form.platformVersionHint")}</FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="publication.physicalPathOverride"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("publications.fields.physicalPathOverride")}</FormLabel>
+                  <FormControl>
+                    <Input
+                      autoComplete="off"
+                      placeholder={computedDefaultPath}
+                      className="font-mono text-xs"
+                      {...field}
+                      value={field.value ?? ""}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t("publications.form.physicalPathOverrideHint")}
+                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}

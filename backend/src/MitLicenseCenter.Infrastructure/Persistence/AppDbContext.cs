@@ -88,6 +88,8 @@ public sealed class AppDbContext : IdentityDbContext<AppUser, AppRole, Guid>
             e.Property(x => x.LastDriftStatus).HasConversion<int>().IsRequired();
             e.Property(x => x.LastDriftCheckAt);
             e.Property(x => x.LastDriftDetails);
+            // Physical-path override (PR 4.1): nullable, max 260 (MAX_PATH).
+            e.Property(x => x.PhysicalPathOverride).HasMaxLength(260);
             // 1-to-1 required: Publication — часть aggregate Infobase'а; удаление
             // инфобазы каскадом сносит публикацию в БД (IIS-unpublish — Stage 3).
             e.HasOne<Infobase>()

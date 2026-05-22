@@ -39,6 +39,7 @@ Stores the *Desired State* of the IIS publication for a specific Infobase.
 - `LastDriftStatus` (Enum): `InSync`, `Drift`, `Missing`, `Error`. **Поле появится в Stage 3** вместе с drift-detection job — в Stage 2 не присутствует ни в БД, ни в API.
 - `LastDriftCheckAt` (DateTimeUtc, Nullable): **Stage 3.**
 - `LastDriftDetails` (String, Nullable): **Stage 3.**
+- `PhysicalPathOverride` (`NVARCHAR(260)`, Nullable): **Stage 4 PR 4.1.** Override физической папки IIS-приложения. Если задан — `VrdPathResolver` использует `{PhysicalPathOverride}\default.vrd` вместо convention `{IIS.DefaultVrdRoot}/{siteName}/{virtualPath}/default.vrd`. NULL/empty → fallback на convention (нет migration noise для существующих строк). Принимается только абсолютный путь (local `C:\...` или UNC `\\server\share\...`); relative paths отклоняются с 400.
 - **Relationships:** Belongs to `Infobase`.
 
 ## 4. AuditLog

@@ -41,6 +41,7 @@ export interface PublicationsBackendListItem {
     enableOData: boolean;
     enableHttpServices: boolean;
     vrdCustomXml: string | null;
+    physicalPathOverride: string | null;
     createdAt: string;
     updatedAt: string | null;
     lastDriftStatus: PublicationDriftStatus;

@@ -94,6 +94,13 @@ public static class PublicationsEndpoints
         {
             errors[nameof(UpdatePublicationRequest.PlatformVersion)] = ["Версия должна состоять из четырёх числовых сегментов, например «8.3.23.1865» или «8.5.1.1302»."];
         }
+        // Physical-path override (PR 4.1): принимаем только абсолютные пути.
+        if (!string.IsNullOrWhiteSpace(request.PhysicalPathOverride)
+            && !Path.IsPathFullyQualified(request.PhysicalPathOverride.Trim()))
+        {
+            errors[nameof(UpdatePublicationRequest.PhysicalPathOverride)] =
+                ["Укажите абсолютный путь к папке (например, C:\\pub\\app или \\\\server\\share\\app)."];
+        }
         if (errors.Count > 0)
         {
             return TypedResults.ValidationProblem(errors);
@@ -107,6 +114,9 @@ public static class PublicationsEndpoints
         publication.EnableOData = request.EnableOData;
         publication.EnableHttpServices = request.EnableHttpServices;
         publication.VrdCustomXml = string.IsNullOrWhiteSpace(request.VrdCustomXml) ? null : request.VrdCustomXml;
+        publication.PhysicalPathOverride = string.IsNullOrWhiteSpace(request.PhysicalPathOverride)
+            ? null
+            : request.PhysicalPathOverride.Trim().TrimEnd('\\', '/');
         publication.UpdatedAt = clock.GetUtcNow().UtcDateTime;
 
         await db.SaveChangesAsync(ct).ConfigureAwait(false);

@@ -13,9 +13,10 @@ namespace MitLicenseCenter.Infrastructure.Publishing;
 // surgical XML-patch. Никогда не запускает webinst, никогда не overwrite'ит
 // файл целиком — см. memory/infrastructure_integration.md и ADR-4.1.
 //
-// VRD-path layout (ADR-4.1): `{IIS.DefaultVrdRoot}/{siteName}/{trimmedVirtualPath}/default.vrd`.
-// Если у оператора путь иной — он перенастраивается через IIS.DefaultVrdRoot
-// или через изменение physical-path application'а в IIS (за пределами этого PR).
+// VRD-path layout (ADR-4.1 + PR 4.1): если у Publication задан PhysicalPathOverride —
+// используется он (папка IIS-приложения). Иначе convention-fallback:
+// {IIS.DefaultVrdRoot}/{siteName}/{trimmedVirtualPath}/default.vrd.
+// Resolver вынесен в VrdPathResolver (pure static, unit-testable без IIS).
 //
 // Windows-only: ServerManager доступен только на Windows. Тесты, не зависящие
 // от IIS, идут через VrdPatcher/PublicationDriftDetector напрямую (pure helpers).
@@ -133,13 +134,12 @@ internal sealed partial class OneCIisPublishingService : IIisPublishingService
         LogVrdPatched(_logger, vrdPath);
     }
 
-    private string ResolveVrdPath(Publication publication)
-    {
-        var root = _settings.GetString(SettingKey.IisDefaultVrdRoot)
-            ?? @"C:\inetpub\1c-publications";
-        var trimmed = publication.VirtualPath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
-        return Path.Combine(root, publication.SiteName, trimmed, "default.vrd");
-    }
+    private string ResolveVrdPath(Publication publication) =>
+        VrdPathResolver.Resolve(
+            publication.PhysicalPathOverride,
+            _settings.GetString(SettingKey.IisDefaultVrdRoot) ?? @"C:\inetpub\1c-publications",
+            publication.SiteName,
+            publication.VirtualPath);
 
     private static bool SiteHasVirtualPath(Site site, string virtualPath)
     {

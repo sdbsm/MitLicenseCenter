@@ -21,4 +21,9 @@ public sealed class Publication : IEntity
     public PublicationDriftStatus LastDriftStatus { get; set; }
     public DateTime? LastDriftCheckAt { get; set; }
     public string? LastDriftDetails { get; set; }
+
+    // Physical-path override (PR 4.1). Если задан — resolver использует этот путь
+    // к папке IIS-приложения вместо convention {IIS.DefaultVrdRoot}/{siteName}/{virtualPath}.
+    // NULL/empty → fallback на convention (нет migration noise для существующих строк).
+    public string? PhysicalPathOverride { get; set; }
 }

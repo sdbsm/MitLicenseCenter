@@ -15,7 +15,8 @@ public sealed class InfobasesValidationTests
             PlatformVersion: "8.3.23.1865",
             EnableOData: false,
             EnableHttpServices: false,
-            VrdCustomXml: null);
+            VrdCustomXml: null,
+            PhysicalPathOverride: null);
 
     [Fact]
     public void CreateInfobaseRequest_with_valid_input_passes_DataAnnotations()
