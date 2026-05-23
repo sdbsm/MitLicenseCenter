@@ -135,5 +135,14 @@ public static class SettingDefinitions
                 DefaultValue: "3",
                 Min: 2,
                 Max: 10),
+
+            [SettingKey.AuditRetentionDays] = new(
+                SettingKey.AuditRetentionDays,
+                IsSecret: false,
+                Description: "Срок хранения записей аудита в днях. Старые записи удаляются автоматически по ночам.",
+                Kind: SettingValueKind.Number,
+                DefaultValue: "365",
+                Min: 30,
+                Max: 3650),
         };
 }

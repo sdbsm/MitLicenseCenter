@@ -119,6 +119,10 @@ public static class DependencyInjection
         services.AddSingleton<DriftThrottleState>();
         services.AddScoped<IDriftCheckJob, DriftCheckJob>();
 
+        // Audit retention (PR 4.3): scoped (DbContext + IAuditLogger), без
+        // throttle-state — CRON фиксирован 03:00 daily, не tuneable оператором.
+        services.AddScoped<IAuditRetentionJob, AuditRetentionJob>();
+
         // Hot-tier polling: BackgroundService для sub-minute hot-poll (Hangfire
         // CRON minimum = 1 мин, а нам нужно 3–5s). См. ADR-6.1.
         services.AddSingleton<HotTierPollingService>();

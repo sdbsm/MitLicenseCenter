@@ -16,3 +16,5 @@ public sealed record AuditPagedResponse(
     int Total,
     int Page,
     int PageSize);
+
+public sealed record AuditRetentionResponse(int RetentionDays);

@@ -35,4 +35,7 @@ public enum AuditActionType
     ClusterAdapterCircuitClosed = 301,
 
     SettingChanged = 400,
+
+    // System maintenance (PR 4.3, opens 500-серию).
+    AuditLogsPurged = 500,
 }
