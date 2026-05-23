@@ -62,7 +62,7 @@ Narrative: "Operational hardening release." Scope was pivoted and locked 2026-05
 | PR | Scope | Status | ADR(s) |
 |---|---|---|---|
 | 4.1 | Per-publication physical-path override — `PhysicalPathOverride` column on `Publication`, `VrdPathResolver` static helper, override-first + convention fallback, real-time placeholder in `InfobaseFormDialog`. Closes PR 3.6 Section C verification gap. | **Done** | ADR-4.1 updated |
-| 4.2 | Frontend Vitest + React Testing Library setup — tooling PR, no feature coverage yet; back-fills the Stage 3 accepted risk before more UI lands. | Planned | — |
+| 4.2 | Frontend Vitest + React Testing Library setup — Vitest 4 + jsdom 27 + RTL 16 + jest-dom 6 + user-event 14; `pnpm test`/`pnpm test:watch`; 4 specimen tests (`urlState`, `StatusBadge`, `RelativeTime`, `useDashboardSummary`); ESLint test-globals override; CI `Test` step after `Build`. Foundation only — exhaustive coverage becomes per-PR responsibility starting here. | **Done** | — |
 | 4.3 | Audit retention policy — `Audit.RetentionDays` Settings key (15th key in catalog), Hangfire purge job, `AuditLogsPurged=500` action type, surfaced on Dashboard health card. | Planned | — |
 | 4.4 | ADR revocations + docs/memory cleanup — ADR-9 (backup) formally revoked, ADR-7 TOTP mention removed, ADR-15 (backup/2FA responsibility boundary) locked, MEMORY.md + memory/ consistency pass. | Planned | ADR-9 revoked, ADR-15 new, ADR-7 updated |
 

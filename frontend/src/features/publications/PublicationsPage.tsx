@@ -27,6 +27,7 @@ import { useMe } from "@/features/auth/useAuth";
 import { useTenants } from "@/features/tenants/useTenants";
 import { ReconcilePublicationDialog } from "./ReconcilePublicationDialog";
 import type { PublicationDriftStatus, PublicationListItem } from "./types";
+import { DRIFT_STATUSES, parseParams, type UrlFilters } from "./urlState";
 import {
   driftStatusQueryKey,
   fetchDriftStatus,
@@ -41,25 +42,6 @@ const DRIFT_VARIANT: Record<PublicationDriftStatus, StatusBadgeVariant> = {
   Missing: "info",
   Error: "danger",
 };
-
-const DRIFT_STATUSES: readonly PublicationDriftStatus[] = ["InSync", "Drift", "Missing", "Error"];
-
-function isDriftStatus(value: string): value is PublicationDriftStatus {
-  return (DRIFT_STATUSES as readonly string[]).includes(value);
-}
-
-interface UrlFilters {
-  tenantId: string;
-  driftStatus: PublicationDriftStatus | "";
-}
-
-function parseParams(params: URLSearchParams): UrlFilters {
-  const ds = params.get("driftStatus") ?? "";
-  return {
-    tenantId: params.get("tenantId") ?? "",
-    driftStatus: isDriftStatus(ds) ? ds : "",
-  };
-}
 
 const POLL_TIMEOUT_MS = 30_000;
 const POLL_INTERVAL_MS = 2_000;

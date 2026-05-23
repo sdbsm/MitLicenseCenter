@@ -59,7 +59,7 @@ jobs:
           if-no-files-found: ignore
 
   frontend:
-    name: Frontend (lint + type-check + build)
+    name: Frontend (lint + type-check + build + test)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -93,3 +93,6 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+      - name: Test
+        run: pnpm test
