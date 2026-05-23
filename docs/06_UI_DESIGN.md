@@ -7,7 +7,7 @@ The component library is locked to **shadcn/ui** (see ADR-11). This document fil
 ## 1. Design Philosophy
 
 - **Admin tool, not consumer product.** Density first, decoration second. Operators spend hours per day here — wasted vertical space is a productivity tax.
-- **Read at a glance.** Status of every object (Tenant, Infobase, Publication, Session, Backup) must be readable without clicking through. Color + icon + label, in that order of redundancy.
+- **Read at a glance.** Status of every object (Tenant, Infobase, Publication, Session) must be readable without clicking through. Color + icon + label, in that order of redundancy.
 - **Destructive actions are loud.** Kill Session, Reconcile, Delete, Disable Admin — these are red, confirmed in a modal, and audited. Never wired to a single-click button.
 - **Real-time is honest.** Data refreshes via polling (~15s on the Sessions Monitor). The UI never lies about freshness — every live view shows when it last updated and visibly indicates a stale state.
 - **Desktop-first.** Target resolution baseline `1366×768` (lowest realistic admin workstation); design works up to `2560×1440`. Mobile is not a target in v1; layouts may break gracefully on narrow screens but no effort is spent.
@@ -36,8 +36,8 @@ Semantic colors map 1:1 to states across the entire app. **Same status, same col
 
 | Semantic | Tailwind base | Used for |
 | --- | --- | --- |
-| `success` | `emerald-600` / dark `emerald-500` | `InSync`, `Active`, `Closed` (circuit), backup `Verified`, `Healthy` |
-| `warning` | `amber-600` / dark `amber-500` | `HalfOpen`, `Maintenance`, backup running, license consumption 75–90% |
+| `success` | `emerald-600` / dark `emerald-500` | `InSync`, `Active`, `Closed` (circuit), `Healthy` |
+| `warning` | `amber-600` / dark `amber-500` | `HalfOpen`, `Maintenance`, license consumption 75–90% |
 | `danger` | `red-600` / dark `red-500` | `Drift`, `Open` (circuit), `Suspended`, `Error`, license consumption ≥ 90%, all destructive buttons |
 | `info` | `sky-600` / dark `sky-500` | `Missing`, `Unknown`, informational badges |
 | `neutral` | `zinc-500` | `Viewer` role chip, disabled, "no data" |
@@ -66,14 +66,14 @@ Semantic colors map 1:1 to states across the entire app. **Same status, same col
 └──────────────┴─────────────────────────────────────┘
 ```
 
-- **Sidebar:** shadcn `Sidebar` component, collapsible to icons. Sections grouped by domain — `Operations` (Dashboard, Sessions, Publications), `Configuration` (Tenants, Infobases, Administrators), `System` (Audit, Backups & Maintenance).
+- **Sidebar:** shadcn `Sidebar` component, collapsible to icons. Sections grouped by domain — `Operations` (Dashboard, Sessions, Publications), `Configuration` (Tenants, Infobases, Administrators), `System` (Audit).
 - **Content area uses full available width.** Admin tables benefit from horizontal real estate; do not centre-cap to `max-w-7xl` like marketing sites do.
 - **Page header** in every content view: title (h1), subtitle/description (muted), and primary action button(s) top-right.
 - **No breadcrumbs in v1.** Two-level nav (sidebar group → page) is shallow enough.
 
 ## 6. Tables (the dominant pattern)
 
-Sessions, Audit, Infobases, Publications, Backups, Admins — all tables. Single canonical pattern:
+Sessions, Audit, Infobases, Publications, Admins — all tables. Single canonical pattern:
 
 - **Built on:** shadcn `Table` + `@tanstack/react-table` for sort/filter/pagination state.
 - **Density:** compact by default (`text-sm`, `py-2` rows). User-toggleable to "comfortable" via a density button stored in localStorage.
@@ -123,7 +123,6 @@ The Sessions Monitor and Dashboard poll. The UI must communicate freshness hones
   - Publication → `Globe`
   - Session → `MonitorPlay`
   - Audit → `ScrollText`
-  - Backup → `HardDriveDownload`
   - Drift / warning → `AlertTriangle`
   - Healthy / synced → `CircleCheck`
   - Error / circuit open → `CircleX`
@@ -173,9 +172,6 @@ Use these exact phrasings throughout the UI for consistency. **Do not invent syn
 | Check drift now | Проверить сейчас |
 | Disable administrator | Отключить администратора |
 | Reset password | Сбросить пароль |
-| Enable 2FA | Включить двухфакторную аутентификацию |
-| Run backup now | Запустить резервное копирование |
-| Verify restore | Проверить восстановление |
 | Assign infobase | Назначить базу |
 | Suspend tenant | Приостановить клиента |
 

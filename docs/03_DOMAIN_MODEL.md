@@ -46,7 +46,7 @@ Stores the *Desired State* of the IIS publication for a specific Infobase.
 Immutable record of all critical system and administrator actions.
 - `Id` (Guid, PK)
 - `TenantId` (Guid, FK, Nullable): If the action relates to a specific tenant.
-- `ActionType` (Enum): e.g., LimitChanged, PublicationUpdated, PublicationDriftDetected, PublicationReconciled, SessionKilled, InfobaseCreated, ClusterAdapterCircuitOpened, ClusterAdapterCircuitClosed, BackupCompleted, BackupVerified, AdminLoggedIn.
+- `ActionType` (Enum): e.g., LimitChanged, PublicationUpdated, PublicationDriftDetected, PublicationReconciled, SessionKilled, InfobaseCreated, ClusterAdapterCircuitOpened, ClusterAdapterCircuitClosed, AdminLoggedIn.
 - `Reason` (Enum, Nullable): For `SessionKilled` only — `LimitExceeded` or `ManualByAdmin`.
 - `Description` (String): Human-readable details, including snapshot context for kills.
 - `Timestamp` (DateTimeUtc)
@@ -69,14 +69,14 @@ Local administrator account, managed via the ASP.NET Core Identity framework. Ta
 - `UserName`, `NormalizedUserName`
 - `PasswordHash` (Identity-managed; PBKDF2 by default)
 - `Email`, `NormalizedEmail` (optional)
-- `TwoFactorEnabled` (Boolean) — TOTP, off by default in v1
+- `TwoFactorEnabled` (Boolean) — Identity-stock column; operationally inert per ADR-15.
 - `LockoutEnd`, `AccessFailedCount` — Identity-managed brute-force protection
 - **Role assignment:** `Admin` (full access, including manual session kill and publication reconcile) or `Viewer` (read-only). Implemented via the standard Identity role tables.
 - The first admin account is seeded by the initial migration with a random password printed to the service log.
 
 ## 7. Setting (Encrypted Configuration)
 Holds runtime configuration values that may include secrets. Values are encrypted at rest using the ASP.NET Core Data Protection API (DPAPI-backed on Windows).
-- `Key` (String, PK): e.g., `OneC.Cluster.RestApiUrl`, `OneC.Cluster.AdminPassword`, `Backup.Destination.Primary`.
+- `Key` (String, PK): e.g., `OneC.Cluster.RestApiUrl`, `OneC.Cluster.AdminPassword`, `IIS.DefaultVrdRoot`.
 - `Value` (String): Encrypted ciphertext for secret values; plaintext for non-secret values.
 - `IsSecret` (Boolean): Determines whether the value is decrypted on read.
 - `Description` (String, Nullable)

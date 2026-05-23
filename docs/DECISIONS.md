@@ -43,16 +43,29 @@ This document tracks important architectural decisions, why they were made, and 
 - **Rejected Alternatives:** Windows Integrated Authentication (requires AD or local Windows accounts per admin — fragile when non-Windows-account staff need access); JWT bearer tokens (cookie auth is simpler and safer for a same-origin SPA); external identity providers (violates "no external systems" constraint).
 - **Reason:** Fully local, no external dependencies, no AD required. Identity is the .NET-native solution and integrates with the same MSSQL the domain already uses.
 
+### Status update (Stage 4 PR 4.4)
+
+The original Stage 2 wording mentioned TOTP-based 2FA as "available but optional in v1". This is now superseded: **in-application 2FA is permanently out of scope** — see ADR-15 for the full rationale. Authentication is exactly username + password + HttpOnly cookie session, with the secondary factor delegated to the network-level boundary (LAN-only / VPN access + perimeter firewall + AD or SSO at the edge + physical access control).
+
+The Identity base-class column `AspNetUsers.TwoFactorEnabled` remains in the schema because removing it would require a custom user-class refactor; it is never read or written by the application.
+
+**Why not 2FA in-app:** the deployment target is an internal admin panel, not a public-internet service. Every supported deployment already authenticates the operator at the network edge. An in-app second factor would either duplicate that protection (no marginal value) or, if it replaced it, be weaker than the AD lockout / SSO policies it would supersede. The application owns "who is this account?" via Identity; the network owns "can this account reach this URL at all?".
+
 ## 8. Secret Management
 - **Decision:** ASP.NET Core Data Protection API. On Windows this transparently uses DPAPI; key ring stored under `%ProgramData%\MitLicenseCenter\keys\`, scoped to the service account.
   - Secrets (MSSQL connection strings, 1C Cluster credentials, RAS credentials, IIS service-account creds) stored encrypted in a `Settings` table in MSSQL (or `appsettings.Production.json`), decrypted at runtime.
-  - Data Protection keys are backed up alongside the database (see ADR-9) — without them, a restored backup is unreadable.
+  - Data Protection keys must be backed up by the operator alongside the database — see ADR-15 and `OPERATIONS.md`. Without them a restored backup is unreadable.
   - Development environments use .NET User Secrets.
 - **Rejected Alternatives:** HashiCorp Vault, Azure Key Vault, dedicated secret services (all violate "no external systems"); plaintext config files.
-- **Reason:** Built into .NET, machine- and account-scoped via DPAPI, zero external dependencies, integrates with the existing backup story.
+- **Reason:** Built into .NET, machine- and account-scoped via DPAPI, zero external dependencies, integrates with the operator's backup story (see ADR-15 and `OPERATIONS.md`).
 
-## 9. Backup & Restore Automation
-- **Decision:** Fully automated backups orchestrated by Hangfire jobs that invoke `BACKUP DATABASE` / `BACKUP LOG` via ADO.NET.
+## 9. Backup & Restore Automation — **REVOKED (Stage 4 PR 4.4)**
+
+> **REVOKED — permanently out of application scope.** Backup is operator responsibility, delegated to platform tooling (SQL Server Maintenance Plans, Veeam, Windows Server Backup, Robocopy + Scheduled Task). The application does **not** invoke `BACKUP DATABASE`, does **not** schedule backup jobs, does **not** ship a `MitLicenseCenter.Restore.exe` CLI, and does **not** surface backup status in its UI or audit log. See **ADR-15** for the scope boundary and `OPERATIONS.md` for the operator's checklist.
+>
+> The text below is preserved as historical context for the original Stage 2-era plan. **Do not implement it.**
+
+- **Decision (REVOKED):** Fully automated backups orchestrated by Hangfire jobs that invoke `BACKUP DATABASE` / `BACKUP LOG` via ADO.NET.
   - Full backup: nightly.
   - Differential backup: every 6 hours.
   - Transaction log backup: every 15 minutes.
@@ -61,8 +74,8 @@ This document tracks important architectural decisions, why they were made, and 
   - Retention: configurable (defaults: 30 days for full, 7 days for hourly).
   - **Verification job:** weekly automatic restore of the latest full backup to a `MitLicenseCenter_RestoreTest` database, asserts row counts, logs the result to `AuditLog` and surfaces it on the Dashboard.
   - **Restore** delivered as a standalone CLI tool (`MitLicenseCenter.Restore.exe`) documented in `OPERATIONS.md`.
-- **Rejected Alternatives:** Manual DBA-driven backups; relying solely on SQL Server Agent (requires SQL Server Standard/Enterprise; we want it to work on Express too, and we want a unified job surface visible in the Hangfire dashboard).
-- **Reason:** Admin requirement is "no manual steps." Co-locating backup orchestration with the rest of the background workload means one dashboard, one retry policy, one audit trail.
+- **Rejected Alternatives (REVOKED):** Manual DBA-driven backups; relying solely on SQL Server Agent (requires SQL Server Standard/Enterprise; we want it to work on Express too, and we want a unified job surface visible in the Hangfire dashboard).
+- **Reason (REVOKED):** Admin requirement is "no manual steps." Co-locating backup orchestration with the rest of the background workload means one dashboard, one retry policy, one audit trail.
 
 ## 10. REST API Versioning
 - **Decision:** URI-based versioning. All endpoints live under `/api/v1/...`, implemented with `Asp.Versioning.Mvc`. New breaking changes introduce `/api/v2/...`; the previous major version is supported for at least one release cycle.
@@ -95,11 +108,25 @@ This document tracks important architectural decisions, why they were made, and 
   - PRs to `main` are blocked from merge while either job is red.
   - **No CD (deployment) automation in v1.** Deployment is performed manually via `scripts/Deploy-MitLicenseCenter.ps1`, which can be invoked from a developer machine or from a manual GitHub Actions workflow_dispatch trigger when needed.
 - **Rejected Alternatives:**
-  - No CI at all (acceptable for a throwaway, unacceptable for a system that auto-kills user sessions and writes backups — broken tests must not reach `main`).
+  - No CI at all (acceptable for a throwaway, unacceptable for a system that auto-kills user sessions and writes the audit log of record — broken tests must not reach `main`).
   - Full CD on tag (premature for a single-developer phase with no release cadence yet; revisit after the first production deployment).
   - Self-hosted runners (no need at this scale; GitHub-hosted free minutes are sufficient).
   - Jenkins / TeamCity / Azure DevOps (additional infrastructure to maintain; GitHub Actions is co-located with the repository).
 - **Reason:** Minimum viable safety net for a single-developer project that will run automated destructive operations in production. CI from day one establishes the muscle memory; CD waits until the deployment story stabilizes.
+
+## 15. Backup and Two-Factor Authentication Scope Boundary
+
+- **Decision:** Backup orchestration and in-application two-factor authentication are permanently **out of scope** for the MitLicense Center application. Both concerns are delegated to platform-level operator responsibility.
+  - **Backup.** The MSSQL database (`MitLicenseCenter`), the ASP.NET Core Data Protection key ring under `%ProgramData%\MitLicenseCenter\keys\`, and any environment-specific `appsettings.Production.json` are backed up by the operator using platform tooling (SQL Server Maintenance Plans, Veeam, Windows Server Backup, Robocopy + Scheduled Task, etc.). The operator's checklist lives in `OPERATIONS.md`. The application never invokes `BACKUP DATABASE` / `BACKUP LOG`, never schedules backup jobs in Hangfire, never ships a `Restore.exe` CLI, and never surfaces backup status in its UI or audit log.
+  - **Two-factor authentication.** The secondary authentication factor is a **network-level** concern handled by the deployment environment — internal LAN-only / VPN access, perimeter firewall, AD or SSO at the network edge, and physical access controls. The ASP.NET Core Identity base-class column `AspNetUsers.TwoFactorEnabled` remains in the schema because removing it would require a custom user-class refactor that the project does not need, but it is **operationally inert**: no UI surface, no enrolment flow, no challenge step, never read or written by application code.
+- **Rejected Alternatives:**
+  - *Hangfire-orchestrated backup jobs* (the original ADR-9). Rejected because (a) MSSQL backup is already a solved problem at the platform layer with mature operator tooling and ecosystem knowledge; (b) co-locating backup orchestration with the application doubles the failure surface — a backup bug could now take down the platform the backups are meant to protect; (c) backup verification, retention, off-site replication, and disaster-recovery rehearsals belong on the same cadence as the rest of the operator's infrastructure, not on a separate per-application schedule.
+  - *In-application TOTP / WebAuthn / SMS second factor.* Rejected because (a) the deployment target is an internal admin panel reachable only from LAN or VPN, never the public internet; (b) every supported deployment already authenticates the operator at the network edge (AD / SSO / firewall); (c) an in-app second factor would either duplicate that protection (no marginal value) or replace it with something weaker — an in-app TOTP without rate limiting at the network edge is not equivalent to AD lockout policies.
+- **Reason:** Scope discipline. The application's job is to control 1C session licensing — every concern that does not directly serve that job is a liability, not a feature. Both backup and in-app 2FA are concerns the deployment environment is better equipped to handle, and which would compete for engineering attention against the actual problem domain.
+- **Permanence:** This decision is **locked**. Future PRs that propose returning backup orchestration or in-app 2FA to the application's scope must explicitly revoke ADR-15 first. Casual re-introduction ("let's add an optional backup tab to the UI", "let's wire up Identity's built-in TOTP") is rejected by default — there is no "easy on-ramp" because both belong on the other side of the responsibility boundary.
+- **Supersedes:**
+  - **ADR-9 (Backup & Restore Automation)** — revoked. Original ADR-9 text is preserved as historical context with a REVOKED header; do not implement it.
+  - **ADR-7 TOTP mention** — superseded by the "Status update (Stage 4 PR 4.4)" subsection appended to ADR-7.
 
 ## Tooling Constraints (binding alongside ADR-13/14)
 
@@ -171,7 +198,7 @@ PR 2.4 закрывает Stage 2: layout shell + auth additions (PR 2.1), Tenan
 - `ICluster1CClient` (REST + Polly-circuit + RAS fallback) — заменяет stub `SessionsEndpoints.SnapshotAsync`.
 - Snapshot writer + reconciliation Hangfire job (hot/cold двухтемповый цикл, ADR-3/ADR-6).
 - `default.vrd` XML-patch service + drift-detection job + admin-driven Reconcile (ADR-4).
-- Domain enum пополняется значениями `SessionKilled`/`LimitChanged`/`PublicationDriftDetected`/`PublicationReconciled`/`ClusterAdapterCircuitOpened`/`ClusterAdapterCircuitClosed`/`BackupCompleted`/`BackupVerified` — int-значения уже зарезервированы (PR 2.2), `i18n.ru.audit.actions.*` пополняется одновременно.
+- Domain enum пополняется значениями `SessionKilled`/`LimitChanged`/`PublicationDriftDetected`/`PublicationReconciled`/`ClusterAdapterCircuitOpened`/`ClusterAdapterCircuitClosed` — int-значения уже зарезервированы (PR 2.2), `i18n.ru.audit.actions.*` пополняется одновременно.
 - `Publication` обзаводится drift-полями (`LastDriftStatus`, `LastDriftCheckAt`, `LastDriftDetails`) — отдельной миграцией.
 
 ## Stage 3 PR 3.1 — Settings + DPAPI (binding alongside ADR-8)
@@ -191,7 +218,7 @@ PR 2.4 закрывает Stage 2: layout shell + auth additions (PR 2.1), Tenan
 - **Seeder идемпотентен.** `SettingsSeeder.EnsureSeededAsync` вызывается в `Program.cs` **после** `IdentitySeeder.EnsureSeededAsync` (миграции уже накатаны). Только инсёртит отсутствующие ключи, ничего не апдейтит. Plain с `DefaultValue` сеется со значением; секреты + plain без дефолта сеются «пустыми» (`Value=null, ValueText=null`, `IsSet=false`). При повторном запуске — лог `«Засеяно 0 новых параметров.»` (т.е. ничего, ENG сообщение из LoggerMessage не выводится). Стартовый лог при первом запуске — `«Засеяно 14 новых параметров.»`.
 - **Frontend.** `<ProtectedRoute requireAdmin?: boolean>` генерализован (Viewer перенаправляется на `/`, не на `/login`). `/settings` route вложен в `<ProtectedRoute requireAdmin>`. Sidebar entry «Параметры» admin-gated через `useMe().roles.includes("Admin")`. `settings.*` namespace в `i18n/ru.json` (sections / labels / hints / actions / states / toasts / errors). `audit.actions.SettingChanged = "Параметр изменён"` + расширение `AUDIT_ACTION_TYPES` константы. Action-badge цвет `SettingChanged` — neutral muted (правило из PR 2.4: `*Created/Updated/Deleted` имеет цвет, остальное — muted; `SettingChanged` сюда попадает естественно).
 - **Operational note.** Key-ring под `%ProgramData%\MitLicenseCenter\keys` критичен — без него `Value` байты в `dbo.Settings` нечитаемы. ADR-8 уже фиксирует включение этих ключей в daily backup (Stage 4 ADR-9 их и заберёт), но напоминание: удаление key-ring папки = безвозвратная потеря всех зашифрованных секретов (cluster admin password, RAS creds в будущем). Документировано в `docs/04_INFRASTRUCTURE.md`.
-- **Не вошло в Stage 3 PR 3.1** (намеренно): любые backup-связанные ключи (вынесены в Stage 4 ADR-9), любые реальные читатели `ISettingsSnapshot` (PR 3.2/3.3/3.5), `Microsoft.Web.Administration` package (нужен в PR 3.5).
+- **Не вошло в Stage 3 PR 3.1** (намеренно): любые backup-связанные ключи (никогда не создаются — ADR-9 revoked в Stage 4 PR 4.4, см. ADR-15), любые реальные читатели `ISettingsSnapshot` (PR 3.2/3.3/3.5), `Microsoft.Web.Administration` package (нужен в PR 3.5).
 
 ## Stage 3 PR 3.2 — 1С Cluster REST adapter + circuit breaker (binding alongside ADR-2/ADR-8)
 
