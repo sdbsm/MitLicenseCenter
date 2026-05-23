@@ -56,15 +56,7 @@ The Control Panel is delivered in **Russian** as the only shipping locale of v1 
 - Shows who (or what background job) killed a session, updated a publication, or changed a limit.
 - Filters: by `ActionType`, `Initiator`, `TenantId`, date range. For `SessionKilled` rows, the `Reason` column distinguishes `LimitExceeded` from `ManualByAdmin`.
 
-### 3.6. Backups & Maintenance
-- Status of the automatic backup schedule (full, differential, transaction log) and the location of the most recent backup files.
-- Result of the latest weekly **verification restore** to `MitLicenseCenter_RestoreTest` — green / red health indicator that mirrors the Dashboard signal.
-- Configuration form for retention policy, primary backup folder, and optional secondary network share.
-- Read-only view of the 1C Cluster Adapter circuit breaker state (`Closed` / `Open` / `HalfOpen`) and history of recent transitions.
-- Hangfire dashboard link for admins to inspect job execution history directly.
-
-### 3.7. Administrators
+### 3.6. Administrators
 - List of admin accounts (`Admin` and `Viewer` roles), last login timestamp, lockout status.
 - Create / disable / reset-password actions (the latter generates a temporary password printed to the audit log; user must change it on next login).
-- Toggle TOTP-based 2FA per account (off by default in v1).
 - All administrator-management actions are written to `AuditLog`.
