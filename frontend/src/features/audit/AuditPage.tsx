@@ -24,14 +24,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useTenants } from "@/features/tenants/useTenants";
 import { AuditFiltersBar } from "./AuditFiltersBar";
+import { isFilterBeyondRetention, retentionCutoffDate } from "./retention";
 import {
   AUDIT_ACTION_TYPES,
   AUDIT_PAGE_SIZES,
@@ -42,6 +39,7 @@ import {
   DEFAULT_AUDIT_PAGE_SIZE,
 } from "./types";
 import { useAuditLog } from "./useAuditLog";
+import { useAuditRetention } from "./useAuditRetention";
 
 const MAX_PAGE_LINKS = 7;
 
@@ -124,6 +122,19 @@ export function AuditPage() {
   const totalPages = Math.max(1, Math.ceil(total / filters.pageSize));
   const currentPage = Math.min(filters.page, totalPages);
 
+  // PR 4.3: banner показывается если `from` фильтр глубже окна хранения. `nowUtc`
+  // фиксируем на mount через useMemo — иначе banner-threshold будет дёргаться на
+  // каждом render'е filter-state и при долгом сидении страницы. Operator reload'нёт
+  // при необходимости — acceptable trade-off vs. setInterval-обновление.
+  const { data: retention } = useAuditRetention();
+  const nowUtc = useMemo(() => new Date(), []);
+  const showRetentionBanner = isFilterBeyondRetention(
+    filters.from,
+    retention?.retentionDays,
+    nowUtc
+  );
+  const retentionCutoff = retentionCutoffDate(retention?.retentionDays, nowUtc);
+
   const applyFilters = (next: AuditFilters) => {
     setSearchParams(filtersToUrl(next), { replace: true });
   };
@@ -143,10 +154,21 @@ export function AuditPage() {
           </div>
         </div>
 
+        {showRetentionBanner && retentionCutoff && (
+          <Alert>
+            <AlertTitle>{t("audit.retention.bannerTitle")}</AlertTitle>
+            <AlertDescription>
+              {t("audit.retention.bannerText", {
+                date: format(retentionCutoff, "dd.MM.yyyy", { locale: ru }),
+              })}
+            </AlertDescription>
+          </Alert>
+        )}
+
         <AuditFiltersBar filters={filters} onChange={applyFilters} />
 
         {isError && (
-          <div className="rounded-md border border-destructive/40 bg-destructive/5 p-4 text-sm">
+          <div className="border-destructive/40 bg-destructive/5 rounded-md border p-4 text-sm">
             <p className="font-medium">{t("audit.errors.loadFailed")}</p>
             <Button
               variant="link"
@@ -215,7 +237,7 @@ export function AuditPage() {
                         key={entry.id}
                         entry={entry}
                         tenantName={
-                          entry.tenantId ? tenantNameById.get(entry.tenantId) ?? null : null
+                          entry.tenantId ? (tenantNameById.get(entry.tenantId) ?? null) : null
                         }
                       />
                     ))}
@@ -237,9 +259,7 @@ export function AuditPage() {
                 <PaginationItem>
                   <PaginationPrevious
                     aria-disabled={currentPage === 1}
-                    className={
-                      currentPage === 1 ? "pointer-events-none opacity-50" : undefined
-                    }
+                    className={currentPage === 1 ? "pointer-events-none opacity-50" : undefined}
                     onClick={(e) => {
                       e.preventDefault();
                       goToPage(currentPage - 1);
@@ -263,9 +283,7 @@ export function AuditPage() {
                   <PaginationNext
                     aria-disabled={currentPage === totalPages}
                     className={
-                      currentPage === totalPages
-                        ? "pointer-events-none opacity-50"
-                        : undefined
+                      currentPage === totalPages ? "pointer-events-none opacity-50" : undefined
                     }
                     onClick={(e) => {
                       e.preventDefault();

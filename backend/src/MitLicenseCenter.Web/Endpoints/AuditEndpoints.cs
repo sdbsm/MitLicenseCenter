@@ -3,7 +3,9 @@ using Asp.Versioning.Builder;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using MitLicenseCenter.Application.Settings;
 using MitLicenseCenter.Domain.Audit;
+using MitLicenseCenter.Domain.Settings;
 using MitLicenseCenter.Infrastructure.Identity;
 using MitLicenseCenter.Infrastructure.Persistence;
 
@@ -24,6 +26,15 @@ public static class AuditEndpoints
             .WithTags("Audit");
 
         group.MapGet("/", ListAsync).RequireAuthorization(Roles.Viewer);
+        group.MapGet("/retention", GetRetentionAsync).RequireAuthorization(Roles.Viewer);
+    }
+
+    // PR 4.3: узкий Viewer-readable endpoint для banner на /audit. НЕ расширяем
+    // GET /settings до Viewer — там 14 ключей включая описания cluster creds.
+    internal static Ok<AuditRetentionResponse> GetRetentionAsync(ISettingsSnapshot settings)
+    {
+        var days = settings.GetInt(SettingKey.AuditRetentionDays) ?? 365;
+        return TypedResults.Ok(new AuditRetentionResponse(days));
     }
 
     internal static async Task<Results<Ok<AuditPagedResponse>, ValidationProblem>> ListAsync(

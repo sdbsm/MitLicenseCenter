@@ -95,6 +95,7 @@ Infrastructure operations (especially mass IIS updates or 1C cluster scans) can 
 - The Reconciliation Loop (Session Monitor) runs asynchronously and on a two-tier cadence (hot 3–5s for at-risk tenants, cold 20–30s for everyone). See ADR-6.
 - Direct calls to the 1C Cluster API MUST have strict timeouts to prevent the background worker from hanging if the 1C cluster becomes unresponsive.
 - A separate **drift-detection job** runs every 5 minutes, comparing each `Publication`'s desired state against the actual `default.vrd` + IIS state. Results are written to `Publication.LastDriftStatus` / `LastDriftCheckAt` / `LastDriftDetails`. Drift is reported, never auto-corrected — reconcile is an explicit admin action.
+- An **audit retention job** (PR 4.3) runs daily at 03:00 UTC and deletes rows from `dbo.AuditLogs` older than `Settings.Audit.RetentionDays` (default 365, range [30, 3650]). Implementation: batched `DELETE TOP (5000)` with commit-per-batch via `ExecuteSqlInterpolatedAsync` against `[Timestamp]`. Audit row `AuditLogsPurged=500` is written only when the total delete count is non-zero. CRON is fixed in code — retention window is operator-tunable, cadence is not.
 - **Backup jobs** (full nightly, differential every 6 hours, transaction log every 15 minutes) are also scheduled here, plus a weekly **verification restore** to a `MitLicenseCenter_RestoreTest` database. See ADR-9.
 
 ## 5. Backup & Restore

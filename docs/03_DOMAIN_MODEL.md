@@ -52,6 +52,8 @@ Immutable record of all critical system and administrator actions.
 - `Timestamp` (DateTimeUtc)
 - `Initiator` (String): ID of the Admin, or "System" for background jobs.
 
+**Retention (Stage 4 PR 4.3).** Записи удаляются daily Hangfire job'ом старше `Settings.Audit.RetentionDays` (default 365, диапазон [30, 3650]). DELETE-only — никакого archival tier'а. Job пишет один `AuditLogsPurged=500` row на каждый non-empty purge (initiator="System"). Существующий `IX_AuditLogs_Timestamp` (single-column, миграция InitialCreate) обслуживает DELETE без дополнительных индексов.
+
 ## 5. ActiveSessionSnapshot (Transient State)
 *Note: This entity is NOT permanently stored in MSSQL to avoid DB bloat. It represents the in-memory state captured during the Reconciliation Loop.*
 - `SessionId` (Guid): The 1C cluster session ID.

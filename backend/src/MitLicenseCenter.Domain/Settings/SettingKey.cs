@@ -32,4 +32,7 @@ public static class SettingKey
     // Circuit breaker (используется в PR 3.2).
     public const string CircuitBreakerProbeIntervalSeconds = "CircuitBreaker.ProbeIntervalSeconds";
     public const string CircuitBreakerFailureCount = "CircuitBreaker.FailureCount";
+
+    // Audit retention (PR 4.3).
+    public const string AuditRetentionDays = "Audit.RetentionDays";
 }

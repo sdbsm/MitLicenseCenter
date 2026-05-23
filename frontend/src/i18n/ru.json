@@ -351,7 +351,8 @@
       "LimitChanged": "Лимит изменён",
       "ClusterAdapterCircuitOpened": "Цепь к 1С разомкнута",
       "ClusterAdapterCircuitClosed": "Цепь к 1С замкнута",
-      "SettingChanged": "Параметр изменён"
+      "SettingChanged": "Параметр изменён",
+      "AuditLogsPurged": "Очистка журнала аудита"
     },
     "empty": {
       "title": "Записей нет",
@@ -363,6 +364,10 @@
     },
     "errors": {
       "loadFailed": "Не удалось загрузить журнал аудита."
+    },
+    "retention": {
+      "bannerTitle": "Фильтр выходит за период хранения",
+      "bannerText": "Записи аудита старше {{date}} удаляются автоматически. Возможно, выбранный диапазон вернёт неполные результаты."
     }
   },
   "sessions": {

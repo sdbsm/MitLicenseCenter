@@ -171,6 +171,14 @@ RecurringJob.AddOrUpdate<IDriftCheckJob>(
     j => j.RunAllAsync(CancellationToken.None),
     "*/5 * * * *");
 
+// Audit retention (PR 4.3): ежедневно в 03:00 UTC. CRON фиксирован — retention
+// window настраивается через Settings.Audit.RetentionDays, cadence — нет
+// (operational noise zero, не tuneable оператором).
+RecurringJob.AddOrUpdate<IAuditRetentionJob>(
+    "audit-retention",
+    j => j.RunAsync(CancellationToken.None),
+    "0 3 * * *");
+
 app.Lifetime.ApplicationStarted.Register(() =>
 {
     _ = Task.Run(async () =>
