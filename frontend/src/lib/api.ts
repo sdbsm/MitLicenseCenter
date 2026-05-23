@@ -43,7 +43,7 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
   }
 
   const contentType = response.headers.get("content-type") ?? "";
-  const isJson = contentType.includes("application/json");
+  const isJson = contentType.includes("application/json") || contentType.includes("+json");
   const payload: unknown = isJson
     ? await response.json().catch(() => null)
     : await response.text().catch(() => null);
