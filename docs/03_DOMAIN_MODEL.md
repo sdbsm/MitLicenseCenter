@@ -46,7 +46,7 @@ Stores the *Desired State* of the IIS publication for a specific Infobase.
 Immutable record of all critical system and administrator actions.
 - `Id` (Guid, PK)
 - `TenantId` (Guid, FK, Nullable): If the action relates to a specific tenant.
-- `ActionType` (Enum): e.g., LimitChanged, PublicationUpdated, PublicationDriftDetected, PublicationReconciled, SessionKilled, InfobaseCreated, ClusterAdapterCircuitOpened, ClusterAdapterCircuitClosed, AdminLoggedIn.
+- `ActionType` (Enum): e.g., LimitChanged, PublicationUpdated, PublicationDriftDetected, PublicationReconciled, SessionKilled, InfobaseCreated, AdminLoggedIn. _Reserved historical (Stage 3 PR 3.2 — circuit breaker removed in Stage 5 PR 5.1, see ADR-16):_ `ClusterAdapterCircuitOpened=300`, `ClusterAdapterCircuitClosed=301` — enum values stay so old AuditLog rows render; new rows with these values are not written.
 - `Reason` (Enum, Nullable): For `SessionKilled` only — `LimitExceeded` or `ManualByAdmin`.
 - `Description` (String): Human-readable details, including snapshot context for kills.
 - `Timestamp` (DateTimeUtc)

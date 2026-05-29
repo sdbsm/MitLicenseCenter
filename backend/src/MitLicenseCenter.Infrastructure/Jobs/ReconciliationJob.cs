@@ -12,6 +12,11 @@ namespace MitLicenseCenter.Infrastructure.Jobs;
 
 internal sealed partial class ReconciliationJob : IReconciliationJob
 {
+    // После Stage 5 PR 5.1 (ADR-16) единственный адаптер — RAS via rac.exe.
+    // SnapshotPayload.Source хардкодим "Ras" — поле зарезервировано на случай
+    // будущей детализации (RasCli vs RasSocket для Strategy B).
+    private const string AdapterSource = "Ras";
+
     private readonly IClusterClient _cluster;
     private readonly AppDbContext _db;
     private readonly IActiveSessionSnapshotStore _store;
@@ -19,7 +24,6 @@ internal sealed partial class ReconciliationJob : IReconciliationJob
     private readonly IKillEnforcer _enforcer;
     private readonly ISettingsSnapshot _settings;
     private readonly ColdThrottleState _throttle;
-    private readonly ICircuitStatusReader _circuitReader;
     private readonly TimeProvider _clock;
     private readonly ILogger<ReconciliationJob> _logger;
 
@@ -31,7 +35,6 @@ internal sealed partial class ReconciliationJob : IReconciliationJob
         IKillEnforcer enforcer,
         ISettingsSnapshot settings,
         ColdThrottleState throttle,
-        ICircuitStatusReader circuitReader,
         TimeProvider clock,
         ILogger<ReconciliationJob> logger)
     {
@@ -42,7 +45,6 @@ internal sealed partial class ReconciliationJob : IReconciliationJob
         _enforcer = enforcer;
         _settings = settings;
         _throttle = throttle;
-        _circuitReader = circuitReader;
         _clock = clock;
         _logger = logger;
     }
@@ -130,14 +132,13 @@ internal sealed partial class ReconciliationJob : IReconciliationJob
             }
 
             sw.Stop();
-            var source = _circuitReader.GetStatus().ActiveAdapter;
-            var payload = new SnapshotPayload(entries, now, (int)sw.ElapsedMilliseconds, source);
+            var payload = new SnapshotPayload(entries, now, (int)sw.ElapsedMilliseconds, AdapterSource);
 
             await _enforcer.EnforceAsync(payload, ct).ConfigureAwait(false);
 
             _store.Replace(payload);
 
-            LogColdSnapshot(_logger, entries.Count, (int)sw.ElapsedMilliseconds, source);
+            LogColdSnapshot(_logger, entries.Count, (int)sw.ElapsedMilliseconds, AdapterSource);
         }
         catch (OperationCanceledException)
         {

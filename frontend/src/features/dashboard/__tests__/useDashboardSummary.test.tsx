@@ -30,11 +30,11 @@ const sampleResponse: DashboardSummaryResponse = {
   licensesConsumedTotal: 5,
   licensesAvailableTotal: 95,
   topTenantsByConsumption: [],
-  cluster: {
-    state: "Closed",
-    lastTransitionAt: "2026-05-23T11:00:00Z",
+  ras: {
+    healthy: true,
+    lastCheckedAtUtc: "2026-05-24T12:00:00Z",
     lastErrorMessage: null,
-    activeAdapter: "Rest",
+    consecutiveFailures: 0,
   },
 };
 

@@ -14,17 +14,25 @@ namespace MitLicenseCenter.Tests.Unit.Endpoints;
 
 public sealed class DashboardSummaryTests
 {
-    private static IActiveSessionSnapshotStore MakeStore(IReadOnlyList<SnapshotSessionEntry> items, string source = "Rest")
+    private static IActiveSessionSnapshotStore MakeStore(IReadOnlyList<SnapshotSessionEntry> items, string source = "Ras")
     {
         var store = Substitute.For<IActiveSessionSnapshotStore>();
         store.Current().Returns(new SnapshotPayload(items, DateTime.UtcNow, TookMs: 5, Source: source));
         return store;
     }
 
-    private static ICircuitStatusReader MakeCircuit(string state = "Closed", string adapter = "Rest", string? error = null)
+    private static IRasHealthReader MakeRasHealth(
+        bool healthy = true,
+        DateTime? lastCheckedAtUtc = null,
+        string? error = null,
+        int consecutiveFailures = 0)
     {
-        var reader = Substitute.For<ICircuitStatusReader>();
-        reader.GetStatus().Returns(new CircuitStatus(state, new DateTime(2026, 5, 20, 12, 0, 0, DateTimeKind.Utc), error, adapter));
+        var reader = Substitute.For<IRasHealthReader>();
+        reader.GetSnapshot().Returns(new RasHealthSnapshot(
+            Healthy: healthy,
+            LastCheckedAtUtc: lastCheckedAtUtc ?? new DateTime(2026, 5, 24, 12, 0, 0, DateTimeKind.Utc),
+            LastErrorMessage: error,
+            ConsecutiveFailures: consecutiveFailures));
         return reader;
     }
 
@@ -50,9 +58,9 @@ public sealed class DashboardSummaryTests
     {
         using var db = TestHelpers.NewInMemoryDb();
         var store = MakeStore([]);
-        var circuit = MakeCircuit();
+        var rasHealth = MakeRasHealth();
 
-        var result = await DashboardEndpoints.SummaryAsync(db, store, circuit, NewCache(), CancellationToken.None);
+        var result = await DashboardEndpoints.SummaryAsync(db, store, rasHealth, NewCache(), CancellationToken.None);
 
         var body = ((Ok<DashboardSummaryResponse>)result).Value!;
         body.TenantsTotal.Should().Be(0);
@@ -62,8 +70,8 @@ public sealed class DashboardSummaryTests
         body.LicensesConsumedTotal.Should().Be(0);
         body.LicensesAvailableTotal.Should().Be(0);
         body.TopTenantsByConsumption.Should().BeEmpty();
-        body.Cluster.State.Should().Be("Closed");
-        body.Cluster.ActiveAdapter.Should().Be("Rest");
+        body.Ras.Healthy.Should().BeTrue();
+        body.Ras.ConsecutiveFailures.Should().Be(0);
     }
 
     [Fact]
@@ -93,7 +101,7 @@ public sealed class DashboardSummaryTests
 
         var store = MakeStore(sessions);
 
-        var result = await DashboardEndpoints.SummaryAsync(db, store, MakeCircuit(), NewCache(), CancellationToken.None);
+        var result = await DashboardEndpoints.SummaryAsync(db, store, MakeRasHealth(), NewCache(), CancellationToken.None);
         var body = ((Ok<DashboardSummaryResponse>)result).Value!;
 
         body.TopTenantsByConsumption.Should().HaveCount(5);
@@ -123,7 +131,7 @@ public sealed class DashboardSummaryTests
         sessions.AddRange(Enumerable.Range(0, 5).Select(_ => Session(tSmall.Id, tSmall.Name, "BP")));
         sessions.AddRange(Enumerable.Range(0, 50).Select(_ => Session(tBig.Id, tBig.Name, "BP")));
 
-        var result = await DashboardEndpoints.SummaryAsync(db, MakeStore(sessions), MakeCircuit(), NewCache(), CancellationToken.None);
+        var result = await DashboardEndpoints.SummaryAsync(db, MakeStore(sessions), MakeRasHealth(), NewCache(), CancellationToken.None);
         var body = ((Ok<DashboardSummaryResponse>)result).Value!;
 
         body.TopTenantsByConsumption.Should().HaveCount(2);
@@ -153,7 +161,7 @@ public sealed class DashboardSummaryTests
             Session(tActive.Id, tActive.Name, "BP", consumes: false), // тонкий клиент: не лицензируемый
         };
 
-        var result = await DashboardEndpoints.SummaryAsync(db, MakeStore(sessions), MakeCircuit(), NewCache(), CancellationToken.None);
+        var result = await DashboardEndpoints.SummaryAsync(db, MakeStore(sessions), MakeRasHealth(), NewCache(), CancellationToken.None);
         var body = ((Ok<DashboardSummaryResponse>)result).Value!;
 
         body.TenantsTotal.Should().Be(2);
@@ -166,17 +174,42 @@ public sealed class DashboardSummaryTests
     }
 
     [Fact]
-    public async Task Cluster_status_propagates_to_response()
+    public async Task Ras_health_propagates_to_response()
     {
         using var db = TestHelpers.NewInMemoryDb();
-        var circuit = MakeCircuit(state: "Open", adapter: "Ras", error: "REST unreachable");
+        var checkedAt = new DateTime(2026, 5, 24, 14, 30, 0, DateTimeKind.Utc);
+        var rasHealth = MakeRasHealth(
+            healthy: false,
+            lastCheckedAtUtc: checkedAt,
+            error: "rac.exe не найден по указанному пути.",
+            consecutiveFailures: 3);
 
-        var result = await DashboardEndpoints.SummaryAsync(db, MakeStore([]), circuit, NewCache(), CancellationToken.None);
+        var result = await DashboardEndpoints.SummaryAsync(db, MakeStore([]), rasHealth, NewCache(), CancellationToken.None);
         var body = ((Ok<DashboardSummaryResponse>)result).Value!;
 
-        body.Cluster.State.Should().Be("Open");
-        body.Cluster.ActiveAdapter.Should().Be("Ras");
-        body.Cluster.LastErrorMessage.Should().Be("REST unreachable");
+        body.Ras.Healthy.Should().BeFalse();
+        body.Ras.LastCheckedAtUtc.Should().Be(checkedAt);
+        body.Ras.LastErrorMessage.Should().Be("rac.exe не найден по указанному пути.");
+        body.Ras.ConsecutiveFailures.Should().Be(3);
+    }
+
+    [Fact]
+    public async Task Ras_health_null_lastChecked_propagates_for_startup_window()
+    {
+        // Edge case: первый probe ещё не отработал → LastCheckedAtUtc=null.
+        // Frontend рендерит «Проверка…» neutral badge в этом окне.
+        using var db = TestHelpers.NewInMemoryDb();
+        var rasHealth = Substitute.For<IRasHealthReader>();
+        rasHealth.GetSnapshot().Returns(new RasHealthSnapshot(
+            Healthy: true,
+            LastCheckedAtUtc: null,
+            LastErrorMessage: null,
+            ConsecutiveFailures: 0));
+
+        var result = await DashboardEndpoints.SummaryAsync(db, MakeStore([]), rasHealth, NewCache(), CancellationToken.None);
+        var body = ((Ok<DashboardSummaryResponse>)result).Value!;
+
+        body.Ras.LastCheckedAtUtc.Should().BeNull();
     }
 
     [Fact]
@@ -188,12 +221,12 @@ public sealed class DashboardSummaryTests
         await db.SaveChangesAsync();
 
         var snapshotStore = Substitute.For<IActiveSessionSnapshotStore>();
-        snapshotStore.Current().Returns(new SnapshotPayload([], DateTime.UtcNow, 1, "Rest"));
-        var circuit = MakeCircuit();
+        snapshotStore.Current().Returns(new SnapshotPayload([], DateTime.UtcNow, 1, "Ras"));
+        var rasHealth = MakeRasHealth();
         var cache = NewCache();
 
-        await DashboardEndpoints.SummaryAsync(db, snapshotStore, circuit, cache, CancellationToken.None);
-        await DashboardEndpoints.SummaryAsync(db, snapshotStore, circuit, cache, CancellationToken.None);
+        await DashboardEndpoints.SummaryAsync(db, snapshotStore, rasHealth, cache, CancellationToken.None);
+        await DashboardEndpoints.SummaryAsync(db, snapshotStore, rasHealth, cache, CancellationToken.None);
 
         // Внутри 5-секундного TTL второй вызов берёт ответ из кэша — snapshot.Current()
         // отрабатывает ровно один раз.

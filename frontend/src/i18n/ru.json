@@ -59,17 +59,17 @@
       "sessions": "Активные сеансы",
       "consumed": "Использовано лицензий",
       "available": "Свободно лицензий",
-      "clusterStatus": "Статус кластера"
+      "rasStatus": "Статус RAS"
     },
-    "cluster": {
-      "closed": "В норме",
-      "open": "Цепь разомкнута",
-      "halfOpen": "Проба",
-      "activeAdapter": "Адаптер",
-      "adapterRest": "REST",
-      "adapterRas": "RAS",
-      "lastError": "Подробности",
-      "lastTransition": "Изменено"
+    "ras": {
+      "ok": "OK",
+      "failed": "Сбой",
+      "checking": "Проверка…",
+      "lastError": "детали ошибки",
+      "lastChecked": "проверено",
+      "consecutiveFailures_one": "{{count}} ошибка подряд",
+      "consecutiveFailures_few": "{{count}} ошибки подряд",
+      "consecutiveFailures_many": "{{count}} ошибок подряд"
     },
     "topTenants": {
       "title": "Топ клиентов по нагрузке",
@@ -418,18 +418,15 @@
   },
   "settings": {
     "title": "Параметры",
-    "subtitle": "Настройки подключения к 1С-кластеру, IIS, частоты опроса и circuit-breaker. Секреты хранятся зашифрованными и не отображаются в открытом виде.",
+    "subtitle": "Настройки подключения к 1С RAS, IIS и частоты опроса. Секреты хранятся зашифрованными и не отображаются в открытом виде.",
     "sections": {
-      "cluster": "1С Cluster и RAS",
+      "cluster": "1С RAS",
       "iis": "IIS",
-      "polling": "Опрос и дрейф",
-      "circuit": "Circuit breaker"
+      "polling": "Опрос и дрейф"
     },
     "labels": {
-      "OneC.Cluster.RestApiUrl": "URL 1С Cluster REST API",
-      "OneC.Cluster.AdminUser": "Логин администратора кластера",
-      "OneC.Cluster.AdminPassword": "Пароль администратора кластера",
-      "OneC.Cluster.RestApiTimeoutSeconds": "Тайм-аут REST-вызова, сек",
+      "OneC.Cluster.AdminUser": "Логин администратора кластера (для rac.exe)",
+      "OneC.Cluster.AdminPassword": "Пароль администратора кластера (для rac.exe)",
       "OneC.RAS.Endpoint": "RAS endpoint (host:port)",
       "OneC.RAS.ExePath": "Путь к rac.exe",
       "IIS.ServiceAccount.UserName": "Учётка IIS",
@@ -437,21 +434,17 @@
       "Polling.HotIntervalSeconds": "Период hot-цикла, сек",
       "Polling.ColdIntervalSeconds": "Период cold-цикла, сек",
       "Polling.HotThresholdPercent": "Порог перехода в hot, %",
-      "Drift.IntervalMinutes": "Период проверки дрейфа, мин",
-      "CircuitBreaker.ProbeIntervalSeconds": "Интервал probe-вызова, сек",
-      "CircuitBreaker.FailureCount": "Кол-во ошибок для размыкания"
+      "Drift.IntervalMinutes": "Период проверки дрейфа, мин"
     },
     "hints": {
-      "OneC.Cluster.RestApiUrl": "Абсолютный URL, http или https.",
-      "OneC.Cluster.AdminPassword": "Хранится зашифрованным DPAPI. После сохранения значение не отображается.",
-      "OneC.Cluster.RestApiTimeoutSeconds": "Диапазон 1–30. По умолчанию 5.",
-      "OneC.RAS.Endpoint": "Формат host:port, порт в диапазоне 1024–65535.",
+      "OneC.Cluster.AdminUser": "Передаётся rac.exe как --cluster-user. Оставьте пустым для анонимного доступа к кластеру без зарегистрированных администраторов.",
+      "OneC.Cluster.AdminPassword": "Передаётся rac.exe как --cluster-pwd. Хранится зашифрованным DPAPI. После сохранения значение не отображается.",
+      "OneC.RAS.Endpoint": "Формат host:port, порт в диапазоне 1024–65535. По умолчанию localhost:1545.",
+      "OneC.RAS.ExePath": "Абсолютный путь к rac.exe (например, C:\\Program Files\\1cv8\\8.5.1.1302\\bin\\rac.exe). Версионная папка bin — на 1С 8.5 утилита переехала туда из 1cv8\\common\\.",
       "Polling.HotIntervalSeconds": "Диапазон 2–60. По умолчанию 4.",
       "Polling.ColdIntervalSeconds": "Диапазон 10–300. По умолчанию 25.",
       "Polling.HotThresholdPercent": "Диапазон 50–100. По умолчанию 90.",
-      "Drift.IntervalMinutes": "Диапазон 1–60. По умолчанию 5.",
-      "CircuitBreaker.ProbeIntervalSeconds": "Диапазон 10–300. По умолчанию 60.",
-      "CircuitBreaker.FailureCount": "Диапазон 2–10. По умолчанию 3."
+      "Drift.IntervalMinutes": "Диапазон 1–60. По умолчанию 5."
     },
     "actions": {
       "save": "Сохранить",

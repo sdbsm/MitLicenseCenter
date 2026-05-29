@@ -4,31 +4,34 @@ This document defines how the platform interacts with the underlying hosting inf
 
 ## 1. 1C Cluster Integration
 
-### Primary Method: 1C Cluster REST API
-Since the platform targets 1C versions 8.3 to 8.5, the primary integration method is the **1C Cluster Administration REST API**.
-- **Get Sessions:** A GET request to the cluster API retrieves the list of active sessions, infobase IDs, AppIDs, and user info.
-- **Kill Session:** A DELETE (or specific POST) request to the cluster API using the specific `SessionId` forces the termination of a session.
+### Sole adapter: RAS via `rac.exe` (Stage 5 PR 5.1, ADR-16)
 
-### Idempotent Kill Protocol
-Before issuing a kill, the adapter:
-1. Re-fetches the target session by `SessionId` from the cluster.
+The 1C cluster adapter is exclusively `rac.exe` driven against a local `ras.exe` (listening on TCP 1545 by default). The Stage 3 dual-adapter architecture (REST primary + RAS fallback + Polly circuit breaker) was removed in Stage 5 PR 5.1 after live verification on 1C 8.5.1.1302 confirmed REST is not published by default on small single-node deployments and `HttpClient` hangs the full 100-second timeout window. See **ADR-16** for the rationale.
+
+- **Get sessions:** `rac.exe <endpoint> session list --cluster=<uuid>` (preceded by `rac.exe <endpoint> cluster list` to resolve the cluster UUID; cached within a single `ListActiveSessionsAsync` call only).
+- **Kill session:** `rac.exe <endpoint> session terminate --cluster=<uuid> --session=<session-uuid> --error-message="<reason>"`.
+- **Authentication:** `--cluster-user=<user>` / `--cluster-pwd=<password>` from `Settings.OneC.Cluster.AdminUser` and `Settings.OneC.Cluster.AdminPassword`. Both can be left empty for clusters with no registered administrators (anonymous mode).
+- Implementation: `RacExecutableRasClusterClient` (`Infrastructure/Clusters/`) wraps the process via `IRacProcessRunner` → `SystemProcessRacRunner`. Output is parsed by the pure-static `RacOutputParser` (CP866 OEM code page on RU Windows — see ADR-3.3 for the encoding caveat). Spawn budget: ≤ 26 `rac.exe` processes per minute under sustained over-quota load — well within OS / antivirus tolerances on a single-node deployment. See **ADR-3.3** for the exact CLI contract, output grammar, kill-idempotency markers, and error semantics.
+- **Tool path:** `Settings.OneC.RAS.ExePath` (operator-configured — version-specific, no seeded default since 1C 8.5 moved `rac.exe` out of `1cv8\common\` into `1cv8\<version>\bin\`).
+- **RAS endpoint:** `Settings.OneC.RAS.Endpoint` (default `localhost:1545`).
+
+### Idempotent kill protocol
+Before issuing a kill, the adapter pipeline (`KillEnforcer` → `IClusterClient.KillSessionAsync`):
+1. Re-fetches the target session by `SessionId` from the cluster snapshot.
 2. Verifies that `(InfobaseId, AppID, StartedAt)` match the snapshot that triggered the decision.
 3. Issues the kill only on match. A mismatch causes the kill to be skipped — the next reconciliation cycle will re-evaluate.
-4. Treats a `404 / session not found` response as a successful (idempotent) kill — the session is no longer there, which is the desired end state.
+4. Treats `rac.exe` stderr `«Сеанс с указанным идентификатором не найден»` as a successful (idempotent) kill — the session is no longer there, which is the desired end state.
 
 Every kill is recorded in `AuditLog` with reason (`LimitExceeded` or `ManualByAdmin`) and snapshot context.
 
-### Fallback Method: RAS (Remote Administration Server) — Stage 3 PR 3.8
-If the REST API is unavailable, the system falls back to driving the **RAS admin server (`ras.exe` listening on TCP 1545 by default)** through the standard `rac.exe` command-line client. Implementation: `RacExecutableRasClusterClient` (`Infrastructure/Clusters/`) spawns `rac.exe` once per `ListActiveSessionsAsync` / `KillSessionAsync` / `PingAsync` call — never once per session — and parses the vertical key-value stdout (UTF-8 no BOM) via the pure-static `RacOutputParser`. See `DECISIONS.md` **ADR-3.3** for the exact CLI contract, output grammar, kill-idempotency markers, and error semantics. Tool path lives in `Settings.OneC.RAS.ExePath` (operator-configured — version-specific, no seeded default since 1C 8.5 moved `rac.exe` out of `1cv8\common\`); endpoint in `Settings.OneC.RAS.Endpoint` (default `localhost:1545`).
+### RAS health probe (Stage 5 PR 5.1, ADR-16)
 
-Long-lived TCP socket on 1545 (no `rac.exe` per cycle) is an optional Stage 4 optimisation tracked in `ROADMAP.md` — the current invocation budget (≤ 26 `rac.exe` processes per minute under sustained over-quota load) is well within OS / antivirus tolerances on a single-node deployment.
+`RasHealthProbingService : BackgroundService` calls `IClusterClient.PingAsync` every 30s and publishes the result to `IRasHealthReader` (a singleton consumed by the `/api/v1/dashboard/summary` endpoint). The Dashboard surfaces three states on the RAS health card: `OK` (success), `Сбой` (danger, with last-error tooltip + consecutive-failures count), and `Проверка…` (neutral, only during the first 30s after backend startup before the initial probe completes). Health transitions are **not** written to `AuditLog` — frequent transient blips would polish the audit log; the operator sees state in real time on the card.
 
-### REST → RAS Failover (Circuit Breaker)
-The 1C Cluster Adapter wraps REST calls in a Polly-based circuit breaker:
-- **Open trigger:** three consecutive REST failures or timeouts within a short window.
-- **Open behavior:** subsequent calls are routed to the RAS adapter.
-- **Half-open probe:** every 60 seconds a single REST probe is attempted. On success the circuit closes and REST resumes.
-- Circuit state transitions (`CircuitOpened`, `CircuitClosed`) are written to `AuditLog` so admins can see when fallback was in effect.
+`AuditActionType` integer values `300` (`ClusterAdapterCircuitOpened`) and `301` (`ClusterAdapterCircuitClosed`) remain reserved historical (frozen-int rule) — enum entries stay so historical AuditLog rows from Stage 3 / 4 deployments render correctly; new rows with these values are not written.
+
+### Long-lived RAS TCP socket (Strategy B) — deferred
+Replacing `rac.exe`-per-cycle with a long-lived socket on 1545 is tracked as Stage 5 PR 5.2 — deferred, gated on post-5.1 real-world latency measurement. Until then, the spawn budget above is the binding contract.
 
 ## 2. IIS & Publication Management
 
@@ -92,7 +95,8 @@ Administrators authenticate against the panel using ASP.NET Core Identity with l
 
 Infrastructure operations (especially mass IIS updates or 1C cluster scans) can be blocking.
 - The Reconciliation Loop (Session Monitor) runs asynchronously and on a two-tier cadence (hot 3–5s for at-risk tenants, cold 20–30s for everyone). See ADR-6.
-- Direct calls to the 1C Cluster API MUST have strict timeouts to prevent the background worker from hanging if the 1C cluster becomes unresponsive.
+- Direct calls to the 1C Cluster Adapter MUST have strict timeouts to prevent the background worker from hanging if rac.exe / ras.exe become unresponsive. `RacExecutableRasClusterClient` uses a 30s per-invocation deadline (ADR-3.3).
+- **`RasHealthProbingService`** (Stage 5 PR 5.1, ADR-16) runs as a `BackgroundService` with a 30s `IClusterClient.PingAsync` cadence. Publishes `IRasHealthReader` snapshot for the Dashboard RAS health card. Audit-neutral.
 - A separate **drift-detection job** runs every 5 minutes, comparing each `Publication`'s desired state against the actual `default.vrd` + IIS state. Results are written to `Publication.LastDriftStatus` / `LastDriftCheckAt` / `LastDriftDetails`. Drift is reported, never auto-corrected — reconcile is an explicit admin action.
 - An **audit retention job** (PR 4.3) runs daily at 03:00 UTC and deletes rows from `dbo.AuditLogs` older than `Settings.Audit.RetentionDays` (default 365, range [30, 3650]). Implementation: batched `DELETE TOP (5000)` with commit-per-batch via `ExecuteSqlInterpolatedAsync` against `[Timestamp]`. Audit row `AuditLogsPurged=500` is written only when the total delete count is non-zero. CRON is fixed in code — retention window is operator-tunable, cadence is not.
 

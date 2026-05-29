@@ -74,5 +74,19 @@ Narrative: "Operational hardening release." Scope was pivoted and locked 2026-05
 - ~~TOTP 2FA~~ — internal LAN/VPN deployment; network-level auth protection (firewall + AD/SSO + physical access) is sufficient. `TwoFactorEnabled` column stays (Identity base class) but is never activated. ADR-7 updated accordingly.
 
 **Deferred beyond Stage 4:**
-- RAS long-lived TCP socket (Strategy B) — `rac.exe`-per-cycle budget (~26 processes/min) is within OS/AV tolerances on single-node; re-evaluate after real-world production latency measurement.
+- ~~RAS long-lived TCP socket (Strategy B)~~ → **rolled into Stage 5 backlog as PR 5.2**, still deferred — gated on post-5.1 latency measurement.
 - Multi-cluster / multi-node topology — single-node assumption locked; opening it requires re-review of every adapter.
+
+## Stage 5 — Cluster adapter consolidation · **In Progress**
+
+Narrative: single-adapter architecture for v1. The REST API path was useful as a Stage 3 hedge but turned out to be uncommon on real 1C 8.5 deployments, and the dual-adapter codebase leaked failure modes operators couldn't self-diagnose (when the circuit was still closed and the REST primary was silently hanging, the symptom — empty snapshot — and the cause — `HttpClient` timeout chain — were five layers apart). Stage 5 reduces the adapter surface to `rac.exe`-only and replaces the circuit-state Dashboard card with a real RAS health probe.
+
+| PR | Scope | Status | ADR(s) |
+|---|---|---|---|
+| 5.1 | Remove the 1C Cluster REST adapter + Polly circuit breaker. Delete `OneCRestClusterClient`, `ResilientClusterClient`, `ClusterCircuitState`, `IRasFallbackClusterClient`, `ICircuitStatusReader`, `ClusterEndpoints` (`/cluster/status`). Bind `IClusterClient` directly to `RacExecutableRasClusterClient`. Drop 4 Settings keys (2 REST + 2 CircuitBreaker; `OneC.Cluster.AdminUser/AdminPassword` retained — rebased to feed rac.exe `--cluster-user`/`--cluster-pwd` per ADR-3.3) via `Stage5DropRestClusterSettings` migration; catalog 15 → 11. Repurpose Dashboard cluster card to RAS health card backed by new `RasHealthProbingService` (30s ping cadence) + `IRasHealthReader`. Drop `Microsoft.Extensions.Http.Resilience` + `Polly` NuGet packages. AuditActionType 300/301 reserved historical. | **Done** | ADR-16 new; ADR-3.1 + ADR-3.2 revoked; ADR-3.3 status update |
+| 5.2 | RAS Strategy B — long-lived TCP socket on 1545, replaces `rac.exe`-per-cycle to drop the ~26 procs/min worst case. | _Deferred_ | _gated on post-5.1 real-world latency measurement_ |
+
+**Notable scope pivots during execution:**
+- **PR 5.1**: roadmap planning called for dropping 6 Settings keys (4 REST + 2 CircuitBreaker). Reality check on the codebase — `RacExecutableRasClusterClient.BuildArgsWithAuth` reuses `OneC.Cluster.AdminUser` / `OneC.Cluster.AdminPassword` for rac.exe `--cluster-user` / `--cluster-pwd` flags (ADR-3.3 binding). Dropping those keys would break authenticated rac.exe calls on clusters with registered administrators. Migration adjusted to drop only 4 keys (catalog 15 → 11, not the planned 9); the two surviving cluster-admin keys get updated descriptions in `SettingDefinitions` and `i18n/ru.json` reflecting their new RAS-only role. ADR-16 explicitly documents the retention.
+- **PR 5.1**: `SnapshotPayload.Source` field kept (hardcoded `"Ras"` literal in both writer sites) rather than deleted, despite the "капитально" framing — 9 unit tests reference it as a positional record arg, and the field is a useful future discriminator slot (`"RasCli"` vs `"RasSocket"` once Strategy B lands). Frontend `SessionsSnapshotResponse.source` type field stays.
+- **PR 5.1**: `RasHealthProbingService` probe interval hardcoded at 30s (no Settings key). Per plan A6, bringing the catalog back up by 1 for an interval most operators won't tune isn't worth it; revisit if operator feedback emerges.

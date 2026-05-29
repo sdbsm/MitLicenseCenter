@@ -11,11 +11,13 @@ namespace MitLicenseCenter.Infrastructure.Jobs;
 
 internal sealed partial class HotTierPollingService : BackgroundService
 {
+    // См. ReconciliationJob.AdapterSource — общее обоснование.
+    private const string AdapterSource = "Ras";
+
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IActiveSessionSnapshotStore _store;
     private readonly IHotTierRegistry _registry;
     private readonly ISettingsSnapshot _settings;
-    private readonly ICircuitStatusReader _circuitReader;
     private readonly TimeProvider _clock;
     private readonly ILogger<HotTierPollingService> _logger;
 
@@ -24,7 +26,6 @@ internal sealed partial class HotTierPollingService : BackgroundService
         IActiveSessionSnapshotStore store,
         IHotTierRegistry registry,
         ISettingsSnapshot settings,
-        ICircuitStatusReader circuitReader,
         TimeProvider clock,
         ILogger<HotTierPollingService> logger)
     {
@@ -32,7 +33,6 @@ internal sealed partial class HotTierPollingService : BackgroundService
         _store = store;
         _registry = registry;
         _settings = settings;
-        _circuitReader = circuitReader;
         _clock = clock;
         _logger = logger;
     }
@@ -99,8 +99,7 @@ internal sealed partial class HotTierPollingService : BackgroundService
                     .ToList();
 
                 var now = _clock.GetUtcNow().UtcDateTime;
-                var source = _circuitReader.GetStatus().ActiveAdapter;
-                _store.Replace(new SnapshotPayload(overlaid, now, (int)sw.ElapsedMilliseconds, source));
+                _store.Replace(new SnapshotPayload(overlaid, now, (int)sw.ElapsedMilliseconds, AdapterSource));
 
                 LogHotOverlay(_logger, hotTenants.Count, freshEntries.Count, (int)sw.ElapsedMilliseconds);
             }

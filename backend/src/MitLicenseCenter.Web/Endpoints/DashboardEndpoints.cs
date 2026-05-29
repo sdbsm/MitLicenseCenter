@@ -29,7 +29,7 @@ public static class DashboardEndpoints
     internal static async Task<Ok<DashboardSummaryResponse>> SummaryAsync(
         AppDbContext db,
         IActiveSessionSnapshotStore snapshot,
-        ICircuitStatusReader circuit,
+        IRasHealthReader rasHealth,
         IMemoryCache cache,
         CancellationToken ct)
     {
@@ -39,7 +39,7 @@ public static class DashboardEndpoints
         var response = await cache.GetOrCreateAsync(CacheKey, async entry =>
         {
             entry.AbsoluteExpirationRelativeToNow = CacheTtl;
-            return await ComputeAsync(db, snapshot, circuit, ct).ConfigureAwait(false);
+            return await ComputeAsync(db, snapshot, rasHealth, ct).ConfigureAwait(false);
         }).ConfigureAwait(false);
 
         return TypedResults.Ok(response!);
@@ -48,7 +48,7 @@ public static class DashboardEndpoints
     internal static async Task<DashboardSummaryResponse> ComputeAsync(
         AppDbContext db,
         IActiveSessionSnapshotStore snapshot,
-        ICircuitStatusReader circuit,
+        IRasHealthReader rasHealth,
         CancellationToken ct)
     {
         // Один проход по Tenants: total/active count + map id→(name, limit) для top-5.
@@ -94,12 +94,12 @@ public static class DashboardEndpoints
             .Take(5)
             .ToList();
 
-        var status = circuit.GetStatus();
-        var cluster = new DashboardClusterStatus(
-            State: status.State,
-            LastTransitionAt: status.LastTransitionAtUtc,
-            LastErrorMessage: status.LastErrorMessage,
-            ActiveAdapter: status.ActiveAdapter);
+        var health = rasHealth.GetSnapshot();
+        var ras = new DashboardRasHealth(
+            Healthy: health.Healthy,
+            LastCheckedAtUtc: health.LastCheckedAtUtc,
+            LastErrorMessage: health.LastErrorMessage,
+            ConsecutiveFailures: health.ConsecutiveFailures);
 
         return new DashboardSummaryResponse(
             TenantsTotal: tenantsTotal,
@@ -109,7 +109,7 @@ public static class DashboardEndpoints
             LicensesConsumedTotal: licensesConsumedTotal,
             LicensesAvailableTotal: licensesAvailableTotal,
             TopTenantsByConsumption: topTenants,
-            Cluster: cluster);
+            Ras: ras);
     }
 
     private readonly record struct TenantAggregateRow(Guid Id, string Name, int MaxConcurrentLicenses, bool IsActive);

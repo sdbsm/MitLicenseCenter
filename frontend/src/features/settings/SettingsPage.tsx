@@ -5,15 +5,16 @@ import { SettingField } from "./SettingField";
 import type { SettingDescriptor } from "./types";
 import { useSettings } from "./useSettings";
 
-// Группировка по ключам: совпадает с разделами в UI (4 секции).
+// Stage 5 PR 5.1 (ADR-16): REST adapter и circuit breaker удалены — 3 секции
+// вместо 4. OneC.Cluster.AdminUser/AdminPassword остаются в секции «cluster» —
+// rac.exe RAS-адаптер использует их для --cluster-user / --cluster-pwd
+// (см. ADR-3.3). Settings catalog уменьшился с 15 ключей до 11.
 const SECTIONS: { titleKey: string; keys: string[] }[] = [
   {
     titleKey: "settings.sections.cluster",
     keys: [
-      "OneC.Cluster.RestApiUrl",
       "OneC.Cluster.AdminUser",
       "OneC.Cluster.AdminPassword",
-      "OneC.Cluster.RestApiTimeoutSeconds",
       "OneC.RAS.Endpoint",
       "OneC.RAS.ExePath",
     ],
@@ -31,10 +32,6 @@ const SECTIONS: { titleKey: string; keys: string[] }[] = [
       "Drift.IntervalMinutes",
     ],
   },
-  {
-    titleKey: "settings.sections.circuit",
-    keys: ["CircuitBreaker.ProbeIntervalSeconds", "CircuitBreaker.FailureCount"],
-  },
 ];
 
 // Тип ввода + диапазон диктуем со страницы — backend всё равно валидирует
@@ -43,10 +40,8 @@ const FIELD_META: Record<
   string,
   { type: "text" | "number" | "url" | "password"; min?: number; max?: number; placeholder?: string }
 > = {
-  "OneC.Cluster.RestApiUrl": { type: "url", placeholder: "http://1c-cluster.local:1545" },
   "OneC.Cluster.AdminUser": { type: "text" },
   "OneC.Cluster.AdminPassword": { type: "password" },
-  "OneC.Cluster.RestApiTimeoutSeconds": { type: "number", min: 1, max: 30 },
   "OneC.RAS.Endpoint": { type: "text", placeholder: "host:1545" },
   "OneC.RAS.ExePath": { type: "text" },
   "IIS.ServiceAccount.UserName": { type: "text" },
@@ -55,8 +50,6 @@ const FIELD_META: Record<
   "Polling.ColdIntervalSeconds": { type: "number", min: 10, max: 300 },
   "Polling.HotThresholdPercent": { type: "number", min: 50, max: 100 },
   "Drift.IntervalMinutes": { type: "number", min: 1, max: 60 },
-  "CircuitBreaker.ProbeIntervalSeconds": { type: "number", min: 10, max: 300 },
-  "CircuitBreaker.FailureCount": { type: "number", min: 2, max: 10 },
 };
 
 export function SettingsPage() {

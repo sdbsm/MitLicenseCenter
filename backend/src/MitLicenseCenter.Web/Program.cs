@@ -114,13 +114,8 @@ builder.Services.AddHangfireServer(o =>
     o.WorkerCount = Math.Max(2, Environment.ProcessorCount);
 });
 
-// HotTierPollingService registered in Infrastructure.DependencyInjection.
-
-builder.Services.AddHttpClient().ConfigureHttpClientDefaults(http =>
-{
-    // Готовим почву для адаптеров 1С/IIS (Stage 3): стандартный resilience pipeline (Polly).
-    http.AddStandardResilienceHandler();
-});
+// HotTierPollingService + RasHealthProbingService registered in
+// Infrastructure.DependencyInjection.
 
 var app = builder.Build();
 
@@ -140,7 +135,6 @@ app.MapPublicationsEndpoints(versionSet);
 app.MapAuditEndpoints(versionSet);
 app.MapSessionsEndpoints(versionSet);
 app.MapSettingsEndpoints(versionSet);
-app.MapClusterEndpoints(versionSet);
 app.MapDashboardEndpoints(versionSet);
 
 app.UseSwagger(o => o.RouteTemplate = "api/docs/{documentName}/swagger.json");

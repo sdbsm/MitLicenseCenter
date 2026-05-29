@@ -36,9 +36,9 @@ Semantic colors map 1:1 to states across the entire app. **Same status, same col
 
 | Semantic | Tailwind base | Used for |
 | --- | --- | --- |
-| `success` | `emerald-600` / dark `emerald-500` | `InSync`, `Active`, `Closed` (circuit), `Healthy` |
-| `warning` | `amber-600` / dark `amber-500` | `HalfOpen`, `Maintenance`, license consumption 75–90% |
-| `danger` | `red-600` / dark `red-500` | `Drift`, `Open` (circuit), `Suspended`, `Error`, license consumption ≥ 90%, all destructive buttons |
+| `success` | `emerald-600` / dark `emerald-500` | `InSync`, `Active`, RAS `Healthy` |
+| `warning` | `amber-600` / dark `amber-500` | `Maintenance`, license consumption 75–90% |
+| `danger` | `red-600` / dark `red-500` | `Drift`, RAS `Unhealthy`, `Suspended`, `Error`, license consumption ≥ 90%, all destructive buttons |
 | `info` | `sky-600` / dark `sky-500` | `Missing`, `Unknown`, informational badges |
 | `neutral` | `zinc-500` | `Viewer` role chip, disabled, "no data" |
 
@@ -125,7 +125,7 @@ The Sessions Monitor and Dashboard poll. The UI must communicate freshness hones
   - Audit → `ScrollText`
   - Drift / warning → `AlertTriangle`
   - Healthy / synced → `CircleCheck`
-  - Error / circuit open → `CircleX`
+  - Error / RAS unhealthy → `CircleX`
   - Maintenance → `Wrench`
   - Reconcile → `RefreshCcw`
   - Kill / terminate → `Power`
@@ -186,9 +186,9 @@ Use these exact phrasings throughout the UI for consistency. **Do not invent syn
 | Missing | Отсутствует |
 | Error | Ошибка |
 | Healthy | В норме |
-| Closed (circuit) | Закрыт |
-| Open (circuit) | Открыт |
-| HalfOpen | Полуоткрыт |
+| RAS Healthy | OK |
+| RAS Unhealthy | Сбой |
+| RAS Probing | Проверка… |
 
 ### Frequent phrases
 - "Обновлено N сек назад" — freshness indicator.

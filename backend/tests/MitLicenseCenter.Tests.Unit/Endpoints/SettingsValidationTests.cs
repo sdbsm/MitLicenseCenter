@@ -64,22 +64,10 @@ public sealed class SettingsValidationTests
         audit.Entries.Should().BeEmpty();
     }
 
-    [Fact]
-    public async Task Invalid_url_returns_ValidationProblem()
-    {
-        var (store, audit, _) = MakeFixture();
-
-        var result = await SettingsEndpoints.UpdateAsync(
-            SettingKey.OneCClusterRestApiUrl,
-            new UpdateSettingRequest("not-a-url"),
-            store,
-            audit,
-            TestHelpers.NewHttpContext(),
-            CancellationToken.None);
-
-        result.Result.Should().BeOfType<ValidationProblem>();
-        audit.Entries.Should().BeEmpty();
-    }
+    // Stage 5 PR 5.1 (ADR-16): SettingValueKind.Url-валидация осталась в коде
+    // endpoint'а, но ни один ключ в catalog'е больше не использует Url-тип
+    // (OneC.Cluster.RestApiUrl был единственным). Тест на invalid URL удалён;
+    // первое же возвращение URL-ключа в catalog должно принести покрытие обратно.
 
     [Fact]
     public async Task Valid_secret_update_returns_Ok_and_audit_description_omits_plaintext()
@@ -108,18 +96,18 @@ public sealed class SettingsValidationTests
         var (store, audit, db) = MakeFixture();
 
         var result = await SettingsEndpoints.UpdateAsync(
-            SettingKey.OneCClusterRestApiUrl,
-            new UpdateSettingRequest("http://1c-cluster.local:1545"),
+            SettingKey.IisDefaultVrdRoot,
+            new UpdateSettingRequest(@"C:\inetpub\1c-publications"),
             store,
             audit,
             TestHelpers.NewHttpContext(),
             CancellationToken.None);
 
         result.Result.Should().BeOfType<Ok>();
-        var stored = await store.GetAsync(SettingKey.OneCClusterRestApiUrl);
-        stored.Should().Be("http://1c-cluster.local:1545");
+        var stored = await store.GetAsync(SettingKey.IisDefaultVrdRoot);
+        stored.Should().Be(@"C:\inetpub\1c-publications");
         audit.Entries.Should().ContainSingle(e => e.Action == AuditActionType.SettingChanged
-            && e.Description.Contains("OneC.Cluster.RestApiUrl"));
+            && e.Description.Contains("IIS.DefaultVrdRoot"));
     }
 
     [Fact]

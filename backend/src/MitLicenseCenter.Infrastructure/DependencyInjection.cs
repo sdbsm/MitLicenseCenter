@@ -4,7 +4,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Http.Resilience;
 using MitLicenseCenter.Application.Auditing;
 using MitLicenseCenter.Application.Clusters;
 using MitLicenseCenter.Application.Jobs;
@@ -69,34 +68,19 @@ public static class DependencyInjection
         services.AddSingleton<ISettingsSnapshot, SettingsSnapshot>();
         services.AddScoped<ISettingsStore, SettingsStore>();
 
-        // Cluster adapters: singleton circuit-state + typed REST HttpClient +
-        // scoped RAS stub + scoped resilient decorator (PR 3.2).
-        services.AddSingleton<ClusterCircuitState>();
-        services.AddSingleton<ICircuitStatusReader>(sp => sp.GetRequiredService<ClusterCircuitState>());
-
-        // RemoveAllResilienceHandlers() — снимаем глобальный AddStandardResilienceHandler
-        // с нашего именованного клиента, потому что resilience-политикой владеет
-        // ResilientClusterClient (Polly circuit breaker в ClusterCircuitState).
-        // EXTEXP0001: метод помечен [Experimental] в Microsoft.Extensions.Http.Resilience;
-        // подавляем, т.к. сознательно используем его по плану PR 3.2 ADR-3.2.
-#pragma warning disable EXTEXP0001
-        services.AddHttpClient<OneCRestClusterClient>((_, _) => { })
-            .RemoveAllResilienceHandlers();
-#pragma warning restore EXTEXP0001
-
-        // RAS fallback (PR 3.8): реальный rac.exe wrapper. Контракт CLI и парсер
-        // зафиксированы в ADR-3.3. Stub переехал в Clusters/Testing/ и в production-DI
-        // больше не регистрируется (только unit-тесты PR 3.2/3.3 берут его явно).
+        // Cluster adapter: rac.exe wrapper — единственный 1С cluster-адаптер
+        // (Stage 5 PR 5.1, ADR-16). REST adapter и Polly circuit breaker удалены —
+        // они хеджировали primary, эмпирически отсутствующий на default-деплоях 1С 8.5.
+        // CLI-контракт зафиксирован в ADR-3.3.
         services.AddSingleton<IRacProcessRunner, SystemProcessRacRunner>();
-        services.AddScoped<IRasFallbackClusterClient, RacExecutableRasClusterClient>();
+        services.AddScoped<IClusterClient, RacExecutableRasClusterClient>();
 
-        // Явная фабрика: ResilientClusterClient берёт конкретный OneCRestClusterClient
-        // как IClusterClient primary (из IHttpClientFactory), чтобы тесты могли
-        // подставить любой fake через конструктор без зависимости от HttpClient.
-        services.AddScoped<IClusterClient>(sp => new ResilientClusterClient(
-            primary: sp.GetRequiredService<OneCRestClusterClient>(),
-            fallback: sp.GetRequiredService<IRasFallbackClusterClient>(),
-            state: sp.GetRequiredService<ClusterCircuitState>()));
+        // RAS health probing: независимый 30s ping-loop публикует IRasHealthReader
+        // snapshot для Dashboard. Аудит-нейтрален в PR 5.1 (см. plan A6).
+        services.AddSingleton<RasHealthState>();
+        services.AddSingleton<IRasHealthReader>(sp => sp.GetRequiredService<RasHealthState>());
+        services.AddSingleton<RasHealthProbingService>();
+        services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<RasHealthProbingService>());
 
         // IIS publishing: реальный адаптер ServerManager + XDocument (PR 3.5).
         // Stub переехал в Publishing/Testing/ для unit-тестов, в production-DI

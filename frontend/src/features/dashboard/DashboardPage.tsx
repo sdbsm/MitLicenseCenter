@@ -6,14 +6,8 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import type { ClusterCircuitState, DashboardSummaryResponse, TenantConsumptionRow } from "./types";
+import type { DashboardRasHealth, DashboardSummaryResponse, TenantConsumptionRow } from "./types";
 import { useDashboardSummary } from "./useDashboardSummary";
-
-const CLUSTER_VARIANT: Record<ClusterCircuitState, StatusBadgeVariant> = {
-  Closed: "success",
-  Open: "danger",
-  HalfOpen: "warning",
-};
 
 function progressColorClass(percent: number): string {
   if (percent >= 90) return "[&>[data-slot=progress-indicator]]:bg-rose-500";
@@ -105,7 +99,7 @@ function KpiGrid({ data, isLoading, isFetching }: KpiGridProps) {
         isLoading={isLoading}
         isFetching={isFetching}
       />
-      <ClusterCard data={data} isLoading={isLoading} isFetching={isFetching} />
+      <RasHealthCard data={data} isLoading={isLoading} isFetching={isFetching} />
     </div>
   );
 }
@@ -138,70 +132,72 @@ function KpiCard({ label, value, secondary, isLoading, isFetching }: KpiCardProp
   );
 }
 
-interface ClusterCardProps {
+interface RasHealthCardProps {
   data: DashboardSummaryResponse | undefined;
   isLoading: boolean;
   isFetching: boolean;
 }
 
-function ClusterCard({ data, isLoading, isFetching }: ClusterCardProps) {
+// Stage 5 PR 5.1 (ADR-16): заменяет ClusterCard. Три визуальных состояния:
+// 1. ras === undefined ИЛИ lastCheckedAtUtc === null → «Проверка…» neutral
+// 2. healthy === true → «OK» success
+// 3. healthy === false → «Сбой» danger + tooltip с lastErrorMessage
+function RasHealthCard({ data, isLoading, isFetching }: RasHealthCardProps) {
   const { t } = useTranslation();
-  const cluster = data?.cluster;
+  const ras: DashboardRasHealth | undefined = data?.ras;
 
-  const stateLabel = cluster
-    ? t(
-        cluster.state === "Closed"
-          ? "dashboard.cluster.closed"
-          : cluster.state === "Open"
-            ? "dashboard.cluster.open"
-            : "dashboard.cluster.halfOpen"
-      )
-    : null;
+  const stillChecking = !ras || ras.lastCheckedAtUtc === null;
+  const variant: StatusBadgeVariant = stillChecking
+    ? "neutral"
+    : ras.healthy
+      ? "success"
+      : "danger";
 
-  const adapterLabel = cluster
-    ? t(
-        cluster.activeAdapter === "Rest"
-          ? "dashboard.cluster.adapterRest"
-          : "dashboard.cluster.adapterRas"
-      )
-    : null;
+  const label = stillChecking
+    ? t("dashboard.ras.checking")
+    : ras.healthy
+      ? t("dashboard.ras.ok")
+      : t("dashboard.ras.failed");
 
-  const showError = cluster && cluster.state !== "Closed" && cluster.lastErrorMessage;
+  const showError = ras && !ras.healthy && ras.lastErrorMessage;
 
   return (
     <Card className={cn("gap-2 py-4", isFetching && !isLoading && "opacity-90")}>
       <CardHeader className="px-4 pb-0">
         <CardTitle className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
-          {t("dashboard.kpi.clusterStatus")}
+          {t("dashboard.kpi.rasStatus")}
         </CardTitle>
       </CardHeader>
       <CardContent className="px-4">
-        {isLoading || !cluster ? (
+        {isLoading || !ras ? (
           <Skeleton className="h-8 w-24" />
         ) : (
           <div className="space-y-1.5">
             <div className="flex items-center gap-2">
-              <StatusBadge variant={CLUSTER_VARIANT[cluster.state]}>{stateLabel}</StatusBadge>
+              <StatusBadge variant={variant}>{label}</StatusBadge>
               {showError && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <span className="text-muted-foreground cursor-help text-xs underline">
-                      {t("dashboard.cluster.lastError")}
+                      {t("dashboard.ras.lastError")}
                     </span>
                   </TooltipTrigger>
                   <TooltipContent className="max-w-xs">
-                    <span className="text-xs">{cluster.lastErrorMessage}</span>
+                    <span className="text-xs">{ras.lastErrorMessage}</span>
                   </TooltipContent>
                 </Tooltip>
               )}
             </div>
-            <p className="text-muted-foreground text-xs">
-              {t("dashboard.cluster.activeAdapter")}: {adapterLabel}
-            </p>
-            <p className="text-muted-foreground text-xs">
-              {t("dashboard.cluster.lastTransition")}:{" "}
-              <RelativeTime value={cluster.lastTransitionAt} />
-            </p>
+            {ras.lastCheckedAtUtc && (
+              <p className="text-muted-foreground text-xs">
+                {t("dashboard.ras.lastChecked")}: <RelativeTime value={ras.lastCheckedAtUtc} />
+              </p>
+            )}
+            {!ras.healthy && ras.consecutiveFailures > 1 && (
+              <p className="text-muted-foreground text-xs">
+                {t("dashboard.ras.consecutiveFailures", { count: ras.consecutiveFailures })}
+              </p>
+            )}
           </div>
         )}
       </CardContent>

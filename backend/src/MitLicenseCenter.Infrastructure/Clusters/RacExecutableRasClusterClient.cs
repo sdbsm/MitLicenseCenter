@@ -6,12 +6,13 @@ using MitLicenseCenter.Domain.Settings;
 
 namespace MitLicenseCenter.Infrastructure.Clusters;
 
-// Production RAS-адаптер: оборачивает rac.exe. Активируется decorator'ом
-// ResilientClusterClient, когда REST circuit Open. CLI-контракт — ADR-3.3.
+// Production RAS-адаптер: оборачивает rac.exe. Единственный 1С cluster-адаптер
+// после Stage 5 PR 5.1 (ADR-16) — REST primary удалён, decorator'а больше нет.
+// CLI-контракт — ADR-3.3.
 // Spawn-cadence: ≤1 process per List/Kill/Ping. Внутри List ещё один process
 // (cluster list) для UUID-резолва — итого ≤2 per ListActiveSessionsAsync,
 // что в рамках memory-правила «не спавнить rac.exe per polling tick».
-internal sealed partial class RacExecutableRasClusterClient : IRasFallbackClusterClient
+internal sealed partial class RacExecutableRasClusterClient : IClusterClient
 {
     // Идемпотентный маркер «session not found» — стабильное русское сообщение
     // 1С Cluster Administration Server. Substring-проверка устойчива к

@@ -27,37 +27,22 @@ public static class SettingDefinitions
     public static readonly IReadOnlyDictionary<string, SettingDefinition> All =
         new Dictionary<string, SettingDefinition>(StringComparer.Ordinal)
         {
-            [SettingKey.OneCClusterRestApiUrl] = new(
-                SettingKey.OneCClusterRestApiUrl,
-                IsSecret: false,
-                Description: "Базовый URL 1С Cluster REST API (http/https, абсолютный).",
-                Kind: SettingValueKind.Url),
-
             [SettingKey.OneCClusterAdminUser] = new(
                 SettingKey.OneCClusterAdminUser,
                 IsSecret: false,
-                Description: "Логин администратора кластера 1С (Basic-auth для REST API).",
+                Description: "Логин администратора кластера 1С (используется rac.exe RAS-адаптером — флаг --cluster-user). Оставьте пустым для анонимного доступа.",
                 Kind: SettingValueKind.Text),
 
             [SettingKey.OneCClusterAdminPassword] = new(
                 SettingKey.OneCClusterAdminPassword,
                 IsSecret: true,
-                Description: "Пароль администратора кластера 1С. Хранится зашифрованным DPAPI.",
+                Description: "Пароль администратора кластера 1С (используется rac.exe — флаг --cluster-pwd). Хранится зашифрованным DPAPI.",
                 Kind: SettingValueKind.Text),
-
-            [SettingKey.OneCClusterRestApiTimeoutSeconds] = new(
-                SettingKey.OneCClusterRestApiTimeoutSeconds,
-                IsSecret: false,
-                Description: "Тайм-аут одного REST-вызова к 1С Cluster, секунды.",
-                Kind: SettingValueKind.Number,
-                DefaultValue: "5",
-                Min: 1,
-                Max: 30),
 
             [SettingKey.OneCRasEndpoint] = new(
                 SettingKey.OneCRasEndpoint,
                 IsSecret: false,
-                Description: "Endpoint RAS-сервера в формате host:port (используется как fallback).",
+                Description: "Endpoint RAS-сервера в формате host:port (по умолчанию localhost:1545).",
                 Kind: SettingValueKind.HostPort),
 
             // ADR-3.3: дефолт не сидируем — 1С 8.5 положил rac.exe в версионную
@@ -117,24 +102,6 @@ public static class SettingDefinitions
                 DefaultValue: "5",
                 Min: 1,
                 Max: 60),
-
-            [SettingKey.CircuitBreakerProbeIntervalSeconds] = new(
-                SettingKey.CircuitBreakerProbeIntervalSeconds,
-                IsSecret: false,
-                Description: "Интервал probe-вызова REST после открытия circuit breaker, секунды.",
-                Kind: SettingValueKind.Number,
-                DefaultValue: "60",
-                Min: 10,
-                Max: 300),
-
-            [SettingKey.CircuitBreakerFailureCount] = new(
-                SettingKey.CircuitBreakerFailureCount,
-                IsSecret: false,
-                Description: "Сколько подряд ошибок REST размыкает circuit breaker.",
-                Kind: SettingValueKind.Number,
-                DefaultValue: "3",
-                Min: 2,
-                Max: 10),
 
             [SettingKey.AuditRetentionDays] = new(
                 SettingKey.AuditRetentionDays,

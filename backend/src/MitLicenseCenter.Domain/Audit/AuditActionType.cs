@@ -31,6 +31,10 @@ public enum AuditActionType
     PublicationReconciled = 211,
 
     // 1С Cluster adapter circuit-breaker transitions (PR 3.2).
+    // Stage 5 PR 5.1 (ADR-16): circuit breaker удалён — новые строки с этими
+    // значениями НЕ пишутся. Enum-записи сохранены для рендера исторических
+    // AuditLog rows (frozen-int rule, PR 2.2). Frontend i18n
+    // audit.actions.ClusterAdapterCircuit{Opened,Closed} тоже сохранены.
     ClusterAdapterCircuitOpened = 300,
     ClusterAdapterCircuitClosed = 301,
 

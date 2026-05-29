@@ -8,7 +8,7 @@ public sealed record DashboardSummaryResponse(
     int LicensesConsumedTotal,
     int LicensesAvailableTotal,
     IReadOnlyList<TenantConsumptionRow> TopTenantsByConsumption,
-    DashboardClusterStatus Cluster);
+    DashboardRasHealth Ras);
 
 public sealed record TenantConsumptionRow(
     Guid TenantId,
@@ -17,8 +17,11 @@ public sealed record TenantConsumptionRow(
     int Limit,
     int Percent);
 
-public sealed record DashboardClusterStatus(
-    string State,
-    DateTime LastTransitionAt,
+// Stage 5 PR 5.1 (ADR-16): заменяет старый DashboardClusterStatus.
+// LastCheckedAtUtc=null означает «первый ping ещё не отработал» — frontend
+// рендерит «Проверка…» neutral badge.
+public sealed record DashboardRasHealth(
+    bool Healthy,
+    DateTime? LastCheckedAtUtc,
     string? LastErrorMessage,
-    string ActiveAdapter);
+    int ConsecutiveFailures);

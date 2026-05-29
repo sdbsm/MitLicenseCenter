@@ -31,7 +31,7 @@ The Control Panel is delivered in **Russian** as the only shipping locale of v1 
 ### 3.1. Main Dashboard
 - High-level overview of the hosting infrastructure.
 - **Metrics:** Total Tenants, Total Active Sessions, Total Consumed Licenses vs Global Allowed Limits.
-- **Health:** Server status, 1C Cluster API connectivity status.
+- **Health:** Server status, RAS adapter health (rac.exe reachable + last error), latest snapshot freshness. _(Stage 5 PR 5.1, ADR-16: the legacy "1C Cluster API connectivity status" bullet was reframed as a RAS health card backed by `RasHealthProbingService` — REST adapter and circuit breaker removed.)_
 
 ### 3.2. Tenants Management
 - List of all Clients.
@@ -49,7 +49,7 @@ The Control Panel is delivered in **Russian** as the only shipping locale of v1 
 ### 3.4. Active Sessions Monitor (The Kill Switch)
 - A combined table displaying current `ActiveSessionSnapshot` data.
 - **Columns:** Tenant Name, Infobase Name, Session ID, AppID, Duration, `ConsumesLicense` flag.
-- **Actions:** Administrators can manually select a session and click "Terminate", which triggers an API call to the backend to kill the session via the 1C REST API.
+- **Actions:** Administrators can manually select a session and click "Terminate", which triggers an API call to the backend to kill the session via `rac.exe session terminate` (Stage 5 PR 5.1, ADR-16 — the original "1C REST API" path was removed).
 
 ### 3.5. Audit Logs
 - A read-only, filterable table displaying the `AuditLog` entity data.

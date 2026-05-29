@@ -1,11 +1,11 @@
-export type ClusterCircuitState = "Closed" | "Open" | "HalfOpen";
-export type ClusterAdapter = "Rest" | "Ras";
-
-export interface DashboardClusterStatus {
-  state: ClusterCircuitState;
-  lastTransitionAt: string;
+// Stage 5 PR 5.1 (ADR-16): REST cluster adapter + Polly circuit breaker удалены.
+// Dashboard cluster card → RAS health card; backend publish'ит снапшот через
+// IRasHealthReader + RasHealthProbingService (30s ping cadence).
+export interface DashboardRasHealth {
+  healthy: boolean;
+  lastCheckedAtUtc: string | null;
   lastErrorMessage: string | null;
-  activeAdapter: ClusterAdapter;
+  consecutiveFailures: number;
 }
 
 export interface TenantConsumptionRow {
@@ -24,5 +24,5 @@ export interface DashboardSummaryResponse {
   licensesConsumedTotal: number;
   licensesAvailableTotal: number;
   topTenantsByConsumption: TenantConsumptionRow[];
-  cluster: DashboardClusterStatus;
+  ras: DashboardRasHealth;
 }
