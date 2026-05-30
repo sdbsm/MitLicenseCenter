@@ -28,7 +28,10 @@
       "Bash(xargs grep -l \"PublicationConfiguration\\\\|class PublicationConfiguration\")",
       "Bash(grep -E \"\\\\.cs$\")",
       "Bash(xargs grep -l \"InternalsVisibleTo\")",
-      "Bash(grep \"\\\\.cs$\")"
+      "Bash(grep \"\\\\.cs$\")",
+      "Bash(ls \"C:/Users/andre/memory/\" 2>/dev/null; ls \"F:/dev/MitLicense Center/memory\" 2>/dev/null; ls \"F:/dev/MitLicense Center\" | grep -i memory 2>/dev/null)",
+      "Read(//f/dev/**)",
+      "Bash(Get-ChildItem -Path \"src\\\\features\\\\audit\\\\\" -Recurse | Select-Object FullName)"
     ]
   }
 }

@@ -45,6 +45,18 @@ internal sealed partial class OneCIisPublishingService : IIisPublishingService
         return Task.CompletedTask;
     }
 
+    public Task<IReadOnlyList<IisSiteInfo>> ListSitesAsync(CancellationToken ct)
+    {
+        // Исключения (нет доступа к Metabase, COM) пробрасываются — discovery-эндпоинт
+        // их ловит и помечает результат недоступным. Здесь не swallow'им, чтобы
+        // отличить «нет сайтов» от «не смогли прочитать».
+        using var sm = new ServerManager();
+        var sites = sm.Sites
+            .Select(site => new IisSiteInfo(site.Name))
+            .ToList();
+        return Task.FromResult<IReadOnlyList<IisSiteInfo>>(sites);
+    }
+
     private PublicationActualState ReadActualState(Publication publication)
     {
         try

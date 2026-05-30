@@ -465,6 +465,21 @@
       "loadFailed": "Не удалось загрузить параметры."
     }
   },
+  "discovery": {
+    "selectPlaceholder": "Выберите из списка…",
+    "loading": "Загрузка…",
+    "refresh": "Обновить",
+    "retry": "Повторить",
+    "empty": "Ничего не найдено.",
+    "unavailable": "Список недоступен — введите вручную.",
+    "chooseFromList": "Выбрать из списка",
+    "enterManually": "Ввести вручную",
+    "databaseServerFirst": "Сначала укажите сервер БД",
+    "racDetect": "Найти автоматически",
+    "racNotFound": "rac.exe не найден в стандартных каталогах.",
+    "racApply": "Применить",
+    "racApplied": "Путь к rac.exe сохранён."
+  },
   "errors": {
     "generic": "Произошла ошибка. Попробуйте ещё раз.",
     "network": "Нет связи с сервером.",

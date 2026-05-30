@@ -304,4 +304,92 @@ public sealed class RacExecutableRasClusterClientTests
 
         return runner;
     }
+
+    // --- Discovery: ListInfobasesAsync / ParseInfobases (UID-picker) ---
+
+    [Fact]
+    public void ParseInfobases_maps_id_name_descr_and_skips_malformed()
+    {
+        const string stdout =
+            "infobase : 44444444-4444-4444-4444-444444444444\r\nname : Бухгалтерия\r\ndescr : Прод база\r\n" +
+            "\r\n" +
+            "infobase : 55555555-5555-5555-5555-555555555555\r\nname : Зарплата\r\ndescr : \r\n" +
+            "\r\n" +
+            "name : Без UUID\r\ndescr : пропустить\r\n";
+
+        var result = RacExecutableRasClusterClient.ParseInfobases(stdout);
+
+        result.Should().HaveCount(2);
+        result[0].Id.Should().Be(Guid.Parse("44444444-4444-4444-4444-444444444444"));
+        result[0].Name.Should().Be("Бухгалтерия");
+        result[0].Description.Should().Be("Прод база");
+        result[1].Description.Should().BeNull("пустой descr → null");
+    }
+
+    [Fact]
+    public void ParseInfobases_falls_back_to_uuid_when_name_missing()
+    {
+        const string stdout = "infobase : 66666666-6666-6666-6666-666666666666\r\n";
+
+        var result = RacExecutableRasClusterClient.ParseInfobases(stdout);
+
+        result.Should().ContainSingle();
+        result[0].Name.Should().Be("66666666-6666-6666-6666-666666666666");
+    }
+
+    [Fact]
+    public async Task ListInfobasesAsync_resolves_cluster_then_returns_available_list()
+    {
+        var settings = BuildSettings();
+        var runner = Substitute.For<IRacProcessRunner>();
+        runner.RunAsync("rac.exe", Arg.Is<IReadOnlyList<string>>(a => a.Contains("cluster") && a.Contains("list")), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(new RacInvocation(0, FakeClusterListStdout, string.Empty));
+        runner.RunAsync("rac.exe", Arg.Is<IReadOnlyList<string>>(a => a.Contains("infobase") && a.Contains("summary")), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(new RacInvocation(0,
+                "infobase : 77777777-7777-7777-7777-777777777777\r\nname : База А\r\n\r\ninfobase : 88888888-8888-8888-8888-888888888888\r\nname : База Б\r\n",
+                string.Empty));
+
+        var client = new RacExecutableRasClusterClient(runner, settings, NullLogger<RacExecutableRasClusterClient>.Instance);
+
+        var result = await client.ListInfobasesAsync(default);
+
+        result.Available.Should().BeTrue();
+        result.Error.Should().BeNull();
+        result.Infobases.Should().HaveCount(2);
+        result.Infobases[0].Name.Should().Be("База А");
+    }
+
+    [Fact]
+    public async Task ListInfobasesAsync_unavailable_when_exe_path_missing()
+    {
+        var settings = Substitute.For<ISettingsSnapshot>();
+        settings.GetString(SettingKey.OneCRasExePath).Returns((string?)null);
+        var runner = Substitute.For<IRacProcessRunner>();
+        var client = new RacExecutableRasClusterClient(runner, settings, NullLogger<RacExecutableRasClusterClient>.Instance);
+
+        var result = await client.ListInfobasesAsync(default);
+
+        result.Available.Should().BeFalse();
+        result.Infobases.Should().BeEmpty();
+        result.Error.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task ListInfobasesAsync_unavailable_when_summary_list_fails()
+    {
+        var settings = BuildSettings();
+        var runner = Substitute.For<IRacProcessRunner>();
+        runner.RunAsync(Arg.Any<string>(), Arg.Is<IReadOnlyList<string>>(a => a.Contains("cluster") && a.Contains("list")), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(new RacInvocation(0, FakeClusterListStdout, string.Empty));
+        runner.RunAsync(Arg.Any<string>(), Arg.Is<IReadOnlyList<string>>(a => a.Contains("infobase") && a.Contains("summary")), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(new RacInvocation(1, string.Empty, "ошибка авторизации администратора кластера"));
+
+        var client = new RacExecutableRasClusterClient(runner, settings, NullLogger<RacExecutableRasClusterClient>.Instance);
+
+        var result = await client.ListInfobasesAsync(default);
+
+        result.Available.Should().BeFalse();
+        result.Infobases.Should().BeEmpty();
+        result.Error.Should().Contain("авторизации");
+    }
 }

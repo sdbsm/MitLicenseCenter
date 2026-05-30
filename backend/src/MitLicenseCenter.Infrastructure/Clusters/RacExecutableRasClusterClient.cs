@@ -143,6 +143,69 @@ internal sealed partial class RacExecutableRasClusterClient : IClusterClient
         return new ClusterPingResult(Ok: false, Error: invocation.Stderr.Trim());
     }
 
+    public async Task<ClusterInfobaseDiscoveryResult> ListInfobasesAsync(CancellationToken ct)
+    {
+        if (!TryGetExePath(out var exePath))
+        {
+            return new ClusterInfobaseDiscoveryResult(
+                Array.Empty<ClusterInfobase>(), Available: false, Error: "OneC.RAS.ExePath не задан.");
+        }
+
+        var clusterUuid = await ResolveClusterUuidAsync(exePath, ct).ConfigureAwait(false);
+        if (clusterUuid is null)
+        {
+            return new ClusterInfobaseDiscoveryResult(
+                Array.Empty<ClusterInfobase>(), Available: false,
+                Error: "Не удалось получить список кластеров (rac.exe cluster list).");
+        }
+
+        var args = BuildArgsWithAuth(
+            "infobase", "summary", "list",
+            $"--cluster={clusterUuid}");
+
+        var invocation = await _runner.RunAsync(exePath, args, InvocationTimeout, ct)
+            .ConfigureAwait(false);
+
+        if (invocation.ExitCode != 0)
+        {
+            LogRacFailed(_logger, "infobase summary list", invocation.ExitCode, invocation.Stderr.Trim());
+            return new ClusterInfobaseDiscoveryResult(
+                Array.Empty<ClusterInfobase>(), Available: false, Error: invocation.Stderr.Trim());
+        }
+
+        var infobases = ParseInfobases(invocation.Stdout);
+        return new ClusterInfobaseDiscoveryResult(infobases, Available: true, Error: null);
+    }
+
+    internal static IReadOnlyList<ClusterInfobase> ParseInfobases(string stdout)
+    {
+        var records = RacOutputParser.Parse(stdout);
+        var result = new List<ClusterInfobase>(records.Count);
+
+        foreach (var rec in records)
+        {
+            if (!rec.TryGetValue("infobase", out var idRaw) || !Guid.TryParse(idRaw, out var id))
+            {
+                continue;
+            }
+
+            var name = rec.GetValueOrDefault("name");
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                // У инфобазы всегда есть имя; пустое — аномалия, fallback на UUID.
+                name = id.ToString("D");
+            }
+
+            var descr = rec.GetValueOrDefault("descr");
+            result.Add(new ClusterInfobase(
+                id,
+                name,
+                string.IsNullOrWhiteSpace(descr) ? null : descr));
+        }
+
+        return result;
+    }
+
     // --- Internals ---
 
     private async Task<string?> ResolveClusterUuidAsync(string exePath, CancellationToken ct)

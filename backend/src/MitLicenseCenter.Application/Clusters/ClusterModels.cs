@@ -23,3 +23,13 @@ public sealed record SessionDescriptor(
 public sealed record KillSessionResult(bool Killed, bool AlreadyGone);
 
 public sealed record ClusterPingResult(bool Ok, string? Error);
+
+// Одна инфобаза, обнаруженная в кластере (rac.exe infobase summary list).
+public sealed record ClusterInfobase(Guid Id, string Name, string? Description);
+
+// Результат discovery-запроса инфобаз. Available=false означает, что источник
+// (кластер/rac.exe) недоступен или не настроен — фронт показывает ручной ввод.
+public sealed record ClusterInfobaseDiscoveryResult(
+    IReadOnlyList<ClusterInfobase> Infobases,
+    bool Available,
+    string? Error);

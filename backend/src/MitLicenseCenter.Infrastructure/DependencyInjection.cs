@@ -6,12 +6,14 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using MitLicenseCenter.Application.Auditing;
 using MitLicenseCenter.Application.Clusters;
+using MitLicenseCenter.Application.Discovery;
 using MitLicenseCenter.Application.Jobs;
 using MitLicenseCenter.Application.Publishing;
 using MitLicenseCenter.Application.Sessions;
 using MitLicenseCenter.Application.Settings;
 using MitLicenseCenter.Infrastructure.Audit;
 using MitLicenseCenter.Infrastructure.Clusters;
+using MitLicenseCenter.Infrastructure.Discovery;
 using MitLicenseCenter.Infrastructure.Identity;
 using MitLicenseCenter.Infrastructure.Jobs;
 using MitLicenseCenter.Infrastructure.Persistence;
@@ -88,6 +90,11 @@ public static class DependencyInjection
 #pragma warning disable CA1416 // Validate platform compatibility — single-node deployment is Windows-only by design (memory/infrastructure_integration.md).
         services.AddScoped<IIisPublishingService, OneCIisPublishingService>();
 #pragma warning restore CA1416
+
+        // Discovery (интерактивная настройка форм): SQL-перечисление БД и скан rac.exe.
+        services.AddScoped<ISqlDatabaseDiscovery, SqlDatabaseDiscovery>();
+        services.AddSingleton<IRacPathDiscovery, RacPathDiscovery>();
+        services.AddSingleton<IPlatformVersionDiscovery, PlatformVersionDiscovery>();
 
         // Snapshot store + hot-tier registry (singletons, PR 3.3).
         services.AddSingleton<IActiveSessionSnapshotStore, ActiveSessionSnapshotStore>();

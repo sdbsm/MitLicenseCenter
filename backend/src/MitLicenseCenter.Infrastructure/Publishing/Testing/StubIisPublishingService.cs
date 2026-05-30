@@ -23,4 +23,8 @@ internal sealed class StubIisPublishingService : IIisPublishingService
 
     public Task ApplyDesiredStateAsync(Publication publication, CancellationToken ct)
         => Task.CompletedTask;
+
+    // Нет реального IIS — пустой список сайтов.
+    public Task<IReadOnlyList<IisSiteInfo>> ListSitesAsync(CancellationToken ct)
+        => Task.FromResult<IReadOnlyList<IisSiteInfo>>(Array.Empty<IisSiteInfo>());
 }

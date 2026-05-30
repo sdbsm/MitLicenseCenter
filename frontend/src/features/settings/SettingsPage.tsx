@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SettingField } from "./SettingField";
+import { RacPathDetect } from "./RacPathDetect";
 import type { SettingDescriptor } from "./types";
 import { useSettings } from "./useSettings";
 
@@ -92,14 +93,16 @@ export function SettingsPage() {
                   }
                   const meta = FIELD_META[k] ?? { type: "text" as const };
                   return (
-                    <SettingField
-                      key={k}
-                      setting={setting}
-                      inputType={meta.type}
-                      min={meta.min}
-                      max={meta.max}
-                      placeholder={meta.placeholder}
-                    />
+                    <div key={k} className="space-y-2">
+                      <SettingField
+                        setting={setting}
+                        inputType={meta.type}
+                        min={meta.min}
+                        max={meta.max}
+                        placeholder={meta.placeholder}
+                      />
+                      {k === "OneC.RAS.ExePath" ? <RacPathDetect /> : null}
+                    </div>
                   );
                 })}
           </CardContent>

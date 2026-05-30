@@ -33,6 +33,14 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { ApiError } from "@/lib/api";
+import { DiscoveryField } from "@/features/discovery/DiscoveryField";
+import {
+  toDiscoveryState,
+  useClusterInfobases,
+  useDatabases,
+  useIisSites,
+  usePlatformVersions,
+} from "@/features/discovery/useDiscovery";
 import type { Tenant } from "@/features/tenants/types";
 import type {
   CreateInfobaseInput,
@@ -174,10 +182,40 @@ export function InfobaseFormDialog({
   const defaultVrdRoot =
     settings?.find((s) => s.key === "IIS.DefaultVrdRoot")?.value ?? "C:\\inetpub\\1c-publications";
 
-  const [watchedSiteName, watchedVirtualPath] = useWatch({
+  const [watchedSiteName, watchedVirtualPath, watchedDatabaseServer] = useWatch({
     control: form.control,
-    name: ["publication.siteName", "publication.virtualPath"],
+    name: ["publication.siteName", "publication.virtualPath", "databaseServer"],
   });
+
+  // Discovery: тянем списки, пока диалог открыт (ленивая загрузка по `open`).
+  const infobasesQuery = useClusterInfobases(open);
+  const sitesQuery = useIisSites(open);
+  const databasesQuery = useDatabases(watchedDatabaseServer ?? "", open);
+  const platformVersionsQuery = usePlatformVersions(open);
+
+  const infobasesState = toDiscoveryState(infobasesQuery);
+  const sitesState = toDiscoveryState(sitesQuery);
+  const databasesState = toDiscoveryState(databasesQuery);
+  const platformVersionsState = toDiscoveryState(platformVersionsQuery);
+
+  const infobaseOptions = (infobasesQuery.data?.items ?? []).map((i) => ({
+    value: i.id,
+    label: i.name,
+    hint: i.description,
+  }));
+  const siteOptions = (sitesQuery.data?.items ?? []).map((s) => ({
+    value: s.siteName,
+    label: s.siteName,
+  }));
+  const databaseOptions = (databasesQuery.data?.items ?? []).map((d) => ({
+    value: d,
+    label: d,
+  }));
+  const platformVersionOptions = (platformVersionsQuery.data?.items ?? []).map((v) => ({
+    value: v.version,
+    label: v.version,
+    hint: v.architecture,
+  }));
 
   const computedDefaultPath = (() => {
     const site = (watchedSiteName ?? "").trim();
@@ -346,10 +384,20 @@ export function InfobaseFormDialog({
                   <FormItem>
                     <FormLabel>{t("infobases.fields.databaseName")}</FormLabel>
                     <FormControl>
-                      <Input
-                        autoComplete="off"
-                        placeholder={t("infobases.form.databaseNamePlaceholder")}
-                        {...field}
+                      <DiscoveryField
+                        value={field.value}
+                        onChange={field.onChange}
+                        options={databaseOptions}
+                        available={databasesState.available}
+                        loading={databasesState.loading}
+                        error={databasesState.error}
+                        onRefresh={() => void databasesQuery.refetch()}
+                        manualPlaceholder={t("infobases.form.databaseNamePlaceholder")}
+                        disabledHint={
+                          (watchedDatabaseServer ?? "").trim()
+                            ? null
+                            : t("discovery.databaseServerFirst")
+                        }
                       />
                     </FormControl>
                     <FormMessage />
@@ -366,11 +414,16 @@ export function InfobaseFormDialog({
                   <FormItem>
                     <FormLabel>{t("infobases.fields.clusterInfobaseId")}</FormLabel>
                     <FormControl>
-                      <Input
-                        autoComplete="off"
-                        placeholder="00000000-0000-0000-0000-000000000000"
-                        className="font-mono text-xs"
-                        {...field}
+                      <DiscoveryField
+                        value={field.value}
+                        onChange={field.onChange}
+                        options={infobaseOptions}
+                        available={infobasesState.available}
+                        loading={infobasesState.loading}
+                        error={infobasesState.error}
+                        onRefresh={() => void infobasesQuery.refetch()}
+                        manualPlaceholder="00000000-0000-0000-0000-000000000000"
+                        inputClassName="font-mono text-xs"
                       />
                     </FormControl>
                     <FormDescription>{t("infobases.form.clusterIdHint")}</FormDescription>
@@ -421,7 +474,16 @@ export function InfobaseFormDialog({
                   <FormItem>
                     <FormLabel>{t("publications.fields.siteName")}</FormLabel>
                     <FormControl>
-                      <Input autoComplete="off" placeholder="Default Web Site" {...field} />
+                      <DiscoveryField
+                        value={field.value}
+                        onChange={field.onChange}
+                        options={siteOptions}
+                        available={sitesState.available}
+                        loading={sitesState.loading}
+                        error={sitesState.error}
+                        onRefresh={() => void sitesQuery.refetch()}
+                        manualPlaceholder="Default Web Site"
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -455,11 +517,16 @@ export function InfobaseFormDialog({
                 <FormItem>
                   <FormLabel>{t("publications.fields.platformVersion")}</FormLabel>
                   <FormControl>
-                    <Input
-                      autoComplete="off"
-                      placeholder="8.3.23.1865"
-                      className="font-mono text-xs"
-                      {...field}
+                    <DiscoveryField
+                      value={field.value}
+                      onChange={field.onChange}
+                      options={platformVersionOptions}
+                      available={platformVersionsState.available}
+                      loading={platformVersionsState.loading}
+                      error={platformVersionsState.error}
+                      onRefresh={() => void platformVersionsQuery.refetch()}
+                      manualPlaceholder="8.3.23.1865"
+                      inputClassName="font-mono text-xs"
                     />
                   </FormControl>
                   <FormDescription>{t("publications.form.platformVersionHint")}</FormDescription>
