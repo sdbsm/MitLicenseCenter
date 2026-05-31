@@ -1,438 +1,150 @@
 # Architecture Decision Records (ADR)
 
-This document tracks important architectural decisions, why they were made, and what alternatives were rejected.
+Current, binding architectural decisions for MitLicense Center v1. Each ADR states the decision, the reason, and the key rejected alternative. ADR numbers are stable — code and other docs reference them by number.
 
 ## 1. Frontend Framework
 - **Decision:** React (Single Page Application) with TypeScript.
-- **Rejected Alternatives:** Blazor WebAssembly, ASP.NET Core MVC, Vue.js.
-- **Reason:** React provides strict API boundaries between the frontend and the .NET infrastructure backend. It ensures the UI is entirely decoupled from the server logic and avoids tight coupling common in MVC/Blazor Server setups.
+- **Rejected:** Blazor WebAssembly, ASP.NET Core MVC, Vue.js.
+- **Reason:** Strict API boundary between the frontend and the .NET infrastructure backend; the UI is fully decoupled from server logic.
 
 ## 2. 1C Cluster Integration Method
-- **Decision:** Use 1C Cluster REST API (available in 1C Platform 8.3+).
-- **Rejected Alternatives:** Spawning `rac.exe` processes, COM-connection (`V83.COMConnector`), direct database tampering.
-- **Reason:** The REST API is natively supported, fast, and does not spawn heavy OS processes like `rac.exe` for every monitoring tick. COM-connections are slow and memory-leaky.
+- **Decision:** Administer the 1C cluster exclusively through RAS (`ras.exe`, default TCP 1545) driven by the `rac.exe` CLI. This is the **sole** cluster adapter — see **ADR-16** for the consolidation rationale and **ADR-3.3** for the full CLI contract.
+- **Rejected:** 1C Cluster REST API (not published by default on the target single-node 8.5 deployments — see ADR-16); COM-connection (`V83.COMConnector`, slow and leaky); direct database tampering.
+- **Reason:** RAS via `rac.exe` answers reliably on every target deployment; no extra HTTP surface to expose or maintain.
 
 ## 3. License Enforcement Approach
-- **Decision:** Snapshot-based Background Reconciliation Loop (Polling every 15-30s).
-- **Rejected Alternatives:** Real-time connection interception / Web server hooks.
-- **Reason:** The 1C Platform does not provide a reliable native hook to reject a user connection based on global external multi-tenant rules. The background worker approach ensures the cluster is not blocked by custom external logic during login.
+- **Decision:** Snapshot-based background reconciliation loop (see ADR-6 for cadence).
+- **Rejected:** Real-time connection interception / web-server hooks.
+- **Reason:** The 1C platform offers no reliable native hook to reject a login based on external multi-tenant rules. The background worker keeps the cluster unblocked during login.
 
 ## 4. IIS Publication Updates (`default.vrd`)
-- **Decision:** XML Parsing and surgical modification of `default.vrd`.
-- **Rejected Alternatives:** Using the standard 1C `webinst` CLI utility for existing publications.
-- **Reason:** `webinst` blindly overwrites `default.vrd`, destroying custom configurations for OData, HTTP services, and OpenID. Parsing the XML ensures we only update the `<wsisapi.dll>` platform path, guaranteeing idempotency and preserving customizations.
+- **Decision:** XML parsing and surgical modification of `default.vrd` (see ADR-4.1 for the patch/merge contract).
+- **Rejected:** The `webinst` CLI on existing publications.
+- **Reason:** `webinst` overwrites `default.vrd`, destroying custom OData / HTTP-services / OpenID config. Patching the XML touches only what must change and preserves customizations.
 
 ## 5. Architectural Style
-- **Decision:** Modular Monolith (C# / .NET).
-- **Rejected Alternatives:** Distributed Microservices (Kubernetes, Docker Swarm).
-- **Reason:** The system operates tightly with a specific Windows Server infrastructure (IIS, 1C Server, MSSQL). Microservices introduce unnecessary network overhead and operational complexity for a localized hosting panel.
+- **Decision:** Modular Monolith (C# / .NET) with strict logical boundaries between modules.
+- **Rejected:** Distributed microservices.
+- **Reason:** The system runs tightly against a specific single-node Windows stack (IIS, 1C Server, MSSQL). Microservices add network and operational overhead for no benefit at this scale.
 
 ## 6. Reconciliation Loop Cadence (Two-Tier)
-- **Decision:** Two-tier reconciliation loop:
-  - **Hot loop** — tenants at or near their license limit (≥ 90% consumption) are polled every **3–5 seconds**.
-  - **Cold loop** — full snapshot of all sessions across all tenants every **20–30 seconds**.
-  - A tenant exits the hot tier after two consecutive cold cycles below the threshold.
-- **Rejected Alternatives:** Single uniform 15–30s loop; per-second real-time polling for everyone.
-- **Reason:** A single 30s loop leaves a window in which an over-quota user can log in, open a base, edit a document, and lose unsaved work when killed. Lowering the global cadence to 3–5s overloads the 1C cluster as the number of bases grows. The hot/cold split bounds the enforcement window to ≤ 5s for tenants who are actually trying to exceed quota, while keeping baseline cluster load low.
+- **Decision:** Two-tier loop. **Hot** — tenants at ≥ 90% consumption polled every 3–5s. **Cold** — full snapshot of all tenants every 20–30s. A tenant exits the hot tier after two consecutive cold cycles below the threshold.
+- **Rejected:** A single uniform 15–30s loop; per-second polling for everyone.
+- **Reason:** A single 30s loop leaves a window for an over-quota user to log in and lose unsaved work when killed; a global 3–5s loop overloads the cluster as bases grow. The hot/cold split bounds the enforcement window to ≤ 5s for at-risk tenants while keeping baseline load low.
+
+### ADR-6.1 — Hot-tier polling lives in a BackgroundService, not Hangfire
+- **Decision:** Hot-tier polling runs as `HotTierPollingService : BackgroundService`. Cold reconciliation stays in Hangfire (`* * * * *` CRON with an internal throttle to `Polling.ColdIntervalSeconds`).
+- **Reason:** Hangfire's CRON minimum is 1 minute; the hot tier needs a 3–5s cadence. Kill enforcement runs only at the end of each cold cycle — hot polling updates the UI snapshot but does not kill.
+
+### ADR-6.2 — `SessionKilled=200` + `AuditReason` differentiator
+- **Decision:** A single `AuditActionType.SessionKilled = 200` covers both automatic and manual kills; the distinction lives in `AuditReason` (`LimitExceeded = 1`, `ManualByAdmin = 2`).
+- **Rejected:** A separate `SessionKilledManual = 201` value.
+- **Reason:** `AuditReason` already provides the filtering; a second enum value doubles the surface for nothing. `LimitChanged = 201` is reserved for future tenant-limit-change audit.
 
 ## 7. Admin Authentication
-- **Decision:** ASP.NET Core Identity with local accounts stored in MSSQL, cookie authentication (HttpOnly, Secure, SameSite=Strict).
-  - Two roles: `Admin` (full access incl. session kill and publication reconcile) and `Viewer` (read-only).
-  - First admin account seeded by migration on first run with a random password written to the service log.
-  - TOTP-based 2FA available but optional in v1 (Identity supports it natively, can be enabled later without schema migration).
-- **Rejected Alternatives:** Windows Integrated Authentication (requires AD or local Windows accounts per admin — fragile when non-Windows-account staff need access); JWT bearer tokens (cookie auth is simpler and safer for a same-origin SPA); external identity providers (violates "no external systems" constraint).
-- **Reason:** Fully local, no external dependencies, no AD required. Identity is the .NET-native solution and integrates with the same MSSQL the domain already uses.
-
-### Status update (Stage 4 PR 4.4)
-
-The original Stage 2 wording mentioned TOTP-based 2FA as "available but optional in v1". This is now superseded: **in-application 2FA is permanently out of scope** — see ADR-15 for the full rationale. Authentication is exactly username + password + HttpOnly cookie session, with the secondary factor delegated to the network-level boundary (LAN-only / VPN access + perimeter firewall + AD or SSO at the edge + physical access control).
-
-The Identity base-class column `AspNetUsers.TwoFactorEnabled` remains in the schema because removing it would require a custom user-class refactor; it is never read or written by the application.
-
-**Why not 2FA in-app:** the deployment target is an internal admin panel, not a public-internet service. Every supported deployment already authenticates the operator at the network edge. An in-app second factor would either duplicate that protection (no marginal value) or, if it replaced it, be weaker than the AD lockout / SSO policies it would supersede. The application owns "who is this account?" via Identity; the network owns "can this account reach this URL at all?".
+- **Decision:** ASP.NET Core Identity with local accounts in MSSQL (schema `auth`); cookie auth (HttpOnly, Secure, SameSite=Strict). Two roles: `Admin` (full access incl. kill and reconcile) and `Viewer` (read-only). The first admin is seeded by migration with a random password written to the service log. Authentication is exactly username + password + cookie — **in-app 2FA is out of scope** (ADR-15); the secondary factor is delegated to the network edge.
+- **Rejected:** Windows Integrated Auth (fragile for non-Windows-account staff); JWT bearer (cookie is simpler/safer for a same-origin SPA); external IdPs (violates "no external systems").
+- **Reason:** Fully local, no external dependencies, native to .NET, shares the domain MSSQL. The Identity base-class column `AspNetUsers.TwoFactorEnabled` stays in the schema (removing it needs a custom user-class refactor) but is never read or written.
 
 ## 8. Secret Management
-- **Decision:** ASP.NET Core Data Protection API. On Windows this transparently uses DPAPI; key ring stored under `%ProgramData%\MitLicenseCenter\keys\`, scoped to the service account.
-  - Secrets (MSSQL connection strings, 1C Cluster credentials, RAS credentials, IIS service-account creds) stored encrypted in a `Settings` table in MSSQL (or `appsettings.Production.json`), decrypted at runtime.
-  - Data Protection keys must be backed up by the operator alongside the database — see ADR-15 and `OPERATIONS.md`. Without them a restored backup is unreadable.
-  - Development environments use .NET User Secrets.
-- **Rejected Alternatives:** HashiCorp Vault, Azure Key Vault, dedicated secret services (all violate "no external systems"); plaintext config files.
-- **Reason:** Built into .NET, machine- and account-scoped via DPAPI, zero external dependencies, integrates with the operator's backup story (see ADR-15 and `OPERATIONS.md`).
-
-## 9. Backup & Restore Automation — **REVOKED (Stage 4 PR 4.4)**
-
-> **REVOKED — permanently out of application scope.** Backup is operator responsibility, delegated to platform tooling (SQL Server Maintenance Plans, Veeam, Windows Server Backup, Robocopy + Scheduled Task). The application does **not** invoke `BACKUP DATABASE`, does **not** schedule backup jobs, does **not** ship a `MitLicenseCenter.Restore.exe` CLI, and does **not** surface backup status in its UI or audit log. See **ADR-15** for the scope boundary and `OPERATIONS.md` for the operator's checklist.
->
-> The text below is preserved as historical context for the original Stage 2-era plan. **Do not implement it.**
-
-- **Decision (REVOKED):** Fully automated backups orchestrated by Hangfire jobs that invoke `BACKUP DATABASE` / `BACKUP LOG` via ADO.NET.
-  - Full backup: nightly.
-  - Differential backup: every 6 hours.
-  - Transaction log backup: every 15 minutes.
-  - Data Protection keys and `appsettings` files copied to the backup location daily.
-  - Default destination: configurable local folder (e.g. `D:\Backups\MitLicenseCenter\`), optional secondary copy to a network share.
-  - Retention: configurable (defaults: 30 days for full, 7 days for hourly).
-  - **Verification job:** weekly automatic restore of the latest full backup to a `MitLicenseCenter_RestoreTest` database, asserts row counts, logs the result to `AuditLog` and surfaces it on the Dashboard.
-  - **Restore** delivered as a standalone CLI tool (`MitLicenseCenter.Restore.exe`) documented in `OPERATIONS.md`.
-- **Rejected Alternatives (REVOKED):** Manual DBA-driven backups; relying solely on SQL Server Agent (requires SQL Server Standard/Enterprise; we want it to work on Express too, and we want a unified job surface visible in the Hangfire dashboard).
-- **Reason (REVOKED):** Admin requirement is "no manual steps." Co-locating backup orchestration with the rest of the background workload means one dashboard, one retry policy, one audit trail.
+- **Decision:** ASP.NET Core Data Protection API (DPAPI-backed on Windows). Key ring under `%ProgramData%\MitLicenseCenter\keys\`, scoped to the service account. Secrets stored encrypted in `dbo.Settings` (`Value VARBINARY(MAX)`); protector purpose-string `mlc.settings.v1`. Dev uses `%LocalAppData%\...\keys\`.
+- **Rejected:** HashiCorp Vault, Azure Key Vault (violate "no external systems"); plaintext config files.
+- **Reason:** Built into .NET, machine/account-scoped, zero external dependencies. The operator backs up the key ring alongside the database — without it a restored backup is unreadable (ADR-15, `OPERATIONS.md`).
 
 ## 10. REST API Versioning
-- **Decision:** URI-based versioning. All endpoints live under `/api/v1/...`, implemented with `Asp.Versioning.Mvc`. New breaking changes introduce `/api/v2/...`; the previous major version is supported for at least one release cycle.
-  - OpenAPI/Swagger UI generated automatically via Swashbuckle, served at `/api/docs`.
-  - TypeScript client for the frontend generated from the OpenAPI spec (`openapi-typescript` or `orval`).
-- **Rejected Alternatives:** Header-based versioning only (harder to discover and test); no versioning at all (acceptable today, painful when the 1C platform jumps and adapter contracts change).
-- **Reason:** URI versioning is the most discoverable and tooling-friendly approach. Since frontend and backend deploy together as one product, complex negotiation is unnecessary.
+- **Decision:** URI versioning — all endpoints under `/api/v1/...` (`Asp.Versioning.Mvc`). Breaking changes introduce `/api/v2/...`. OpenAPI/Swagger UI at `/api/docs`; the TypeScript client is generated from the OpenAPI spec.
+- **Rejected:** Header-only versioning (harder to discover/test); no versioning.
+- **Reason:** URI versioning is the most discoverable and tooling-friendly; frontend and backend deploy together so complex negotiation is unnecessary.
+
+## 11. UI Component Library
+- **Decision:** shadcn/ui (copy-paste components owned in the repo) on top of Radix UI, styled with Tailwind CSS. Auxiliary: `lucide-react`, `@tanstack/react-table`, `react-hook-form` + `zod`, `sonner`, `recharts`, `date-fns`/`ru`. No other component libraries mixed in.
+- **Rejected:** Material UI, Ant Design (heavier, opinionated, farther from the target look); a fully custom design system (overkill for a 5–20 user panel).
+- **Reason:** Owned in-repo (no vendor lock-in), accessible Radix primitives, CSS-variable theming (light + dark). Visual language, status semantics, table patterns and Russian microcopy are codified in `06_UI_DESIGN.md`.
 
 ## 12. Backend Runtime = .NET 10 (LTS)
-- **Decision:** Target `net10.0` for the backend. Released 11 November 2025, LTS until 14 November 2028.
-- **Rejected Alternatives:** `net8.0` (older LTS, ~18 months less runway); `net9.0` (current but STS only, EOL May 2026 — short LTS window doesn't suit a production-grade hosting panel); .NET Framework 4.8 (legacy, no path forward).
-- **Reason:** Maximum LTS runway (~2.5 years ahead as of project start), latest C# 14 language features, EF Core 10, ASP.NET Core 10. All planned libraries (Hangfire, Identity, `Asp.Versioning.Mvc`, Swashbuckle, `Microsoft.Web.Administration`, Polly) are compatible.
+- **Decision:** Target `net10.0` (LTS until Nov 2028).
+- **Rejected:** `net8.0` (less runway); `net9.0` (STS, short window); .NET Framework 4.8 (legacy).
+- **Reason:** Maximum LTS runway, latest C# 14 / EF Core 10 / ASP.NET Core 10; all planned libraries are compatible.
 
 ## 13. Repository Layout = Monorepo
-- **Decision:** Single Git repository hosted on **GitHub** (private), structured as a monorepo:
-  ```
-  backend/      .NET solution (src/, tests/, MitLicenseCenter.sln)
-  frontend/     Vite + React + TS
-  docs/         project documentation (this folder)
-  scripts/      PowerShell scripts for build/dev/deploy/db-reset
-  .github/      CI workflows
-  ```
-- **Rejected Alternatives:** Two separate repos (frontend + backend). Polyrepo overhead (cross-repo coordination, version drift) is not justified for a one-product, one-team codebase. Single-developer at start makes monorepo unambiguously simpler.
-- **Reason:** Atomic commits across backend/frontend/docs, single CI pipeline, one source of truth for issues and project state, lower onboarding cost. The OpenAPI-generated TypeScript client lives naturally next to the API that produces it.
+- **Decision:** Single private GitHub repo — `backend/` (.NET solution), `frontend/` (Vite/React/TS), `docs/`, `scripts/`, `.github/`.
+- **Rejected:** Separate frontend/backend repos.
+- **Reason:** Atomic cross-cutting commits, single CI pipeline, one source of truth. The OpenAPI-generated TS client lives next to the API that produces it.
 
 ## 14. CI/CD = GitHub Actions, CI Only (No CD in v1)
-- **Decision:** GitHub Actions runs on every push to any branch and on every PR to `main`:
-  - **Backend job:** `dotnet restore` → `dotnet build` → `dotnet test`. Coverage report informational.
-  - **Frontend job:** `pnpm install` → `pnpm lint` (ESLint + Prettier) → `pnpm type-check` (`tsc --noEmit`) → `pnpm build`.
-  - PRs to `main` are blocked from merge while either job is red.
-  - **No CD (deployment) automation in v1.** Deployment is performed manually via `scripts/Deploy-MitLicenseCenter.ps1`, which can be invoked from a developer machine or from a manual GitHub Actions workflow_dispatch trigger when needed.
-- **Rejected Alternatives:**
-  - No CI at all (acceptable for a throwaway, unacceptable for a system that auto-kills user sessions and writes the audit log of record — broken tests must not reach `main`).
-  - Full CD on tag (premature for a single-developer phase with no release cadence yet; revisit after the first production deployment).
-  - Self-hosted runners (no need at this scale; GitHub-hosted free minutes are sufficient).
-  - Jenkins / TeamCity / Azure DevOps (additional infrastructure to maintain; GitHub Actions is co-located with the repository).
-- **Reason:** Minimum viable safety net for a single-developer project that will run automated destructive operations in production. CI from day one establishes the muscle memory; CD waits until the deployment story stabilizes.
+- **Decision:** GitHub Actions on every push and PR to `main`. Backend: `restore → build → test`. Frontend: `install → lint → type-check → test → build`. PRs are blocked while either job is red. No deployment automation — deploy is manual via `scripts/Deploy-MitLicenseCenter.ps1`.
+- **Rejected:** No CI (unacceptable for a system that auto-kills sessions); full CD on tag (premature); self-hosted runners / Jenkins / Azure DevOps (extra infra).
+- **Reason:** Minimum viable safety net; CD waits until the deployment story stabilizes.
 
 ## 15. Backup and Two-Factor Authentication Scope Boundary
-
-- **Decision:** Backup orchestration and in-application two-factor authentication are permanently **out of scope** for the MitLicense Center application. Both concerns are delegated to platform-level operator responsibility.
-  - **Backup.** The MSSQL database (`MitLicenseCenter`), the ASP.NET Core Data Protection key ring under `%ProgramData%\MitLicenseCenter\keys\`, and any environment-specific `appsettings.Production.json` are backed up by the operator using platform tooling (SQL Server Maintenance Plans, Veeam, Windows Server Backup, Robocopy + Scheduled Task, etc.). The operator's checklist lives in `OPERATIONS.md`. The application never invokes `BACKUP DATABASE` / `BACKUP LOG`, never schedules backup jobs in Hangfire, never ships a `Restore.exe` CLI, and never surfaces backup status in its UI or audit log.
-  - **Two-factor authentication.** The secondary authentication factor is a **network-level** concern handled by the deployment environment — internal LAN-only / VPN access, perimeter firewall, AD or SSO at the network edge, and physical access controls. The ASP.NET Core Identity base-class column `AspNetUsers.TwoFactorEnabled` remains in the schema because removing it would require a custom user-class refactor that the project does not need, but it is **operationally inert**: no UI surface, no enrolment flow, no challenge step, never read or written by application code.
-- **Rejected Alternatives:**
-  - *Hangfire-orchestrated backup jobs* (the original ADR-9). Rejected because (a) MSSQL backup is already a solved problem at the platform layer with mature operator tooling and ecosystem knowledge; (b) co-locating backup orchestration with the application doubles the failure surface — a backup bug could now take down the platform the backups are meant to protect; (c) backup verification, retention, off-site replication, and disaster-recovery rehearsals belong on the same cadence as the rest of the operator's infrastructure, not on a separate per-application schedule.
-  - *In-application TOTP / WebAuthn / SMS second factor.* Rejected because (a) the deployment target is an internal admin panel reachable only from LAN or VPN, never the public internet; (b) every supported deployment already authenticates the operator at the network edge (AD / SSO / firewall); (c) an in-app second factor would either duplicate that protection (no marginal value) or replace it with something weaker — an in-app TOTP without rate limiting at the network edge is not equivalent to AD lockout policies.
-- **Reason:** Scope discipline. The application's job is to control 1C session licensing — every concern that does not directly serve that job is a liability, not a feature. Both backup and in-app 2FA are concerns the deployment environment is better equipped to handle, and which would compete for engineering attention against the actual problem domain.
-- **Permanence:** This decision is **locked**. Future PRs that propose returning backup orchestration or in-app 2FA to the application's scope must explicitly revoke ADR-15 first. Casual re-introduction ("let's add an optional backup tab to the UI", "let's wire up Identity's built-in TOTP") is rejected by default — there is no "easy on-ramp" because both belong on the other side of the responsibility boundary.
-- **Supersedes:**
-  - **ADR-9 (Backup & Restore Automation)** — revoked. Original ADR-9 text is preserved as historical context with a REVOKED header; do not implement it.
-  - **ADR-7 TOTP mention** — superseded by the "Status update (Stage 4 PR 4.4)" subsection appended to ADR-7.
+- **Decision:** Backup orchestration and in-app 2FA are permanently **out of scope**.
+  - **Backup** is the operator's responsibility via platform tooling (SQL Maintenance Plans, Veeam, Windows Server Backup, Robocopy + Task Scheduler). The app never invokes `BACKUP DATABASE`, never schedules backup jobs, never ships a restore CLI, never surfaces backup status. The backup unit = MSSQL database + Data Protection key ring (+ optional `appsettings.Production.json`); restoring one without the other yields an unreadable database. See `OPERATIONS.md`.
+  - **2FA** is a network-level concern — LAN/VPN access, perimeter firewall, AD/SSO at the edge, physical access control. `AspNetUsers.TwoFactorEnabled` stays in the schema but is operationally inert.
+- **Rejected:** Hangfire-orchestrated backups (doubles the failure surface; backup is already solved at the platform layer); in-app TOTP/WebAuthn/SMS (duplicates or weakens the network-edge protection every deployment already has).
+- **Reason:** Scope discipline — the app's job is 1C session licensing. **Locked:** re-introducing either concern requires explicitly revoking ADR-15 first.
 
 ## 16. RAS as Sole 1C Cluster Adapter
+- **Decision:** The 1C cluster adapter layer is exclusively `rac.exe`. Operator-tunable inputs: `OneC.RAS.Endpoint` (default `localhost:1545`) and `OneC.RAS.ExePath` (no default — see ADR-3.3). `OneC.Cluster.AdminUser` / `OneC.Cluster.AdminPassword` feed `rac.exe`'s `--cluster-user` / `--cluster-pwd` flags (both may be empty for clusters with no registered administrators).
+- **Dashboard surface:** the cluster card is a **RAS health card** backed by `RasHealthProbingService : BackgroundService` (30s `PingAsync`) writing to `IRasHealthReader`. Three states: `OK`, `Сбой` (danger, last-error + consecutive-failures), `Проверка…` (neutral, first 30s after startup). Health transitions are not audited. `AuditActionType` `300`/`301` (`ClusterAdapterCircuit{Opened,Closed}`) remain reserved historical so old rows render.
+- **Rejected:** Keep REST primary with RAS fallback (REST is empirically absent on target deployments — `HttpClient` hangs the full 100s timeout before the breaker trips); RAS-only behind a feature flag (same dual-path maintenance cost); repurpose the Polly breaker to wrap RAS (degenerates to a retry loop); drop the Dashboard card entirely (loses a cheap, meaningful health signal).
+- **Reason:** Reality discipline — REST is not in the deployment environment, and the dual-adapter codebase leaked failure modes operators couldn't self-diagnose. **Locked:** re-introducing any non-`rac.exe` cluster adapter requires explicitly revoking ADR-16 first.
 
-- **Decision:** The 1C cluster adapter layer is exclusively `rac.exe`. `Settings.OneC.RAS.Endpoint` (default `localhost:1545`) and `Settings.OneC.RAS.ExePath` (no default — operator must supply, see ADR-3.3) are the only operator-tuneable inputs. `Settings.OneC.Cluster.AdminUser` and `Settings.OneC.Cluster.AdminPassword` are **retained** but rebased semantically: they now feed `rac.exe`'s `--cluster-user` / `--cluster-pwd` flags (see ADR-3.3) — both can stay empty for clusters with no registered administrators (anonymous mode). The REST adapter (`OneCRestClusterClient`), the Polly v8 circuit breaker (`ClusterCircuitState`), the dual-adapter orchestrator (`ResilientClusterClient`), the marker interface (`IRasFallbackClusterClient`), the circuit status reader (`ICircuitStatusReader`), and the `/api/v1/cluster/status` endpoint are all **deleted** from the codebase. Four Settings keys (`OneC.Cluster.RestApiUrl`, `OneC.Cluster.RestApiTimeoutSeconds`, `CircuitBreaker.ProbeIntervalSeconds`, `CircuitBreaker.FailureCount`) are dropped via the `Stage5DropRestClusterSettings` migration; catalog shrinks from 15 keys to 11.
-- **Dashboard surface:** the former cluster-status card is repurposed to a **RAS health card** backed by a new `RasHealthProbingService : BackgroundService` (30s `IClusterClient.PingAsync` cadence) writing to `IRasHealthReader`. The card shows three states: `OK` (success), `Сбой` (danger, with last-error tooltip + consecutive-failures count), and `Проверка…` (neutral, only during the first 30s after backend startup before the initial probe completes). Health transitions are **not** written to AuditLog — frequent transient blips would polish the audit log; the operator sees state in real time on the card. AuditActionType integer values `300` (`ClusterAdapterCircuitOpened`) and `301` (`ClusterAdapterCircuitClosed`) remain **reserved historical** — enum entries stay so historical AuditLog rows render correctly, frontend i18n keys `audit.actions.ClusterAdapterCircuit{Opened,Closed}` likewise preserved.
-- **Rejected Alternatives:**
-  - *Keep REST as primary, fallback to RAS (the Stage 3 architecture).* Rejected after live verification on 1C 8.5.1.1302 confirmed REST is not published by default on the target single-node deployments. `HttpClient` hangs the full 100-second timeout window before the circuit breaker even sees three failures; cold-reconciliation jobs accumulate in Hangfire Processing during the lag; the snapshot stays empty even when the cluster has live sessions. RAS via `rac.exe` answered correctly from PR 3.8 onwards on the same rig. The dual-adapter complexity hedged a primary that is empirically absent in production.
-  - *RAS-only with optional REST behind a feature flag.* Rejected. A flag-driven duality has the same maintenance cost as the full dual-adapter (every change must consider both code paths, both test matrices), for marginal value over what the operator gets by reading ADR-16 and the (preserved) historical ADR-3.1 if they ever need to re-introduce REST. Flagged optionality is the wrong abstraction — explicit revocation is the right one.
-  - *Repurpose the Polly circuit breaker to wrap RAS itself.* Rejected. Polly's value was failover orchestration between primary and fallback; with one adapter the circuit reduces to "rac.exe is broken — try again later". That's a retry loop, not a circuit breaker, and `RacExecutableRasClusterClient` already returns empty lists on transient failures (per ADR-3.3). The new `RasHealthProbingService` covers the operator-visibility concern more directly.
-  - *Drop the Dashboard cluster card entirely (5-card grid).* Rejected. The at-a-glance health surface is meaningful and the 30s probe loop is cheap. A blank tile in the grid would lose information; a card showing real RAS health is the right replacement.
-- **Reason:** Reality discipline. REST is not in the deployment environment we ship to, and adding configuration the operator has to maintain (REST URL, admin user, admin password, REST timeout, circuit failure count, circuit probe interval — six knobs) to support a path no one uses costs more than it saves. The dual-adapter codebase also leaks failure modes operators can't self-diagnose: when the circuit is still closed but the REST primary is silently hanging, the symptom (empty snapshot) and the cause (HttpClient timeout chain) are five layers apart in the call stack. Removing the dead branch eliminates an entire class of "why is the dashboard wrong?" tickets.
-- **Permanence:** This decision is **locked**. Future PRs proposing the reintroduction of a non-rac.exe cluster adapter (REST, gRPC-via-RAS-protocol-buffer, direct ras.exe wire-protocol bypass, anything) must explicitly revoke ADR-16 first. There is no "easy on-ramp" — re-introduction means redoing the full design conversation: which protocol, which deployment scenarios require it, how does it interact with the spawn-cadence guard rails of ADR-3.3, what's the failover behaviour when both are present. Casual "let's add REST back as an option" is rejected by default.
-- **Operator migration note (one-shot, post-upgrade):** Deployments that successfully configured REST in Stage 3 (operator manually exposed the 1C Cluster REST endpoint on port 1541) lose REST coverage on upgrade. The migration silently deletes the four REST/circuit-breaker settings rows; `OneC.Cluster.AdminUser` / `OneC.Cluster.AdminPassword` rows are preserved and continue to authenticate rac.exe via the new semantic. To restore session enforcement after the upgrade, the operator must configure RAS (set `OneC.RAS.ExePath` to the version-specific `rac.exe` path, e.g. `C:\Program Files\1cv8\8.5.1.1302\bin\rac.exe`; verify `OneC.RAS.Endpoint = localhost:1545` matches the local ras.exe; ensure ras.exe is running as a Windows service). The first Dashboard refresh after RAS comes up flips the RAS card from `Сбой` to `OK`. The release notes for PR 5.1 call this out explicitly; `docs/OPERATIONS.md` carries a permanent "Upgrading from Stage 3/4 with REST configured" section.
-- **Deferred (PR 5.2 candidate):** RAS Strategy B — long-lived TCP socket on 1545 replacing `rac.exe`-per-cycle, dropping the ~26 procs/min worst case under sustained over-quota load. Gated on real-world latency measurement after PR 5.1 deploys. The spawn-cadence guard rail of ADR-3.3 remains the binding contract until then.
-- **Supersedes:**
-  - **ADR-3.1 (1C Cluster REST API endpoint contract)** — revoked. Original Stage 3 PR 3.2 text preserved with a REVOKED header; do not implement.
-  - **ADR-3.2 (Polly v8 circuit breaker configuration)** — revoked. Original Stage 3 PR 3.2 text preserved with a REVOKED header; do not implement.
-  - **ADR-3.3 (1C RAS rac.exe CLI contract)** — superseded by a "Status update (Stage 5 PR 5.1)" subsection appended at the end. The CLI contract itself is unchanged and continues to bind `RacExecutableRasClusterClient`; only the framing of rac.exe as "fallback" is updated to "sole adapter".
+## 17. Add-Infobase Form Defaults (UI-only, not field globalization)
+- **Decision:** The «Добавить инфобазу» form is simplified to three always-visible per-base fields (tenant, cluster infobase picked by name, SQL database); all deployment-uniform fields move into a collapsed «Дополнительно» disclosure. The repeated values (SQL server, IIS site, platform version) get **form-prefill settings** — `Defaults.DatabaseServer`, `IIS.DefaultSiteName`, `OneC.DefaultPlatformVersion` — set once in «Параметры» and pre-filled into each new base.
+- **Scope boundary:** these three keys are **UI-only** — no backend service reads them. `Infobase`/`Publication` keep storing the values per-base; the form merely pre-fills and the operator may override per-base in «Дополнительно». Picking the cluster infobase auto-fills the display name (no second "name" field on the main form); the virtual path defaults to `"/" + slug(databaseName)`.
+- **Rejected:** globalizing the fields (removing `DatabaseServer`/`SiteName`/`PlatformVersion` from the entities and resolving them from settings at runtime) — it forbids any base differing from the rest and forces a domain-model migration, RAS/publication-resolver rewrites, and doc-canon churn for a pure UX problem.
+- **Reason:** Simplicity for the sysadmin operator without sacrificing per-base flexibility. **Locked:** the form-prefill keys must not grow backend readers — promoting one to a runtime-resolved global requires revoking ADR-17 first.
+
+### ADR-3.3 — 1C RAS `rac.exe` CLI contract
+The authoritative `rac.exe` integration contract. `RacExecutableRasClusterClient` (in `Infrastructure/Clusters/`) binds to it; `RacOutputParser` and `RacOutputParserTests` reference this ADR by number.
+
+- **Tool path.** Operator-configurable via `Settings.OneC.RAS.ExePath`. No seeded default — on 1C 8.5 `rac.exe` lives in the version-specific `C:\Program Files\1cv8\<version>\bin\` (not `1cv8\common\`), so the operator supplies the path in the «Параметры» UI.
+- **RAS endpoint.** `Settings.OneC.RAS.Endpoint` (default `localhost:1545`), passed as the **first positional argument** (`rac.exe <host:port> <mode> <command> ...`) so a misconfigured endpoint surfaces as a connection error rather than silently hitting localhost.
+- **Authentication.** `--cluster-user=<name>` `--cluster-pwd=<password>` from the cluster-admin settings (two separate flags — `--auth=u:p` does not exist). When both are empty, the flags are omitted (`rac` allows anonymous administration of clusters with no registered administrators).
+- **Encoding.** `rac.exe` writes stdout/stderr in the **parent process's active OEM code page** (CP866 on RU Windows), not UTF-8. `SystemProcessRacRunner` reads `StandardError.BaseStream` / `StandardOutput` raw and decodes via `Encoding.GetEncoding(CultureInfo.CurrentCulture.TextInfo.OEMCodePage)` (registered through `CodePagesEncodingProvider.Instance`; falls back to UTF-8 where `OEMCodePage = 0`). `ProcessStartInfo.Standard*Encoding` is **not** set — setting it does not flip the child's output, it only mis-decodes bytes already on the pipe.
+- **Output format.** Vertical key-value blocks (no tabular `--result-format`): `kebab-key                 : value`, CRLF line terminators, records separated by one or more blank lines. String values are unquoted (no whitespace) or double-quoted (with whitespace); empty values are an empty string after the colon-space.
+- **Parser (`RacOutputParser`, pure static).** Defensive regex `^\s*(?<key>[a-z0-9-]+)\s*:\s?(?<value>.*?)\s*$`. Records split on consecutive blank lines. Unknown keys ignored; records missing a required key (`session`/`infobase` for sessions, `cluster` for clusters) dropped + logged at Debug. Empty stdout → empty list. **Never throws** — a malformed line is a Debug-level skip.
+- **Commands.**
+
+  | Adapter method | Invocation |
+  |---|---|
+  | `PingAsync` | `rac.exe <ep> cluster list` — exit 0 + ≥1 cluster → `Ok=true`; non-zero → `Ok=false`, `Error=stderr`. |
+  | `ListActiveSessionsAsync` | `rac.exe <ep> session list --cluster=<uuid> [--cluster-user=<u> --cluster-pwd=<p>]` — `<uuid>` resolved from a prior `cluster list` in the same call (cached for that call only). |
+  | `KillSessionAsync` | `rac.exe <ep> session terminate --cluster=<uuid> --session=<sid> [auth] --error-message="<reason>"` — the command is `session terminate` (not `session kill`); `--error-message` is shown to the kicked user. |
+
+- **Session field mapping (`rac` → `ClusterSession`).** `session → SessionId` (kill target), `infobase → ClusterInfobaseId`, `app-id → AppId`, `user-name → UserName`, `host → Host`, `started-at → StartedAtUtc` (ISO `YYYY-MM-DDTHH:MM:SS`, no offset; parsed `AssumeUniversal | AdjustToUniversal`). `ConsumesLicense` is **derived** via the app-id heuristic `{1CV8, 1CV8C, WebClient, Designer, COMConnection} → true` (the default `session list` output has no license field).
+- **Error semantics (all failures exit `255`).** Unreachable RAS / unknown cluster UUID → empty list + Warning (`ListActiveSessionsAsync`) or `Ok=false` (`PingAsync`). `session terminate` with stderr containing `«Сеанс с указанным идентификатором не найден»` → `Killed=false, AlreadyGone=true` (idempotent, matches a 404). Malformed UUID arg → `Killed=false, AlreadyGone=false` + Error.
+- **Process lifecycle.** `System.Diagnostics.Process`, `UseShellExecute=false`, stdout/stderr redirected. A fixed **30s** per-invocation deadline; `CancellationToken.Register(() => process.Kill(entireProcessTree: true))` — `entireProcessTree` because `rac` spawns a transient child for the gRPC dialog with RAS. Process work is hidden behind `IRacProcessRunner` → `SystemProcessRacRunner` so the adapter is unit-testable with a fake runner.
+- **Spawn cadence (binding).** ≤ 2 `rac.exe` per `ListActiveSessionsAsync` (one `cluster list` + one `session list`) and ≤ 1 per kill; cap 20 kills/cycle → worst case ~26 procs/min under sustained over-quota load. The long-lived-socket optimization (Strategy B) is a backlog item (`ROADMAP.md`); until then this budget is the contract.
+
+### ADR-4.1 — VRD surgical-patch and `VrdCustomXml` merge strategy
+The authoritative `default.vrd` mutation contract. `VrdPatcher` references this ADR by number; `OneCIisPublishingService.ApplyDesiredStateAsync` implements it.
+
+- **In-place only.** The patch is the only allowed mutation on an existing `default.vrd` — `webinst` is never invoked, the file is never overwritten wholesale.
+- **Path resolution** via `VrdPathResolver.Resolve`: override-first (`PhysicalPathOverride`) then convention `{IIS.DefaultVrdRoot}/{siteName}/{trimmedVirtualPath}/default.vrd` (see `04_INFRASTRUCTURE.md`).
+- **Three surgical mutations (`VrdPatcher.Patch`):** (1) `<standardOdata enable="…">` toggle (node created with only `enable` if missing); (2) `<httpServices publishByDefault="…">` toggle; (3) any attribute value containing `wsisapi.dll` has its `\d+\.\d+\.\d+\.\d+` segment replaced with `publication.PlatformVersion` (no-op if absent on newer builds that move the ISAPI handler to `web.config`).
+- **`VrdCustomXml` overlay** = **replace-child-by-LocalName / append-if-missing**: each overlay child matched against VRD-root children by `XName.LocalName` (namespace-agnostic); a matching sibling is replaced verbatim (operator tuning wins), a non-matching one is appended. Existing custom nodes not present in the overlay (`<openid>`, …) are **never** dropped — this is the cornerstone guarantee. A malformed `VrdCustomXml` surfaces as `InvalidOperationException` → reconcile endpoint maps it to `409` `IIS_RECONCILE_FAILED` (no half-applied write).
+- **Idempotency & atomic write.** `Patch(x) == Patch(Patch(x))`; the file is written only when content changed (preserving mtime), to `default.vrd.mlc.tmp` first, then `File.Replace`.
+- **Drift audit semantics.** `DriftCheckJob` writes `PublicationDriftDetected = 210` **only** on a status transition **and** only when the new status ∈ `{Drift, Missing, Error}`. The `Drift → InSync` transition from a successful reconcile is audited by the reconcile endpoint as `PublicationReconciled = 211` — the job never writes `211`, the endpoint never writes `210`.
+- **Test strategy.** `VrdPatcher` and `PublicationDriftDetector` are pure static helpers (unit-tested without `ServerManager` or a filesystem). `OneCIisPublishingService` is `[SupportedOSPlatform("windows")]` and validated by smoke tests against a real publication.
+
+## Locked Operational Constraints (binding)
+- **Kill priority:** when `Consumed > Limit`, kill sessions ordered by `StartedAt DESC` (newest first) until `Consumed == Limit`. Simplest to explain to users and avoids interrupting established sessions.
+- **Idempotent kill protocol:** before a kill, re-fetch the session by ID and verify `(InfobaseId, AppID, StartedAt)` match the snapshot; mismatch → skip and wait for the next cycle; "session not found" → treated as a successful kill. Every kill writes an `AuditLog` entry with reason and snapshot context.
+- **Drift detection:** a Hangfire job runs every 5 minutes (throttled to `Drift.IntervalMinutes`); `POST /api/v1/publications/{id}/check-drift` is available on demand. **Drift is never auto-corrected** — reconcile is an explicit, audited admin action.
+- **Deployment topology:** single-node — backend, IIS, MSSQL and the 1C cluster all on the same Windows Server host. No remoting, no WinRM, no cross-host adapters. Changing this assumption requires re-reviewing every infrastructure adapter.
 
 ## Tooling Constraints (binding alongside ADR-13/14)
-
-- **.NET solution format:** `.slnx` (the XML solution format that became the SDK 10 default). All scripts and CI reference `backend/MitLicenseCenter.slnx`. The classic `.sln` is not used.
-- **Frontend package manager:** `pnpm` (not `npm` or `yarn`). Faster, disk-efficient, strict on phantom dependencies. Pinned via the `packageManager` field in `frontend/package.json`. **Corepack is optional, not mandatory** — on Windows under a non-admin user it cannot write to `C:\Program Files\nodejs\`, so the supported install path is the standalone winget package (`winget install pnpm.pnpm`). Corepack works fine on Linux/macOS and on an elevated Windows shell, but we cannot rely on it as the only path.
-- **Node.js minimum:** **Node 22.13+** (driven by pnpm 11 — older Node versions fail with `No such built-in module: node:sqlite`). Older Node versions are not supported.
-- **Pre-commit hooks:** custom `.husky/pre-commit` shell script registered via `git config core.hooksPath .husky` (the `core.hooksPath` value is set idempotently by `frontend/scripts/install-git-hooks.mjs`, which runs from `pnpm install`'s `prepare`). **The `husky` npm package itself is intentionally not installed** — it offers no extra value once `core.hooksPath` is set, and removing it shortens the dependency surface. The hook runs `lint-staged` on staged JS/TS/JSON/CSS in `frontend/` and `dotnet format --include … --verify-no-changes` on staged `.cs`. On Windows the hook requires Git Bash (ships with Git for Windows).
-- **PowerShell script encoding:** all `scripts/*.ps1` files must be saved as **UTF-8 with BOM**. Windows PowerShell 5.1 (still the default `powershell.exe` on Windows 10/11) reads BOM-less UTF-8 as cp1251 and corrupts Cyrillic strings inside scripts. PowerShell 7 (`pwsh`) handles BOM-less UTF-8 correctly, but the project supports both shells.
-- **Local dev scripts** (`scripts/`):
-  - `build.ps1` — builds backend and frontend, runs tests and lint. Single command for "is the project healthy?".
-  - `dev.ps1` — starts backend (`dotnet watch run`) and frontend (`pnpm dev`) in parallel for local development.
-  - `db-reset.ps1` — drops the local MSSQL database, recreates it via EF migrations, seeds the initial admin user.
-- **Deployment script** `Deploy-MitLicenseCenter.ps1` — added in the deployment-readiness phase (not v1 of v1).
-- **Decision:** shadcn/ui (copy-paste components owned in our repo) on top of Radix UI primitives, styled with Tailwind CSS. Auxiliary stack: `lucide-react` (icons), `@tanstack/react-table` (data tables), `react-hook-form` + `zod` (forms), `sonner` (toasts), `recharts` (charts), `date-fns` + `date-fns/locale/ru` (date formatting).
-- **Rejected Alternatives:** Material UI (heavier runtime, opinionated visual language farther from the "modern minimal admin" look the team prefers; bringing both MUI and Tailwind would bloat the bundle); Ant Design (excellent for admin density but visual style feels dated and the ecosystem is more China-centric); building a fully custom design system (overkill for a 5–20 user admin panel).
-- **Reason:** shadcn/ui is owned in the repo (no vendor lock-in, no version upgrades that break visuals), built on accessible Radix primitives, themable via CSS variables (gives us light + dark out of the box), and is the dominant choice in 2025 for modern admin dashboards. Tailwind-only styling keeps the bundle small. Detailed visual language, status semantics, table patterns, destructive-action UX, freshness indicators, and Russian microcopy are codified in `06_UI_DESIGN.md`.
-
-## Stage 2 UI shell & auth additions (binding alongside ADR-7/ADR-11)
-
-- **shadcn config (`frontend/components.json`):** `style: "new-york"`, `baseColor: "neutral"`, `iconLibrary: "lucide"`, `tsx: true`, `tailwind.cssVariables: true`, aliases `@/components`, `@/components/ui`, `@/lib`, `@/lib/utils`, `@/hooks`. The CSS-variable theme (`src/index.css`) is the single source for both shadcn structural tokens AND the project's `--status-*` semantic palette from `06_UI_DESIGN.md §3`. Adding a shadcn component must not overwrite the semantic block or introduce a competing colour system.
-- **Layout shell composition:** the authenticated SPA is wrapped in `<AppShell>` = `<SidebarProvider>` → shadcn `<Sidebar collapsible="icon">` + `<SidebarInset>` containing the `<Topbar>` and `<main><Outlet /></main>`. `/login` is the only top-level route outside the shell; every other route is a child of the shell. Sidebar groups follow `06_UI_DESIGN.md §5`: **Operations** (Главная / Сеансы / Публикации), **Configuration** (Клиенты / Инфобазы), **System** (Аудит / Профиль). Pages that don't exist yet route to a shared `<ComingSoonPage titleKey>` placeholder rather than 404, so nav remains discoverable as Stage 2 fills in.
-- **Sidebar nav primitive:** built on shadcn `<SidebarMenuButton asChild>` with a react-router `<Link>` child; active state derived from `useResolvedPath` + `useMatch` so the `data-active` attribute (and the icon-collapsed tooltip) stay in sync with the router. The custom helper lives at `frontend/src/components/layout/NavLinkItem.tsx` and is the only sanctioned way to add a sidebar entry — do not hand-roll new ones.
-- **Self-service password change:** `POST /api/v1/auth/change-password` with `ChangePasswordRequest(CurrentPassword, NewPassword)`. Authenticated route only (no anonymous reset flow in v1). Inline validation enforces non-empty fields, `NewPassword.Length >= 12`, and `NewPassword != CurrentPassword`; `UserManager.ChangePasswordAsync` then handles the Identity policy. **No force-change-on-first-login.** The seed admin is encouraged to change the random seed password via `/profile`, but `AppUser.MustChangePassword` / middleware are explicitly deferred — they widened Stage 2 with no proportional safety gain because the seed password is already random and only printed to the warning log.
-- **Identity error → ValidationProblem mapping:** `ChangePasswordAsync` translates Identity error codes (`PasswordMismatch`, `PasswordTooShort`, `PasswordRequiresDigit`, `PasswordRequiresUpper`, `PasswordRequiresLower`, `PasswordRequiresNonAlphanumeric`, `PasswordRequiresUniqueChars`) into a `ValidationProblem` keyed by the offending DTO field with **Russian** messages. Unknown codes fall through to the raw Identity description, also under `NewPassword`. This is the template for every future Identity-backed write (force-reset, invite flow, etc.).
-- **Audit logging for auth actions is deferred to PR 2.2.** `AdminLoggedIn` / `AdminLoggedOut` / `AdminPasswordChanged` enum values exist in the plan but the writer (`IAuditLogger` + `AuditActionType` enum) ships in PR 2.2 along with the `AuditLog` schema refactor. PR 2.1 deliberately does not stub an audit call to avoid a dangling no-op.
-- **Frontend ESLint scope:** shadcn-generated files (`src/components/ui/**`, `src/hooks/use-mobile.ts`) are ignored by ESLint. They are vendored library code; the repo owns the file but does not modify it, and project rules (e.g. `react-hooks/set-state-in-effect`) must not block CI on third-party copies.
-
-## Stage 2 PR 2.2 — Tenants vertical + AuditLog writer (binding alongside ADR-10)
-
-- **409 Conflict contract:** all conflict responses are `ProblemDetails`-compatible JSON with an extra **`code`** field carrying a machine-readable identifier (`NAME_DUPLICATE`, `TENANT_HAS_INFOBASES`, `NAME_DUPLICATE_IN_TENANT`, …). Codes live in `backend/src/MitLicenseCenter.Web/Endpoints/Problems.cs::ProblemCodes` and are the single source of truth for both backend builders and frontend handlers. Frontend reads `body.code` to localise the message and to highlight the offending form field (e.g. `NAME_DUPLICATE` → `setError("name", …)`). The human-readable `detail` is always Russian. New conflict situations MUST add a new `ProblemCodes.*` constant rather than reusing an existing one — frontend cannot disambiguate by string detail.
-- **Domain enum serialisation:** `JsonStringEnumConverter` is registered globally in `Program.cs`. Domain enums (`AuditActionType`, `AuditReason`, future `InfobaseStatus`) serialise as **strings** in API payloads (e.g. `"TenantCreated"`, not `1`). The int values are an internal DB contract (`HasConversion<int>`) and are not exposed across the wire — frontend code receives enum names and looks up translations through `audit.actions.*` keys (added in PR 2.4).
-- **Enum int stability:** explicit numeric assignments in `AuditActionType` / `AuditReason` are **frozen**. Re-using a number for a different action would corrupt historical AuditLog rows. Reserved gaps (`200`/`201`/`210`/`211`/`300`/`301`/`400`/`401`) are documented in the PR-2.2 plan and must not be filled with unrelated actions.
-- **`IAuditLogger`:** interface in `MitLicenseCenter.Application/Auditing/`, implementation in `MitLicenseCenter.Infrastructure/Audit/` (`internal sealed`, exposed to test assembly via `InternalsVisibleTo`). Writer calls `AppDbContext.SaveChangesAsync` itself, so endpoint handlers don't need to coordinate transactions with audit. `TimeProvider` is taken from DI — singleton `TimeProvider.System` is registered in `Infrastructure.DependencyInjection`, tests inject a frozen clock. For mutations that **delete** their tenant, the audit row is written **before** the deletion so the FK reference is valid at write time (`SetNull` then handles the cleanup, see below).
-- **`AuditLogs.TenantId` FK:** `ON DELETE SET NULL` (not `NoAction`, as the v0 plan suggested). Rationale: tenant deletion must succeed even when audit history references it; the description column preserves the human-readable name, while the FK link becomes `NULL`. Other entities that gain a `TenantId` FK in PR 2.3+ follow the same rule unless the entity is part of the tenant aggregate (`Infobases.TenantId` → `Restrict` because we want the 409 guard, not silent orphaning).
-- **Tenant deletion guard:** PR 2.2 endpoint has a `TODO PR 2.3` placeholder for the `Infobases.AnyAsync` check that would emit `Problems.TenantHasInfobases()`. The check (and its test `TenantDeletionGuardTests`) lands in PR 2.3 once the `Infobases` table exists — until then DELETE is unconditional.
-- **Frontend destructive confirmation:** delete dialogs use shadcn `AlertDialog` with `AlertDialogCancel` as the default focus target and require the user to **retype the entity name** into an `Input` before the destructive action enables. This matches `06_UI_DESIGN.md §7` "high-impact protection" and is the binding pattern for every future destructive UX (delete tenant, delete infobase, …).
-
-## Stage 2 PR 2.3 — Infobases + Publications vertical (binding alongside ADR-2/ADR-4)
-
-- **Aggregate boundary = (Infobase + Publication).** Создание инфобазы — единый `POST /api/v1/infobases` с обязательным вложенным `CreatePublicationRequest` (1-to-1 required). Удаление инфобазы — `DELETE /api/v1/infobases/{id}` без флагов: публикация уходит каскадом в той же транзакции. Прямого `POST /api/v1/publications` нет — публикация существует только как часть aggregate'а. Это упрощает Stage 2 (UI знает про один объект, а не два) и оставляет место Stage 3, где «unpublish from IIS» добавится отдельным шагом перед `db.SaveChanges`.
-- **FK поведения:** `Infobase → Tenant = Restrict` (часть guard'а tenant-deletion, см. ниже), `Publication → Infobase = Cascade` (publication — часть aggregate'а инфобазы; SQL автоматически чистит хвост, отдельной guard'ы не нужно). EF InMemory-провайдер cascade не применяет — handler `InfobasesEndpoints.DeleteAsync` явно вызывает `db.Publications.Remove(publication)` до `db.Infobases.Remove(infobase)`, поэтому unit-тесты на InMemory ведут себя так же, как продакшен на MSSQL.
-- **Tenant deletion guard активирован.** `TODO PR 2.3` из `TenantsEndpoints.DeleteAsync` закрыт: tenant с `Infobases.AnyAsync` возвращает `409 Conflict` с `code: TENANT_HAS_INFOBASES`. Guard срабатывает ДО записи в AuditLog — отказ удаления не оставляет следа в `AuditLogs`. Тест `TenantDeletionGuardTests` теперь полноценный.
-- **Unique-per-tenant имя инфобазы:** EF индекс `IX_Infobases_TenantId_Name` уникальный по паре `(TenantId, Name)`. Два разных tenant'а могут иметь инфобазы с одинаковым именем («Бухгалтерия» у Acme и у Beta — норма), один tenant — нет (`409 Conflict`, `code: NAME_DUPLICATE_IN_TENANT`).
-- **AuditLog для составных операций.** `IAuditLogger.LogAsync` из PR 2.2 сохраняет каждую запись отдельным `SaveChangesAsync`, поэтому aggregate-операции «инфобаза + публикация» пишут две audit-строки последовательно: например, при `CreateAsync` сначала `InfobaseCreated`, затем `PublicationCreated`, обе с одним `TenantId`. При `DeleteAsync` записи кладутся ДО `db.Remove`, чтобы FK был валиден на момент записи. **Отклонение от плана PR 2.3:** план просил «две записи одним SaveChanges»; в реальности — две последовательные SaveChanges. Менять API `IAuditLogger` ради «одной транзакции» в Stage 2 нет смысла — атомарность доменной операции уже обеспечена одним `SaveChanges` на `Infobase + Publication`, а аудит — линейный hot-path, у которого нет инвариантов «всё или ничего» внутри одной HTTP-операции.
-- **AuditActionType: новые значения активированы.** Значения `InfobaseCreated=10/Updated=11/Deleted=12` и `PublicationCreated=20/Updated=21/Deleted=22`, зарезервированные в PR 2.2, теперь записываются writer'ом. Int-значения остаются заморожены (см. PR 2.2 binding).
-- **Validation: VirtualPath + PlatformVersion.** `VirtualPath` обязан начинаться с `/` и не содержать пробелов; `PlatformVersion` соответствует regex `^\d+\.\d+\.\d+\.\d+$` — четыре числовых сегмента, длины сегментов не фиксируем (примеры: `8.3.23.1865`, `8.5.1.1302`). Ошибки возвращаются под ключами `Publication.VirtualPath` / `Publication.PlatformVersion` — это позволяет frontend через react-hook-form ставить `setError` точечно. **`VrdCustomXml`** — опциональное `nvarchar(max)`, null/whitespace-only нормализуется в `null` при записи, чтобы не было «пустой строки vs null» дрейфа. **Hotfix 2026-05-21:** изначально regex был `^\d+\.\d+\.\d{2}\.\d{4}$` с жёсткими длинами Build(2)+Revision(4) — отрезал реальные ранние сборки 1С 8.5 (`8.5.1.1302`). Длины ослаблены до «1+ цифра в каждом сегменте» и на фронте, и на бэке; тест `PlatformVersion_regex_requires_four_numeric_segments` переименован и обновлён (`8.3.1.1865`, `8.5.1.1302` теперь valid).
-- **`PublicationsEndpoints` существует как side-API.** `GET`/`PUT /api/v1/publications/{id}` оставлен для точечного редактирования параметров публикации без открытия формы инфобазы (например, сменить `PlatformVersion` после апгрейда платформы). `POST`/`DELETE` намеренно отсутствуют — публикация создаётся и удаляется только через aggregate Infobase.
-- **`InternalsVisibleTo MitLicenseCenter.Tests.Unit`** добавлен в `MitLicenseCenter.Web.csproj`. Handler'ы `TenantsEndpoints.DeleteAsync`, `InfobasesEndpoints.CreateAsync`, `InfobasesEndpoints.DeleteAsync`, а также regex-валидатор `InfobasesEndpoints.IsValidPlatformVersion` промоутнуты `private static` → `internal static`. Это снимает необходимость в WebApplicationFactory для проверки бизнес-логики (guard, conflict, cascade) — тестовый стек остаётся «handler + InMemory DbContext + fake HttpContext + capturing IAuditLogger», как у `AuditLoggerTests`.
-- **UI: одна форма на aggregate.** `InfobaseFormDialog` — `max-w-2xl` shadcn `<Dialog>` с двумя секциями через `<Separator />`: «Инфобаза» (tenant selector, name, сервер БД, имя БД, cluster ID, статус) и «Публикация в IIS» (site, virtualPath, platformVersion, OData/HTTP флажки). Один submit на форму = один POST/PUT. **Tenant selector заблокирован в edit-mode** — перенос инфобазы между клиентами в Stage 2 не предусмотрен (потребует пересборки публикации и переноса VrdCustomXml; будет отдельная operation в Stage 3 при необходимости).
-- **UI: status badge цвета.** `InfobaseStatus` → `06_UI_DESIGN.md §3` цветовая палитра: `Active` → success (emerald), `Maintenance` → warning (amber), `Suspended` → danger (rose). Закодировано напрямую в `InfobasesPage.statusBadgeClass` — отдельной обёртки `<StatusBadge>` пока нет (1 место использования; вынесем, когда появится второе).
-- **EF migrations editorconfig:** в `Persistence/Migrations/.editorconfig` добавлено подавление `CA1861` — EF scaffold генерирует `new[] { "Col1", "Col2" }` в `CreateIndex(columns: …)`, что валит build при `TreatWarningsAsErrors`. Подавление точечное (только для миграций), общий код продолжает обязан использовать `static readonly` массивы.
-
-## Stage 2 PR 2.4 — Audit page + Sessions snapshot stub (binding alongside ADR-3/ADR-6/ADR-10)
-
-- **Audit endpoint = read-only с server-side pagination.** `GET /api/v1/audit?actionType=&tenantId=&from=&to=&page=&pageSize=` отдаёт `AuditPagedResponse(items, total, page, pageSize)`. Запрос всегда `AsNoTracking().OrderByDescending(x => x.Timestamp).ThenByDescending(x => x.Id)`, чтобы тай-брейк по Id давал стабильный порядок на записях с одинаковым timestamp (миграции PR 2.2 пишут `Timestamp.HasDefaultValueSql("SYSUTCDATETIME()")` — миллисекундный гранулярит достаточно, но не стопроцентен). `CountAsync` и `ToListAsync` идут последовательно — scoped `DbContext` не поддерживает параллельные операции.
-- **`pageSize` whitelist `{25, 50, 100}`, default `50`.** Невалидное значение (включая `0`, отрицательное и «не из набора») молча падает на default — фронт не получает 400 за выбор размера, а лимиты остаются предсказуемыми для индексов `IX_AuditLogs_Timestamp` / `IX_AuditLogs_ActionType`. Сами размеры — константа `AllowedPageSizes` в `AuditEndpoints.cs`.
-- **Валидация `actionType` и диапазона.** `actionType` парсится через `Enum.TryParse<AuditActionType>(value, ignoreCase: true, out _) && Enum.IsDefined(parsed)` — `IsDefined` блокирует «магические» числа в URL (`?actionType=999`). Несовместимый диапазон (`to < from`) → `400 ValidationProblem` с русским сообщением. Это единственные источники 400 на endpoint'е — всё остальное (пустые/невалидные `tenantId`, пустые `from/to`) трактуется как «без фильтра».
-- **Sessions snapshot — заглушка для Stage 3.** `GET /api/v1/sessions/snapshot` возвращает `SessionsSnapshotResponse(items: [], capturedAt: UtcNow, tookMs: 0)`. Поля `SessionSnapshotEntry(SessionId, InfobaseId, TenantId, AppId, ConsumesLicense, StartedAt)` зафиксированы прямо сейчас — frontend строит UI против стабильного контракта до того, как Stage 3 подключит `ICluster1CClient`. Контракт идёт от ADR-3 (snapshot-based reconciliation) и ADR-6 (hot 3–5s / cold 20–30s polling cadence на стороне сервера; UI polling — отдельный 15s, см. `docs/05_UI_REQUIREMENTS.md`).
-- **Frontend audit page — URL-state.** `AuditPage` хранит фильтры (`actionType`, `tenantId`, `from`, `to`, `page`, `pageSize`) в `?query=...` через `useSearchParams` react-router. Дефолтные значения опускаются из URL, чтобы shareable-link выглядел чисто. Изменение любого фильтра автоматически сбрасывает `page` в `1` — без этого вторая страница после смены `actionType` может оказаться пустой и пользователь «теряется».
-- **Frontend filters → backend.** `<input type="date">` отдаёт `YYYY-MM-DD`; перед отправкой это превращается в полноценный ISO UTC: `from` → `T00:00:00Z`, `to` → `T23:59:59Z`. `useAuditLog` принимает уже преобразованные фильтры — это разделяет UI-состояние (URL) и wire-формат (backend), и оставляет место для полноценного DatePicker в Stage 4 (`docs/06_UI_DESIGN.md`) без переделки backend-контракта.
-- **Frontend enum словарь.** `audit.actions.*` в `i18n/ru.json` содержит **полный набор** значений `AuditActionType` — backend отдаёт строковое имя (см. PR 2.2 binding), `t(`audit.actions.${entry.actionType}`)` даёт русский label. Если в Stage 3 enum пополнится (`SessionKilled`, `LimitChanged`, …), словарь и `AUDIT_ACTION_TYPES` константа должны обновляться синхронно.
-- **Action-badge цвета** через локальный switch в `AuditPage.actionBadgeClass`: `*Created` → emerald (success), `*Updated` → sky (info), `*Deleted` → rose (danger), всё остальное → muted/neutral. Это соответствует семантике `06_UI_DESIGN.md §3` (5 status colors), и снова — без отдельного `<StatusBadge>` компонента до второго места использования.
-- **Sessions page — Card-заглушка с подсветкой контракта.** UI-страница (`SessionsPage.tsx`) явно сообщает пользователю «реальный мониторинг — Stage 3», но **дёргает endpoint** через `useSessionsSnapshot` и показывает «Активных сеансов: {count}» + `capturedAt`. Это страховка: если кто-то сломает контракт `SessionsSnapshotResponse`, страница покажет ошибку загрузки или unexpected data, а не молча останется зелёной.
-- **Sessions polling отключён.** `useSessionsSnapshot` использует `refetchInterval: false` — в Stage 2 endpoint статичен (всегда пустота), и крутить 15s-polling смысла нет. В Stage 3 polling включится одновременно с реальным adapter'ом (`docs/05_UI_REQUIREMENTS.md §4`).
-
-## Stage 2 — closure
-
-PR 2.4 закрывает Stage 2: layout shell + auth additions (PR 2.1), Tenants + AuditLog writer (PR 2.2), Infobases+Publications (PR 2.3), Audit page + Sessions stub (PR 2.4). Backend и frontend теперь покрывают всё, что можно сделать «всухую» — без реальных вызовов 1C/IIS. Stage 3 начинается с:
-- `ICluster1CClient` (REST + Polly-circuit + RAS fallback) — заменяет stub `SessionsEndpoints.SnapshotAsync`.
-- Snapshot writer + reconciliation Hangfire job (hot/cold двухтемповый цикл, ADR-3/ADR-6).
-- `default.vrd` XML-patch service + drift-detection job + admin-driven Reconcile (ADR-4).
-- Domain enum пополняется значениями `SessionKilled`/`LimitChanged`/`PublicationDriftDetected`/`PublicationReconciled`/`ClusterAdapterCircuitOpened`/`ClusterAdapterCircuitClosed` — int-значения уже зарезервированы (PR 2.2), `i18n.ru.audit.actions.*` пополняется одновременно. **(Stage 5 PR 5.1, ADR-16: значения 300/301 `ClusterAdapterCircuit*` остаются reserved historical — circuit breaker удалён, новые строки с этими значениями не пишутся; enum-записи и i18n-ключи сохранены для рендера старых rows.)**
-- `Publication` обзаводится drift-полями (`LastDriftStatus`, `LastDriftCheckAt`, `LastDriftDetails`) — отдельной миграцией.
-
-## Stage 3 PR 3.1 — Settings + DPAPI (binding alongside ADR-8)
-
-- **Каноническое хранение `dbo.Settings`.** Одна строка на ключ (`Key NVARCHAR(200) PK`). Plain payload идёт в `ValueText NVARCHAR(MAX) NULL`, секрет — в `Value VARBINARY(MAX) NULL` (DPAPI-зашифрованные UTF-8 байты). `IsSecret BIT NOT NULL` — write-side инвариант: при `IsSecret=true` write-side обязан положить пейлоад в `Value` и обнулить `ValueText`, иначе наоборот. Маскировка на read-side двойная: store вычищает `ValueText` для любого row с `IsSecret=true` даже если он туда случайно затесался (защита от drift). `Description NVARCHAR(500) NULL`, `UpdatedAt DATETIME2 NOT NULL`, `UpdatedBy NVARCHAR(256) NOT NULL` (имя инициатора или `"System"`).
-- **DPAPI purpose-string `mlc.settings.v1`.** `IDataProtectionProvider.CreateProtector("mlc.settings.v1")`. Версия в purpose-string — намеренный hook: если когда-нибудь сменим encryption scheme (например добавим AEAD-обёртку), bump до `mlc.settings.v2` + миграция row'ов; старые key-ring файлы под `MitLicenseCenter/keys` остаются совместимы (ADR-8 unchanged).
-- **`SettingDefinitions` catalog — единый источник правды.** Whitelist ключей живёт в `Application/Settings/SettingDefinitions.cs` как `IReadOnlyDictionary<string, SettingDefinition>`. Catalog диктует: имя ключа (через `SettingKey` const'ы), `IsSecret`, описание для UI, тип значения (`SettingValueKind = Text|Number|Url|HostPort|Path`), мин/макс для числовых, дефолт для plain. Endpoint валидирует против catalog'а; seeder сидит из него же; reflection над `SettingKey` сознательно не используем — catalog даёт богаче метаданные. **Добавить новый параметр = коммит в `SettingKey.cs` + запись в catalog**.
-- **Validation rules:**
-  - `Number` — `int.TryParse(..., InvariantCulture)` + диапазон.
-  - `Url` — `Uri.TryCreate(..., UriKind.Absolute)` + scheme ∈ {http, https}.
-  - `HostPort` — regex `^[^\s:]+:\d+$` + порт в `[1024, 65535]`.
-  - `Path` / `Text` — non-empty (нормализация: whitespace → `null` = clear).
-  - `null` / whitespace допустим для любого ключа — это «очистка значения», для секрета = «убрать пароль».
-- **HTTP контракт.** `GET /api/v1/settings` (Admin) → `IReadOnlyList<SettingDescriptorResponse>`. Список включает **все** 14 ключей даже когда они не заданы (`isSet: false`). Секреты возвращаются с `value: null` независимо от наличия данных. `PUT /api/v1/settings/{key}` (Admin) с `{value: string|null}` → `200 Ok` при успехе, `404 NotFound` с `code: SETTING_UNKNOWN_KEY` если ключа нет в whitelist, `400 ValidationProblem` с `code: SETTING_INVALID_VALUE` и `errors.Value` под invalid value. Оба code'а живут в `ProblemCodes.cs`.
-- **Audit description без plaintext.** `SettingChanged = 400` (был зарезервирован в PR 2.2, активирован сейчас). Для plain: `«Параметр {key} изменён.»`. Для секрета: `«Параметр {key} (секрет) обновлён.»`. **Никогда** не пишем значение в description — даже masked (это и регрессионный тест в `SettingsValidationTests`).
-- **`ISettingsSnapshot` — singleton с TTL ≈ 30s, DI-port для hot-path читателей (PR 3.2/3.3/3.5).** В PR 3.1 не используется напрямую — endpoint и UI читают через `ISettingsStore`. Singleton тянет scoped `AppDbContext` через `IServiceScopeFactory` (паттерн ASP.NET Core docs). `ISettingsStore.SetAsync` вызывает `Invalidate()` после каждого write'а; всё равно TTL вычистил бы за ≤30s, но явный invalidate даёт детерминированную картину в smoke-сценариях. `GetString`/`GetInt` сами по себе — sync, blocking-call внутри `lock` при cache miss; на ~10 ключах это микросекунды, на hot-path-tick не больно.
-- **Seeder идемпотентен.** `SettingsSeeder.EnsureSeededAsync` вызывается в `Program.cs` **после** `IdentitySeeder.EnsureSeededAsync` (миграции уже накатаны). Только инсёртит отсутствующие ключи, ничего не апдейтит. Plain с `DefaultValue` сеется со значением; секреты + plain без дефолта сеются «пустыми» (`Value=null, ValueText=null`, `IsSet=false`). При повторном запуске — лог `«Засеяно 0 новых параметров.»` (т.е. ничего, ENG сообщение из LoggerMessage не выводится). Стартовый лог при первом запуске — `«Засеяно 14 новых параметров.»`.
-- **Frontend.** `<ProtectedRoute requireAdmin?: boolean>` генерализован (Viewer перенаправляется на `/`, не на `/login`). `/settings` route вложен в `<ProtectedRoute requireAdmin>`. Sidebar entry «Параметры» admin-gated через `useMe().roles.includes("Admin")`. `settings.*` namespace в `i18n/ru.json` (sections / labels / hints / actions / states / toasts / errors). `audit.actions.SettingChanged = "Параметр изменён"` + расширение `AUDIT_ACTION_TYPES` константы. Action-badge цвет `SettingChanged` — neutral muted (правило из PR 2.4: `*Created/Updated/Deleted` имеет цвет, остальное — muted; `SettingChanged` сюда попадает естественно).
-- **Operational note.** Key-ring под `%ProgramData%\MitLicenseCenter\keys` критичен — без него `Value` байты в `dbo.Settings` нечитаемы. ADR-8 уже фиксирует включение этих ключей в daily backup (Stage 4 ADR-9 их и заберёт), но напоминание: удаление key-ring папки = безвозвратная потеря всех зашифрованных секретов (cluster admin password, RAS creds в будущем). Документировано в `docs/04_INFRASTRUCTURE.md`.
-- **Не вошло в Stage 3 PR 3.1** (намеренно): любые backup-связанные ключи (никогда не создаются — ADR-9 revoked в Stage 4 PR 4.4, см. ADR-15), любые реальные читатели `ISettingsSnapshot` (PR 3.2/3.3/3.5), `Microsoft.Web.Administration` package (нужен в PR 3.5).
-
-## Stage 3 PR 3.2 — 1С Cluster REST adapter + circuit breaker (binding alongside ADR-2/ADR-8)
-
-### ADR-3.1 — 1С Cluster REST API endpoint contract — **REVOKED (Stage 5 PR 5.1)**
-
-> **REVOKED — REST adapter permanently removed.** The 1C Cluster REST API was the planned primary adapter in Stage 3 PR 3.2; live verification on platform 8.5.1.1302 confirmed the REST endpoint is not published by default on small single-node deployments (port 1541 listens with the native cluster wire protocol, not HTTP). `HttpClient` either hangs the full 100-second timeout or returns garbage. The dual-adapter complexity hedged a primary that is empirically absent. **rac.exe is now the sole 1C cluster adapter** — see **ADR-16** for the consolidation rationale and **ADR-3.3** for the rac.exe CLI contract (status-updated from "fallback" to "sole adapter").
->
-> The text below is preserved as historical context for the original Stage 3 PR 3.2 contract. **Do not implement it; do not configure `OneC.Cluster.RestApiUrl` or `OneC.Cluster.RestApiTimeoutSeconds` — those keys were removed in Stage 5 PR 5.1.** `OneC.Cluster.AdminUser` / `OneC.Cluster.AdminPassword` keys survive but now feed rac.exe authentication per ADR-3.3, not Basic-auth for an HTTP endpoint.
-
-- **Source (REVOKED):** 1С:Предприятие Platform 8.3+ documentation, Remote Administration System (RAS) HTTP interface. Verified against platform versions 8.3.22–8.3.26 in development environment.
-- **Base URL (REVOKED):** `http://{host}:{port}` where port is the Cluster Management HTTP port (default **1541**). Configured via `Settings.OneC.Cluster.RestApiUrl`. Example: `http://my-server:1541`.
-- **Authentication (REVOKED):** HTTP Basic Authentication, credentials from `Settings.OneC.Cluster.AdminUser` / `Settings.OneC.Cluster.AdminPassword`.
-- **Content-Type (REVOKED):** `application/json` (both request and response).
-
-**Endpoint inventory:**
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/rm/cluster` | List all clusters. Used for connectivity ping and to resolve `clusterId` for subsequent calls. |
-| `GET` | `/rm/cluster/{clusterId}/session` | List all active sessions in the cluster. |
-| `DELETE` | `/rm/cluster/{clusterId}/session/{sessionId}` | Terminate a specific session. Returns `204 No Content` on success, `404 Not Found` if already gone. |
-
-**Cluster list response (GET /rm/cluster):**
-```json
-[
-  {
-    "cluster": "9aba...",
-    "host": "my-server",
-    "port": 1541,
-    "name": "Local cluster"
-  }
-]
-```
-
-**Session list response (GET /rm/cluster/{clusterId}/session):**
-```json
-[
-  {
-    "session": "d1e1ba1e-...",
-    "infobase": "f45567c2-...",
-    "user-name": "Иванов",
-    "app-id": "1CV8C",
-    "host": "WORKSTATION01",
-    "started-at": "2024-01-15T08:30:00",
-    "last-active-at": "2024-01-15T08:45:00",
-    "hibernate": false,
-    "license": { "present": true }
-  }
-]
-```
-
-**`app-id` values and license consumption:**
-- `license.present == true` → `ConsumesLicense = true` (primary, server-authoritative).
-- If `license` field absent: heuristic — `{"1CV8", "1CV8C", "WebClient", "Designer", "COMConnection"}` → `true`.
-
-**Date format:** ISO 8601 without timezone offset (`"2024-01-15T08:30:00"`). Server stores local time; client treats it as UTC (single-node deployment assumption from Locked Operational Constraints). If deployment environment uses a non-UTC timezone, adjust parsing — flagged as a future-PR risk.
-
-**Session kill strategy:** `OneCRestClusterClient.KillSessionAsync` calls `DELETE /rm/cluster/{clusterId}/session/{sessionId}`. Before calling, `ResilientClusterClient` delegates to `KillEnforcer` (PR 3.3), which re-fetches the snapshot and verifies `(ClusterInfobaseId, AppId, StartedAtUtc)` match before issuing the kill — idempotency per the Locked Operational Constraints.
-
-**clusterId resolution:** `OneCRestClusterClient` calls `GET /rm/cluster` on every `ListActiveSessionsAsync` / `KillSessionAsync` call to resolve the first cluster ID. This is two HTTP calls per poll cycle but acceptable at the typical cadence (once per cold interval, once per hot interval). Single-cluster topology assumed — multi-cluster support deferred.
-
-**Deviation from plan:** The plan mentioned "or `/hs/cluster/sessions`" as a possible alternative path. After consulting the 1C platform docs and community resources, the confirmed path prefix is `/rm/` (Remote Management namespace), not `/hs/` (HTTP Service namespace). `/hs/` is for user-defined HTTP services running inside infobases. Cluster management is in `/rm/`.
-
-**Smoke test:** `Tests.Unit/Clusters/OneCRestClusterClientSmokeTests.cs` (Category=Smoke, CI-excluded) validates `PingAsync → Ok=true` against a real cluster URL from User Secrets.
-
-### ADR-3.2 — Polly v8 circuit breaker configuration — **REVOKED (Stage 5 PR 5.1)**
-
-> **REVOKED — Polly circuit breaker, `ClusterCircuitState`, and `ResilientClusterClient` removed together with the REST adapter.** The circuit breaker existed to detect REST primary failures and route to the RAS fallback; with REST gone there is no primary to fail and no fallback to route to. The Polly `ResiliencePipeline`, the `ResilientClusterClient` decorator, the `ICircuitStatusReader` interface, the `CircuitStatus` DTO, the `/api/v1/cluster/status` endpoint, and the `Microsoft.Extensions.Http.Resilience` + `Polly` NuGet packages were all deleted in PR 5.1. AuditActionType integer values `300` (`ClusterAdapterCircuitOpened`) and `301` (`ClusterAdapterCircuitClosed`) remain reserved historical — enum entries stay so historical AuditLog rows render correctly. The two `CircuitBreaker.*` Settings keys were dropped via `Stage5DropRestClusterSettings` migration. See **ADR-16** for the new sole-adapter architecture.
->
-> The text below is preserved as historical context for the original PR 3.2 Polly configuration. **Do not implement it.**
-
-- `FailureRatio = 1.0`, `MinimumThroughput = CircuitBreaker.FailureCount` (default 3), `SamplingDuration = 30s`, `BreakDuration = CircuitBreaker.ProbeIntervalSeconds` (default 60s). **(REVOKED.)**
-- Values read once from `ISettingsSnapshot` when `ClusterCircuitState` singleton is constructed. Changes to settings require application restart to take effect. **(REVOKED.)**
-- `OnOpened` callback writes `AuditActionType.ClusterAdapterCircuitOpened = 300` via `IServiceScopeFactory`-scoped `IAuditLogger`. `OnClosed` writes `301`. `OnHalfOpened` updates state only (no audit). **(REVOKED.)**
-- `RemoveAllResilienceHandlers()` on `OneCRestClusterClient`'s `IHttpClientBuilder` removes the global `AddStandardResilienceHandler()` (Program.cs line 115) from this client — resilience policy is owned exclusively by `ResilientClusterClient` + `ClusterCircuitState`. **(REVOKED.)**
-
-## Stage 3 PR 3.3 — Reconciliation + kill enforcer (binding alongside ADR-3/ADR-6)
-
-### ADR-6.1 — Hot-tier polling lives in BackgroundService, not Hangfire
-
-- **Decision:** Hot-tier polling (3–5s cadence for tenants at ≥90% license consumption) runs as a `BackgroundService` (`HotTierPollingService`), not as a Hangfire recurring job.
-- **Rejected Alternative:** Hangfire recurring job with `"*/5 * * * * *"` (second-level cron). Not supported — Hangfire's minimum granularity is 1 minute.
-- **Reason:** Hangfire CRON minimum = 1 minute. The hot tier requires 3–5 second cadence to minimize the enforcement window for near-limit tenants. Cold reconciliation remains in Hangfire (`"* * * * *"` with internal throttle to `ColdIntervalSeconds`) for dashboard visibility and durability. Kill enforcer runs only at the end of each cold cycle — hot polling updates the UI-facing snapshot but does not kill sessions.
-
-### ADR-6.2 — SessionKilled=200 + AuditReason differentiator
-
-- **Decision:** A single `AuditActionType.SessionKilled = 200` covers both automatic (limit enforcement) and manual (operator-initiated) kills. The distinction is in `AuditReason`: `LimitExceeded = 1` for automated kills by the enforcer, `ManualByAdmin = 2` for operator-initiated kills via `POST /sessions/{id}/kill`.
-- **Rejected Alternative:** Separate `SessionKilledManual = 201` enum value. Rejected because it doubles the enum surface without adding filtering capability that `AuditReason` doesn't already provide.
-- **Reason:** `LimitChanged = 201` is reserved for future tenant-limit-change audit, stabilizing the wire contract now. The description field in audit entries carries the human-readable context (operator reason, session details).
-
-## Stage 3 PR 3.5 — Publication drift detection + IIS XML patcher (binding alongside ADR-4)
-
-### ADR-4.1 — VRD surgical-patch and VrdCustomXml merge strategy
-
-- **Decision.** `OneCIisPublishingService.ApplyDesiredStateAsync` mutates `default.vrd` via `XDocument` strictly in-place. The patch is the **only** allowed mutation on an existing file — `webinst` is never invoked on existing publications, the file is never overwritten wholesale (memory `infrastructure_integration.md`).
-- **VRD path layout.** Resolved as `Path.Combine(Settings.IIS.DefaultVrdRoot, publication.SiteName, publication.VirtualPath.TrimStart('/'), "default.vrd")`. `IIS.DefaultVrdRoot` defaults to `C:\inetpub\1c-publications` and is operator-configurable from the Settings page. Per-publication overrides are **deferred to Stage 4** — if a test environment has a non-standard layout, the operator adjusts the IIS physical path or `IIS.DefaultVrdRoot`, not the schema.
-- **Three surgical mutations performed by `VrdPatcher.Patch`:**
-  1. **OData toggle.** `<standardOdata enable="true|false"/>` — attribute value flipped; if the node is missing it is created with only the `enable` attribute (operator can add OData-specific tuning via `VrdCustomXml`).
-  2. **HTTP Services toggle.** `<httpServices publishByDefault="true|false"/>` — same in-place attribute mutation.
-  3. **Platform version segment.** Any attribute value containing `wsisapi.dll` has its `\d+\.\d+\.\d+\.\d+` segment replaced with `publication.PlatformVersion`. The match is restricted to attribute values that literally contain `wsisapi.dll` so that no unrelated version-shaped numbers (e.g. comment text, custom version tags) get rewritten. If no `wsisapi.dll` path is present (newer 1C builds move the ISAPI handler to `web.config` next to `default.vrd`), the version patch is a silent no-op — the drift detector reads the platform version only if it could be parsed.
-- **VrdCustomXml overlay strategy (the previously-open question from the plan).** Operator-supplied `VrdCustomXml` is wrapped in a transient pseudo-root inheriting the VRD namespace, then merged into the live document with a **replace-child-by-LocalName / append-if-missing** strategy:
-  - Each child element of the overlay is matched against existing child elements of the VRD root by `XName.LocalName` (namespace-agnostic, because operators routinely write the overlay without an explicit `xmlns`).
-  - **Replace** if a sibling with the same local name exists — the overlay element wins verbatim. Example: an overlay `<standardOdata enable="true" sessionMaxAge="60"/>` *replaces* the boolean-only toggle node, so operator tuning survives reconcile.
-  - **Append** if no sibling matches — overlay content is added as a new child of the VRD root. Existing custom nodes that are *not* present in the overlay (e.g. `<openid>`, `<httpServicesPermissions>`) are **never** dropped. This is the cornerstone guarantee: reconcile cannot lose operator's custom configuration.
-  - A malformed `VrdCustomXml` (parse failure) surfaces as `InvalidOperationException` from `VrdPatcher.Patch`, which the reconcile endpoint maps to `409 ProblemDetails` with `code: IIS_RECONCILE_FAILED` — no half-applied write.
-- **Idempotency.** `Patch(xml, desired) == Patch(Patch(xml, desired), desired)`. The adapter compares the patched string with the original and writes the file only when it changed — preserving the file's mtime so operator diagnostics aren't polluted.
-- **Atomic write.** Patched content is written to `default.vrd.mlc.tmp` first, then `File.Replace` swaps it into place. A crash mid-write cannot leave an empty or truncated VRD.
-- **Drift audit semantics.** `DriftCheckJob` writes `AuditActionType.PublicationDriftDetected = 210` **only** on a status transition AND **only** when the new status is one of `{Drift, Missing, Error}`. `InSync → InSync` and `Drift → Drift` with identical details are silent. The `Drift → InSync` transition that results from a successful reconcile is audited by the reconcile endpoint as `PublicationReconciled = 211` — the drift job never writes `211`, the endpoint never writes `210`.
-- **Test strategy.** The XML logic lives in `VrdPatcher` and `PublicationDriftDetector` as pure static helpers so unit tests exercise them without `ServerManager` or a filesystem. `OneCIisPublishingService` is `[SupportedOSPlatform("windows")]` and validated only by smoke tests against a real publication.
-
-## Stage 3 PR 3.8 — Real RAS adapter (rac.exe wrapper)
-
-### ADR-3.3 — 1С RAS `rac.exe` CLI contract
-
-> **Numbering note.** The plan-file called this "ADR-3.2" but that slot was already taken by the Polly circuit breaker config (above). Renumbered to **ADR-3.3** under the new PR 3.8 section. Memory mirror in `decisions.md` carries the same number.
-
-- **Source.** Live experiment against `rac.exe` v8.5.1.1302 on the local single-node test rig (1C:Enterprise 8.5 Server Agent x86-64 + manually-launched `ras.exe`). Verified against platform 8.5.1.1302; parser is intentionally permissive so 8.3.20–8.3.26 and minor 8.5.x bumps do not break it. The smoke test (`RacExecutableSmokeTests`) re-verifies on whatever platform the operator has installed.
-- **Tool path.** Operator-configurable via `Settings.OneC.RAS.ExePath`. **Plan default `C:\Program Files\1cv8\common\rac.exe` was wrong** — 1C 8.5 keeps `rac.exe` inside the version-specific `bin\` directory (`C:\Program Files\1cv8\8.5.1.1302\bin\rac.exe`), and `1cv8\common\` no longer ships the utility. PR 3.8 therefore **drops the seeded default** from `SettingDefinitions.OneCRasExePath` (matches the no-default treatment of `OneC.RAS.Endpoint`) so a fresh install forces the operator to enter the version-specific path in the «Параметры» UI. Existing installs that already seeded the wrong path are unaffected by the schema change (seeder is idempotent) — the operator must override via the UI when the circuit first opens.
-- **RAS endpoint.** Operator-configurable via `Settings.OneC.RAS.Endpoint` (default `localhost:1545`). Passed to `rac.exe` as the **first positional argument** (`rac.exe <host:port> <mode> <command> ...`). Omitting the positional defaults to `localhost:1545` inside `rac` itself; we always pass it explicitly so a misconfigured `Endpoint` surfaces as a connection error instead of silently hitting localhost.
-- **Authentication.** Cluster admin creds (`Settings.OneC.Cluster.AdminUser` / `OneC.Cluster.AdminPassword`) are reused — `rac.exe` does not have a separate auth source. Passed as **two separate flags** `--cluster-user=<name>` `--cluster-pwd=<password>` (the plan's `--auth=<user>:<pwd>` syntax does not exist in `rac.exe`). When both are empty in settings (typical for a default cluster with no admin registered), the flags are omitted entirely — `rac` allows anonymous administration of clusters that have no registered administrators, exactly matching the live test rig's behaviour.
-- **Encoding** (revised after smoke test on .NET `Process`). `rac.exe` writes stdout/stderr in the **parent process's active OEM code page**, NOT a fixed UTF-8 stream. The original belief — captured during the PowerShell-driven plan-mode experiment that showed clean UTF-8 bytes (`D0 A1 D0 B5 …` for «Сеанс») — was an artefact of PowerShell 7 / Windows Terminal silently activating `chcp 65001` for child processes. From a plain .NET test host or a Windows service running under `Network Service`, the active OEM CP on RU Windows is **866**, so the same stderr arrives as `91 A5 A0 AD E1 …` (CP866 for «Сеанс»). Setting `ProcessStartInfo.StandardOutputEncoding / StandardErrorEncoding = Encoding.UTF8` does **not** flip the child's output — it only tells the `StreamReader` how to interpret bytes that are already on the pipe, so the parent ends up with `U+FFFD` everywhere and the idempotent marker `«Сеанс с указанным идентификатором не найден»` fails to match. `SystemProcessRacRunner` therefore reads `process.StandardError.BaseStream` directly into a `MemoryStream` and decodes with `Encoding.GetEncoding(CultureInfo.CurrentCulture.TextInfo.OEMCodePage)` (registered via `CodePagesEncodingProvider.Instance` because .NET Core+ drops legacy code pages from the default provider). On RU Windows this yields CP866; on EN Windows it yields CP437; on locales where `OEMCodePage = 0` it falls back to UTF-8. **No `StandardOutputEncoding` / `StandardErrorEncoding` properties are set on `ProcessStartInfo`** — we own the decoding step end-to-end so the parent's `Console.OutputEncoding` cannot accidentally short-circuit our logic.
-- **Output format = vertical key-value blocks**, NOT tabular. The plan's hoped-for `--result-format=tab` flag does **not** exist in any of the help screens. Real format:
-
-  ```
-  field-name-1                              : value
-  field-name-2                              : "quoted value"
-  field-name-3                              :
-  field-name-4                              : 123
-  ⏎  (blank line ⇒ record separator)
-  field-name-1                              : <next record>
-  ...
-  ```
-
-  Field names are kebab-case ASCII; the colon is preceded by spaces (right-padded for visual alignment) and followed by exactly one space then the value. String values may be **unquoted** (when they contain no whitespace) or wrapped in double quotes (when they contain spaces — e.g. `name : "Локальный кластер"`). Empty values are an empty string after the colon-space (with trailing whitespace ignored). Line terminators are CRLF (`\r\n`). Records are separated by **one or more** blank lines.
-
-- **Parser strategy** (`RacOutputParser`, pure static helper). Defensive regex over the line shape `^\s*(?<key>[a-z0-9-]+)\s*:\s?(?<value>.*?)\s*$`. Records split on consecutive blank-only lines. Unknown keys ignored. Missing required keys (`session`, `infobase` for sessions; `cluster` for clusters) → record dropped + logged at Debug. Empty stdout → empty list (NOT an error). String values unquoted by stripping a matched pair of leading/trailing `"`; embedded quotes are not expected in 1C identifiers, so no escape handling. **Never throws** — parser failure on an unexpected line is a Debug-level skip, not an exception.
-
-- **Commands used by the adapter.**
-
-  | Adapter method | Invocation | Notes |
-  |---|---|---|
-  | `PingAsync` | `rac.exe <ras-endpoint> cluster list` | Exit 0 + at least one cluster record → `Ok=true`. Non-zero exit → `Ok=false`, `Error = stderr.Trim()`. |
-  | `ListActiveSessionsAsync` | `rac.exe <ras-endpoint> session list --cluster=<uuid> [--cluster-user=<u> --cluster-pwd=<p>]` | `<cluster-uuid>` is resolved from a prior `cluster list` call in the same invocation cycle (cached for the duration of one `ListActiveSessionsAsync`, NOT across cycles — operator can recreate the cluster between cycles). Single-cluster topology assumed (mirrors REST adapter). |
-  | `KillSessionAsync` | `rac.exe <ras-endpoint> session terminate --cluster=<uuid> --session=<session-uuid> [--cluster-user=<u> --cluster-pwd=<p>] --error-message="<reason>"` | The kill command is **`session terminate`**, not the plan's `session kill` (which does not exist). `--error-message` carries the operator's reason verbatim (`ManualByAdmin`) or a system tag (`LimitExceeded`) — 1C displays this string to the user being kicked. |
-
-- **Field mapping (session record → `ClusterSession`).**
-
-  | `ClusterSession` property | `rac` field | Notes |
-  |---|---|---|
-  | `SessionId` | `session` | UUID. This is the kill target. |
-  | `ClusterInfobaseId` | `infobase` | UUID. Matches `Infobase.ClusterInfobaseId` in our schema (same as REST). |
-  | `AppId` | `app-id` | String. Used for `ConsumesLicense` heuristic. |
-  | `UserName` | `user-name` | String. May be quoted. |
-  | `Host` | `host` | String. |
-  | `StartedAtUtc` | `started-at` | ISO `YYYY-MM-DDTHH:MM:SS` (no timezone suffix). Same as REST: parsed with `DateTimeStyles.AssumeUniversal | AdjustToUniversal`. Single-node deployment runs the cluster in the same timezone as the backend; if the deployment ever splits across timezones, this flag-day becomes a known footgun (same caveat as REST adapter — see ADR-3.1). |
-  | `ConsumesLicense` | derived | The default `session list` output does **NOT** include a `license-present` field (plan assumed it would). The `--licenses` flag changes the output shape entirely and is unsuitable for our parser. Fall back to the same `app-id` heuristic as the REST adapter: `{1CV8, 1CV8C, WebClient, Designer, COMConnection}` → `true`, anything else (e.g. `BackgroundJob`, `Job`, `SrvrConsole`) → `false`. Heuristic is shared with `OneCRestClusterClient.LicenseConsumingAppIds` via a single `static readonly HashSet`. |
-
-- **Error semantics (exit codes verified empirically — `rac` returns **non-zero = 255** for every failure path):**
-
-  | Scenario | stderr (Russian, UTF-8) | Adapter behaviour |
-  |---|---|---|
-  | success | (empty) | exit 0, parse stdout |
-  | unreachable RAS host/port | `Ошибка соединения с сервером\nПодключение не установлено, т.к. конечный компьютер отверг запрос на подключение` | `ListActiveSessionsAsync` → empty list + Warning log. `PingAsync` → `Ok=false`, `Error=stderr trimmed`. Circuit-breaker (owned by REST side) keeps the circuit open. |
-  | unknown cluster UUID | `Сервер <hostname> не является центральным для кластера <uuid>.` | Same as above — empty list + warning. Surface to operator via Settings page if circuit stays open >5min. |
-  | terminate: session not found | `Сеанс с указанным идентификатором не найден` | `KillSessionAsync` → `Killed=false, AlreadyGone=true` (idempotent — matches REST `404` semantics). Detection via `stderr.Contains("Сеанс с указанным идентификатором не найден")` — case-sensitive substring match, fine for current 1C platform. |
-  | terminate: malformed UUID arg | `Ошибка разбора параметра: session` | `KillSessionAsync` → `Killed=false, AlreadyGone=false` + Error log. Should never happen — `KillEnforcer` always passes a UUID it pulled from a parsed snapshot. |
-
-- **Process lifecycle.** Adapter spawns `rac.exe` via `System.Diagnostics.Process` with `UseShellExecute=false`, `RedirectStandardOutput=true`, `RedirectStandardError=true`. Wraps the entire invocation in `CancellationToken.Register(() => process.Kill(entireProcessTree: true))`. **`entireProcessTree: true`** is intentional — `rac` may spawn a transient child for the gRPC dialog with RAS; killing only the parent leaves the child as an orphan that eventually times out. Settings.OneC.Cluster.RestApiTimeoutSeconds is *not* reused here — instead the adapter uses a fixed 30-second deadline per invocation (longer than REST because the rac → ras → ragent chain has more hops). If the deadline expires, the `CancellationToken` fires, the process tree is killed, and the call returns the same way as a non-zero exit.
-
-- **Process abstraction = `IRacProcessRunner`** (`Infrastructure/Clusters/IRacProcessRunner.cs`). Hides `System.Diagnostics.Process` behind a `Task<RacInvocation>` API (`RacInvocation(int ExitCode, string Stdout, string Stderr)`) so `RacExecutableRasClusterClient` is unit-testable by substituting a fake runner. The real implementation (`SystemProcessRacRunner`) is the only thing that actually shells out. Unit tests pass canned `RacInvocation` instances; smoke tests exercise `SystemProcessRacRunner` directly against the live `rac.exe`.
-
-- **Spawn cadence guard rail (binding).** Adapter spawns **at most one** `rac.exe` per `ListActiveSessionsAsync` and **at most one** per `KillSessionAsync`. The cluster-UUID resolution (`cluster list`) and the session list happen **inside a single process invocation** by chaining stdout — wait, no, they don't: `rac` is one command per process. So the adapter caches the resolved `clusterUuid` for the duration of the *current `ListActiveSessionsAsync` call only* and emits two processes per call (one `cluster list`, one `session list`). At the cold cadence of 20–30s this is six processes per minute worst-case (3 list cycles × 2 procs) — well below the "no rac.exe per polling tick" memory rule, which exists to forbid per-session spawning. Kill enforcer adds **one extra `rac.exe`** per session killed; capped at 20 kills/cycle (PR 3.3 `KillEnforcer`) → worst-case 26 invocations per minute under sustained over-quota conditions. Plan-strategy B (long-lived TCP socket on 1545) remains deferred to Stage 4 — see ROADMAP.
-
-- **Source field propagation (decorator wiring sanity check).** `ResilientClusterClient` populates `SnapshotPayload.Source` indirectly via `ICircuitStatusReader.GetStatus().ActiveAdapter` in `ReconciliationJob`. `ActiveAdapter` already computes `"Ras"` when the circuit is `Open` and `"Rest"` otherwise (`ClusterCircuitState.GetStatus`). PR 3.8 does **not** introduce a new mechanism — it just makes the `"Ras"` branch produce real sessions instead of an empty stub. Dashboard cluster card and `/sessions/snapshot.source` therefore start showing `"Ras"` automatically once the circuit opens. Smoke test confirms the end-to-end loop.
-
-- **`StubRasClusterClient` retained for tests.** Moved from `Infrastructure/Clusters/` to `Infrastructure/Clusters/Testing/` and kept `internal sealed`. Existing PR 3.2/3.3 unit tests (`CircuitBreakerTransitionTests`, `SessionsSnapshotProjectionTests`, etc.) that referenced it directly continue to compile thanks to `InternalsVisibleTo MitLicenseCenter.Tests.Unit` already in `MitLicenseCenter.Infrastructure.csproj`. The stub is **not** registered in DI any longer — production wiring is `services.AddScoped<IRasFallbackClusterClient, RacExecutableRasClusterClient>()`.
-
-- **Test strategy.**
-  - `Tests.Unit/Clusters/RacOutputParserTests.cs` — `[Theory]` with `[InlineData]` containing the captured stdout from this very experiment (single-record, multi-record, empty, malformed-line skipped, unknown-key tolerated, quoted-and-unquoted strings, idle infobase with no sessions). No `IRacProcessRunner`, no `Process` — pure string-in, list-out.
-  - `Tests.Unit/Clusters/RacExecutableRasClusterClientTests.cs` — uses a fake `IRacProcessRunner` returning canned `RacInvocation`s. Covers: cluster-list-then-session-list happy path, `cluster list` failure short-circuits `ListActiveSessionsAsync` to empty, `session terminate` "session not found" stderr → `AlreadyGone=true`, cancellation token threading.
-  - `Tests.Unit/Clusters/RacExecutableSmokeTests.cs` `[Trait("Category","Smoke")]` — talks to a real `rac.exe` against a real `ras.exe` on `localhost:1545`. Asserts `PingAsync.Ok == true` and `ListActiveSessionsAsync` returns at least one session when a `BackgroundJob` is running. CI excludes via `--filter Category!=Smoke`.
-
-- **Service-account requirements (operational, mirrored in `docs/04_INFRASTRUCTURE.md`).** The backend service account needs (1) **execute** permission on the resolved `rac.exe` path, (2) **read** access to the `1cv8\<version>\bin\` directory so co-located DLLs (`backend.dll`, `nlsoft.dll`, etc.) load, (3) **network reach** to `Settings.OneC.RAS.Endpoint` (default `localhost:1545`). `Network Service` works out-of-the-box on a stock single-node install where `1cv8` is installed under `C:\Program Files\` — the default ACLs grant `Users` Read+Execute. Custom service accounts (locked-down domain users) may need explicit grant on `1cv8\<version>\bin\rac.exe`.
-
-### Status update (Stage 5 PR 5.1)
-
-The original wording at the top of this ADR described `rac.exe` as the **fallback** for the REST primary. This is now superseded: **rac.exe is the sole 1C cluster adapter** — see ADR-16. The CLI contract above (commands, output encoding CP866, parser strategy, field mapping, error semantics, process lifecycle, spawn cadence guard rail) is unchanged and continues to bind every part of `RacExecutableRasClusterClient`.
-
-The marker interface `IRasFallbackClusterClient` was removed in PR 5.1 (it disambiguated the fallback leg of the dual-adapter registration — no longer needed when only one adapter exists); `RacExecutableRasClusterClient` is now bound directly to `IClusterClient` in `Infrastructure.DependencyInjection`. The `StubRasClusterClient` test stub was deleted together with the `CircuitBreakerTransitionTests` / `CircuitDebouncingTests` that consumed it.
-
-The **spawn cadence guard rail** above remains the binding contract for the per-cycle rac.exe process count (~26 procs/min worst case under sustained over-quota load). **RAS Strategy B** (long-lived TCP socket on 1545 replacing rac.exe-per-cycle) stays deferred to **PR 5.2**, gated on real-world latency measurement after PR 5.1 deploys. The `SnapshotPayload.Source` field continues to exist as a hardcoded `"Ras"` literal in `ReconciliationJob` and `HotTierPollingService` — reserved as a discriminator slot for a future "RasCli" vs "RasSocket" distinction once Strategy B lands. `ICircuitStatusReader` is no longer the source; `RasHealthProbingService` + `IRasHealthReader` cover the operator-visibility concern (Dashboard RAS card, ADR-16).
-
-## Locked Operational Constraints (not full ADRs, but binding)
-
-- **Kill priority:** when `Consumed > Limit`, kill sessions ordered by `StartedAt DESC` (newest first) until `Consumed == Limit`. Justification: simplest to explain to end users ("you just logged in and were dropped because the quota was already full") and avoids interrupting in-progress work of established sessions.
-- **Idempotent kill protocol:** before issuing a kill, the 1C Cluster Adapter re-fetches the session by ID and verifies `(InfobaseId, AppID, StartedAt)` match the snapshot. Mismatch → skip and wait for the next cycle. A `404 / session not found` response from the cluster is treated as a successful kill (idempotency). Every kill writes an `AuditLog` entry with the reason (`LimitExceeded` / `ManualByAdmin`) and the snapshot context.
-- **Drift detection:** a Hangfire job runs every 5 minutes, compares each `Publication`'s desired state against the actual `default.vrd` + IIS state, and writes `LastDriftStatus` / `LastDriftCheckAt`. An on-demand `POST /api/v1/publications/{id}/check-drift` is available from the UI. **Drift is never auto-corrected** — the admin must click "Reconcile" explicitly. Both detection and reconcile actions are audited.
-- ~~**REST → RAS failover:**~~ **(REVOKED in Stage 5 PR 5.1, see ADR-16.)** The Polly-based circuit breaker, the REST adapter, and the REST→RAS failover orchestration are removed. `RacExecutableRasClusterClient` is the sole 1C cluster adapter. RAS reachability is independently probed every 30s by `RasHealthProbingService` and surfaced on the Dashboard RAS health card (per ADR-16); no audit row is written on health transitions.
-- **Deployment topology:** single-node — the .NET backend, IIS (publications), MSSQL, and the 1C cluster all run on the same Windows Server. No remoting, no WinRM, no cross-host adapters. If this assumption changes, all infrastructure adapters need a re-review.
+- **.NET solution format:** `.slnx`. CI and scripts reference `backend/MitLicenseCenter.slnx`.
+- **Frontend package manager:** `pnpm` (pinned via `packageManager` in `frontend/package.json`). Supported install path on Windows is the standalone winget package (`winget install pnpm.pnpm`) — Corepack works on Linux/macOS or an elevated Windows shell but can't write to `C:\Program Files\nodejs\` for a non-admin user.
+- **Node.js minimum:** Node 22.13+ (pnpm 11 fails on older with `No such built-in module: node:sqlite`).
+- **Pre-commit hooks:** a custom `.husky/pre-commit` registered via `git config core.hooksPath .husky` (set idempotently by `frontend/scripts/install-git-hooks.mjs`). The `husky` npm package is intentionally not installed. The hook runs `lint-staged` on staged JS/TS/JSON/CSS and `dotnet format --verify-no-changes` on staged `.cs`; requires Git Bash on Windows.
+- **PowerShell script encoding:** all `scripts/*.ps1` are saved as **UTF-8 with BOM** — Windows PowerShell 5.1 reads BOM-less UTF-8 as cp1251 and corrupts Cyrillic.
+- **shadcn on Windows:** add components via `scripts/shadcn-add.ps1` (workaround for `pnpm dlx shadcn` — uses `pnpm add --ignore-scripts --config.node-linker=hoisted` in a temp folder).
+- **Dev scripts:** `build.ps1` (build + test + lint, "is the project healthy?"), `dev.ps1` (backend `dotnet watch` + frontend `pnpm dev` in parallel), `db-reset.ps1` (drop + migrate + seed admin).
+
+## Revoked ADRs
+The following decisions were revoked and no longer apply; their numbers are retained only so cross-references stay valid:
+- **ADR-9 — Backup & Restore Automation** — revoked; superseded by **ADR-15** (backup is operator responsibility).
+- **ADR-3.1 — 1C Cluster REST API endpoint contract** — revoked; superseded by **ADR-16** + **ADR-3.3** (`rac.exe` is the sole adapter).
+- **ADR-3.2 — Polly v8 circuit breaker configuration** — revoked; the circuit breaker was removed together with the REST adapter (ADR-16).

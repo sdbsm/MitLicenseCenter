@@ -1,7 +1,9 @@
+import { useEffect, useRef, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, useWatch } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { useSettings } from "@/features/settings/useSettings";
+import { ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
@@ -49,6 +51,7 @@ import type {
   UpdateInfobaseInput,
 } from "./types";
 import { useCreateInfobase, useUpdateInfobase } from "./useInfobases";
+import { virtualPathFromDatabase } from "./virtualPath";
 
 interface ConflictBody {
   code?: string;
@@ -115,6 +118,10 @@ function buildSchema(t: (k: string) => string) {
 
 type FormValues = z.infer<ReturnType<typeof buildSchema>>;
 
+// Поля, которые живут в свёрнутом блоке «Дополнительно». Если валидация падает
+// на одном из них, блок надо раскрыть, иначе пользователь не увидит ошибку.
+const ADVANCED_ERROR_KEYS = new Set(["name", "databaseServer", "status", "publication"]);
+
 interface InfobaseFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -136,9 +143,22 @@ export function InfobaseFormDialog({
   const create = useCreateInfobase();
   const update = useUpdateInfobase();
 
-  // PR 4.1: физический путь override — placeholder вычисляется в реальном времени
-  // по значениям siteName + virtualPath + IIS.DefaultVrdRoot из Settings.
   const { data: settings } = useSettings();
+  const settingValue = (key: string) => settings?.find((s) => s.key === key)?.value ?? undefined;
+  const defaultDatabaseServer = settingValue("Defaults.DatabaseServer") ?? "";
+  const defaultSiteName = settingValue("IIS.DefaultSiteName") ?? "Default Web Site";
+  const defaultPlatformVersion = settingValue("OneC.DefaultPlatformVersion") ?? "";
+  const defaultVrdRoot = settingValue("IIS.DefaultVrdRoot") ?? "C:\\inetpub\\1c-publications";
+
+  // Блок «Дополнительно» свёрнут по умолчанию — основная цель упрощённой формы.
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+
+  // Автоподстановка названия из базы кластера и виртуального пути из имени БД
+  // работает, только пока пользователь не правил поле руками. В edit-режиме
+  // значения уже заданы — считаем их «тронутыми», чтобы не перетирать.
+  const nameTouched = useRef(isEdit);
+  const virtualPathTouched = useRef(isEdit);
+  const settingsApplied = useRef(false);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(buildSchema(t)),
@@ -164,13 +184,13 @@ export function InfobaseFormDialog({
           tenantId: defaultTenantId ?? tenants[0]?.id ?? "",
           name: "",
           clusterInfobaseId: "",
-          databaseServer: "",
+          databaseServer: defaultDatabaseServer,
           databaseName: "",
           status: "Active",
           publication: {
-            siteName: "Default Web Site",
+            siteName: defaultSiteName,
             virtualPath: "",
-            platformVersion: "",
+            platformVersion: defaultPlatformVersion,
             enableOData: false,
             enableHttpServices: false,
             vrdCustomXml: "",
@@ -179,8 +199,24 @@ export function InfobaseFormDialog({
         },
   });
 
-  const defaultVrdRoot =
-    settings?.find((s) => s.key === "IIS.DefaultVrdRoot")?.value ?? "C:\\inetpub\\1c-publications";
+  // Настройки грузятся асинхронно — на момент mount'а формы дефолтов могло ещё
+  // не быть. Когда они приходят, подставляем их в незаполненные поля один раз
+  // (только при создании и только если пользователь их не трогал).
+  useEffect(() => {
+    if (isEdit || settingsApplied.current || !settings) return;
+    settingsApplied.current = true;
+    if (!form.getValues("databaseServer")) {
+      form.setValue("databaseServer", defaultDatabaseServer);
+    }
+    if (!form.getValues("publication.platformVersion")) {
+      form.setValue("publication.platformVersion", defaultPlatformVersion);
+    }
+    const site = form.getValues("publication.siteName");
+    if (!site || site === "Default Web Site") {
+      form.setValue("publication.siteName", defaultSiteName);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings, isEdit]);
 
   const [watchedSiteName, watchedVirtualPath, watchedDatabaseServer] = useWatch({
     control: form.control,
@@ -217,6 +253,26 @@ export function InfobaseFormDialog({
     hint: v.architecture,
   }));
 
+  // Выбор базы кластера по имени — подставляем имя как название инфобазы.
+  const handleClusterChange = (value: string, onChange: (v: string) => void) => {
+    onChange(value);
+    if (nameTouched.current) return;
+    const picked = infobaseOptions.find((o) => o.value === value);
+    if (picked) {
+      form.setValue("name", picked.label, { shouldValidate: true });
+    }
+  };
+
+  // Выбор/ввод имени БД — генерируем из него виртуальный путь.
+  const handleDatabaseNameChange = (value: string, onChange: (v: string) => void) => {
+    onChange(value);
+    if (virtualPathTouched.current) return;
+    const vp = virtualPathFromDatabase(value);
+    if (vp) {
+      form.setValue("publication.virtualPath", vp, { shouldValidate: true });
+    }
+  };
+
   const computedDefaultPath = (() => {
     const site = (watchedSiteName ?? "").trim();
     const vp = (watchedVirtualPath ?? "").trim().replace(/^\//, "");
@@ -224,72 +280,81 @@ export function InfobaseFormDialog({
     return `${defaultVrdRoot}\\${site}${vp ? `\\${vp}` : ""}`;
   })();
 
-  const onSubmit = form.handleSubmit(async (values) => {
-    const publicationInput = {
-      siteName: values.publication.siteName.trim(),
-      virtualPath: values.publication.virtualPath.trim(),
-      platformVersion: values.publication.platformVersion.trim(),
-      enableOData: values.publication.enableOData,
-      enableHttpServices: values.publication.enableHttpServices,
-      vrdCustomXml: values.publication.vrdCustomXml?.trim()
-        ? values.publication.vrdCustomXml.trim()
-        : null,
-      physicalPathOverride: values.publication.physicalPathOverride?.trim() || null,
-    };
+  const onSubmit = form.handleSubmit(
+    async (values) => {
+      const publicationInput = {
+        siteName: values.publication.siteName.trim(),
+        virtualPath: values.publication.virtualPath.trim(),
+        platformVersion: values.publication.platformVersion.trim(),
+        enableOData: values.publication.enableOData,
+        enableHttpServices: values.publication.enableHttpServices,
+        vrdCustomXml: values.publication.vrdCustomXml?.trim()
+          ? values.publication.vrdCustomXml.trim()
+          : null,
+        physicalPathOverride: values.publication.physicalPathOverride?.trim() || null,
+      };
 
-    try {
-      if (infobase) {
-        const input: UpdateInfobaseInput = {
-          name: values.name.trim(),
-          clusterInfobaseId: values.clusterInfobaseId.trim(),
-          databaseServer: values.databaseServer.trim(),
-          databaseName: values.databaseName.trim(),
-          status: values.status,
-          publication: publicationInput,
-        };
-        await update.mutateAsync({ id: infobase.id, input });
-        toast.success(t("infobases.toasts.updated", { name: input.name }));
-      } else {
-        const input: CreateInfobaseInput = {
-          tenantId: values.tenantId,
-          name: values.name.trim(),
-          clusterInfobaseId: values.clusterInfobaseId.trim(),
-          databaseServer: values.databaseServer.trim(),
-          databaseName: values.databaseName.trim(),
-          status: values.status,
-          publication: publicationInput,
-        };
-        await create.mutateAsync(input);
-        toast.success(t("infobases.toasts.created", { name: input.name }));
-      }
-      onOpenChange(false);
-    } catch (error) {
-      if (error instanceof ApiError) {
-        if (error.status === 409) {
-          const body = error.body as ConflictBody | null;
-          if (body?.code === "NAME_DUPLICATE_IN_TENANT") {
-            form.setError("name", {
+      try {
+        if (infobase) {
+          const input: UpdateInfobaseInput = {
+            name: values.name.trim(),
+            clusterInfobaseId: values.clusterInfobaseId.trim(),
+            databaseServer: values.databaseServer.trim(),
+            databaseName: values.databaseName.trim(),
+            status: values.status,
+            publication: publicationInput,
+          };
+          await update.mutateAsync({ id: infobase.id, input });
+          toast.success(t("infobases.toasts.updated", { name: input.name }));
+        } else {
+          const input: CreateInfobaseInput = {
+            tenantId: values.tenantId,
+            name: values.name.trim(),
+            clusterInfobaseId: values.clusterInfobaseId.trim(),
+            databaseServer: values.databaseServer.trim(),
+            databaseName: values.databaseName.trim(),
+            status: values.status,
+            publication: publicationInput,
+          };
+          await create.mutateAsync(input);
+          toast.success(t("infobases.toasts.created", { name: input.name }));
+        }
+        onOpenChange(false);
+      } catch (error) {
+        if (error instanceof ApiError) {
+          if (error.status === 409) {
+            const body = error.body as ConflictBody | null;
+            if (body?.code === "NAME_DUPLICATE_IN_TENANT") {
+              setAdvancedOpen(true);
+              form.setError("name", {
+                type: "server",
+                message: t("infobases.errors.nameDuplicate"),
+              });
+              return;
+            }
+          }
+          if (error.status === 404) {
+            form.setError("tenantId", {
               type: "server",
-              message: t("infobases.errors.nameDuplicate"),
+              message: t("infobases.errors.tenantNotFound"),
             });
             return;
           }
+          if (error.status === 400) {
+            toast.error(error.message || t("errors.generic"));
+            return;
+          }
         }
-        if (error.status === 404) {
-          form.setError("tenantId", {
-            type: "server",
-            message: t("infobases.errors.tenantNotFound"),
-          });
-          return;
-        }
-        if (error.status === 400) {
-          toast.error(error.message || t("errors.generic"));
-          return;
-        }
+        toast.error(t("errors.generic"));
       }
-      toast.error(t("errors.generic"));
+    },
+    (errors) => {
+      // Раскрываем «Дополнительно», если ошибка валидации в одном из его полей.
+      if (Object.keys(errors).some((k) => ADVANCED_ERROR_KEYS.has(k))) {
+        setAdvancedOpen(true);
+      }
     }
-  });
+  );
 
   const pending = create.isPending || update.isPending;
 
@@ -305,13 +370,6 @@ export function InfobaseFormDialog({
 
         <Form {...form}>
           <form onSubmit={onSubmit} noValidate className="grid gap-4">
-            <div className="space-y-1">
-              <h3 className="text-sm font-semibold">{t("infobases.form.sectionInfobase")}</h3>
-              <p className="text-muted-foreground text-xs">
-                {t("infobases.form.sectionInfobaseHint")}
-              </p>
-            </div>
-
             <FormField
               control={form.control}
               name="tenantId"
@@ -342,194 +400,24 @@ export function InfobaseFormDialog({
 
             <FormField
               control={form.control}
-              name="name"
+              name="clusterInfobaseId"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t("infobases.fields.name")}</FormLabel>
-                  <FormControl>
-                    <Input
-                      autoFocus={!isEdit}
-                      autoComplete="off"
-                      placeholder={t("infobases.form.namePlaceholder")}
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <FormField
-                control={form.control}
-                name="databaseServer"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t("infobases.fields.databaseServer")}</FormLabel>
-                    <FormControl>
-                      <Input
-                        autoComplete="off"
-                        placeholder={t("infobases.form.databaseServerPlaceholder")}
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="databaseName"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t("infobases.fields.databaseName")}</FormLabel>
-                    <FormControl>
-                      <DiscoveryField
-                        value={field.value}
-                        onChange={field.onChange}
-                        options={databaseOptions}
-                        available={databasesState.available}
-                        loading={databasesState.loading}
-                        error={databasesState.error}
-                        onRefresh={() => void databasesQuery.refetch()}
-                        manualPlaceholder={t("infobases.form.databaseNamePlaceholder")}
-                        disabledHint={
-                          (watchedDatabaseServer ?? "").trim()
-                            ? null
-                            : t("discovery.databaseServerFirst")
-                        }
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <FormField
-                control={form.control}
-                name="clusterInfobaseId"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t("infobases.fields.clusterInfobaseId")}</FormLabel>
-                    <FormControl>
-                      <DiscoveryField
-                        value={field.value}
-                        onChange={field.onChange}
-                        options={infobaseOptions}
-                        available={infobasesState.available}
-                        loading={infobasesState.loading}
-                        error={infobasesState.error}
-                        onRefresh={() => void infobasesQuery.refetch()}
-                        manualPlaceholder="00000000-0000-0000-0000-000000000000"
-                        inputClassName="font-mono text-xs"
-                      />
-                    </FormControl>
-                    <FormDescription>{t("infobases.form.clusterIdHint")}</FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="status"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t("infobases.fields.status")}</FormLabel>
-                    <Select value={field.value} onValueChange={field.onChange}>
-                      <FormControl>
-                        <SelectTrigger className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {STATUSES.map((status) => (
-                          <SelectItem key={status} value={status}>
-                            {t(`infobases.status.${status}`)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-
-            <Separator />
-
-            <div className="space-y-1">
-              <h3 className="text-sm font-semibold">{t("infobases.form.sectionPublication")}</h3>
-              <p className="text-muted-foreground text-xs">
-                {t("infobases.form.sectionPublicationHint")}
-              </p>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <FormField
-                control={form.control}
-                name="publication.siteName"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t("publications.fields.siteName")}</FormLabel>
-                    <FormControl>
-                      <DiscoveryField
-                        value={field.value}
-                        onChange={field.onChange}
-                        options={siteOptions}
-                        available={sitesState.available}
-                        loading={sitesState.loading}
-                        error={sitesState.error}
-                        onRefresh={() => void sitesQuery.refetch()}
-                        manualPlaceholder="Default Web Site"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="publication.virtualPath"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t("publications.fields.virtualPath")}</FormLabel>
-                    <FormControl>
-                      <Input
-                        autoComplete="off"
-                        placeholder="/acme-bp"
-                        className="font-mono text-xs"
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormDescription>{t("publications.form.virtualPathHint")}</FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-
-            <FormField
-              control={form.control}
-              name="publication.platformVersion"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t("publications.fields.platformVersion")}</FormLabel>
+                  <FormLabel>{t("infobases.form.clusterInfobaseLabel")}</FormLabel>
                   <FormControl>
                     <DiscoveryField
                       value={field.value}
-                      onChange={field.onChange}
-                      options={platformVersionOptions}
-                      available={platformVersionsState.available}
-                      loading={platformVersionsState.loading}
-                      error={platformVersionsState.error}
-                      onRefresh={() => void platformVersionsQuery.refetch()}
-                      manualPlaceholder="8.3.23.1865"
+                      onChange={(v) => handleClusterChange(v, field.onChange)}
+                      options={infobaseOptions}
+                      available={infobasesState.available}
+                      loading={infobasesState.loading}
+                      error={infobasesState.error}
+                      onRefresh={() => void infobasesQuery.refetch()}
+                      manualPlaceholder="00000000-0000-0000-0000-000000000000"
                       inputClassName="font-mono text-xs"
                     />
                   </FormControl>
-                  <FormDescription>{t("publications.form.platformVersionHint")}</FormDescription>
+                  <FormDescription>{t("infobases.form.clusterInfobaseHint")}</FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
@@ -537,71 +425,261 @@ export function InfobaseFormDialog({
 
             <FormField
               control={form.control}
-              name="publication.physicalPathOverride"
+              name="databaseName"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t("publications.fields.physicalPathOverride")}</FormLabel>
+                  <FormLabel>{t("infobases.fields.databaseName")}</FormLabel>
                   <FormControl>
-                    <Input
-                      autoComplete="off"
-                      placeholder={computedDefaultPath}
-                      className="font-mono text-xs"
-                      {...field}
-                      value={field.value ?? ""}
+                    <DiscoveryField
+                      value={field.value}
+                      onChange={(v) => handleDatabaseNameChange(v, field.onChange)}
+                      options={databaseOptions}
+                      available={databasesState.available}
+                      loading={databasesState.loading}
+                      error={databasesState.error}
+                      onRefresh={() => void databasesQuery.refetch()}
+                      manualPlaceholder={t("infobases.form.databaseNamePlaceholder")}
+                      disabledHint={
+                        (watchedDatabaseServer ?? "").trim()
+                          ? null
+                          : t("discovery.databaseServerFirst")
+                      }
                     />
                   </FormControl>
-                  <FormDescription>
-                    {t("publications.form.physicalPathOverrideHint")}
-                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
             />
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <FormField
-                control={form.control}
-                name="publication.enableOData"
-                render={({ field }) => (
-                  <FormItem>
-                    <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
-                      <Label htmlFor="publication-oData" className="font-medium">
-                        {t("publications.fields.enableOData")}
-                      </Label>
-                      <input
-                        id="publication-oData"
-                        type="checkbox"
-                        className="size-4 cursor-pointer"
-                        checked={field.value}
-                        onChange={(e) => field.onChange(e.target.checked)}
-                      />
-                    </div>
-                    <FormMessage />
-                  </FormItem>
-                )}
+            <Separator />
+
+            <button
+              type="button"
+              onClick={() => setAdvancedOpen((o) => !o)}
+              aria-expanded={advancedOpen}
+              className="flex items-center gap-2 text-sm font-medium"
+            >
+              <ChevronDown
+                className={`size-4 transition-transform ${advancedOpen ? "rotate-180" : ""}`}
               />
-              <FormField
-                control={form.control}
-                name="publication.enableHttpServices"
-                render={({ field }) => (
-                  <FormItem>
-                    <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
-                      <Label htmlFor="publication-http" className="font-medium">
-                        {t("publications.fields.enableHttpServices")}
-                      </Label>
-                      <input
-                        id="publication-http"
-                        type="checkbox"
-                        className="size-4 cursor-pointer"
-                        checked={field.value}
-                        onChange={(e) => field.onChange(e.target.checked)}
-                      />
-                    </div>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
+              {t("infobases.form.advancedToggle")}
+            </button>
+
+            {advancedOpen && (
+              <div className="grid gap-4">
+                <p className="text-muted-foreground text-xs">{t("infobases.form.advancedHint")}</p>
+
+                <FormField
+                  control={form.control}
+                  name="name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t("infobases.fields.name")}</FormLabel>
+                      <FormControl>
+                        <Input
+                          autoComplete="off"
+                          placeholder={t("infobases.form.namePlaceholder")}
+                          {...field}
+                          onChange={(e) => {
+                            nameTouched.current = true;
+                            field.onChange(e);
+                          }}
+                        />
+                      </FormControl>
+                      <FormDescription>{t("infobases.form.nameHint")}</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <FormField
+                    control={form.control}
+                    name="databaseServer"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t("infobases.fields.databaseServer")}</FormLabel>
+                        <FormControl>
+                          <Input
+                            autoComplete="off"
+                            placeholder={t("infobases.form.databaseServerPlaceholder")}
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="status"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t("infobases.fields.status")}</FormLabel>
+                        <Select value={field.value} onValueChange={field.onChange}>
+                          <FormControl>
+                            <SelectTrigger className="w-full">
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {STATUSES.map((status) => (
+                              <SelectItem key={status} value={status}>
+                                {t(`infobases.status.${status}`)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <FormField
+                    control={form.control}
+                    name="publication.siteName"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t("publications.fields.siteName")}</FormLabel>
+                        <FormControl>
+                          <DiscoveryField
+                            value={field.value}
+                            onChange={field.onChange}
+                            options={siteOptions}
+                            available={sitesState.available}
+                            loading={sitesState.loading}
+                            error={sitesState.error}
+                            onRefresh={() => void sitesQuery.refetch()}
+                            manualPlaceholder="Default Web Site"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="publication.virtualPath"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t("publications.fields.virtualPath")}</FormLabel>
+                        <FormControl>
+                          <Input
+                            autoComplete="off"
+                            placeholder="/acme-bp"
+                            className="font-mono text-xs"
+                            {...field}
+                            onChange={(e) => {
+                              virtualPathTouched.current = true;
+                              field.onChange(e);
+                            }}
+                          />
+                        </FormControl>
+                        <FormDescription>{t("publications.form.virtualPathHint")}</FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <FormField
+                  control={form.control}
+                  name="publication.platformVersion"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t("publications.fields.platformVersion")}</FormLabel>
+                      <FormControl>
+                        <DiscoveryField
+                          value={field.value}
+                          onChange={field.onChange}
+                          options={platformVersionOptions}
+                          available={platformVersionsState.available}
+                          loading={platformVersionsState.loading}
+                          error={platformVersionsState.error}
+                          onRefresh={() => void platformVersionsQuery.refetch()}
+                          manualPlaceholder="8.3.23.1865"
+                          inputClassName="font-mono text-xs"
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {t("publications.form.platformVersionHint")}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="publication.physicalPathOverride"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t("publications.fields.physicalPathOverride")}</FormLabel>
+                      <FormControl>
+                        <Input
+                          autoComplete="off"
+                          placeholder={computedDefaultPath}
+                          className="font-mono text-xs"
+                          {...field}
+                          value={field.value ?? ""}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {t("publications.form.physicalPathOverrideHint")}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <FormField
+                    control={form.control}
+                    name="publication.enableOData"
+                    render={({ field }) => (
+                      <FormItem>
+                        <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+                          <Label htmlFor="publication-oData" className="font-medium">
+                            {t("publications.fields.enableOData")}
+                          </Label>
+                          <input
+                            id="publication-oData"
+                            type="checkbox"
+                            className="size-4 cursor-pointer"
+                            checked={field.value}
+                            onChange={(e) => field.onChange(e.target.checked)}
+                          />
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="publication.enableHttpServices"
+                    render={({ field }) => (
+                      <FormItem>
+                        <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+                          <Label htmlFor="publication-http" className="font-medium">
+                            {t("publications.fields.enableHttpServices")}
+                          </Label>
+                          <input
+                            id="publication-http"
+                            type="checkbox"
+                            className="size-4 cursor-pointer"
+                            checked={field.value}
+                            onChange={(e) => field.onChange(e.target.checked)}
+                          />
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </div>
+            )}
 
             <DialogFooter className="gap-2">
               <Button

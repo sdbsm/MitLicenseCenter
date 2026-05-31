@@ -23,6 +23,15 @@ public static class SettingKey
     public const string IisServiceAccountUserName = "IIS.ServiceAccount.UserName";
     public const string IisDefaultVrdRoot = "IIS.DefaultVrdRoot";
 
+    // Дефолты для формы добавления инфобазы. Не влияют на доменную модель и
+    // адаптеры: значения по-прежнему хранятся per-база (Infobase/Publication),
+    // эти ключи лишь предзаполняют форму, чтобы оператор не вводил одно и то же
+    // для каждой базы. Сервер БД и версия платформы без сидируемого дефолта —
+    // зависят от конкретной инсталляции; сайт IIS почти всегда «Default Web Site».
+    public const string DefaultsDatabaseServer = "Defaults.DatabaseServer";
+    public const string IisDefaultSiteName = "IIS.DefaultSiteName";
+    public const string OneCDefaultPlatformVersion = "OneC.DefaultPlatformVersion";
+
     // Polling cadence (используется в PR 3.3).
     public const string PollingHotIntervalSeconds = "Polling.HotIntervalSeconds";
     public const string PollingColdIntervalSeconds = "Polling.ColdIntervalSeconds";

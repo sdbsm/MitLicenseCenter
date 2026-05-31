@@ -193,7 +193,11 @@
     "form": {
       "createTitle": "Новая инфобаза",
       "editTitle": "Изменить инфобазу",
-      "subtitle": "Запись о desired-state: какой клиент владеет базой, где она лежит и как опубликована. Stage 2: только БД, без вызовов 1С/IIS.",
+      "subtitle": "Выберите клиента, базу в кластере 1С и базу данных. Остальное берётся из «Параметров» — при необходимости меняйте в блоке «Дополнительно».",
+      "clusterInfobaseLabel": "База в кластере 1С",
+      "clusterInfobaseHint": "Выберите базу из кластера 1С по имени — за её сеансами и лицензиями будет следить программа. Название подставится автоматически.",
+      "advancedToggle": "Дополнительно",
+      "advancedHint": "Сервер БД, публикация в IIS, версия платформы и статус. Обычно подставляются из «Параметров» — меняйте, только если эта база отличается.",
       "sectionInfobase": "Инфобаза",
       "sectionInfobaseHint": "Привязка к клиенту, расположение БД и операционный статус.",
       "sectionPublication": "Публикация в IIS",
@@ -201,6 +205,7 @@
       "tenantPlaceholder": "Выберите клиента",
       "tenantLockedHint": "Клиент задаётся при создании инфобазы и не меняется.",
       "namePlaceholder": "Например, Бухгалтерия",
+      "nameHint": "Подставлено из базы кластера. Можно изменить — так база отображается в списках.",
       "databaseServerPlaceholder": "Например, sql.local или (local)",
       "databaseNamePlaceholder": "Например, acme_bp",
       "clusterIdHint": "GUID базы в кластере 1С (берётся из rac / Cluster API)."
@@ -422,6 +427,8 @@
     "sections": {
       "cluster": "1С RAS",
       "iis": "IIS",
+      "defaults": "Значения по умолчанию для новых баз",
+      "defaults.description": "Подставляются в форму добавления инфобазы, чтобы не вводить одно и то же для каждой базы. Для конкретной базы значение можно переопределить в блоке «Дополнительно».",
       "polling": "Опрос и дрейф"
     },
     "labels": {
@@ -431,6 +438,9 @@
       "OneC.RAS.ExePath": "Путь к rac.exe",
       "IIS.ServiceAccount.UserName": "Учётка IIS",
       "IIS.DefaultVrdRoot": "Корневая папка публикаций IIS",
+      "Defaults.DatabaseServer": "Сервер БД (SQL) по умолчанию",
+      "IIS.DefaultSiteName": "Сайт IIS по умолчанию",
+      "OneC.DefaultPlatformVersion": "Версия платформы 1С по умолчанию",
       "Polling.HotIntervalSeconds": "Период hot-цикла, сек",
       "Polling.ColdIntervalSeconds": "Период cold-цикла, сек",
       "Polling.HotThresholdPercent": "Порог перехода в hot, %",
@@ -441,6 +451,9 @@
       "OneC.Cluster.AdminPassword": "Передаётся rac.exe как --cluster-pwd. Хранится зашифрованным DPAPI. После сохранения значение не отображается.",
       "OneC.RAS.Endpoint": "Формат host:port, порт в диапазоне 1024–65535. По умолчанию localhost:1545.",
       "OneC.RAS.ExePath": "Абсолютный путь к rac.exe (например, C:\\Program Files\\1cv8\\8.5.1.1302\\bin\\rac.exe). Версионная папка bin — на 1С 8.5 утилита переехала туда из 1cv8\\common\\.",
+      "Defaults.DatabaseServer": "С этого SQL-сервера форма сразу подгружает список баз. Например, sql.local или (local).",
+      "IIS.DefaultSiteName": "Обычно «Default Web Site». Подставляется в новую публикацию.",
+      "OneC.DefaultPlatformVersion": "Четыре числовых сегмента, например 8.3.23.1865. Подставляется в новую публикацию.",
       "Polling.HotIntervalSeconds": "Диапазон 2–60. По умолчанию 4.",
       "Polling.ColdIntervalSeconds": "Диапазон 10–300. По умолчанию 25.",
       "Polling.HotThresholdPercent": "Диапазон 50–100. По умолчанию 90.",

@@ -9,7 +9,7 @@ import { useSettings } from "./useSettings";
 // Stage 5 PR 5.1 (ADR-16): REST adapter и circuit breaker удалены — 3 секции
 // вместо 4. OneC.Cluster.AdminUser/AdminPassword остаются в секции «cluster» —
 // rac.exe RAS-адаптер использует их для --cluster-user / --cluster-pwd
-// (см. ADR-3.3). Settings catalog уменьшился с 15 ключей до 11.
+// (см. ADR-3.3). Секция «defaults» (ADR-17) добавляет 3 form-prefill ключа → 14.
 const SECTIONS: { titleKey: string; keys: string[] }[] = [
   {
     titleKey: "settings.sections.cluster",
@@ -23,6 +23,10 @@ const SECTIONS: { titleKey: string; keys: string[] }[] = [
   {
     titleKey: "settings.sections.iis",
     keys: ["IIS.ServiceAccount.UserName", "IIS.DefaultVrdRoot"],
+  },
+  {
+    titleKey: "settings.sections.defaults",
+    keys: ["Defaults.DatabaseServer", "IIS.DefaultSiteName", "OneC.DefaultPlatformVersion"],
   },
   {
     titleKey: "settings.sections.polling",
@@ -47,6 +51,9 @@ const FIELD_META: Record<
   "OneC.RAS.ExePath": { type: "text" },
   "IIS.ServiceAccount.UserName": { type: "text" },
   "IIS.DefaultVrdRoot": { type: "text" },
+  "Defaults.DatabaseServer": { type: "text", placeholder: "sql.local или (local)" },
+  "IIS.DefaultSiteName": { type: "text", placeholder: "Default Web Site" },
+  "OneC.DefaultPlatformVersion": { type: "text", placeholder: "8.3.23.1865" },
   "Polling.HotIntervalSeconds": { type: "number", min: 2, max: 60 },
   "Polling.ColdIntervalSeconds": { type: "number", min: 10, max: 300 },
   "Polling.HotThresholdPercent": { type: "number", min: 50, max: 100 },

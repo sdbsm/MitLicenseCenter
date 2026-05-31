@@ -4,9 +4,9 @@ This document defines how the platform interacts with the underlying hosting inf
 
 ## 1. 1C Cluster Integration
 
-### Sole adapter: RAS via `rac.exe` (Stage 5 PR 5.1, ADR-16)
+### Sole adapter: RAS via `rac.exe` (ADR-16)
 
-The 1C cluster adapter is exclusively `rac.exe` driven against a local `ras.exe` (listening on TCP 1545 by default). The Stage 3 dual-adapter architecture (REST primary + RAS fallback + Polly circuit breaker) was removed in Stage 5 PR 5.1 after live verification on 1C 8.5.1.1302 confirmed REST is not published by default on small single-node deployments and `HttpClient` hangs the full 100-second timeout window. See **ADR-16** for the rationale.
+The 1C cluster adapter is exclusively `rac.exe` driven against a local `ras.exe` (listening on TCP 1545 by default). See **ADR-16** for why this is the sole adapter.
 
 - **Get sessions:** `rac.exe <endpoint> session list --cluster=<uuid>` (preceded by `rac.exe <endpoint> cluster list` to resolve the cluster UUID; cached within a single `ListActiveSessionsAsync` call only).
 - **Kill session:** `rac.exe <endpoint> session terminate --cluster=<uuid> --session=<session-uuid> --error-message="<reason>"`.
@@ -24,14 +24,12 @@ Before issuing a kill, the adapter pipeline (`KillEnforcer` → `IClusterClient.
 
 Every kill is recorded in `AuditLog` with reason (`LimitExceeded` or `ManualByAdmin`) and snapshot context.
 
-### RAS health probe (Stage 5 PR 5.1, ADR-16)
+### RAS health probe (ADR-16)
 
-`RasHealthProbingService : BackgroundService` calls `IClusterClient.PingAsync` every 30s and publishes the result to `IRasHealthReader` (a singleton consumed by the `/api/v1/dashboard/summary` endpoint). The Dashboard surfaces three states on the RAS health card: `OK` (success), `Сбой` (danger, with last-error tooltip + consecutive-failures count), and `Проверка…` (neutral, only during the first 30s after backend startup before the initial probe completes). Health transitions are **not** written to `AuditLog` — frequent transient blips would polish the audit log; the operator sees state in real time on the card.
-
-`AuditActionType` integer values `300` (`ClusterAdapterCircuitOpened`) and `301` (`ClusterAdapterCircuitClosed`) remain reserved historical (frozen-int rule) — enum entries stay so historical AuditLog rows from Stage 3 / 4 deployments render correctly; new rows with these values are not written.
+`RasHealthProbingService : BackgroundService` calls `IClusterClient.PingAsync` every 30s and publishes the result to `IRasHealthReader` (a singleton consumed by the `/api/v1/dashboard/summary` endpoint). The Dashboard surfaces three states on the RAS health card: `OK` (success), `Сбой` (danger, with last-error tooltip + consecutive-failures count), and `Проверка…` (neutral, only during the first 30s after backend startup before the initial probe completes). Health transitions are **not** written to `AuditLog` — the operator sees state in real time on the card.
 
 ### Long-lived RAS TCP socket (Strategy B) — deferred
-Replacing `rac.exe`-per-cycle with a long-lived socket on 1545 is tracked as Stage 5 PR 5.2 — deferred, gated on post-5.1 real-world latency measurement. Until then, the spawn budget above is the binding contract.
+Replacing `rac.exe`-per-cycle with a long-lived socket on 1545 is a backlog item (see `ROADMAP.md`), gated on real-world latency measurement. Until then, the spawn budget above is the binding contract.
 
 ## 2. IIS & Publication Management
 
@@ -51,9 +49,9 @@ When a 1C Platform Update occurs, the system must ONLY:
 - It can manage Application Pools (recycle, start, stop) and Sites.
 - Desired State: Ensure the IIS Virtual Directory points to the correct physical path containing the `default.vrd`.
 
-### Operational note (Stage 3 PR 3.5 + Stage 4 PR 4.1)
+### Operational note (path resolution)
 - `OneCIisPublishingService` reads and patches `default.vrd` via `XDocument` + `Microsoft.Web.Administration.ServerManager`. Path resolution (via `VrdPathResolver.Resolve`):
-  - **Override-first (PR 4.1)**: if the Publication has `PhysicalPathOverride` set, the resolver uses `{PhysicalPathOverride}\default.vrd`. The operator sets this in the Infobase edit form — it is the physical folder of the IIS application, exactly as shown in IIS Manager.
+  - **Override-first**: if the Publication has `PhysicalPathOverride` set, the resolver uses `{PhysicalPathOverride}\default.vrd`. The operator sets this in the Infobase edit form — it is the physical folder of the IIS application, exactly as shown in IIS Manager.
   - **Convention fallback**: `{Settings.IIS.DefaultVrdRoot}/{siteName}/{trimmedVirtualPath}/default.vrd` — operator-configurable from the Settings page.
 - Service-account requirements specific to drift/reconcile (these add to the generic permissions in §3 below):
   - **R/W** on every physical folder containing a managed `default.vrd` file. Reconcile writes to `default.vrd.mlc.tmp` and atomically swaps via `File.Replace`, so the account also needs delete-on-rename permission in that folder.
@@ -62,7 +60,7 @@ When a 1C Platform Update occurs, the system must ONLY:
 
 ### Operational note (IIS physical-path alignment)
 The drift detector resolves the on-disk VRD path as described above. **If the path is wrong, drift detection reports `Missing` even for a healthy publication.** Two resolution strategies:
-1. **Per-publication override (recommended for non-standard layouts, PR 4.1)**: set `PhysicalPathOverride` in the Infobase edit form to the exact physical folder path shown in IIS Manager (e.g., `C:\inetpub\wwwroot\mitpro`). Drift detection will use this path immediately.
+1. **Per-publication override (recommended for non-standard layouts)**: set `PhysicalPathOverride` in the Infobase edit form to the exact physical folder path shown in IIS Manager (e.g., `C:\inetpub\wwwroot\mitpro`). Drift detection will use this path immediately.
 2. **Convention alignment**: ensure IIS physical path matches `{IIS.DefaultVrdRoot}/{siteName}/{trimmedVirtualPath}`. This is automatic for publications created with the default layout. Service account also needs:
    - **IIS-admin rights**: read `applicationHost.config` and `redirection.config`, run `ServerManager` against the local IIS. `Network Service` is sufficient on a stock single-node install; custom accounts need `IIS_IUSRS` membership.
    - **R/W access** to the physical folder path (the one referenced by the resolved VRD path).
@@ -86,20 +84,45 @@ Secrets (1C cluster credentials, MSSQL connection strings, RAS credentials) are 
 
 **Development override:** when `ASPNETCORE_ENVIRONMENT=Development` the backend persists keys to `%LocalAppData%\MitLicenseCenter\keys\` instead. This avoids the need for elevation just to run the app locally. Local dev keys are NOT a substitute for the production key ring and must never be confused with the production key ring the operator backs up.
 
-**Persistence layout (Stage 3 PR 3.1):** runtime configuration lives in the `dbo.Settings` table. Each row has both a `ValueText NVARCHAR(MAX) NULL` column (plain payload) and a `Value VARBINARY(MAX) NULL` column (DPAPI-encrypted UTF-8 bytes). `IsSecret BIT` decides which column is authoritative on write. Operationally this means: **deleting `%ProgramData%\MitLicenseCenter\keys\` makes every `IsSecret=true` row unreadable** — the 1C cluster admin password and (later) RAS credentials would have to be re-entered through the «Параметры» UI. The Settings table is part of the operator's MSSQL backup; the DPAPI key ring is part of the operator's file-level backup. Both must be restored together — see `OPERATIONS.md` and ADR-15. The DPAPI protector purpose-string is `mlc.settings.v1` — a future scheme change bumps the suffix and migrates rows, leaving the key ring file format unchanged.
+**Persistence layout:** runtime configuration lives in the `dbo.Settings` table. Each row has both a `ValueText NVARCHAR(MAX) NULL` column (plain payload) and a `Value VARBINARY(MAX) NULL` column (DPAPI-encrypted UTF-8 bytes). `IsSecret BIT` decides which column is authoritative on write. Operationally this means: **deleting `%ProgramData%\MitLicenseCenter\keys\` makes every `IsSecret=true` row unreadable** — the 1C cluster admin password and (later) RAS credentials would have to be re-entered through the «Параметры» UI. The Settings table is part of the operator's MSSQL backup; the DPAPI key ring is part of the operator's file-level backup. Both must be restored together — see `OPERATIONS.md` and ADR-15. The DPAPI protector purpose-string is `mlc.settings.v1` — a future scheme change bumps the suffix and migrates rows, leaving the key ring file format unchanged.
 
 ### Admin Authentication
 Administrators authenticate against the panel using ASP.NET Core Identity with local accounts stored in the same MSSQL domain database (schema `auth`). Cookie-based session auth (HttpOnly, Secure, SameSite=Strict). Two roles: `Admin` and `Viewer`. See ADR-7.
 
-## 4. Background Job Execution
+## 4. Runtime Settings Catalog
+
+Runtime configuration lives in `dbo.Settings`. The catalog is the single source of truth in `MitLicenseCenter.Application/Settings/SettingDefinitions.cs` — adding a key = a commit to `SettingKey.cs` + an entry in the catalog (+ a reader in `ISettingsSnapshot` if a hot-path needs it). The endpoint validates against the catalog; the seeder seeds from it idempotently.
+
+| Key | Secret | Kind | Default | Range | Used by |
+|---|---|---|---|---|---|
+| `OneC.Cluster.AdminUser` | no | Text | — | — | `rac.exe --cluster-user` |
+| `OneC.Cluster.AdminPassword` | **yes** | Text | — | — | `rac.exe --cluster-pwd` |
+| `OneC.RAS.Endpoint` | no | HostPort | — | port [1024, 65535] | RAS adapter |
+| `OneC.RAS.ExePath` | no | Path | — *(no seeded default — 1C 8.5 keeps `rac.exe` in `1cv8\<version>\bin\`)* | — | RAS adapter |
+| `IIS.ServiceAccount.UserName` | no | Text | — | informational | docs/diagnostics |
+| `IIS.DefaultVrdRoot` | no | Path | `C:\inetpub\1c-publications` | — | VRD path resolver |
+| `Defaults.DatabaseServer` | no | Text | — | — | add-infobase form prefill |
+| `IIS.DefaultSiteName` | no | Text | `Default Web Site` | — | add-infobase form prefill |
+| `OneC.DefaultPlatformVersion` | no | Text | — | — | add-infobase form prefill |
+| `Polling.HotIntervalSeconds` | no | Number | `4` | [2, 60] | `HotTierPollingService` |
+| `Polling.ColdIntervalSeconds` | no | Number | `25` | [10, 300] | cold `ReconciliationJob` throttle |
+| `Polling.HotThresholdPercent` | no | Number | `90` | [50, 100] | `HotTierRegistry` |
+| `Drift.IntervalMinutes` | no | Number | `5` | [1, 60] | `DriftCheckJob` throttle |
+| `Audit.RetentionDays` | no | Number | `365` | [30, 3650] | `AuditRetentionJob` (daily 03:00 UTC) |
+
+`SettingValueKind ∈ {Text, Number, Url, HostPort, Path}`. A `null`/whitespace payload clears the value (`IsSet=false`); for a secret that means "remove the password". Validation: `Number` = `int.TryParse` + range; `HostPort` = `^[^\s:]+:\d+$` + port in [1024, 65535]; `Path`/`Text` = non-empty. The whitelist takes priority over DB rows — a key not in the catalog is never surfaced.
+
+The three `*Default*` form-prefill keys (`Defaults.DatabaseServer`, `IIS.DefaultSiteName`, `OneC.DefaultPlatformVersion`) are **UI-only**: no backend service reads them. They seed the «Добавить инфобазу» form so the operator does not retype the same SQL server / IIS site / platform version for every base. The values are still persisted per-base on `Infobase`/`Publication`; the form just pre-fills them and lets the operator override in the «Дополнительно» disclosure.
+
+## 5. Background Job Execution
 
 Infrastructure operations (especially mass IIS updates or 1C cluster scans) can be blocking.
 - The Reconciliation Loop (Session Monitor) runs asynchronously and on a two-tier cadence (hot 3–5s for at-risk tenants, cold 20–30s for everyone). See ADR-6.
 - Direct calls to the 1C Cluster Adapter MUST have strict timeouts to prevent the background worker from hanging if rac.exe / ras.exe become unresponsive. `RacExecutableRasClusterClient` uses a 30s per-invocation deadline (ADR-3.3).
-- **`RasHealthProbingService`** (Stage 5 PR 5.1, ADR-16) runs as a `BackgroundService` with a 30s `IClusterClient.PingAsync` cadence. Publishes `IRasHealthReader` snapshot for the Dashboard RAS health card. Audit-neutral.
-- A separate **drift-detection job** runs every 5 minutes, comparing each `Publication`'s desired state against the actual `default.vrd` + IIS state. Results are written to `Publication.LastDriftStatus` / `LastDriftCheckAt` / `LastDriftDetails`. Drift is reported, never auto-corrected — reconcile is an explicit admin action.
-- An **audit retention job** (PR 4.3) runs daily at 03:00 UTC and deletes rows from `dbo.AuditLogs` older than `Settings.Audit.RetentionDays` (default 365, range [30, 3650]). Implementation: batched `DELETE TOP (5000)` with commit-per-batch via `ExecuteSqlInterpolatedAsync` against `[Timestamp]`. Audit row `AuditLogsPurged=500` is written only when the total delete count is non-zero. CRON is fixed in code — retention window is operator-tunable, cadence is not.
+- **`RasHealthProbingService`** (ADR-16) runs as a `BackgroundService` with a 30s `IClusterClient.PingAsync` cadence. Publishes `IRasHealthReader` snapshot for the Dashboard RAS health card. Audit-neutral.
+- A separate **drift-detection job** runs every 5 minutes (throttled to `Settings.Drift.IntervalMinutes`), comparing each `Publication`'s desired state against the actual `default.vrd` + IIS state. Results are written to `Publication.LastDriftStatus` / `LastDriftCheckAt` / `LastDriftDetails`. Drift is reported, never auto-corrected — reconcile is an explicit admin action.
+- An **audit retention job** runs daily at 03:00 UTC and deletes rows from `dbo.AuditLogs` older than `Settings.Audit.RetentionDays` (default 365, range [30, 3650]). Implementation: batched `DELETE TOP (5000)` with commit-per-batch via `ExecuteSqlInterpolatedAsync` against `[Timestamp]`. Audit row `AuditLogsPurged=500` is written only when the total delete count is non-zero. CRON is fixed in code — retention window is operator-tunable, cadence is not.
 
-## 5. Backups are operator responsibility
+## 6. Backups are operator responsibility
 
 Per ADR-15, backup orchestration is **out of application scope**. The operator backs up the MSSQL database, the Data Protection key ring under `%ProgramData%\MitLicenseCenter\keys\`, and optionally `appsettings.Production.json`, using platform tooling (SQL Server Maintenance Plans, Veeam, Windows Server Backup, Robocopy + Scheduled Task). The key ring and the database form one logical backup unit — restoring one without the other yields an unreadable database. See `OPERATIONS.md` for the operator's checklist.

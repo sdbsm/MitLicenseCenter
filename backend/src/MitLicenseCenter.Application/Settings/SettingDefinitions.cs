@@ -67,6 +67,29 @@ public static class SettingDefinitions
                 Kind: SettingValueKind.Path,
                 DefaultValue: @"C:\inetpub\1c-publications"),
 
+            // Дефолты формы добавления инфобазы — подставляются как значения по
+            // умолчанию в новую базу, чтобы не вводить одинаковое каждый раз.
+            // На бекенде не используются (форма-only), но живут в общем каталоге
+            // настроек, чтобы их можно было задать через UI «Параметры».
+            [SettingKey.DefaultsDatabaseServer] = new(
+                SettingKey.DefaultsDatabaseServer,
+                IsSecret: false,
+                Description: "SQL-сервер по умолчанию для новых инфобаз (например, sql.local или (local)).",
+                Kind: SettingValueKind.Text),
+
+            [SettingKey.IisDefaultSiteName] = new(
+                SettingKey.IisDefaultSiteName,
+                IsSecret: false,
+                Description: "Сайт IIS по умолчанию для новых публикаций.",
+                Kind: SettingValueKind.Text,
+                DefaultValue: "Default Web Site"),
+
+            [SettingKey.OneCDefaultPlatformVersion] = new(
+                SettingKey.OneCDefaultPlatformVersion,
+                IsSecret: false,
+                Description: "Версия платформы 1С по умолчанию для новых публикаций (например, 8.3.23.1865).",
+                Kind: SettingValueKind.Text),
+
             [SettingKey.PollingHotIntervalSeconds] = new(
                 SettingKey.PollingHotIntervalSeconds,
                 IsSecret: false,

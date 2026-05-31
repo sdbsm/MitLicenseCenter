@@ -31,7 +31,7 @@ The Control Panel is delivered in **Russian** as the only shipping locale of v1 
 ### 3.1. Main Dashboard
 - High-level overview of the hosting infrastructure.
 - **Metrics:** Total Tenants, Total Active Sessions, Total Consumed Licenses vs Global Allowed Limits.
-- **Health:** Server status, RAS adapter health (rac.exe reachable + last error), latest snapshot freshness. _(Stage 5 PR 5.1, ADR-16: the legacy "1C Cluster API connectivity status" bullet was reframed as a RAS health card backed by `RasHealthProbingService` — REST adapter and circuit breaker removed.)_
+- **Health:** Server status, RAS adapter health card (rac.exe reachable + last error + consecutive-failures count, backed by `RasHealthProbingService`), latest snapshot freshness.
 
 ### 3.2. Tenants Management
 - List of all Clients.
@@ -41,6 +41,8 @@ The Control Panel is delivered in **Russian** as the only shipping locale of v1 
 ### 3.3. Infobases & Publications
 - List of all Infobases discovered in the 1C Cluster.
 - Assignment interface: Attach an Infobase to a specific Tenant.
+- **Add/Edit form is intentionally minimal.** The always-visible part has three fields only: **Клиент** (tenant), **База в кластере 1С** (the cluster infobase picked by name — its GUID is hidden, and picking it auto-fills the display name), and **Имя БД** (the SQL database). Everything that is normally identical across all bases lives in a collapsed **«Дополнительно»** disclosure: display-name override, SQL server, IIS site, virtual path, platform version, physical-path override, OData/HTTP toggles, status.
+- The «Дополнительно» fields are pre-filled from the form-prefill settings (`Defaults.DatabaseServer`, `IIS.DefaultSiteName`, `OneC.DefaultPlatformVersion` — see `04_INFRASTRUCTURE.md`). The virtual path defaults to `"/" + slug(databaseName)`. The disclosure auto-expands when a validation error lands on one of its fields.
 - **Publication Settings:** View/Edit desired IIS state (Site Name, Virtual Path, Target 1C Platform Version).
 - Toggles for `EnableOData` and `EnableHttpServices`.
 - **Drift Status:** Shows `LastDriftStatus` (`InSync` / `Drift` / `Missing` / `Error`), `LastDriftCheckAt`, and `LastDriftDetails`. Updated by the background drift-detection job (every 5 min) plus an on-demand "Check Now" button that calls `POST /api/v1/publications/{id}/check-drift`.
@@ -49,7 +51,7 @@ The Control Panel is delivered in **Russian** as the only shipping locale of v1 
 ### 3.4. Active Sessions Monitor (The Kill Switch)
 - A combined table displaying current `ActiveSessionSnapshot` data.
 - **Columns:** Tenant Name, Infobase Name, Session ID, AppID, Duration, `ConsumesLicense` flag.
-- **Actions:** Administrators can manually select a session and click "Terminate", which triggers an API call to the backend to kill the session via `rac.exe session terminate` (Stage 5 PR 5.1, ADR-16 — the original "1C REST API" path was removed).
+- **Actions:** Administrators can manually select a session and click "Terminate", which triggers an API call to the backend to kill the session via `rac.exe session terminate`.
 
 ### 3.5. Audit Logs
 - A read-only, filterable table displaying the `AuditLog` entity data.

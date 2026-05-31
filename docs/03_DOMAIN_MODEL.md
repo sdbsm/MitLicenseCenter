@@ -27,7 +27,7 @@ Represents a specific 1C database assigned to a Tenant.
 ## 3. Publication (IIS Configuration)
 Stores the *Desired State* of the IIS publication for a specific Infobase.
 - `Id` (Guid, PK)
-- `InfobaseId` (Guid, FK, **unique**) — `ON DELETE CASCADE`. 1-to-1 required: каждая инфобаза имеет ровно одну публикацию, удаление инфобазы каскадом сносит публикацию в БД (IIS-unpublish — Stage 3).
+- `InfobaseId` (Guid, FK, **unique**) — `ON DELETE CASCADE`. 1-to-1 required: каждая инфобаза имеет ровно одну публикацию, удаление инфобазы каскадом сносит публикацию в БД.
 - `SiteName` (String, ≤200): IIS Site (e.g., "Default Web Site").
 - `VirtualPath` (String, ≤200): The URL path (e.g., "/tenant-base1"). Валидация: должен начинаться с `/`, не содержит пробелов.
 - `PlatformVersion` (String, ≤50): e.g., "8.3.23.1865" или "8.5.1.1302". Used to locate `wsisapi.dll`. Валидация: regex `^\d+\.\d+\.\d+\.\d+$` — четыре числовых сегмента, длины не фиксируем (1С 8.5 ранние сборки имеют одноцифровой build).
@@ -36,23 +36,23 @@ Stores the *Desired State* of the IIS publication for a specific Infobase.
 - `VrdCustomXml` (`nvarchar(max)`, Nullable): Stores any custom XML fragments for `default.vrd` to ensure idempotency and prevent overwrite of custom configurations. Пустая строка / whitespace нормализуется в `NULL` при записи.
 - `CreatedAt` (DateTimeUtc).
 - `UpdatedAt` (DateTimeUtc, Nullable).
-- `LastDriftStatus` (Enum): `InSync`, `Drift`, `Missing`, `Error`. **Поле появится в Stage 3** вместе с drift-detection job — в Stage 2 не присутствует ни в БД, ни в API.
-- `LastDriftCheckAt` (DateTimeUtc, Nullable): **Stage 3.**
-- `LastDriftDetails` (String, Nullable): **Stage 3.**
-- `PhysicalPathOverride` (`NVARCHAR(260)`, Nullable): **Stage 4 PR 4.1.** Override физической папки IIS-приложения. Если задан — `VrdPathResolver` использует `{PhysicalPathOverride}\default.vrd` вместо convention `{IIS.DefaultVrdRoot}/{siteName}/{virtualPath}/default.vrd`. NULL/empty → fallback на convention (нет migration noise для существующих строк). Принимается только абсолютный путь (local `C:\...` или UNC `\\server\share\...`); relative paths отклоняются с 400.
+- `LastDriftStatus` (Enum): `InSync`, `Drift`, `Missing`, `Error`. Updated by the drift-detection job.
+- `LastDriftCheckAt` (DateTimeUtc, Nullable).
+- `LastDriftDetails` (String, Nullable).
+- `PhysicalPathOverride` (`NVARCHAR(260)`, Nullable): override физической папки IIS-приложения. Если задан — `VrdPathResolver` использует `{PhysicalPathOverride}\default.vrd` вместо convention `{IIS.DefaultVrdRoot}/{siteName}/{virtualPath}/default.vrd`. NULL/empty → fallback на convention. Принимается только абсолютный путь (local `C:\...` или UNC `\\server\share\...`); relative paths отклоняются с 400.
 - **Relationships:** Belongs to `Infobase`.
 
 ## 4. AuditLog
 Immutable record of all critical system and administrator actions.
 - `Id` (Guid, PK)
 - `TenantId` (Guid, FK, Nullable): If the action relates to a specific tenant.
-- `ActionType` (Enum): e.g., LimitChanged, PublicationUpdated, PublicationDriftDetected, PublicationReconciled, SessionKilled, InfobaseCreated, AdminLoggedIn. _Reserved historical (Stage 3 PR 3.2 — circuit breaker removed in Stage 5 PR 5.1, see ADR-16):_ `ClusterAdapterCircuitOpened=300`, `ClusterAdapterCircuitClosed=301` — enum values stay so old AuditLog rows render; new rows with these values are not written.
+- `ActionType` (Enum): e.g., LimitChanged, PublicationUpdated, PublicationDriftDetected, PublicationReconciled, SessionKilled, InfobaseCreated, AdminLoggedIn. _Reserved historical:_ `ClusterAdapterCircuitOpened=300`, `ClusterAdapterCircuitClosed=301` — enum values stay so old AuditLog rows render; new rows with these values are not written (the circuit breaker was removed, see ADR-16).
 - `Reason` (Enum, Nullable): For `SessionKilled` only — `LimitExceeded` or `ManualByAdmin`.
 - `Description` (String): Human-readable details, including snapshot context for kills.
 - `Timestamp` (DateTimeUtc)
 - `Initiator` (String): ID of the Admin, or "System" for background jobs.
 
-**Retention (Stage 4 PR 4.3).** Записи удаляются daily Hangfire job'ом старше `Settings.Audit.RetentionDays` (default 365, диапазон [30, 3650]). DELETE-only — никакого archival tier'а. Job пишет один `AuditLogsPurged=500` row на каждый non-empty purge (initiator="System"). Существующий `IX_AuditLogs_Timestamp` (single-column, миграция InitialCreate) обслуживает DELETE без дополнительных индексов.
+**Retention.** Записи удаляются daily Hangfire job'ом старше `Settings.Audit.RetentionDays` (default 365, диапазон [30, 3650]). DELETE-only — никакого archival tier'а. Job пишет один `AuditLogsPurged=500` row на каждый non-empty purge (initiator="System"). Индекс `IX_AuditLogs_Timestamp` (single-column) обслуживает DELETE без дополнительных индексов.
 
 ## 5. ActiveSessionSnapshot (Transient State)
 *Note: This entity is NOT permanently stored in MSSQL to avoid DB bloat. It represents the in-memory state captured during the Reconciliation Loop.*
@@ -76,7 +76,7 @@ Local administrator account, managed via the ASP.NET Core Identity framework. Ta
 
 ## 7. Setting (Encrypted Configuration)
 Holds runtime configuration values that may include secrets. Values are encrypted at rest using the ASP.NET Core Data Protection API (DPAPI-backed on Windows).
-- `Key` (String, PK): e.g., `OneC.Cluster.RestApiUrl`, `OneC.Cluster.AdminPassword`, `IIS.DefaultVrdRoot`.
+- `Key` (String, PK): e.g., `OneC.RAS.Endpoint`, `OneC.Cluster.AdminPassword`, `IIS.DefaultVrdRoot`. Полный каталог — `04_INFRASTRUCTURE.md`.
 - `Value` (String): Encrypted ciphertext for secret values; plaintext for non-secret values.
 - `IsSecret` (Boolean): Determines whether the value is decrypted on read.
 - `Description` (String, Nullable)
@@ -89,3 +89,13 @@ Holds runtime configuration values that may include secrets. Values are encrypte
 2. **Kill Priority:** when `Consumed > Limit`, sessions are selected for termination ordered by `StartedAt DESC` (newest first) until `Consumed == Limit`. Locked by ADR-6 / operational constraints.
 3. **Deletion Restrictions:** A `Tenant` cannot be deleted if they have active `Infobases`. An `Infobase` cannot be deleted from the system without first unpublishing it from IIS and detaching it from the 1C Cluster.
 4. **Drift is observed, not auto-fixed:** the drift-detection job updates `Publication.LastDriftStatus` but never modifies IIS. Reconciliation is an explicit admin action.
+
+## Persistence & API Contracts (binding)
+
+These contracts are stable and must be preserved across changes.
+
+- **Enum int-stability (frozen).** Numeric values of `AuditActionType` / `AuditReason` are part of the DB contract (`HasConversion<int>`) and are **frozen** — re-using a number for a different action would corrupt historical AuditLog rows. Reserved slots: `200` (`SessionKilled`), `201` (`LimitChanged`), `210` (`PublicationDriftDetected`), `211` (`PublicationReconciled`), `300/301` (`ClusterAdapterCircuit{Opened,Closed}` — reserved historical, never written), `400` (`SettingChanged`), `500` (`AuditLogsPurged`). On the wire enums serialise as **strings** via the globally-registered `JsonStringEnumConverter`; the int values are never exposed.
+- **409 Conflict contract.** Conflict responses are `ProblemDetails` JSON with an extra machine-readable **`code`** field (`NAME_DUPLICATE`, `TENANT_HAS_INFOBASES`, `NAME_DUPLICATE_IN_TENANT`, `SETTING_UNKNOWN_KEY`, `SETTING_INVALID_VALUE`, `IIS_RECONCILE_FAILED`, `IIS_ACCESS_DENIED`, …). Codes are the single source of truth in `MitLicenseCenter.Web/Endpoints/Problems.cs::ProblemCodes`; the human-readable `detail` is always Russian. A new conflict situation MUST add a new `ProblemCodes.*` constant — the frontend cannot disambiguate by `detail` string.
+- **Foreign keys.** `Infobase → Tenant` = `Restrict` (deletion blocked by the tenant guard, `409 TENANT_HAS_INFOBASES`). `Publication → Infobase` = `Cascade`, unique on `InfobaseId` (1-to-1 required). `AuditLogs.TenantId` = `SetNull` (audit history survives tenant deletion; the description keeps the human-readable name). Infobase name is unique **per tenant** (`IX_Infobases_TenantId_Name`).
+- **Infobase + Publication aggregate.** An infobase is created/updated/deleted via a single `POST/PUT/DELETE /api/v1/infobases` carrying the nested publication; the publication is cascaded in the same transaction. `GET/PUT /api/v1/publications/{id}` exists as a side-API for editing publication parameters in isolation (e.g. bumping `PlatformVersion`); `POST/DELETE` on publications do not exist.
+- **DPAPI secret payloads.** Each `dbo.Settings` row stores either plaintext in `ValueText NVARCHAR(MAX)` (`IsSecret=false`) or DPAPI-encrypted UTF-8 bytes in `Value VARBINARY(MAX)` (`IsSecret=true`). Protector purpose-string is `mlc.settings.v1`. Audit descriptions for secret changes never contain the value (regression-tested).

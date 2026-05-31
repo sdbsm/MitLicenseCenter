@@ -63,7 +63,7 @@ If a Client exceeds their allowed license limit, the system must **forcefully an
 # Infrastructure Environment
 
 Current infrastructure stack:
-- **1C Platform:** Versions **8.3 - 8.5** (This allows leveraging the modern 1C Cluster REST API, falling back to RAS if necessary).
+- **1C Platform:** Versions **8.3 - 8.5**. The cluster is administered exclusively through RAS (`ras.exe`) driven by the `rac.exe` CLI — see ADR-16 and `02_ARCHITECTURE_REQUIREMENTS.md`.
 - **OS:** Windows Server.
 - **DB:** MSSQL.
 - **Web Server:** IIS.
@@ -76,8 +76,7 @@ The platform provides a centralized administrative view across all tenants.
 
 # 1C Cluster Integration
 
-The system must integrate with the 1C cluster administration APIs (REST API for newer platforms, or RAS/RAC).
-Infobases should be discovered automatically from the cluster infrastructure. Manual registration of existing infobases should be minimized.
+The system integrates with the 1C cluster administration interface via RAS (`ras.exe`, default TCP 1545) driven by the `rac.exe` CLI (ADR-16). Infobases should be discovered automatically from the cluster infrastructure. Manual registration of existing infobases should be minimized.
 
 # IIS Publication Management
 

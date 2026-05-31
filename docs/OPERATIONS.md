@@ -25,7 +25,7 @@ If the key ring is ever lost without a backup, the operator must re-enter every 
 
 ## Authentication is delegated to the network edge
 
-Per [ADR-15](DECISIONS.md#15-backup-and-two-factor-authentication-scope-boundary) and the [Status update on ADR-7](DECISIONS.md#status-update-stage-4-pr-44), the application performs username + password + HttpOnly cookie session authentication and nothing more. Secondary factor protection is the responsibility of the deployment environment:
+Per [ADR-15](DECISIONS.md#15-backup-and-two-factor-authentication-scope-boundary) and [ADR-7](DECISIONS.md#7-admin-authentication), the application performs username + password + HttpOnly cookie session authentication and nothing more. Secondary factor protection is the responsibility of the deployment environment:
 
 - **Network reachability:** LAN-only or VPN. The application's HTTPS endpoint must not be exposed to the public internet.
 - **Perimeter:** firewall rules limiting source IPs to the operator network / VPN concentrator.
@@ -34,35 +34,12 @@ Per [ADR-15](DECISIONS.md#15-backup-and-two-factor-authentication-scope-boundary
 
 If the deployment cannot satisfy these network-level controls, the operator should re-evaluate whether the panel is being used in its intended environment (internal 1C-hosting operator station) before requesting in-app 2FA — ADR-15 makes the latter explicitly off-limits without a deliberate revocation.
 
-## Upgrading from Stage 3 / Stage 4 with REST configured
+## RAS adapter setup
 
-> **Applies to: existing deployments upgrading to Stage 5 PR 5.1 or later.**
+The 1C cluster is administered exclusively through RAS via `rac.exe` ([ADR-16](DECISIONS.md#16-ras-as-sole-1c-cluster-adapter)). To bring the adapter online:
 
-Stage 5 PR 5.1 removes the 1C Cluster REST adapter entirely; `rac.exe` becomes the sole 1C cluster adapter (see [ADR-16](DECISIONS.md#16-ras-as-sole-1c-cluster-adapter)). Most deployments are unaffected — REST was not published by default on 1C 8.5 and most operators were already running RAS via `rac.exe` regardless. But if a deployment had successfully configured `OneC.Cluster.RestApiUrl` and was relying on REST as the primary adapter, the upgrade silently deletes the row and the system needs to be reconfigured for RAS before session enforcement resumes.
-
-### What the upgrade migration does
-
-`Stage5DropRestClusterSettings` migration deletes the following rows from `dbo.Settings`:
-
-- `OneC.Cluster.RestApiUrl`
-- `OneC.Cluster.RestApiTimeoutSeconds`
-- `CircuitBreaker.ProbeIntervalSeconds`
-- `CircuitBreaker.FailureCount`
-
-The migration is **roll-forward only** — `Down()` throws `NotSupportedException` referencing ADR-16. The two surviving cluster-admin keys (`OneC.Cluster.AdminUser`, `OneC.Cluster.AdminPassword`) are **preserved** — they now feed `rac.exe`'s `--cluster-user` / `--cluster-pwd` flags instead of REST Basic-auth.
-
-### Operator checklist before upgrade
-
-1. **Confirm `rac.exe` is installed on the application host.** On 1C 8.5 it lives at `C:\Program Files\1cv8\<version>\bin\rac.exe` (the legacy `C:\Program Files\1cv8\common\` path no longer ships the utility).
-2. **Confirm `ras.exe` is running as a Windows service** on the application host (`localhost:1545` by default). If not, install it via `racsvc.exe -instsrvc` (standard 1C distribution).
-3. **Confirm the backend service account has Read+Execute** on the `1cv8\<version>\bin\` directory. `Network Service` is sufficient on stock installs; locked-down custom accounts may need explicit ACL grants.
-
-### Operator checklist after upgrade
-
-1. Open the «Параметры» admin UI.
-2. Set `OneC.RAS.ExePath` to the version-specific `rac.exe` path (e.g., `C:\Program Files\1cv8\8.5.1.1302\bin\rac.exe`). **There is no seeded default** — 1C 8.5 changed the path layout, so each operator supplies the version they have installed.
-3. Verify `OneC.RAS.Endpoint` is `localhost:1545` (or whatever endpoint the local `ras.exe` listens on).
-4. Verify `OneC.Cluster.AdminUser` and `OneC.Cluster.AdminPassword` are still set (they survived the migration and now authenticate rac.exe). For clusters with no registered administrators, both fields can be left empty — `rac.exe` runs anonymously.
-5. Open the Dashboard. Within 30 seconds the RAS health card should flip from `Сбой` (or `Проверка…` if this is the first ping after backend startup) to `OK`. If it stays `Сбой`, click "детали ошибки" on the card to see the rac.exe stderr — the most common causes are wrong `OneC.RAS.ExePath`, `ras.exe` not running, or insufficient ACLs on the rac.exe path.
-
-The Sessions Monitor will resume populating from the next reconciliation cycle (cold tier ≤ 30s after RAS comes up).
+1. **Confirm `rac.exe` is installed.** On 1C 8.5 it lives at `C:\Program Files\1cv8\<version>\bin\rac.exe` (the legacy `1cv8\common\` path no longer ships it).
+2. **Confirm `ras.exe` is running as a Windows service** (`localhost:1545` by default); install via `racsvc.exe -instsrvc` if needed.
+3. **Grant the backend service account Read+Execute** on `1cv8\<version>\bin\`. `Network Service` is sufficient on stock installs; locked-down accounts may need an explicit ACL grant.
+4. In the «Параметры» admin UI set `OneC.RAS.ExePath` to the version-specific `rac.exe` path (no seeded default), verify `OneC.RAS.Endpoint` (`localhost:1545`), and set `OneC.Cluster.AdminUser` / `OneC.Cluster.AdminPassword` (leave both empty for a cluster with no registered administrators — `rac.exe` runs anonymously).
+5. On the Dashboard the RAS health card should flip to `OK` within 30s. If it stays `Сбой`, open "детали ошибки" for the `rac.exe` stderr — usually a wrong `OneC.RAS.ExePath`, `ras.exe` not running, or missing ACLs. The Sessions Monitor resumes from the next reconciliation cycle (≤ 30s).
