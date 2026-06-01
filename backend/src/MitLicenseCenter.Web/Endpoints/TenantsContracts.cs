@@ -9,7 +9,8 @@ public sealed record TenantResponse(
     int MaxConcurrentLicenses,
     bool IsActive,
     DateTime CreatedAt,
-    DateTime? UpdatedAt);
+    DateTime? UpdatedAt,
+    int InfobaseCount = 0);
 
 public sealed record TenantListResponse(
     IReadOnlyList<TenantResponse> Items,

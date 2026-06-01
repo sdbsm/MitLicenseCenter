@@ -5,7 +5,9 @@ namespace MitLicenseCenter.Domain.Infobases;
 public sealed class Infobase : IEntity
 {
     public Guid Id { get; init; }
-    public Guid TenantId { get; init; }
+    // Settable: смена владельца возможна только через POST /infobases/{id}/reassign
+    // (с проверкой коллизии имени и записью в аудит). PUT/форма клиента не меняют.
+    public Guid TenantId { get; set; }
     public required string Name { get; set; }
     public Guid ClusterInfobaseId { get; set; }
     public required string DatabaseServer { get; set; }

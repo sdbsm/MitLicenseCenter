@@ -33,7 +33,7 @@ public static class TenantsEndpoints
         group.MapDelete("/{id:guid}", DeleteAsync).RequireAuthorization(Roles.Admin);
     }
 
-    private static async Task<Ok<TenantListResponse>> ListAsync(
+    internal static async Task<Ok<TenantListResponse>> ListAsync(
         AppDbContext db,
         [FromQuery] int? page,
         [FromQuery] int? pageSize,
@@ -47,7 +47,14 @@ public static class TenantsEndpoints
         var items = await query
             .Skip((p - 1) * ps)
             .Take(ps)
-            .Select(t => new TenantResponse(t.Id, t.Name, t.MaxConcurrentLicenses, t.IsActive, t.CreatedAt, t.UpdatedAt))
+            .Select(t => new TenantResponse(
+                t.Id,
+                t.Name,
+                t.MaxConcurrentLicenses,
+                t.IsActive,
+                t.CreatedAt,
+                t.UpdatedAt,
+                db.Infobases.Count(x => x.TenantId == t.Id)))
             .ToListAsync(ct).ConfigureAwait(false);
 
         return TypedResults.Ok(new TenantListResponse(items, total, p, ps));

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { tenantsQueryKey } from "@/features/tenants/useTenants";
 import type {
   CreateInfobaseInput,
   InfobaseDetail,
@@ -42,11 +43,26 @@ export function useUpdateInfobase() {
   });
 }
 
+export function useReassignInfobase() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, targetTenantId }: { id: string; targetTenantId: string }) =>
+      api<InfobaseDetail>(`/api/v1/infobases/${id}/reassign`, {
+        method: "POST",
+        body: { targetTenantId },
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: infobasesQueryKey });
+      // Счётчики баз на странице клиентов зависят от привязки — обновляем их тоже.
+      void qc.invalidateQueries({ queryKey: tenantsQueryKey });
+    },
+  });
+}
+
 export function useDeleteInfobase() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) =>
-      api<null>(`/api/v1/infobases/${id}`, { method: "DELETE" }),
+    mutationFn: (id: string) => api<null>(`/api/v1/infobases/${id}`, { method: "DELETE" }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: infobasesQueryKey });
     },

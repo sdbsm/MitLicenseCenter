@@ -5,6 +5,7 @@ export interface Tenant {
   isActive: boolean;
   createdAt: string;
   updatedAt: string | null;
+  infobaseCount: number;
 }
 
 export interface TenantListResponse {

@@ -12,6 +12,7 @@ public enum AuditActionType
     InfobaseCreated = 10,
     InfobaseUpdated = 11,
     InfobaseDeleted = 12,
+    InfobaseReassigned = 13,
 
     PublicationCreated = 20,
     PublicationUpdated = 21,

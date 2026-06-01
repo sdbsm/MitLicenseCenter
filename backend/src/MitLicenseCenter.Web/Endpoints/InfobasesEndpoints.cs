@@ -35,6 +35,7 @@ public static partial class InfobasesEndpoints
         group.MapGet("/{id:guid}", GetAsync).RequireAuthorization(Roles.Viewer);
         group.MapPost("/", CreateAsync).RequireAuthorization(Roles.Admin);
         group.MapPut("/{id:guid}", UpdateAsync).RequireAuthorization(Roles.Admin);
+        group.MapPost("/{id:guid}/reassign", ReassignAsync).RequireAuthorization(Roles.Admin);
         group.MapDelete("/{id:guid}", DeleteAsync).RequireAuthorization(Roles.Admin);
     }
 
@@ -289,6 +290,65 @@ public static partial class InfobasesEndpoints
             initiator: initiator,
             description: $"Публикация «{publication.SiteName}{publication.VirtualPath}» обновлена для инфобазы «{infobase.Name}» администратором {initiator}.",
             tenantId: infobase.TenantId,
+            ct: ct).ConfigureAwait(false);
+
+        return TypedResults.Ok(infobase.ToDetailResponse(publication));
+    }
+
+    // Перенос базы другому клиенту — отдельная операция, а не правка через PUT
+    // (в форме редактирования клиент заблокирован). Имя инфобазы уникально внутри
+    // клиента, поэтому при коллизии у целевого клиента отвечаем 409.
+    internal static async Task<Results<Ok<InfobaseDetailResponse>, NotFound, Conflict<ProblemDetails>>> ReassignAsync(
+        Guid id,
+        [FromBody] ReassignInfobaseRequest request,
+        AppDbContext db,
+        IAuditLogger audit,
+        HttpContext httpContext,
+        TimeProvider clock,
+        CancellationToken ct)
+    {
+        var infobase = await db.Infobases.FirstOrDefaultAsync(x => x.Id == id, ct).ConfigureAwait(false);
+        if (infobase is null)
+        {
+            return TypedResults.NotFound();
+        }
+
+        var publication = await db.Publications.FirstOrDefaultAsync(p => p.InfobaseId == id, ct).ConfigureAwait(false);
+        if (publication is null)
+        {
+            return TypedResults.NotFound();
+        }
+
+        var target = await db.Tenants.FirstOrDefaultAsync(t => t.Id == request.TargetTenantId, ct).ConfigureAwait(false);
+        if (target is null)
+        {
+            return TypedResults.NotFound();
+        }
+
+        // Перенос на того же клиента — no-op, отдаём текущее состояние.
+        if (infobase.TenantId == target.Id)
+        {
+            return TypedResults.Ok(infobase.ToDetailResponse(publication));
+        }
+
+        if (await db.Infobases.AnyAsync(x => x.TenantId == target.Id && x.Name == infobase.Name, ct).ConfigureAwait(false))
+        {
+            return TypedResults.Conflict(Problems.InfobaseNameTakenInTarget(infobase.Name));
+        }
+
+        var sourceTenant = await db.Tenants.AsNoTracking().FirstOrDefaultAsync(t => t.Id == infobase.TenantId, ct).ConfigureAwait(false);
+        var sourceName = sourceTenant?.Name ?? infobase.TenantId.ToString();
+
+        infobase.TenantId = target.Id;
+        infobase.UpdatedAt = clock.GetUtcNow().UtcDateTime;
+        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+
+        var initiator = httpContext.User.Identity?.Name ?? "unknown";
+        await audit.LogAsync(
+            AuditActionType.InfobaseReassigned,
+            initiator: initiator,
+            description: $"Инфобаза «{infobase.Name}» перенесена от клиента «{sourceName}» к клиенту «{target.Name}» администратором {initiator}.",
+            tenantId: target.Id,
             ct: ct).ConfigureAwait(false);
 
         return TypedResults.Ok(infobase.ToDetailResponse(publication));

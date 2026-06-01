@@ -1,14 +1,9 @@
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
-import {
-  Building2Icon,
-  MoreHorizontalIcon,
-  PencilIcon,
-  PlusIcon,
-  Trash2Icon,
-} from "lucide-react";
+import { Building2Icon, MoreHorizontalIcon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -68,7 +63,7 @@ export function TenantsPage() {
 
   const pagedItems = useMemo(
     () => items.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
-    [items, currentPage],
+    [items, currentPage]
   );
 
   const handleOpenCreate = () => {
@@ -97,7 +92,7 @@ export function TenantsPage() {
       </div>
 
       {isError && (
-        <div className="rounded-md border border-destructive/40 bg-destructive/5 p-4 text-sm">
+        <div className="border-destructive/40 bg-destructive/5 rounded-md border p-4 text-sm">
           <p className="font-medium">{t("tenants.errors.loadFailed")}</p>
           <Button
             variant="link"
@@ -118,7 +113,10 @@ export function TenantsPage() {
           <TableHeader>
             <TableRow>
               <TableHead>{t("tenants.fields.name")}</TableHead>
-              <TableHead className="text-right">{t("tenants.fields.maxConcurrentLicenses")}</TableHead>
+              <TableHead className="text-right">{t("tenants.fields.infobaseCount")}</TableHead>
+              <TableHead className="text-right">
+                {t("tenants.fields.maxConcurrentLicenses")}
+              </TableHead>
               <TableHead>{t("tenants.fields.status")}</TableHead>
               <TableHead>{t("tenants.fields.createdAt")}</TableHead>
               <TableHead>{t("tenants.fields.updatedAt")}</TableHead>
@@ -131,6 +129,9 @@ export function TenantsPage() {
                   <TableRow key={`skeleton-${idx}`}>
                     <TableCell>
                       <Skeleton className="h-4 w-40" />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Skeleton className="ml-auto h-4 w-8" />
                     </TableCell>
                     <TableCell className="text-right">
                       <Skeleton className="ml-auto h-4 w-12" />
@@ -150,7 +151,7 @@ export function TenantsPage() {
               : pagedItems.length === 0
                 ? !isError && (
                     <TableRow>
-                      <TableCell colSpan={6} className="py-12">
+                      <TableCell colSpan={7} className="py-12">
                         <div className="flex flex-col items-center justify-center gap-3 text-center">
                           <Building2Icon className="text-muted-foreground size-8" />
                           <div className="space-y-1">
@@ -171,7 +172,17 @@ export function TenantsPage() {
                   )
                 : pagedItems.map((tenant) => (
                     <TableRow key={tenant.id}>
-                      <TableCell className="font-medium">{tenant.name}</TableCell>
+                      <TableCell className="font-medium">
+                        <Link
+                          to={`/tenants/${tenant.id}`}
+                          className="hover:text-primary hover:underline"
+                        >
+                          {tenant.name}
+                        </Link>
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {NUMBER_FORMATTER.format(tenant.infobaseCount)}
+                      </TableCell>
                       <TableCell className="text-right tabular-nums">
                         {NUMBER_FORMATTER.format(tenant.maxConcurrentLicenses)}
                       </TableCell>

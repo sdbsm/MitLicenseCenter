@@ -55,6 +55,9 @@ public sealed record UpdateInfobaseRequest(
     [property: Required] InfobaseStatus Status,
     [property: Required] UpdatePublicationRequest Publication);
 
+public sealed record ReassignInfobaseRequest(
+    [property: Required] Guid TargetTenantId);
+
 internal static class InfobaseMappings
 {
     public static InfobaseResponse ToResponse(this Infobase x) =>

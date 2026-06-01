@@ -11,6 +11,7 @@ public static class ProblemCodes
     public const string TenantHasInfobases = "TENANT_HAS_INFOBASES";
     public const string NameDuplicateInTenant = "NAME_DUPLICATE_IN_TENANT";
     public const string InfobaseAlreadyAssigned = "INFOBASE_ALREADY_ASSIGNED";
+    public const string InfobaseNameTakenInTarget = "INFOBASE_NAME_TAKEN_IN_TARGET";
 
     public const string SettingUnknownKey = "SETTING_UNKNOWN_KEY";
     public const string SettingInvalidValue = "SETTING_INVALID_VALUE";
@@ -58,6 +59,12 @@ public static class Problems
             ProblemCodes.InfobaseAlreadyAssigned,
             "База уже привязана",
             "Эта база кластера уже привязана к другому клиенту.");
+
+    public static ProblemDetails InfobaseNameTakenInTarget(string name) =>
+        Conflict(
+            ProblemCodes.InfobaseNameTakenInTarget,
+            "Конфликт названия при переносе",
+            $"У целевого клиента уже есть инфобаза с названием «{name}». Переименуйте базу перед переносом.");
 
     public static ProblemDetails IisReconcileFailed(string detail) =>
         Conflict(

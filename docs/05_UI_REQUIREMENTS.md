@@ -34,13 +34,15 @@ The Control Panel is delivered in **Russian** as the only shipping locale of v1 
 - **Health:** Server status, RAS adapter health card (rac.exe reachable + last error + consecutive-failures count, backed by `RasHealthProbingService`), latest snapshot freshness.
 
 ### 3.2. Tenants Management
-- List of all Clients.
+- List of all Clients. Each row shows a **«Базы»** count (`InfobaseCount` from the list API); the client **name is a link** to the tenant detail page (`/tenants/:id`) — navigation is an explicit affordance, not a whole-row click (per the table convention in `06_UI_DESIGN.md`).
 - Form to create/edit a Tenant (Name, `MaxConcurrentLicenses`, Status).
-- Overview of assigned Infobases per Tenant and current real-time license consumption for that specific Tenant.
+- **Tenant detail page (`/tenants/:id`)** — the per-client lens: header with client name, status and license limit, a **«Добавить базу»** button (opens the infobase form with the client pre-selected), and a table of that client's infobases (no «Клиент» column). Edit / delete / **«Перенести в другого клиента»** act per row.
 
 ### 3.3. Infobases & Publications
 - List of all Infobases discovered in the 1C Cluster.
+- **View modes:** a flat list (paginated, with a «Клиент» column) and a **«По клиенту»** grouped mode — collapsible sections headed by client name + base count. Toggle sits next to the tenant filter.
 - Assignment interface: Attach an Infobase to a specific Tenant.
+- **Reassignment:** the per-row **«Перенести в другого клиента»** action moves a base to another tenant (`POST /infobases/{id}/reassign`). The client field in the edit form stays locked — moving ownership is this dedicated action only. A name collision in the target client surfaces as a clear error (`409 INFOBASE_NAME_TAKEN_IN_TARGET`).
 - **Add/Edit form is intentionally minimal.** The always-visible part has three fields only: **Клиент** (tenant), **База в кластере 1С** (the cluster infobase picked by name — its GUID is hidden, and picking it auto-fills the display name), and **Имя базы данных (SQL Server)**. Everything that is normally identical across all bases lives in a collapsed **«Дополнительно»** disclosure: display-name override, SQL server, IIS site, virtual path, platform version, physical-path override, OData/HTTP toggles, status.
 - The «Дополнительно» fields are pre-filled from the form-prefill settings (`Defaults.DatabaseServer`, `IIS.DefaultSiteName`, `OneC.DefaultPlatformVersion` — see `04_INFRASTRUCTURE.md`). The virtual path is derived from the database name as `"/" + slug(databaseName)`, and the physical path as `{IIS.DefaultVrdRoot}\{databaseName}` (default root `C:\inetpub\wwwroot`, e.g. `C:\inetpub\wwwroot\acme_bp`) — no IIS-site segment. Both are pre-filled as real values (not just placeholders) and stay editable; editing one stops it auto-updating. The disclosure auto-expands when a validation error lands on one of its fields.
 - Inside «Дополнительно» the fields are grouped under subsystem sub-headings so the operator can see what each belongs to: **«Инфобаза»** (display name, status), **«СУБД (SQL Server)»** (database server), **«Публикация в IIS»** (site, virtual path, platform version, physical path, OData/HTTP). The always-visible «Имя базы данных (SQL Server)» field carries the same SQL-subsystem hint. The Settings page mirrors this: section titles read «Кластер 1С (RAS)» / «Публикации IIS», and the prefill-defaults labels name their subsystem.

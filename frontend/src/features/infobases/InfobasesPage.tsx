@@ -1,23 +1,8 @@
-import { format } from "date-fns";
-import { ru } from "date-fns/locale";
-import {
-  DatabaseIcon,
-  MoreHorizontalIcon,
-  PencilIcon,
-  PlusIcon,
-  Trash2Icon,
-} from "lucide-react";
+import { ChevronDownIcon, DatabaseIcon, PlusIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   Pagination,
   PaginationContent,
@@ -34,39 +19,21 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { useMe } from "@/features/auth/useAuth";
 import { useTenants } from "@/features/tenants/useTenants";
 import { DeleteInfobaseDialog } from "./DeleteInfobaseDialog";
+import { groupByTenant } from "./grouping";
 import { InfobaseFormDialog } from "./InfobaseFormDialog";
-import type { InfobaseListItem, InfobaseStatus } from "./types";
+import { infobaseColumnCount } from "./infobaseFormat";
+import { InfobaseRow, InfobaseTableHeader } from "./InfobaseRow";
+import { ReassignInfobaseDialog } from "./ReassignInfobaseDialog";
+import type { InfobaseListItem } from "./types";
 import { useInfobases } from "./useInfobases";
 
 const PAGE_SIZE = 25;
 const ALL_TENANTS = "__all__";
-
-function formatDateTime(value: string | null | undefined): string {
-  if (!value) return "—";
-  return format(new Date(value), "dd.MM.yyyy HH:mm", { locale: ru });
-}
-
-function statusBadgeClass(status: InfobaseStatus): string {
-  switch (status) {
-    case "Active":
-      return "border-transparent bg-emerald-500/15 text-emerald-700 dark:text-emerald-300";
-    case "Maintenance":
-      return "border-transparent bg-amber-500/15 text-amber-700 dark:text-amber-300";
-    case "Suspended":
-      return "border-transparent bg-rose-500/15 text-rose-700 dark:text-rose-300";
-  }
-}
+type ViewMode = "flat" | "grouped";
 
 export function InfobasesPage() {
   const { t } = useTranslation();
@@ -88,10 +55,13 @@ export function InfobasesPage() {
 
   const { data, isLoading, isError, refetch } = useInfobases(tenantIdParam);
 
+  const [viewMode, setViewMode] = useState<ViewMode>("flat");
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(1);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<InfobaseListItem | null>(null);
   const [deleting, setDeleting] = useState<InfobaseListItem | null>(null);
+  const [reassigning, setReassigning] = useState<InfobaseListItem | null>(null);
 
   const items = useMemo<InfobaseListItem[]>(() => data?.items ?? [], [data]);
   const total = items.length;
@@ -100,8 +70,22 @@ export function InfobasesPage() {
 
   const pagedItems = useMemo(
     () => items.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
-    [items, currentPage],
+    [items, currentPage]
   );
+
+  const groups = useMemo(
+    () => (viewMode === "grouped" ? groupByTenant(items, tenantNameById) : []),
+    [viewMode, items, tenantNameById]
+  );
+
+  const toggleGroup = (tenantId: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(tenantId)) next.delete(tenantId);
+      else next.add(tenantId);
+      return next;
+    });
+  };
 
   const handleOpenCreate = () => {
     setEditing(null);
@@ -112,6 +96,8 @@ export function InfobasesPage() {
     setEditing(infobase);
     setFormOpen(true);
   };
+
+  const isEmpty = !isLoading && !isError && items.length === 0;
 
   return (
     <div className="space-y-6">
@@ -128,7 +114,7 @@ export function InfobasesPage() {
         )}
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <Select value={tenantFilter} onValueChange={setTenantFilter}>
           <SelectTrigger className="w-72">
             <SelectValue placeholder={t("infobases.filters.tenant")} />
@@ -147,10 +133,26 @@ export function InfobasesPage() {
             {t("common.reset")}
           </Button>
         )}
+        <div className="ml-auto inline-flex rounded-md border p-0.5">
+          <Button
+            variant={viewMode === "flat" ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => setViewMode("flat")}
+          >
+            {t("infobases.view.flat")}
+          </Button>
+          <Button
+            variant={viewMode === "grouped" ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => setViewMode("grouped")}
+          >
+            {t("infobases.view.grouped")}
+          </Button>
+        </div>
       </div>
 
       {isError && (
-        <div className="rounded-md border border-destructive/40 bg-destructive/5 p-4 text-sm">
+        <div className="border-destructive/40 bg-destructive/5 rounded-md border p-4 text-sm">
           <p className="font-medium">{t("infobases.errors.loadFailed")}</p>
           <Button
             variant="link"
@@ -166,132 +168,97 @@ export function InfobasesPage() {
         </div>
       )}
 
-      <div className="rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t("infobases.fields.name")}</TableHead>
-              <TableHead>{t("infobases.fields.tenant")}</TableHead>
-              <TableHead>{t("infobases.fields.databaseServer")}</TableHead>
-              <TableHead>{t("infobases.fields.databaseName")}</TableHead>
-              <TableHead>{t("infobases.fields.status")}</TableHead>
-              <TableHead>{t("infobases.fields.publication")}</TableHead>
-              <TableHead>{t("infobases.fields.updatedAt")}</TableHead>
-              <TableHead className="w-10" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isLoading
-              ? Array.from({ length: 4 }).map((_, idx) => (
-                  <TableRow key={`skeleton-${idx}`}>
-                    <TableCell>
-                      <Skeleton className="h-4 w-40" />
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton className="h-4 w-32" />
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton className="h-4 w-28" />
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton className="h-4 w-24" />
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton className="h-5 w-20" />
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton className="h-4 w-36" />
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton className="h-4 w-28" />
-                    </TableCell>
-                    <TableCell />
-                  </TableRow>
-                ))
-              : pagedItems.length === 0
-                ? !isError && (
-                    <TableRow>
-                      <TableCell colSpan={8} className="py-12">
-                        <div className="flex flex-col items-center justify-center gap-3 text-center">
-                          <DatabaseIcon className="text-muted-foreground size-8" />
-                          <div className="space-y-1">
-                            <p className="font-medium">{t("infobases.empty.title")}</p>
-                            <p className="text-muted-foreground text-sm">
-                              {tenants.length === 0
-                                ? t("infobases.empty.noTenantsHint")
-                                : t("infobases.empty.hint")}
-                            </p>
-                          </div>
-                          {isAdmin && tenants.length > 0 && (
-                            <Button size="sm" onClick={handleOpenCreate}>
-                              <PlusIcon className="size-4" />
-                              {t("infobases.actions.add")}
-                            </Button>
-                          )}
-                        </div>
-                      </TableCell>
+      {isEmpty ? (
+        <div className="rounded-md border">
+          <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
+            <DatabaseIcon className="text-muted-foreground size-8" />
+            <div className="space-y-1">
+              <p className="font-medium">{t("infobases.empty.title")}</p>
+              <p className="text-muted-foreground text-sm">
+                {tenants.length === 0
+                  ? t("infobases.empty.noTenantsHint")
+                  : t("infobases.empty.hint")}
+              </p>
+            </div>
+            {isAdmin && tenants.length > 0 && (
+              <Button size="sm" onClick={handleOpenCreate}>
+                <PlusIcon className="size-4" />
+                {t("infobases.actions.add")}
+              </Button>
+            )}
+          </div>
+        </div>
+      ) : viewMode === "grouped" && !isLoading ? (
+        <div className="space-y-3">
+          {groups.map((group) => {
+            const isCollapsed = collapsed.has(group.tenantId);
+            return (
+              <div key={group.tenantId} className="rounded-md border">
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(group.tenantId)}
+                  aria-expanded={!isCollapsed}
+                  className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-medium"
+                >
+                  <ChevronDownIcon
+                    className={`size-4 transition-transform ${isCollapsed ? "-rotate-90" : ""}`}
+                  />
+                  <span>{group.tenantName}</span>
+                  <span className="text-muted-foreground tabular-nums">({group.items.length})</span>
+                </button>
+                {!isCollapsed && (
+                  <Table>
+                    <InfobaseTableHeader />
+                    <TableBody>
+                      {group.items.map((item) => (
+                        <InfobaseRow
+                          key={item.id}
+                          item={item}
+                          isAdmin={isAdmin}
+                          onEdit={handleOpenEdit}
+                          onDelete={setDeleting}
+                          onReassign={tenants.length > 1 ? setReassigning : undefined}
+                        />
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="rounded-md border">
+          <Table>
+            <InfobaseTableHeader showTenant />
+            <TableBody>
+              {isLoading
+                ? Array.from({ length: 4 }).map((_, idx) => (
+                    <TableRow key={`skeleton-${idx}`}>
+                      {Array.from({ length: infobaseColumnCount(true) }).map((__, cidx) => (
+                        <TableCell key={cidx}>
+                          <Skeleton className="h-4 w-24" />
+                        </TableCell>
+                      ))}
                     </TableRow>
-                  )
+                  ))
                 : pagedItems.map((item) => (
-                    <TableRow key={item.id}>
-                      <TableCell className="font-medium">{item.name}</TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {tenantNameById.get(item.tenantId) ?? item.tenantName}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground tabular-nums">
-                        {item.databaseServer}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground tabular-nums">
-                        {item.databaseName}
-                      </TableCell>
-                      <TableCell>
-                        <Badge className={statusBadgeClass(item.status)}>
-                          {t(`infobases.status.${item.status}`)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground tabular-nums">
-                        <span className="font-mono text-xs">
-                          {item.publication.virtualPath}
-                        </span>
-                        <span className="text-muted-foreground/70 ml-2 text-xs">
-                          {item.publication.platformVersion}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground tabular-nums">
-                        {formatDateTime(item.updatedAt ?? item.createdAt)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {isAdmin && (
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon" className="size-8">
-                                <MoreHorizontalIcon className="size-4" />
-                                <span className="sr-only">{t("common.details")}</span>
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem onSelect={() => handleOpenEdit(item)}>
-                                <PencilIcon className="size-4" />
-                                {t("common.edit")}
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                variant="destructive"
-                                onSelect={() => setDeleting(item)}
-                              >
-                                <Trash2Icon className="size-4" />
-                                {t("common.delete")}
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        )}
-                      </TableCell>
-                    </TableRow>
+                    <InfobaseRow
+                      key={item.id}
+                      item={item}
+                      tenantName={tenantNameById.get(item.tenantId) ?? item.tenantName}
+                      isAdmin={isAdmin}
+                      onEdit={handleOpenEdit}
+                      onDelete={setDeleting}
+                      onReassign={tenants.length > 1 ? setReassigning : undefined}
+                    />
                   ))}
-          </TableBody>
-        </Table>
-      </div>
+            </TableBody>
+          </Table>
+        </div>
+      )}
 
-      {total > PAGE_SIZE && (
+      {viewMode === "flat" && total > PAGE_SIZE && (
         <Pagination>
           <PaginationContent>
             <PaginationItem>
@@ -351,6 +318,15 @@ export function InfobasesPage() {
           if (!open) setDeleting(null);
         }}
         infobase={deleting}
+      />
+      <ReassignInfobaseDialog
+        key={reassigning?.id ?? "no-reassign"}
+        open={reassigning !== null}
+        onOpenChange={(open) => {
+          if (!open) setReassigning(null);
+        }}
+        infobase={reassigning}
+        tenants={tenants}
       />
     </div>
   );

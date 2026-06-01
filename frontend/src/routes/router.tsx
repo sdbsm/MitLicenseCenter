@@ -9,6 +9,7 @@ import { ProfilePage } from "@/features/profile/ProfilePage";
 import { PublicationsPage } from "@/features/publications/PublicationsPage";
 import { SessionsPage } from "@/features/sessions/SessionsPage";
 import { SettingsPage } from "@/features/settings/SettingsPage";
+import { TenantDetailPage } from "@/features/tenants/TenantDetailPage";
 import { TenantsPage } from "@/features/tenants/TenantsPage";
 
 export const router = createBrowserRouter([
@@ -23,6 +24,7 @@ export const router = createBrowserRouter([
       { index: true, element: <DashboardPage /> },
       { path: "profile", element: <ProfilePage /> },
       { path: "tenants", element: <TenantsPage /> },
+      { path: "tenants/:id", element: <TenantDetailPage /> },
       { path: "infobases", element: <InfobasesPage /> },
       { path: "publications", element: <PublicationsPage /> },
       { path: "sessions", element: <SessionsPage /> },
