@@ -51,7 +51,7 @@ When a 1C Platform Update occurs, the system must ONLY:
 
 ### Operational note (path resolution)
 - `OneCIisPublishingService` reads and patches `default.vrd` via `XDocument` + `Microsoft.Web.Administration.ServerManager`. Path resolution (via `VrdPathResolver.Resolve`):
-  - **Override-first**: if the Publication has `PhysicalPathOverride` set, the resolver uses `{PhysicalPathOverride}\default.vrd`. The operator sets this in the Infobase edit form — it is the physical folder of the IIS application, exactly as shown in IIS Manager.
+  - **Override-first**: if the Publication has `PhysicalPathOverride` set, the resolver uses `{PhysicalPathOverride}\default.vrd`. The add/edit form prefills it as `{Settings.IIS.DefaultVrdRoot}\{databaseName}` (editable), so new publications normally take this branch; it is the physical folder of the IIS application, exactly as shown in IIS Manager.
   - **Convention fallback**: `{Settings.IIS.DefaultVrdRoot}/{siteName}/{trimmedVirtualPath}/default.vrd` — operator-configurable from the Settings page.
 - Service-account requirements specific to drift/reconcile (these add to the generic permissions in §3 below):
   - **R/W** on every physical folder containing a managed `default.vrd` file. Reconcile writes to `default.vrd.mlc.tmp` and atomically swaps via `File.Replace`, so the account also needs delete-on-rename permission in that folder.
@@ -60,8 +60,8 @@ When a 1C Platform Update occurs, the system must ONLY:
 
 ### Operational note (IIS physical-path alignment)
 The drift detector resolves the on-disk VRD path as described above. **If the path is wrong, drift detection reports `Missing` even for a healthy publication.** Two resolution strategies:
-1. **Per-publication override (recommended for non-standard layouts)**: set `PhysicalPathOverride` in the Infobase edit form to the exact physical folder path shown in IIS Manager (e.g., `C:\inetpub\wwwroot\mitpro`). Drift detection will use this path immediately.
-2. **Convention alignment**: ensure IIS physical path matches `{IIS.DefaultVrdRoot}/{siteName}/{trimmedVirtualPath}`. This is automatic for publications created with the default layout. Service account also needs:
+1. **Per-publication override (prefilled for every new publication)**: the add/edit form sets `PhysicalPathOverride` to `{IIS.DefaultVrdRoot}\{databaseName}` (e.g., `C:\inetpub\wwwroot\acme_bp`); edit it to the exact physical folder shown in IIS Manager if the layout differs. Drift detection will use this path immediately.
+2. **Convention alignment** (fallback when the override is cleared): ensure IIS physical path matches `{IIS.DefaultVrdRoot}/{siteName}/{trimmedVirtualPath}`. Service account also needs:
    - **IIS-admin rights**: read `applicationHost.config` and `redirection.config`, run `ServerManager` against the local IIS. `Network Service` is sufficient on a stock single-node install; custom accounts need `IIS_IUSRS` membership.
    - **R/W access** to the physical folder path (the one referenced by the resolved VRD path).
 
