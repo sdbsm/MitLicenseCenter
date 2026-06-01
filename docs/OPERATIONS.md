@@ -13,6 +13,20 @@ Operationally this means:
 - **Run the host under a supervisor that surfaces the exit code** (Windows Service / IIS hosting / `sc.exe` / NSSM). A fail-fast exit should be visible and alert the operator, not be silently restarted into the same broken state.
 - **First-run admin password:** on the very first successful start against an empty database, `IdentitySeeder` creates the `admin` account with a random password and writes it to the service log at `Warning` level (same in Development and Production). Capture it from the log on first boot and change it at first sign-in.
 
+## Deployment is manual — there is no deploy script
+
+Per [ADR-14](DECISIONS.md#14-cicd--github-actions-ci-only-no-cd-in-v1), v1 has CI only: **no deployment automation and no deploy script** ships in `scripts/` (only `build.ps1` / `db-reset.ps1` / `dev.ps1` / `shadcn-add.ps1`). Releasing a new version onto the single-node host (topology in `04_INFRASTRUCTURE.md`) is a manual operator procedure:
+
+1. **Build & verify** on a build machine — `scripts/build.ps1` (Release) restores, builds, tests and lints both backend and frontend. A red build is not deployed.
+2. **Publish the backend** — `dotnet publish backend/src/MitLicenseCenter.Web/MitLicenseCenter.Web.csproj -c Release -o <publish-dir>`, a framework-dependent publish against the .NET 10 runtime installed on the host (ADR-12).
+3. **Build the frontend** — `pnpm --dir frontend build` emits the static SPA in `frontend/dist/`. It is served at the panel origin (IIS static site or the host's static-file middleware) and calls the backend same-origin at `/api/v1/...`.
+4. **Stop the running backend** under its supervisor (Windows Service / IIS hosting / NSSM — whatever wraps the host; see the fail-fast startup section above).
+5. **Copy artefacts** — replace the backend binaries with the new publish output and the SPA with the new `dist/`. **Never overwrite** `appsettings.Production.json` or the Data Protection key ring under `%ProgramData%\MitLicenseCenter\keys\` (losing the key ring makes every secret in `dbo.Settings` unreadable — see below).
+6. **Back up first, then start.** Bootstrap is fail-fast: EF Core migrations and seeding run synchronously before the listener opens, so a schema upgrade is applied automatically on first start of the new version. **Take a database + key-ring backup before starting a version that carries migrations** — migrations are forward-only, so rollback of a schema change means restoring the pre-deploy backup. If migrations or seeding fail the process exits non-zero without serving; read the `Critical` log line, fix, and restart.
+7. **Smoke-check** — sign in, confirm the Dashboard RAS health card and the Sessions Monitor populate within ~30s.
+
+Rolling back a release = redeploy the previous published artefacts; if the new version applied a migration, also restore the pre-deploy database backup (the app ships no down-migrations). Automating this procedure into a real `scripts/Deploy-MitLicenseCenter.ps1` is a deliberate future step tracked in the backlog, not a current artefact — CD intentionally waits until the deployment story stabilizes (ADR-14).
+
 ## Backup is operator responsibility
 
 Per [ADR-15](DECISIONS.md#15-backup-and-two-factor-authentication-scope-boundary), the application does not orchestrate its own backups. The operator is responsible for backing up three artefacts:

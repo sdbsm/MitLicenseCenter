@@ -136,7 +136,7 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 - **Impact:** Канон обещает несуществующий артефакт; оператор не найдёт процедуру деплоя.
 - **Recommendation (варианты):** (a) добавить скрипт деплоя; (b) переписать ADR-14 под
   фактическую ручную процедуру либо убрать ссылку. Не исправлять автоматически — выбрать вариант.
-- **Status:** Open
+- **Status:** **Done** (2026-06-02, вариант **b**) — см. «Выполненные работы».
 
 ### MLC-006 — [Doc divergence] Канон обещает OpenAPI-генерируемый TS-клиент; фактически типы рукописные
 - **Category:** Maintainability (docs / API)
@@ -149,7 +149,8 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
   заблуждение относительно процесса.
 - **Recommendation (варианты):** (a) внедрить codegen из `/api/docs/v1/swagger.json`;
   (b) обновить ADR-10/13, зафиксировав рукописные типы как сознательный выбор.
-- **Status:** Open
+- **Status:** **Done** (2026-06-02, вариант **b**) — см. «Выполненные работы». Вариант (a)
+  (codegen) остаётся открытой опцией как `MLC-006(a)`; связан с `MLC-016` (runtime-валидация).
 
 ### MLC-007 — Frontend: нет тестов на CRUD-мутации, 409-обработчики и ролевой ProtectedRoute
 - **Category:** Testing / Frontend
@@ -306,8 +307,9 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 2. **MLC-002** (Done), **MLC-003** (Done) — целостность аудита и fail-fast старта; малый
    объём правок. Оба P1 закрыты.
 3. **P2** — контракт ошибок (MLC-004 → **Done**: глобальный ProblemDetails + маппинг
-   гонок уникальности в 409), info-leak (MLC-009 → **NEXT TASK**), doc-divergences
-   (MLC-005/006), пробелы в тестах (MLC-007/008).
+   гонок уникальности в 409), doc-divergences (MLC-005/006 → **Done**: канон приведён к
+   реальности — ручной деплой в `OPERATIONS.md`, рукописные TS-типы зафиксированы в
+   ADR-10.1), info-leak (MLC-009 → **NEXT TASK**), пробелы в тестах (MLC-007/008).
 4. **P3** — производительность, хардненинг, сопровождаемость (MLC-010…017).
 
 ---
@@ -324,6 +326,41 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 ---
 
 ## Выполненные работы (Done)
+
+### MLC-005 — [Doc divergence] ADR-14: ручной деплой без несуществующего скрипта — 2026-06-02
+- **Выбранный вариант:** **(b)** — привести документацию к реальности (наименее рискованный
+  путь для doc-driven проекта). Реальный скрипт деплоя не добавлялся: фактической
+  стабильной процедуры ещё нет, а ps1 закодировал бы неустоявшийся процесс.
+- **Что сделано:** (1) ADR-14 (`docs/DECISIONS.md`) переписан — убрана ссылка на
+  несуществующий `scripts/Deploy-MitLicenseCenter.ps1`; теперь Decision явно говорит, что
+  деплой — ручная операторская процедура из `OPERATIONS.md`, скрипта деплоя в `scripts/`
+  нет (только `build`/`db-reset`/`dev`/`shadcn-add`), а будущий `Deploy-*.ps1` — пункт
+  бэклога. В Reason зафиксировано, почему скрипт не делаем сейчас и как fail-fast bootstrap
+  (ADR-18) делает ручную процедуру безопасной (миграции применяются на старте или хост
+  не обслуживает трафик). (2) В `OPERATIONS.md` добавлен раздел «Deployment is manual —
+  there is no deploy script» с пошаговой процедурой: `build.ps1` → `dotnet publish` backend
+  → `pnpm build` SPA → stop/replace (не трогая `appsettings.Production.json` и DPAPI
+  key ring) → backup-before-migrate → start → smoke-check; описан откат (redeploy + restore,
+  down-миграций нет).
+- **Файлы:** `docs/DECISIONS.md` (ADR-14); `docs/OPERATIONS.md` (новый раздел про деплой).
+  Кода и скриптов не трогали.
+
+### MLC-006 — [Doc divergence] Рукописные TS-типы зафиксированы как осознанный выбор — 2026-06-02
+- **Выбранный вариант:** **(b)** — обновить канон, зафиксировав рукописные типы и способ
+  поддержания соответствия контракту. Вариант (a) (внедрить codegen) вынесен как отдельная
+  открытая опция `MLC-006(a)` (объём = новая задача, не правка доков), связан с `MLC-016`.
+- **Что сделано:** (1) Уточнено фактическое состояние: OpenAPI/Swagger UI реально отдаётся
+  (`/api/docs`, raw — `/api/docs/v1/swagger.json`, Swashbuckle) и остаётся reference-контрактом,
+  но codegen-шага нет — типы рукописные в `frontend/src/features/*/types.ts` + `lib/api.ts`.
+  (2) Введён **ADR-10.1 — Hand-written TypeScript API types (no OpenAPI codegen)**: решение,
+  как поддерживается соответствие (ручная синхронизация по Swagger UI, camelCase System.Text.Json
+  совпадает с TS-интерфейсами, `api<T>()` кастит без runtime-валидации), отклонённые
+  альтернативы (`openapi-typescript`/NSwag, Zod на каждой границе) и backlog-указатели
+  (`MLC-006(a)`/`MLC-016`). (3) Исправлены вводящие в заблуждение формулировки «generated
+  from the OpenAPI spec»: ADR-10 (Decision), ADR-13 (Reason) и `05_UI_REQUIREMENTS.md` §2
+  теперь говорят про рукописные типы и ссылаются на ADR-10.1.
+- **Файлы:** `docs/DECISIONS.md` (ADR-10, новый ADR-10.1, ADR-13);
+  `docs/05_UI_REQUIREMENTS.md`. Кода и `frontend/package.json` не трогали.
 
 ### MLC-004 — Глобальный ProblemDetails + backstop гонок уникальности → 409 — 2026-06-02
 - **Что сделано:** (1) Pipeline получил `builder.Services.AddProblemDetails(...)` +

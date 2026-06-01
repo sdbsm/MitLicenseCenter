@@ -52,9 +52,15 @@ Current, binding architectural decisions for MitLicense Center v1. Each ADR stat
 - **Reason:** Built into .NET, machine/account-scoped, zero external dependencies. The operator backs up the key ring alongside the database — without it a restored backup is unreadable (ADR-15, `OPERATIONS.md`).
 
 ## 10. REST API Versioning
-- **Decision:** URI versioning — all endpoints under `/api/v1/...` (`Asp.Versioning.Mvc`). Breaking changes introduce `/api/v2/...`. OpenAPI/Swagger UI at `/api/docs`; the TypeScript client is generated from the OpenAPI spec.
+- **Decision:** URI versioning — all endpoints under `/api/v1/...` (`Asp.Versioning.Mvc`). Breaking changes introduce `/api/v2/...`. OpenAPI/Swagger UI at `/api/docs` (Swashbuckle; raw spec at `/api/docs/v1/swagger.json`) is the browsable **reference contract**. The TypeScript API types are hand-written, **not** generated from the spec — see ADR-10.1.
 - **Rejected:** Header-only versioning (harder to discover/test); no versioning.
 - **Reason:** URI versioning is the most discoverable and tooling-friendly; frontend and backend deploy together so complex negotiation is unnecessary.
+
+### ADR-10.1 — Hand-written TypeScript API types (no OpenAPI codegen)
+- **Decision:** The frontend's API types are **hand-written** in `frontend/src/features/*/types.ts` (one `types.ts` per feature) plus the request helper in `frontend/src/lib/api.ts`. The OpenAPI spec at `/api/docs/v1/swagger.json` is the reference contract, but **no code generator runs against it** — there is no codegen step in `frontend/package.json`. The "TypeScript client is generated from the OpenAPI spec" wording in earlier drafts of ADR-10/ADR-13 was aspirational and never implemented; this ADR records the actual, deliberate state.
+- **How the contract is kept in sync:** types are updated by hand whenever an endpoint's shape changes, cross-checked against the live Swagger UI at `/api/docs`. Backend DTOs serialize camelCase (System.Text.Json default), matching the TS interfaces verbatim. `api<T>()` casts the parsed JSON to the declared `T` with **no runtime validation** — a mismatch surfaces as a downstream type error, not a guarded boundary failure.
+- **Rejected:** wiring `openapi-typescript` / NSwag codegen into the build (extra toolchain plus either a running backend or a checked-in spec snapshot to generate against, for a surface of ~7 small feature type files owned by the same author who owns both ends); Zod schemas at every response boundary (heavier than the drift risk warrants at this scale). The cost outweighs the benefit for a 5–20-user single-node panel.
+- **Reason:** Monorepo + same author on both ends + a small, stable API surface — hand-written types are cheaper to maintain than a codegen pipeline, and the Swagger UI already provides a browsable contract for cross-checking. **Backlog:** adopting OpenAPI codegen (`MLC-006(a)`) or Zod runtime validation at the response boundary (`MLC-016`) is a deliberate future step in `PROJECT_BACKLOG.md`, not an implied current guarantee. Promoting either does not require revoking this ADR — it supersedes it.
 
 ## 11. UI Component Library
 - **Decision:** shadcn/ui (copy-paste components owned in the repo) on top of Radix UI, styled with Tailwind CSS. Auxiliary: `lucide-react`, `@tanstack/react-table`, `react-hook-form` + `zod`, `sonner`, `recharts`, `date-fns`/`ru`. No other component libraries mixed in.
@@ -69,12 +75,12 @@ Current, binding architectural decisions for MitLicense Center v1. Each ADR stat
 ## 13. Repository Layout = Monorepo
 - **Decision:** Single private GitHub repo — `backend/` (.NET solution), `frontend/` (Vite/React/TS), `docs/`, `scripts/`, `.github/`.
 - **Rejected:** Separate frontend/backend repos.
-- **Reason:** Atomic cross-cutting commits, single CI pipeline, one source of truth. The OpenAPI-generated TS client lives next to the API that produces it.
+- **Reason:** Atomic cross-cutting commits, single CI pipeline, one source of truth. The hand-written TS API types (ADR-10.1) live next to the API that produces them, so a contract change and its type update land in the same commit.
 
 ## 14. CI/CD = GitHub Actions, CI Only (No CD in v1)
-- **Decision:** GitHub Actions on every push and PR to `main`. Backend: `restore → build → test`. Frontend: `install → lint → type-check → test → build`. PRs are blocked while either job is red. No deployment automation — deploy is manual via `scripts/Deploy-MitLicenseCenter.ps1`.
-- **Rejected:** No CI (unacceptable for a system that auto-kills sessions); full CD on tag (premature); self-hosted runners / Jenkins / Azure DevOps (extra infra).
-- **Reason:** Minimum viable safety net; CD waits until the deployment story stabilizes.
+- **Decision:** GitHub Actions on every push and PR to `main`. Backend: `restore → build → test`. Frontend: `install → lint → type-check → test → build`. PRs are blocked while either job is red. No deployment automation: deploy is a **manual operator procedure** documented in `OPERATIONS.md` ("Deployment is manual") — build with `scripts/build.ps1`, `dotnet publish` the backend, `pnpm build` the SPA, then stop/replace/restart the host. There is **no deploy script** in `scripts/` (only `build.ps1` / `db-reset.ps1` / `dev.ps1` / `shadcn-add.ps1`); a future `scripts/Deploy-MitLicenseCenter.ps1` is a backlog item, not a current artefact.
+- **Rejected:** No CI (unacceptable for a system that auto-kills sessions); full CD on tag (premature); self-hosted runners / Jenkins / Azure DevOps (extra infra); shipping a deploy script before the manual procedure has stabilized (it would encode an unsettled story and drift from reality).
+- **Reason:** Minimum viable safety net; CD — and any scripted deploy — waits until the deployment story stabilizes. Fail-fast bootstrap (ADR-18) already makes the manual procedure safe: a new version applies its migrations synchronously on start or refuses to serve, so the operator needs only build → publish → restart, not a migration runner.
 
 ## 15. Backup and Two-Factor Authentication Scope Boundary
 - **Decision:** Backup orchestration and in-app 2FA are permanently **out of scope**.
