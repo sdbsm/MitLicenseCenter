@@ -99,8 +99,7 @@ Runtime configuration lives in `dbo.Settings`. The catalog is the single source 
 | `OneC.Cluster.AdminPassword` | **yes** | Text | — | — | `rac.exe --cluster-pwd` |
 | `OneC.RAS.Endpoint` | no | HostPort | — | port [1024, 65535] | RAS adapter |
 | `OneC.RAS.ExePath` | no | Path | — *(no seeded default — 1C 8.5 keeps `rac.exe` in `1cv8\<version>\bin\`)* | — | RAS adapter |
-| `IIS.ServiceAccount.UserName` | no | Text | — | informational | docs/diagnostics |
-| `IIS.DefaultVrdRoot` | no | Path | `C:\inetpub\1c-publications` | — | VRD path resolver |
+| `IIS.DefaultVrdRoot` | no | Path | `C:\inetpub\wwwroot` | — | VRD path resolver + add-infobase physical-path prefill |
 | `Defaults.DatabaseServer` | no | Text | — | — | add-infobase form prefill |
 | `IIS.DefaultSiteName` | no | Text | `Default Web Site` | — | add-infobase form prefill |
 | `OneC.DefaultPlatformVersion` | no | Text | — | — | add-infobase form prefill |

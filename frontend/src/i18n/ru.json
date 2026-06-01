@@ -198,6 +198,15 @@
       "clusterInfobaseHint": "Выберите базу из кластера 1С по имени — за её сеансами и лицензиями будет следить программа. Название подставится автоматически.",
       "advancedToggle": "Дополнительно",
       "advancedHint": "Сервер БД, публикация в IIS, версия платформы и статус. Обычно подставляются из «Параметров» — меняйте, только если эта база отличается.",
+      "groupInfobase": "Инфобаза",
+      "groupInfobaseHint": "Отображаемое название и операционный статус.",
+      "groupDatabase": "СУБД (SQL Server)",
+      "groupDatabaseHint": "Где физически хранится база данных.",
+      "groupPublication": "Публикация в IIS",
+      "groupPublicationHint": "Как база публикуется на веб-сервере IIS.",
+      "databaseNameLabel": "Имя базы данных (SQL Server)",
+      "databaseServerLabel": "Сервер СУБД (SQL Server)",
+      "databaseNameSubsystemHint": "База данных на SQL-сервере (сервер задаётся в «Дополнительно» или в «Параметрах»).",
       "sectionInfobase": "Инфобаза",
       "sectionInfobaseHint": "Привязка к клиенту, расположение БД и операционный статус.",
       "sectionPublication": "Публикация в IIS",
@@ -305,7 +314,7 @@
     "form": {
       "virtualPathHint": "Например, /acme-bp — должен начинаться с «/» и не содержать пробелов.",
       "platformVersionHint": "Четыре числовых сегмента «Мажор.Минор.Билд.Ревизия», например 8.3.23.1865 или 8.5.1.1302.",
-      "physicalPathOverrideHint": "Абсолютный путь к папке публикации на сервере (например, C:\\inetpub\\wwwroot\\mitpro). Оставьте пустым — будет использован вычисленный путь.",
+      "physicalPathOverrideHint": "Папка публикации на сервере. Подставляется как {корень из «Параметров»}\\{имя базы} (например, C:\\inetpub\\wwwroot\\acme_bp). Измените, если нужно другое расположение.",
       "physicalPathOverridePlaceholderGeneric": "Вычисляемый путь…"
     },
     "errors": {
@@ -425,10 +434,10 @@
     "title": "Параметры",
     "subtitle": "Настройки подключения к 1С RAS, IIS и частоты опроса. Секреты хранятся зашифрованными и не отображаются в открытом виде.",
     "sections": {
-      "cluster": "1С RAS",
-      "iis": "IIS",
+      "cluster": "Кластер 1С (RAS)",
+      "iis": "Публикации IIS",
       "defaults": "Значения по умолчанию для новых баз",
-      "defaults.description": "Подставляются в форму добавления инфобазы, чтобы не вводить одно и то же для каждой базы. Для конкретной базы значение можно переопределить в блоке «Дополнительно».",
+      "defaults.description": "Подставляются в форму добавления инфобазы, чтобы не вводить одно и то же для каждой базы. Сервер БД — это СУБД (SQL Server); сайт и версия платформы относятся к публикации в IIS. Для конкретной базы значение можно переопределить в блоке «Дополнительно».",
       "polling": "Опрос и дрейф"
     },
     "labels": {
@@ -436,11 +445,10 @@
       "OneC.Cluster.AdminPassword": "Пароль администратора кластера (для rac.exe)",
       "OneC.RAS.Endpoint": "RAS endpoint (host:port)",
       "OneC.RAS.ExePath": "Путь к rac.exe",
-      "IIS.ServiceAccount.UserName": "Учётка IIS",
       "IIS.DefaultVrdRoot": "Корневая папка публикаций IIS",
-      "Defaults.DatabaseServer": "Сервер БД (SQL) по умолчанию",
+      "Defaults.DatabaseServer": "Сервер СУБД (SQL Server) по умолчанию",
       "IIS.DefaultSiteName": "Сайт IIS по умолчанию",
-      "OneC.DefaultPlatformVersion": "Версия платформы 1С по умолчанию",
+      "OneC.DefaultPlatformVersion": "Версия платформы 1С (публикация IIS) по умолчанию",
       "Polling.HotIntervalSeconds": "Период hot-цикла, сек",
       "Polling.ColdIntervalSeconds": "Период cold-цикла, сек",
       "Polling.HotThresholdPercent": "Порог перехода в hot, %",

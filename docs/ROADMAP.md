@@ -10,7 +10,7 @@ The application is a working control plane for single-node multi-tenant 1C hosti
 - **Session & license enforcement** — two-tier reconciliation loop (hot 3–5s / cold 20–30s), newest-first idempotent kill, manual kill from the Sessions Monitor.
 - **1C cluster adapter** — RAS via `rac.exe` only (ADR-16 / ADR-3.3), with a 30s RAS health probe surfaced on the Dashboard.
 - **IIS publications** — surgical `default.vrd` XML patching + 5-minute drift detection + explicit admin reconcile (ADR-4.1).
-- **Settings** — encrypted `dbo.Settings` (DPAPI) with the 14-key catalog in `04_INFRASTRUCTURE.md`.
+- **Settings** — encrypted `dbo.Settings` (DPAPI) with the 13-key catalog in `04_INFRASTRUCTURE.md`.
 - **Audit** — immutable log with server-side paging/filtering and a daily retention purge.
 - **Frontend** — React + TS SPA on shadcn/ui, Russian-only locale, Vitest test foundation.
 - **CI** — GitHub Actions (build + test + lint), no CD (manual deploy).

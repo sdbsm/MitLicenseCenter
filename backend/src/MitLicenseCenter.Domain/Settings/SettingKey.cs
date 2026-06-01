@@ -20,7 +20,6 @@ public static class SettingKey
     public const string OneCRasExePath = "OneC.RAS.ExePath";
 
     // IIS / publications (используется в PR 3.5).
-    public const string IisServiceAccountUserName = "IIS.ServiceAccount.UserName";
     public const string IisDefaultVrdRoot = "IIS.DefaultVrdRoot";
 
     // Дефолты для формы добавления инфобазы. Не влияют на доменную модель и

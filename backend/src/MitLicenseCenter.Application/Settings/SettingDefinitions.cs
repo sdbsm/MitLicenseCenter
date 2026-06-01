@@ -54,18 +54,12 @@ public static class SettingDefinitions
                 Description: "Путь к rac.exe для RAS fallback (например, C:\\Program Files\\1cv8\\8.5.1.1302\\bin\\rac.exe).",
                 Kind: SettingValueKind.Path),
 
-            [SettingKey.IisServiceAccountUserName] = new(
-                SettingKey.IisServiceAccountUserName,
-                IsSecret: false,
-                Description: "Учётка, под которой работает service IIS (informational, для подсказок).",
-                Kind: SettingValueKind.Text),
-
             [SettingKey.IisDefaultVrdRoot] = new(
                 SettingKey.IisDefaultVrdRoot,
                 IsSecret: false,
-                Description: "Базовый каталог публикаций 1С на IIS.",
+                Description: "Базовый каталог публикаций 1С на IIS. Физический путь новой публикации форма предлагает как {этот корень}\\{имя базы}.",
                 Kind: SettingValueKind.Path,
-                DefaultValue: @"C:\inetpub\1c-publications"),
+                DefaultValue: @"C:\inetpub\wwwroot"),
 
             // Дефолты формы добавления инфобазы — подставляются как значения по
             // умолчанию в новую базу, чтобы не вводить одинаковое каждый раз.

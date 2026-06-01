@@ -149,7 +149,7 @@ internal sealed partial class OneCIisPublishingService : IIisPublishingService
     private string ResolveVrdPath(Publication publication) =>
         VrdPathResolver.Resolve(
             publication.PhysicalPathOverride,
-            _settings.GetString(SettingKey.IisDefaultVrdRoot) ?? @"C:\inetpub\1c-publications",
+            _settings.GetString(SettingKey.IisDefaultVrdRoot) ?? @"C:\inetpub\wwwroot",
             publication.SiteName,
             publication.VirtualPath);
 

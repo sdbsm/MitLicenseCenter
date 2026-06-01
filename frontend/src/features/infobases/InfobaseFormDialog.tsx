@@ -51,7 +51,7 @@ import type {
   UpdateInfobaseInput,
 } from "./types";
 import { useCreateInfobase, useUpdateInfobase } from "./useInfobases";
-import { virtualPathFromDatabase } from "./virtualPath";
+import { physicalPathFromDatabase, virtualPathFromDatabase } from "./paths";
 
 interface ConflictBody {
   code?: string;
@@ -148,7 +148,7 @@ export function InfobaseFormDialog({
   const defaultDatabaseServer = settingValue("Defaults.DatabaseServer") ?? "";
   const defaultSiteName = settingValue("IIS.DefaultSiteName") ?? "Default Web Site";
   const defaultPlatformVersion = settingValue("OneC.DefaultPlatformVersion") ?? "";
-  const defaultVrdRoot = settingValue("IIS.DefaultVrdRoot") ?? "C:\\inetpub\\1c-publications";
+  const defaultVrdRoot = settingValue("IIS.DefaultVrdRoot") ?? "C:\\inetpub\\wwwroot";
 
   // Блок «Дополнительно» свёрнут по умолчанию — основная цель упрощённой формы.
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -158,6 +158,7 @@ export function InfobaseFormDialog({
   // значения уже заданы — считаем их «тронутыми», чтобы не перетирать.
   const nameTouched = useRef(isEdit);
   const virtualPathTouched = useRef(isEdit);
+  const physicalPathTouched = useRef(isEdit);
   const settingsApplied = useRef(false);
 
   const form = useForm<FormValues>({
@@ -218,9 +219,9 @@ export function InfobaseFormDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings, isEdit]);
 
-  const [watchedSiteName, watchedVirtualPath, watchedDatabaseServer] = useWatch({
+  const [watchedDatabaseServer, watchedDatabaseName] = useWatch({
     control: form.control,
-    name: ["publication.siteName", "publication.virtualPath", "databaseServer"],
+    name: ["databaseServer", "databaseName"],
   });
 
   // Discovery: тянем списки, пока диалог открыт (ленивая загрузка по `open`).
@@ -263,21 +264,25 @@ export function InfobaseFormDialog({
     }
   };
 
-  // Выбор/ввод имени БД — генерируем из него виртуальный путь.
+  // Выбор/ввод имени БД — генерируем из него виртуальный и физический путь
+  // публикации (каждый — только пока пользователь его не правил руками).
   const handleDatabaseNameChange = (value: string, onChange: (v: string) => void) => {
     onChange(value);
-    if (virtualPathTouched.current) return;
-    const vp = virtualPathFromDatabase(value);
-    if (vp) {
-      form.setValue("publication.virtualPath", vp, { shouldValidate: true });
+    if (!virtualPathTouched.current) {
+      const vp = virtualPathFromDatabase(value);
+      if (vp) {
+        form.setValue("publication.virtualPath", vp, { shouldValidate: true });
+      }
+    }
+    if (!physicalPathTouched.current) {
+      const pp = physicalPathFromDatabase(defaultVrdRoot, value);
+      form.setValue("publication.physicalPathOverride", pp, { shouldValidate: true });
     }
   };
 
   const computedDefaultPath = (() => {
-    const site = (watchedSiteName ?? "").trim();
-    const vp = (watchedVirtualPath ?? "").trim().replace(/^\//, "");
-    if (!site) return t("publications.form.physicalPathOverridePlaceholderGeneric");
-    return `${defaultVrdRoot}\\${site}${vp ? `\\${vp}` : ""}`;
+    const pp = physicalPathFromDatabase(defaultVrdRoot, watchedDatabaseName ?? "");
+    return pp || t("publications.form.physicalPathOverridePlaceholderGeneric");
   })();
 
   const onSubmit = form.handleSubmit(
@@ -428,7 +433,7 @@ export function InfobaseFormDialog({
               name="databaseName"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t("infobases.fields.databaseName")}</FormLabel>
+                  <FormLabel>{t("infobases.form.databaseNameLabel")}</FormLabel>
                   <FormControl>
                     <DiscoveryField
                       value={field.value}
@@ -446,6 +451,7 @@ export function InfobaseFormDialog({
                       }
                     />
                   </FormControl>
+                  <FormDescription>{t("infobases.form.databaseNameSubsystemHint")}</FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
@@ -466,50 +472,41 @@ export function InfobaseFormDialog({
             </button>
 
             {advancedOpen && (
-              <div className="grid gap-4">
+              <div className="grid gap-5">
                 <p className="text-muted-foreground text-xs">{t("infobases.form.advancedHint")}</p>
 
-                <FormField
-                  control={form.control}
-                  name="name"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("infobases.fields.name")}</FormLabel>
-                      <FormControl>
-                        <Input
-                          autoComplete="off"
-                          placeholder={t("infobases.form.namePlaceholder")}
-                          {...field}
-                          onChange={(e) => {
-                            nameTouched.current = true;
-                            field.onChange(e);
-                          }}
-                        />
-                      </FormControl>
-                      <FormDescription>{t("infobases.form.nameHint")}</FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                {/* Группа: Инфобаза (название + статус) */}
+                <div className="grid gap-4">
+                  <div className="space-y-0.5">
+                    <h4 className="text-sm font-semibold">{t("infobases.form.groupInfobase")}</h4>
+                    <p className="text-muted-foreground text-xs">
+                      {t("infobases.form.groupInfobaseHint")}
+                    </p>
+                  </div>
 
-                <div className="grid gap-4 sm:grid-cols-2">
                   <FormField
                     control={form.control}
-                    name="databaseServer"
+                    name="name"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>{t("infobases.fields.databaseServer")}</FormLabel>
+                        <FormLabel>{t("infobases.fields.name")}</FormLabel>
                         <FormControl>
                           <Input
                             autoComplete="off"
-                            placeholder={t("infobases.form.databaseServerPlaceholder")}
+                            placeholder={t("infobases.form.namePlaceholder")}
                             {...field}
+                            onChange={(e) => {
+                              nameTouched.current = true;
+                              field.onChange(e);
+                            }}
                           />
                         </FormControl>
+                        <FormDescription>{t("infobases.form.nameHint")}</FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
+
                   <FormField
                     control={form.control}
                     name="status"
@@ -534,6 +531,46 @@ export function InfobaseFormDialog({
                       </FormItem>
                     )}
                   />
+                </div>
+
+                <Separator />
+
+                {/* Группа: СУБД (SQL Server) */}
+                <div className="grid gap-4">
+                  <div className="space-y-0.5">
+                    <h4 className="text-sm font-semibold">{t("infobases.form.groupDatabase")}</h4>
+                    <p className="text-muted-foreground text-xs">
+                      {t("infobases.form.groupDatabaseHint")}
+                    </p>
+                  </div>
+
+                  <FormField
+                    control={form.control}
+                    name="databaseServer"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t("infobases.form.databaseServerLabel")}</FormLabel>
+                        <FormControl>
+                          <Input
+                            autoComplete="off"
+                            placeholder={t("infobases.form.databaseServerPlaceholder")}
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <Separator />
+
+                {/* Группа: Публикация в IIS */}
+                <div className="space-y-0.5">
+                  <h4 className="text-sm font-semibold">{t("infobases.form.groupPublication")}</h4>
+                  <p className="text-muted-foreground text-xs">
+                    {t("infobases.form.groupPublicationHint")}
+                  </p>
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -624,6 +661,10 @@ export function InfobaseFormDialog({
                           className="font-mono text-xs"
                           {...field}
                           value={field.value ?? ""}
+                          onChange={(e) => {
+                            physicalPathTouched.current = true;
+                            field.onChange(e);
+                          }}
                         />
                       </FormControl>
                       <FormDescription>
