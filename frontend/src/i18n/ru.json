@@ -236,6 +236,7 @@
       "nameRequired": "Укажите название инфобазы.",
       "nameTooLong": "Название не длиннее 200 символов.",
       "nameDuplicate": "У этого клиента уже есть инфобаза с таким названием.",
+      "clusterAlreadyAssigned": "Эта база кластера уже привязана к другому клиенту.",
       "clusterIdInvalid": "ID должен быть в формате GUID.",
       "databaseServerRequired": "Укажите сервер БД.",
       "databaseNameRequired": "Укажите имя БД.",

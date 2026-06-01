@@ -12,11 +12,11 @@ namespace MitLicenseCenter.Tests.Unit.Endpoints;
 // у Acme и у Beta — два разных tenant'а — должны сосуществовать.
 public sealed class InfobaseUniquePerTenantTests
 {
-    private static CreateInfobaseRequest BuildRequest(Guid tenantId, string name) =>
+    private static CreateInfobaseRequest BuildRequest(Guid tenantId, string name, Guid? clusterInfobaseId = null) =>
         new(
             TenantId: tenantId,
             Name: name,
-            ClusterInfobaseId: Guid.NewGuid(),
+            ClusterInfobaseId: clusterInfobaseId ?? Guid.NewGuid(),
             DatabaseServer: "sql.local",
             DatabaseName: "ib",
             Status: InfobaseStatus.Active,
@@ -117,5 +117,87 @@ public sealed class InfobaseUniquePerTenantTests
             CancellationToken.None);
 
         result.Result.Should().BeOfType<NotFound>();
+    }
+
+    [Fact]
+    public async Task Same_cluster_infobase_in_two_tenants_returns_409_INFOBASE_ALREADY_ASSIGNED()
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+        var acme = SeedTenant("Acme");
+        var beta = SeedTenant("Beta");
+        db.Tenants.AddRange(acme, beta);
+        await db.SaveChangesAsync();
+
+        var audit = new TestHelpers.CapturingAuditLogger();
+        var clock = TestHelpers.FixedClock(new DateTime(2026, 5, 18, 10, 0, 0, DateTimeKind.Utc));
+        var clusterId = Guid.NewGuid();
+
+        var first = await InfobasesEndpoints.CreateAsync(
+            BuildRequest(acme.Id, "Бухгалтерия Acme", clusterId),
+            db,
+            audit,
+            TestHelpers.NewHttpContext(),
+            clock,
+            CancellationToken.None);
+        first.Result.Should().BeOfType<Created<InfobaseDetailResponse>>();
+
+        // Та же база кластера, другой клиент, другое имя — всё равно конфликт.
+        var second = await InfobasesEndpoints.CreateAsync(
+            BuildRequest(beta.Id, "Бухгалтерия Beta", clusterId),
+            db,
+            audit,
+            TestHelpers.NewHttpContext(),
+            clock,
+            CancellationToken.None);
+
+        var conflict = second.Result.Should().BeOfType<Conflict<ProblemDetails>>().Subject;
+        conflict.Value!.Extensions["code"].Should().Be(ProblemCodes.InfobaseAlreadyAssigned);
+    }
+
+    [Fact]
+    public async Task Update_keeping_own_cluster_infobase_does_not_conflict()
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+        var acme = SeedTenant("Acme");
+        db.Tenants.Add(acme);
+        await db.SaveChangesAsync();
+
+        var audit = new TestHelpers.CapturingAuditLogger();
+        var clock = TestHelpers.FixedClock(new DateTime(2026, 5, 18, 10, 0, 0, DateTimeKind.Utc));
+        var clusterId = Guid.NewGuid();
+
+        var created = await InfobasesEndpoints.CreateAsync(
+            BuildRequest(acme.Id, "Бухгалтерия", clusterId),
+            db,
+            audit,
+            TestHelpers.NewHttpContext(),
+            clock,
+            CancellationToken.None);
+        var detail = created.Result.Should().BeOfType<Created<InfobaseDetailResponse>>().Subject;
+        var id = detail.Value!.Infobase.Id;
+
+        var update = await InfobasesEndpoints.UpdateAsync(
+            id,
+            new UpdateInfobaseRequest(
+                Name: "Бухгалтерия 2.0",
+                ClusterInfobaseId: clusterId,
+                DatabaseServer: "sql.local",
+                DatabaseName: "ib",
+                Status: InfobaseStatus.Active,
+                Publication: new UpdatePublicationRequest(
+                    SiteName: "Default Web Site",
+                    VirtualPath: "/ib",
+                    PlatformVersion: "8.3.23.1865",
+                    EnableOData: false,
+                    EnableHttpServices: false,
+                    VrdCustomXml: null,
+                    PhysicalPathOverride: null)),
+            db,
+            audit,
+            TestHelpers.NewHttpContext(),
+            clock,
+            CancellationToken.None);
+
+        update.Result.Should().BeOfType<Ok<InfobaseDetailResponse>>();
     }
 }

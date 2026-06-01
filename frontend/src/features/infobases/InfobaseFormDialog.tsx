@@ -50,7 +50,7 @@ import type {
   InfobaseStatus,
   UpdateInfobaseInput,
 } from "./types";
-import { useCreateInfobase, useUpdateInfobase } from "./useInfobases";
+import { useCreateInfobase, useInfobases, useUpdateInfobase } from "./useInfobases";
 import { physicalPathFromDatabase, virtualPathFromDatabase } from "./paths";
 
 interface ConflictBody {
@@ -235,11 +235,22 @@ export function InfobaseFormDialog({
   const databasesState = toDiscoveryState(databasesQuery);
   const platformVersionsState = toDiscoveryState(platformVersionsQuery);
 
-  const infobaseOptions = (infobasesQuery.data?.items ?? []).map((i) => ({
-    value: i.id,
-    label: i.name,
-    hint: i.description,
-  }));
+  // Базы кластера, уже привязанные к любому клиенту, не предлагаем — одна база
+  // принадлежит только одному клиенту. Свою базу в режиме редактирования не исключаем.
+  const allInfobasesQuery = useInfobases();
+  const takenClusterIds = new Set(
+    (allInfobasesQuery.data?.items ?? [])
+      .filter((ib) => ib.id !== infobase?.id)
+      .map((ib) => ib.clusterInfobaseId)
+  );
+
+  const infobaseOptions = (infobasesQuery.data?.items ?? [])
+    .filter((i) => !takenClusterIds.has(i.id))
+    .map((i) => ({
+      value: i.id,
+      label: i.name,
+      hint: i.description,
+    }));
   const siteOptions = (sitesQuery.data?.items ?? []).map((s) => ({
     value: s.siteName,
     label: s.siteName,
@@ -334,6 +345,13 @@ export function InfobaseFormDialog({
               form.setError("name", {
                 type: "server",
                 message: t("infobases.errors.nameDuplicate"),
+              });
+              return;
+            }
+            if (body?.code === "INFOBASE_ALREADY_ASSIGNED") {
+              form.setError("clusterInfobaseId", {
+                type: "server",
+                message: t("infobases.errors.clusterAlreadyAssigned"),
               });
               return;
             }

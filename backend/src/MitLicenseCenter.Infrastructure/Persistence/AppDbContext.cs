@@ -61,6 +61,8 @@ public sealed class AppDbContext : IdentityDbContext<AppUser, AppRole, Guid>
             // Имя инфобазы уникально в пределах клиента — два разных клиента могут иметь
             // одноимённые базы (например, «Бухгалтерия»), но один клиент — нет.
             e.HasIndex(x => new { x.TenantId, x.Name }).IsUnique();
+            // Одна база кластера может принадлежать только одному клиенту (глобальная уникальность).
+            e.HasIndex(x => x.ClusterInfobaseId).IsUnique();
             // Restrict: Infobase — часть aggregate Tenant'а, удаление tenant'а
             // с непустым набором инфобаз блокируется guard'ом в endpoint'е (409),
             // SQL Server поднимет FK violation как fallback.

@@ -153,6 +153,13 @@ public static partial class InfobasesEndpoints
             return TypedResults.Conflict(Problems.InfobaseNameDuplicateInTenant(normalizedName));
         }
 
+        // Одна база кластера принадлежит только одному клиенту — проверка глобальная,
+        // без фильтра по TenantId.
+        if (await db.Infobases.AnyAsync(x => x.ClusterInfobaseId == request.ClusterInfobaseId, ct).ConfigureAwait(false))
+        {
+            return TypedResults.Conflict(Problems.InfobaseAlreadyAssigned());
+        }
+
         var now = clock.GetUtcNow().UtcDateTime;
         var infobase = new Infobase
         {
@@ -204,7 +211,7 @@ public static partial class InfobasesEndpoints
         return TypedResults.Created($"/api/v1/infobases/{infobase.Id}", infobase.ToDetailResponse(publication));
     }
 
-    private static async Task<Results<Ok<InfobaseDetailResponse>, NotFound, ValidationProblem, Conflict<ProblemDetails>>> UpdateAsync(
+    internal static async Task<Results<Ok<InfobaseDetailResponse>, NotFound, ValidationProblem, Conflict<ProblemDetails>>> UpdateAsync(
         Guid id,
         [FromBody] UpdateInfobaseRequest request,
         AppDbContext db,
@@ -240,6 +247,13 @@ public static partial class InfobasesEndpoints
             && await db.Infobases.AnyAsync(x => x.TenantId == infobase.TenantId && x.Name == normalizedName && x.Id != id, ct).ConfigureAwait(false))
         {
             return TypedResults.Conflict(Problems.InfobaseNameDuplicateInTenant(normalizedName));
+        }
+
+        // Смена базы кластера на уже привязанную к другому клиенту — конфликт.
+        if (infobase.ClusterInfobaseId != request.ClusterInfobaseId
+            && await db.Infobases.AnyAsync(x => x.ClusterInfobaseId == request.ClusterInfobaseId && x.Id != id, ct).ConfigureAwait(false))
+        {
+            return TypedResults.Conflict(Problems.InfobaseAlreadyAssigned());
         }
 
         var now = clock.GetUtcNow().UtcDateTime;
