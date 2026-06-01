@@ -23,7 +23,15 @@ public static partial class IdentitySeeder
         var sp = scope.ServiceProvider;
 
         var db = sp.GetRequiredService<AppDbContext>();
-        await db.Database.MigrateAsync(ct).ConfigureAwait(false);
+
+        // Миграции применимы только к реляционному провайдеру. Под in-memory
+        // провайдером (интеграционные тесты через WebApplicationFactory<Program>,
+        // где сидинг теперь выполняется синхронно в пайплайне старта хоста)
+        // MigrateAsync бросает — пропускаем; схему там материализует сам InMemory.
+        if (db.Database.IsRelational())
+        {
+            await db.Database.MigrateAsync(ct).ConfigureAwait(false);
+        }
 
         var roleManager = sp.GetRequiredService<RoleManager<AppRole>>();
         foreach (var role in Roles.All)

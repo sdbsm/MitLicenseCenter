@@ -2,6 +2,17 @@
 
 This document covers tasks that live **outside** the MitLicense Center application — concerns the operator handles via platform tooling rather than in-app features. The application surface itself is documented in `docs/05_UI_REQUIREMENTS.md` and `docs/06_UI_DESIGN.md`.
 
+## Startup is fail-fast — the host never serves a half-initialized state
+
+Bootstrap runs **synchronously before the host accepts traffic** ([ADR-18](DECISIONS.md#18-fail-fast-bootstrap)): EF Core migrations are applied, then roles and the first admin are seeded (`IdentitySeeder`), then the `dbo.Settings` catalog is seeded (`SettingsSeeder`). All of this happens before `app.Run()` binds the listener. If any step throws — unreachable / mis-configured database, a failed migration, an Identity error — the host logs a `Critical` line and the process **exits with a non-zero code without ever opening a port**. There is no "started but unusable" state: a running, listening process is a fully migrated and seeded one.
+
+Operationally this means:
+
+- **A crash on startup is the expected signal of a bad database or config**, not a defect. Read the `Critical` log line: the stack trace names the failing step (`IdentitySeeder` → migrations, `SettingsSeeder` → settings catalog).
+- **The most common cause is the connection string.** `ConnectionStrings:Default` (domain + Identity + settings) and `ConnectionStrings:Hangfire` are both required and must point at a reachable SQL Server; a dead or wrong instance aborts startup. Hangfire's recurring-job registration also runs at startup and fails fast on the same dead connection.
+- **Run the host under a supervisor that surfaces the exit code** (Windows Service / IIS hosting / `sc.exe` / NSSM). A fail-fast exit should be visible and alert the operator, not be silently restarted into the same broken state.
+- **First-run admin password:** on the very first successful start against an empty database, `IdentitySeeder` creates the `admin` account with a random password and writes it to the service log at `Warning` level (same in Development and Production). Capture it from the log on first boot and change it at first sign-in.
+
 ## Backup is operator responsibility
 
 Per [ADR-15](DECISIONS.md#15-backup-and-two-factor-authentication-scope-boundary), the application does not orchestrate its own backups. The operator is responsible for backing up three artefacts:

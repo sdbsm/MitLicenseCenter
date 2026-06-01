@@ -174,25 +174,25 @@ RecurringJob.AddOrUpdate<IAuditRetentionJob>(
     j => j.RunAsync(CancellationToken.None),
     "0 3 * * *");
 
-app.Lifetime.ApplicationStarted.Register(() =>
+// Fail-fast bootstrap. Миграции и сидинг выполняются СИНХРОННО до открытия приёма
+// трафика (до app.RunAsync()), каждый в собственном DI-scope внутри сидера. Порядок
+// сохранён: миграции + admin/role'ы (IdentitySeeder) → SettingsSeeder (таблица
+// dbo.Settings к этому моменту уже создана миграцией). В Development стартовый пароль
+// admin'а по-прежнему пишется в лог самим IdentitySeeder. При любой ошибке инициализации
+// логируем LogCritical и пробрасываем исключение из Main — процесс падает с ненулевым
+// кодом и НИКОГДА не начинает принимать запросы «полузасеянным» (без admin'а или с
+// неприменёнными миграциями). Это устраняет прежний fire-and-forget Task.Run, в котором
+// throw оставался unobserved и хост тихо стартовал в нерабочем состоянии.
+try
 {
-    _ = Task.Run(async () =>
-    {
-        try
-        {
-            // IdentitySeeder применяет миграции (Migrate) до того, как создаёт
-            // admin/role'ы, поэтому SettingsSeeder идёт после — таблица dbo.Settings
-            // на этот момент гарантированно существует.
-            await IdentitySeeder.EnsureSeededAsync(app.Services).ConfigureAwait(false);
-            await SettingsSeeder.EnsureSeededAsync(app.Services).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            app.Logger.LogCritical(ex, "Не удалось засеять первого администратора или параметры по умолчанию.");
-            throw;
-        }
-    });
-});
+    await IdentitySeeder.EnsureSeededAsync(app.Services).ConfigureAwait(false);
+    await SettingsSeeder.EnsureSeededAsync(app.Services).ConfigureAwait(false);
+}
+catch (Exception ex)
+{
+    app.Logger.LogCritical(ex, "Не удалось засеять первого администратора или параметры по умолчанию.");
+    throw;
+}
 
 await app.RunAsync().ConfigureAwait(false);
 

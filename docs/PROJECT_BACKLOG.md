@@ -91,7 +91,7 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 
 ### MLC-003 — Сидинг — fire-and-forget; при ошибке приложение продолжает работать «полузасеянным»
 - **Category:** Backend / Maintainability (operability)
-- **Priority:** P1 · **Severity:** Medium · **NEXT TASK**
+- **Priority:** P1 · **Severity:** Medium
 - **Module:** Web host / bootstrap
 - **File(s):** `backend/src/MitLicenseCenter.Web/Program.cs:177-195`
 - **Description:** `IdentitySeeder` (применяет миграции) и `SettingsSeeder` запускаются
@@ -102,7 +102,7 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
   об ошибке инициализации.
 - **Recommendation:** Выполнять миграции/сидинг синхронно до приёма трафика, либо при
   сбое вызывать `IHostApplicationLifetime.StopApplication()`. Принцип fail-fast.
-- **Status:** Open
+- **Status:** **Done** (2026-06-01) — см. «Выполненные работы».
 
 ---
 
@@ -303,24 +303,55 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 1. **MLC-001** — наивысший ROI: безопасностно-значимый дефект на пути авто-kill'а
    (потенциальный over-kill = потеря работы арендатора), прямо нарушает binding-требование
    `02`, фикс — один Hangfire-атрибут + тест, риск регрессий минимален. → **Done**.
-2. **MLC-002** (Done), **MLC-003** — целостность аудита и fail-fast старта; малый объём
-   правок. MLC-002 закрыт; следующий — **MLC-003** (→ **NEXT TASK**).
-3. **P2** — контракты ошибок (MLC-004), doc-divergences (MLC-005/006), пробелы в
-   тестах (MLC-007/008), info-leak (MLC-009).
+2. **MLC-002** (Done), **MLC-003** (Done) — целостность аудита и fail-fast старта; малый
+   объём правок. Оба P1 закрыты.
+3. **P2** — контракты ошибок (MLC-004 → **NEXT TASK**: глобальный ProblemDetails +
+   маппинг гонок уникальности в 409), doc-divergences (MLC-005/006), пробелы в тестах
+   (MLC-007/008), info-leak (MLC-009).
 4. **P3** — производительность, хардненинг, сопровождаемость (MLC-010…017).
 
 ---
 
 ## NEXT TASK
 
-> **MLC-003 — Сидинг — fire-and-forget; при ошибке приложение продолжает работать «полузасеянным».**
-> Статус: Open. Следующая по ROI после MLC-002: fail-fast старта хоста — миграции/сидинг
-> должны выполняться синхронно до приёма трафика либо при сбое останавливать приложение
-> (`IHostApplicationLifetime.StopApplication()`), вместо unobserved `throw` внутри `Task.Run`.
+> **MLC-004 — Нет глобального обработчика ошибок / ProblemDetails; гонки уникальности → голый 500.**
+> Статус: Open. Оба P1 закрыты — переходим к P2. Наивысший ROI из P2: контракт ошибок
+> (`AddProblemDetails()` + `UseExceptionHandler`), плюс ловить `DbUpdateException` от
+> нарушения уникальных индексов (`IX_Infobases_ClusterInfobaseId`, `IX_Infobases_TenantId_Name`)
+> и мапить в задокументированные `ProblemCodes.*` 409 вместо голого 500 при конкурентной
+> вставке.
 
 ---
 
 ## Выполненные работы (Done)
+
+### MLC-003 — Fail-fast старт: миграции/сидинг синхронно до приёма трафика — 2026-06-01
+- **Что сделано:** Сидинг переведён с fire-and-forget на синхронный fail-fast. В
+  `Program.cs` блок `ApplicationStarted.Register(() => Task.Run(...))` заменён на прямой
+  `await` **до** `app.RunAsync()`: `IdentitySeeder.EnsureSeededAsync` (миграции +
+  роли/admin) → `SettingsSeeder.EnsureSeededAsync`. Порядок сохранён (таблица
+  `dbo.Settings` создаётся миграцией до своего сидера). При любой ошибке —
+  `LogCritical` + проброс исключения из `Main`: процесс падает с ненулевым кодом и
+  **не открывает порт**. Устранён прежний unobserved `throw` внутри `Task.Run`, из-за
+  которого хост тихо стартовал «полузасеянным» (без admin'а / с неприменёнными миграциями).
+- **Тестовая совместимость:** в `IdentitySeeder.EnsureSeededAsync` вызов `MigrateAsync`
+  обёрнут в `if (db.Database.IsRelational())` — на EF in-memory провайдере (будущие
+  интеграционные тесты через `WebApplicationFactory<Program>`, где сидинг теперь
+  выполняется в пайплайне старта) `Migrate` не вызывается и не бросает. Маркер
+  `public partial class Program` сохранён.
+- **Поведение Development:** стартовый случайный пароль admin'а по-прежнему пишет в лог
+  сам `IdentitySeeder` (`Warning`), теперь гарантированно до приёма первого запроса.
+- **Файлы:** `backend/src/MitLicenseCenter.Web/Program.cs`;
+  `backend/src/MitLicenseCenter.Infrastructure/Identity/IdentitySeeder.cs`; канон
+  `docs/DECISIONS.md` (новый **ADR-18 — Fail-fast Bootstrap**) и `docs/OPERATIONS.md`
+  (раздел «Startup is fail-fast»).
+- **Проверка:** сборка 0 ошибок; `dotnet test … --filter "Category!=Smoke"` — 188 passed,
+  0 failed. Ручная верификация: (1) штатная строка подключения — миграции применяются
+  синхронно, в логах порядок `EF migrations` → `Now listening` → `Application started`;
+  (2) `Hangfire`-строка рабочая, `Default` указывает на недоступный SQL — `LogCritical`
+  (`crit: MitLicenseCenter.Web`), стек `MigrateAsync → IdentitySeeder:33 → Program.<Main>:188`,
+  `Unhandled exception`, процесс завершается **без** строк `Now listening` / `Application
+  started` (трафик не принят).
 
 ### MLC-002 — Ручной kill: аудит только при реальном завершении + сверка дескриптора — 2026-06-01
 - **Что сделано:** `SessionsEndpoints.KillAsync` приведён к идемпотентному протоколу
