@@ -12,4 +12,11 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Hangfire job-scheduling attributes ([DisableConcurrentExecution]) are part of
+         the job contract: they live on the interface so Hangfire discovers them from
+         the registered (interface) method. Core only — no server/storage dependency. -->
+    <PackageReference Include="Hangfire.Core" />
+  </ItemGroup>
+
 </Project>
