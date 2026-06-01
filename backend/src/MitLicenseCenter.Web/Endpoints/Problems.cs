@@ -19,6 +19,10 @@ public static class ProblemCodes
     // PR 3.5 — IIS XML-patch reconciliation failures.
     public const string IisReconcileFailed = "IIS_RECONCILE_FAILED";
     public const string IisAccessDenied = "IIS_ACCESS_DENIED";
+
+    // MLC-002 — ручной kill сеанса.
+    public const string SessionStale = "SESSION_STALE";
+    public const string ClusterUnavailable = "CLUSTER_UNAVAILABLE";
 }
 
 public static class Problems
@@ -77,4 +81,28 @@ public static class Problems
             ProblemCodes.IisAccessDenied,
             "Нет доступа к IIS / default.vrd",
             detail);
+
+    // MLC-002 — снапшот устарел: сеанс с тем же SessionId сменил дескриптор
+    // (InfobaseId/AppID/StartedAt). 409 — оператору нужно обновить список.
+    public static ProblemDetails SessionStale() =>
+        Conflict(
+            ProblemCodes.SessionStale,
+            "Сеанс изменился",
+            "Сеанс изменился с момента обновления списка (возможно, перезапущен). Обновите список сеансов и повторите.");
+
+    // MLC-002 — kill не выполнен: кластер 1С (RAS) недоступен или вернул ошибку.
+    // 502 (upstream-сбой). Запись в аудит при этом НЕ делается.
+    public static ProblemDetails ClusterUnavailable()
+    {
+        var problem = new ProblemDetails
+        {
+            Type = "https://mitlicense.center/problems/cluster-unavailable",
+            Title = "Кластер 1С недоступен",
+            Status = StatusCodes.Status502BadGateway,
+            Detail = "Не удалось завершить сеанс: кластер 1С (RAS) недоступен или вернул ошибку. "
+                + "Сеанс не завершён, запись в аудит не сделана. Повторите попытку позже.",
+        };
+        problem.Extensions["code"] = ProblemCodes.ClusterUnavailable;
+        return problem;
+    }
 }

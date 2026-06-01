@@ -1,6 +1,7 @@
 using Asp.Versioning;
 using Asp.Versioning.Builder;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.AspNetCore.Mvc;
 using MitLicenseCenter.Application.Auditing;
 using MitLicenseCenter.Application.Clusters;
 using MitLicenseCenter.Application.Sessions;
@@ -50,7 +51,7 @@ public static class SessionsEndpoints
             Source: payload.Source));
     }
 
-    internal static async Task<Results<NoContent, NotFound>> KillAsync(
+    internal static async Task<Results<NoContent, NotFound, Conflict<ProblemDetails>, ProblemHttpResult>> KillAsync(
         Guid id,
         KillSessionRequest request,
         IActiveSessionSnapshotStore store,
@@ -65,13 +66,39 @@ public static class SessionsEndpoints
         if (session is null)
             return TypedResults.NotFound();
 
+        // Идемпотентный протокол (DECISIONS.md «Idempotent kill protocol», как в
+        // KillEnforcer): перед kill'ом сверяем дескриптор с актуальными данными
+        // кластера. Снапшот может устареть до 25с — если по тому же SessionId
+        // кластер вернул другой (InfobaseId, AppID, StartedAt), это уже не тот
+        // сеанс, что видел оператор; не убиваем чужой сеанс, просим обновить список.
+        var fresh = await cluster.ListActiveSessionsAsync(ct).ConfigureAwait(false);
+        var freshSession = fresh.FirstOrDefault(s => s.SessionId == id);
+
+        if (freshSession is not null &&
+            (freshSession.ClusterInfobaseId != session.ClusterInfobaseId ||
+             freshSession.AppId != session.AppId ||
+             freshSession.StartedAtUtc != session.StartedAtUtc))
+        {
+            return TypedResults.Conflict(Problems.SessionStale());
+        }
+
         var descriptor = new SessionDescriptor(
             session.ClusterInfobaseId,
             session.SessionId,
             session.AppId,
             session.StartedAtUtc);
 
-        await cluster.KillSessionAsync(descriptor, ct).ConfigureAwait(false);
+        var result = await cluster.KillSessionAsync(descriptor, ct).ConfigureAwait(false);
+
+        // Аудит — неизменяемая запись истины. «Завершён оператором» пишем только
+        // когда kill действительно состоялся (Killed) либо сеанс уже отсутствовал
+        // в кластере (AlreadyGone — идемпотентный успех, как в KillEnforcer).
+        // Если RAS недоступен/вернул ошибку (оба флага false) — НИЧЕГО не пишем,
+        // отдаём 502, чтобы в аудите не было записи-лжи.
+        if (!result.Killed && !result.AlreadyGone)
+        {
+            return TypedResults.Problem(Problems.ClusterUnavailable());
+        }
 
         var initiator = httpContext.User.Identity?.Name ?? "Unknown";
         var reason = string.IsNullOrWhiteSpace(request.Reason)

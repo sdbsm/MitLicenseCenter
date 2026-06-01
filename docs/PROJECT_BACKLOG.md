@@ -73,7 +73,7 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 
 ### MLC-002 — Ручной kill пишет аудит «завершён» даже при неудаче и не сверяет дескриптор
 - **Category:** Backend / Security (audit-integrity)
-- **Priority:** P1 · **Severity:** Medium-High · **NEXT TASK**
+- **Priority:** P1 · **Severity:** Medium-High
 - **Module:** Session & License Enforcer
 - **File(s):** `backend/src/MitLicenseCenter.Web/Endpoints/SessionsEndpoints.cs:53-90`
 - **Description:** `KillAsync` вызывает `cluster.KillSessionAsync(...)`, **игнорирует**
@@ -87,11 +87,11 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
   `Killed || AlreadyGone`, иначе вернуть осмысленную локализованную ошибку (например,
   409/502). Привести к протоколу `KillEnforcer` (см. `DECISIONS.md` «Idempotent kill
   protocol»).
-- **Status:** Open
+- **Status:** **Done** (2026-06-01) — см. «Выполненные работы».
 
 ### MLC-003 — Сидинг — fire-and-forget; при ошибке приложение продолжает работать «полузасеянным»
 - **Category:** Backend / Maintainability (operability)
-- **Priority:** P1 · **Severity:** Medium
+- **Priority:** P1 · **Severity:** Medium · **NEXT TASK**
 - **Module:** Web host / bootstrap
 - **File(s):** `backend/src/MitLicenseCenter.Web/Program.cs:177-195`
 - **Description:** `IdentitySeeder` (применяет миграции) и `SettingsSeeder` запускаются
@@ -302,8 +302,9 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 
 1. **MLC-001** — наивысший ROI: безопасностно-значимый дефект на пути авто-kill'а
    (потенциальный over-kill = потеря работы арендатора), прямо нарушает binding-требование
-   `02`, фикс — один Hangfire-атрибут + тест, риск регрессий минимален. → **NEXT TASK**.
-2. **MLC-002, MLC-003** — целостность аудита и fail-fast старта; малый объём правок.
+   `02`, фикс — один Hangfire-атрибут + тест, риск регрессий минимален. → **Done**.
+2. **MLC-002** (Done), **MLC-003** — целостность аудита и fail-fast старта; малый объём
+   правок. MLC-002 закрыт; следующий — **MLC-003** (→ **NEXT TASK**).
 3. **P2** — контракты ошибок (MLC-004), doc-divergences (MLC-005/006), пробелы в
    тестах (MLC-007/008), info-leak (MLC-009).
 4. **P3** — производительность, хардненинг, сопровождаемость (MLC-010…017).
@@ -312,14 +313,39 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 
 ## NEXT TASK
 
-> **MLC-002 — Ручной kill пишет аудит «завершён» даже при неудаче и не сверяет дескриптор.**
-> Статус: Open. Следующая по ROI после MLC-001: целостность неизменяемого аудита на
-> ручном пути kill'а, малый объём правок (проверить `KillSessionResult`, привести к
-> идемпотентному протоколу `KillEnforcer`, локализованная ошибка вместо ложной записи).
+> **MLC-003 — Сидинг — fire-and-forget; при ошибке приложение продолжает работать «полузасеянным».**
+> Статус: Open. Следующая по ROI после MLC-002: fail-fast старта хоста — миграции/сидинг
+> должны выполняться синхронно до приёма трафика либо при сбое останавливать приложение
+> (`IHostApplicationLifetime.StopApplication()`), вместо unobserved `throw` внутри `Task.Run`.
 
 ---
 
 ## Выполненные работы (Done)
+
+### MLC-002 — Ручной kill: аудит только при реальном завершении + сверка дескриптора — 2026-06-01
+- **Что сделано:** `SessionsEndpoints.KillAsync` приведён к идемпотентному протоколу
+  `KillEnforcer`. Теперь endpoint: (1) `404`, если сеанса нет в текущем снапшоте;
+  (2) re-fetch `ListActiveSessionsAsync` и сверка `(ClusterInfobaseId, AppID, StartedAt)`
+  свежего сеанса со снапшотом — при несовпадении (тот же `SessionId`, другой дескриптор)
+  `409 SESSION_STALE` без kill'а (не убиваем чужой/перезапущенный сеанс); (3) проверка
+  `KillSessionResult` — аудит `SessionKilled (ManualByAdmin)` пишется **только** при
+  `Killed || AlreadyGone`; при недоступном RAS (оба флага `false`) — `502 CLUSTER_UNAVAILABLE`
+  и **никакой** записи в неизменяемый аудит. Устранена запись-ложь «сеанс завершён
+  оператором» при неудачном kill'е.
+- **Контракт ответа:** прежние `204`/`404` сохранены; добавлены `409 SESSION_STALE`
+  и `502 CLUSTER_UNAVAILABLE` в стиле `ProblemDetails` + machine-readable `code`
+  (`Problems.cs::ProblemCodes`). Frontend `KillSessionDialog` не трогали — новые коды
+  попадают в существующий generic-error-toast (404 → «уже завершён» как раньше).
+- **Файлы:** `backend/src/MitLicenseCenter.Web/Endpoints/SessionsEndpoints.cs`;
+  `backend/src/MitLicenseCenter.Web/Endpoints/Problems.cs` (новые `ProblemCodes.SessionStale`
+  / `ClusterUnavailable` + фабрики `Problems.SessionStale()` / `ClusterUnavailable()`);
+  `backend/tests/MitLicenseCenter.Tests.Unit/Endpoints/SessionsKillEndpointTests.cs`;
+  канон `docs/DECISIONS.md` («Idempotent kill protocol») и `docs/03_DOMAIN_MODEL.md`
+  (AuditLog.Reason, 409-контракт, новый binding «Manual session kill»).
+- **Тесты:** +3 теста — (1) `AlreadyGone` → аудит пишется + `204`; (2) kill failed
+  (оба флага `false`) → аудит **не** пишется + `502 CLUSTER_UNAVAILABLE`; (3) stale-дескриптор
+  → kill не вызывается, аудит не пишется, `409 SESSION_STALE`. Существующие тесты дополнены
+  стабом re-fetch. Прогон: `dotnet test … --filter "Category!=Smoke"` — 188 passed, 0 failed.
 
 ### MLC-001 — Защита от параллельного запуска цикла согласования (over-kill) — 2026-06-01
 - **Что сделано:** На метод интерфейса `IReconciliationJob.RunColdAsync` навешен
