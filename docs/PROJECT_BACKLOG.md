@@ -164,7 +164,7 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 - **Impact:** Регрессии в формах и ролевом доступе не отлавливаются CI.
 - **Recommendation:** Тесты на ключевые мутации, маппинг 409 → локализованное поле формы
   и `ProtectedRoute`.
-- **Status:** Open
+- **Status:** **Done** (2026-06-02) — см. «Выполненные работы».
 
 ### MLC-008 — Контрактные тесты идут на EF InMemory: уникальность/каскад/гонки не проверяются
 - **Category:** Testing / Backend
@@ -310,8 +310,9 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
    гонок уникальности в 409), doc-divergences (MLC-005/006 → **Done**: канон приведён к
    реальности — ручной деплой в `OPERATIONS.md`, рукописные TS-типы зафиксированы в
    ADR-10.1), персистентность на реальном провайдере (MLC-008 → **Done**: SQLite-in-memory
-   контрактные тесты unique/cascade/restrict/setnull), info-leak (MLC-009 → **NEXT TASK**),
-   пробелы во FE-тестах (MLC-007).
+   контрактные тесты unique/cascade/restrict/setnull), пробелы во FE-тестах (MLC-007 →
+   **Done**: vitest + @testing-library тесты на ProtectedRoute, CRUD-мутации и маппинг
+   409 в поле формы), info-leak (MLC-009 → **NEXT TASK**).
 4. **P3** — производительность, хардненинг, сопровождаемость (MLC-010…017).
 
 ---
@@ -367,6 +368,42 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
   эмулирует гонку `SaveChanges`-перехватчиком (EF InMemory не бросает unique-violation).
   Теперь, имея `SqliteTestDb`, его можно при желании укрепить **реальным**
   unique-violation сквозь endpoint — вынесено как опциональное улучшение (не входит в MLC-008).
+
+### MLC-007 — Frontend-тесты: ProtectedRoute, CRUD-мутации, маппинг 409 — 2026-06-02
+- **Что сделано:** Добавлены vitest + `@testing-library/react` тесты на ранее непокрытые
+  пути фронта. (1) `ProtectedRoute` — пускает авторизованного к содержимому; admin-only
+  маршрут редиректит Viewer на `/`, неавторизованного (и `data=null` без ошибки) — на
+  `/login`; во время загрузки не редиректит и не показывает содержимое; Admin проходит к
+  admin-only. Реализовано через мок `useMe` + `MemoryRouter`/`Routes` с маршрутами-маркерами.
+  (2) Диалоги мутаций — по одному на create/update/delete/reassign: `TenantFormDialog`
+  (create POST + update PUT → инвалидация `tenantsQueryKey`, success-toast, закрытие; 409
+  `NAME_DUPLICATE` → ошибка на поле «Название», диалог открыт), `DeleteTenantDialog`
+  (DELETE → инвалидация + закрытие; 409 `TENANT_HAS_INFOBASES` → локализованный
+  error-toast), `ReassignInfobaseDialog` (POST `/reassign` → инвалидация `infobasesQueryKey`
+  **и** `tenantsQueryKey`; 409 `INFOBASE_NAME_TAKEN_IN_TARGET` → inline-ошибка в диалоге),
+  `InfobaseFormDialog` в edit-режиме (409 `INFOBASE_ALREADY_ASSIGNED` → поле «база кластера»;
+  `NAME_DUPLICATE_IN_TENANT` → авто-раскрытие «Дополнительно» + ошибка на поле имени).
+  Все четыре требуемых 409-кода покрыты с проверкой локализованного текста на правильном
+  месте. Продакшн-код не менялся.
+- **Подход:** Частичный мок `@/lib/api` (`{ ...actual, api: vi.fn() }`) — настоящий
+  `ApiError` сохранён для `instanceof`-проверок в диалогах, сетевой `api` подменён; реальные
+  хуки-мутации/запросы исполняются поверх мока, инвалидация проверяется `vi.spyOn(client,
+  "invalidateQueries")`. `sonner` замокан целиком. Для `InfobaseFormDialog` `api`
+  ветвится по методу: GET (discovery/список/настройки) → пустые ответы, PUT инфобазы →
+  reject с нужным 409-кодом, что доводит submit до catch без правки формы. Инструмент-стаб
+  Radix Select (`hasPointerCapture`/`setPointerCapture`/`releasePointerCapture`/
+  `scrollIntoView`) добавлен в общий `src/test/setup.ts` — без него интеракция с `Select`
+  (выбор целевого клиента в reassign) падает в jsdom. i18n инициализируется импортом
+  `@/i18n` (тесты ассертят русские строки из `ru.json`).
+- **Файлы:** `frontend/src/features/auth/__tests__/ProtectedRoute.test.tsx`;
+  `frontend/src/features/tenants/__tests__/TenantFormDialog.test.tsx`;
+  `frontend/src/features/tenants/__tests__/DeleteTenantDialog.test.tsx`;
+  `frontend/src/features/infobases/__tests__/ReassignInfobaseDialog.test.tsx`;
+  `frontend/src/features/infobases/__tests__/InfobaseFormDialog.test.tsx`;
+  `frontend/src/test/setup.ts` (Pointer Capture / scrollIntoView стабы для Radix Select).
+- **Проверка:** `pnpm lint` (0), `pnpm type-check` (0), `pnpm test` (0) — **60 passed
+  (14 файлов)**, из них +13 новых. Доков с тест-стратегией в `docs/` нет — новую
+  документацию не заводил.
 
 ### MLC-005 — [Doc divergence] ADR-14: ручной деплой без несуществующего скрипта — 2026-06-02
 - **Выбранный вариант:** **(b)** — привести документацию к реальности (наименее рискованный
