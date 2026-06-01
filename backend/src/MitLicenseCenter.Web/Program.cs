@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Asp.Versioning;
@@ -29,6 +30,29 @@ builder.Services.Configure<JsonOptions>(o =>
 
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration, builder.Environment);
+
+// MLC-004 — глобальный RFC7807 ProblemDetails. Непойманные исключения (и любой иной
+// ненастроенный путь ошибки) отдаются как ProblemDetails, а не как голый 500 без тела.
+// Детали наружу — русские и санитизированные: stack trace / текст исключения НИКОГДА
+// не попадают в ответ (реальное исключение пишет в лог сам UseExceptionHandler).
+builder.Services.AddProblemDetails(options =>
+{
+    options.CustomizeProblemDetails = ctx =>
+    {
+        ctx.ProblemDetails.Instance ??= ctx.HttpContext.Request.Path;
+        ctx.ProblemDetails.Extensions["traceId"] =
+            Activity.Current?.Id ?? ctx.HttpContext.TraceIdentifier;
+
+        // 5xx (в т.ч. непойманные исключения): подменяем дефолтный англоязычный текст
+        // на нейтральное русское сообщение без внутренних деталей.
+        if (ctx.ProblemDetails.Status is >= 500)
+        {
+            ctx.ProblemDetails.Title = "Внутренняя ошибка сервера";
+            ctx.ProblemDetails.Detail =
+                "Произошла непредвиденная ошибка. Повторите попытку позже или обратитесь к администратору.";
+        }
+    };
+});
 
 // IMemoryCache: используется DashboardEndpoints (TTL=5s) и потенциально другими
 // hot-path ридерами. AddInfrastructure его не регистрирует — кэш живёт в Web-слое.
@@ -118,6 +142,13 @@ builder.Services.AddHangfireServer(o =>
 // Infrastructure.DependencyInjection.
 
 var app = builder.Build();
+
+// MLC-004 — самый внешний middleware: ловит непойманные исключения из всего пайплайна
+// и отдаёт их как ProblemDetails (без AddProblemDetails выше это был бы голый 500 без
+// тела). В Development WebApplication заранее ставит developer-exception-page, поэтому
+// разработчик по-прежнему видит подробности; в проде наружу уходит только санитизированный
+// русский ProblemDetails, а полное исключение логируется этим же middleware.
+app.UseExceptionHandler();
 
 app.UseAuthentication();
 app.UseAuthorization();

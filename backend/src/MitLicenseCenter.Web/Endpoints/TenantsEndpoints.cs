@@ -71,7 +71,7 @@ public static class TenantsEndpoints
             : TypedResults.Ok(tenant.ToResponse());
     }
 
-    private static async Task<Results<Created<TenantResponse>, ValidationProblem, Conflict<ProblemDetails>>> CreateAsync(
+    internal static async Task<Results<Created<TenantResponse>, ValidationProblem, Conflict<ProblemDetails>>> CreateAsync(
         [FromBody] CreateTenantRequest request,
         AppDbContext db,
         IAuditLogger audit,
@@ -101,7 +101,17 @@ public static class TenantsEndpoints
         };
 
         db.Tenants.Add(tenant);
-        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        // MLC-004 — предварительный AnyAsync выше остаётся happy-path'ом; на гонке двух
+        // вставок backstop — уникальный индекс IX_Tenants_Name. DbUpdateException мапим
+        // в тот же 409, что и happy-path, вместо голого 500.
+        try
+        {
+            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        }
+        catch (DbUpdateException ex) when (DbUniqueViolation.Identify(ex) == UniqueIndexViolation.TenantName)
+        {
+            return TypedResults.Conflict(Problems.TenantNameDuplicate(normalized));
+        }
 
         await audit.LogAsync(
             AuditActionType.TenantCreated,
@@ -113,7 +123,7 @@ public static class TenantsEndpoints
         return TypedResults.Created($"/api/v1/tenants/{tenant.Id}", tenant.ToResponse());
     }
 
-    private static async Task<Results<Ok<TenantResponse>, NotFound, ValidationProblem, Conflict<ProblemDetails>>> UpdateAsync(
+    internal static async Task<Results<Ok<TenantResponse>, NotFound, ValidationProblem, Conflict<ProblemDetails>>> UpdateAsync(
         Guid id,
         [FromBody] UpdateTenantRequest request,
         AppDbContext db,
@@ -146,7 +156,16 @@ public static class TenantsEndpoints
         tenant.IsActive = request.IsActive;
         tenant.UpdatedAt = clock.GetUtcNow().UtcDateTime;
 
-        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        // MLC-004 — backstop на гонке (см. CreateAsync): нарушение IX_Tenants_Name мапим
+        // в тот же 409, что и предварительный AnyAsync.
+        try
+        {
+            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        }
+        catch (DbUpdateException ex) when (DbUniqueViolation.Identify(ex) == UniqueIndexViolation.TenantName)
+        {
+            return TypedResults.Conflict(Problems.TenantNameDuplicate(normalized));
+        }
 
         await audit.LogAsync(
             AuditActionType.TenantUpdated,

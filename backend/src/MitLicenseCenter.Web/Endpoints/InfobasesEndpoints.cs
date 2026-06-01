@@ -193,7 +193,21 @@ public static partial class InfobasesEndpoints
         // Инфобаза + публикация — один aggregate, попадают в БД одним SaveChanges.
         db.Infobases.Add(infobase);
         db.Publications.Add(publication);
-        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        // MLC-004 — предварительные AnyAsync выше остаются happy-path'ом; на гонке двух
+        // вставок их backstop — уникальные индексы. DbUpdateException мапим в тот же 409,
+        // что и happy-path, вместо голого 500.
+        try
+        {
+            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        }
+        catch (DbUpdateException ex) when (DbUniqueViolation.Identify(ex) == UniqueIndexViolation.InfobaseTenantName)
+        {
+            return TypedResults.Conflict(Problems.InfobaseNameDuplicateInTenant(normalizedName));
+        }
+        catch (DbUpdateException ex) when (DbUniqueViolation.Identify(ex) == UniqueIndexViolation.InfobaseClusterId)
+        {
+            return TypedResults.Conflict(Problems.InfobaseAlreadyAssigned());
+        }
 
         var initiator = httpContext.User.Identity?.Name ?? "unknown";
         await audit.LogAsync(
@@ -276,7 +290,20 @@ public static partial class InfobasesEndpoints
             : request.Publication.PhysicalPathOverride.Trim().TrimEnd('\\', '/');
         publication.UpdatedAt = now;
 
-        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        // MLC-004 — backstop на гонке (см. CreateAsync): нарушение уникального индекса
+        // мапим в тот же 409, что и предварительные AnyAsync.
+        try
+        {
+            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        }
+        catch (DbUpdateException ex) when (DbUniqueViolation.Identify(ex) == UniqueIndexViolation.InfobaseTenantName)
+        {
+            return TypedResults.Conflict(Problems.InfobaseNameDuplicateInTenant(normalizedName));
+        }
+        catch (DbUpdateException ex) when (DbUniqueViolation.Identify(ex) == UniqueIndexViolation.InfobaseClusterId)
+        {
+            return TypedResults.Conflict(Problems.InfobaseAlreadyAssigned());
+        }
 
         var initiator = httpContext.User.Identity?.Name ?? "unknown";
         await audit.LogAsync(
@@ -341,7 +368,17 @@ public static partial class InfobasesEndpoints
 
         infobase.TenantId = target.Id;
         infobase.UpdatedAt = clock.GetUtcNow().UtcDateTime;
-        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        // MLC-004 — backstop: одновременный перенос/создание одноимённой базы у целевого
+        // клиента нарушит IX_Infobases_TenantId_Name. В контексте переноса это 409
+        // INFOBASE_NAME_TAKEN_IN_TARGET (тот же индекс, другой ProblemCodes, чем в create).
+        try
+        {
+            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        }
+        catch (DbUpdateException ex) when (DbUniqueViolation.Identify(ex) == UniqueIndexViolation.InfobaseTenantName)
+        {
+            return TypedResults.Conflict(Problems.InfobaseNameTakenInTarget(infobase.Name));
+        }
 
         var initiator = httpContext.User.Identity?.Name ?? "unknown";
         await audit.LogAsync(

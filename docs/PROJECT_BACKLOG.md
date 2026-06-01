@@ -124,7 +124,7 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 - **Recommendation:** Добавить `AddProblemDetails()` + `UseExceptionHandler`; ловить
   `DbUpdateException` (нарушение уникального индекса) и мапить в соответствующий
   `ProblemCodes.*` 409.
-- **Status:** Open
+- **Status:** **Done** (2026-06-02) — см. «Выполненные работы».
 
 ### MLC-005 — [Doc divergence] ADR-14 ссылается на отсутствующий scripts/Deploy-MitLicenseCenter.ps1
 - **Category:** Maintainability (docs)
@@ -305,25 +305,61 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
    `02`, фикс — один Hangfire-атрибут + тест, риск регрессий минимален. → **Done**.
 2. **MLC-002** (Done), **MLC-003** (Done) — целостность аудита и fail-fast старта; малый
    объём правок. Оба P1 закрыты.
-3. **P2** — контракты ошибок (MLC-004 → **NEXT TASK**: глобальный ProblemDetails +
-   маппинг гонок уникальности в 409), doc-divergences (MLC-005/006), пробелы в тестах
-   (MLC-007/008), info-leak (MLC-009).
+3. **P2** — контракт ошибок (MLC-004 → **Done**: глобальный ProblemDetails + маппинг
+   гонок уникальности в 409), info-leak (MLC-009 → **NEXT TASK**), doc-divergences
+   (MLC-005/006), пробелы в тестах (MLC-007/008).
 4. **P3** — производительность, хардненинг, сопровождаемость (MLC-010…017).
 
 ---
 
 ## NEXT TASK
 
-> **MLC-004 — Нет глобального обработчика ошибок / ProblemDetails; гонки уникальности → голый 500.**
-> Статус: Open. Оба P1 закрыты — переходим к P2. Наивысший ROI из P2: контракт ошибок
-> (`AddProblemDetails()` + `UseExceptionHandler`), плюс ловить `DbUpdateException` от
-> нарушения уникальных индексов (`IX_Infobases_ClusterInfobaseId`, `IX_Infobases_TenantId_Name`)
-> и мапить в задокументированные `ProblemCodes.*` 409 вместо голого 500 при конкурентной
-> вставке.
+> **MLC-009 — Сообщения инфраструктурных исключений уходят клиенту дословно (не локализованы, info-leak).**
+> Статус: Open. MLC-004 закрыт (есть глобальный ProblemDetails + санитайзинг 5xx). Этот
+> таск — точечно убрать дословный `ex.Message` (SQL / COM / IO) из тел ответов в
+> `DiscoveryEndpoints.cs:62-67,80-84` и `PublicationsEndpoints.cs:194-211`: логировать
+> исключение полностью, наружу отдавать локализованное (русское) санитизированное
+> сообщение без имён серверов/путей. Малый объём, security + i18n.
 
 ---
 
 ## Выполненные работы (Done)
+
+### MLC-004 — Глобальный ProblemDetails + backstop гонок уникальности → 409 — 2026-06-02
+- **Что сделано:** (1) Pipeline получил `builder.Services.AddProblemDetails(...)` +
+  outermost `app.UseExceptionHandler()`. Непойманные исключения теперь отдаются как
+  RFC 7807 `ProblemDetails` (с `traceId`), а не голым 500 без тела. `CustomizeProblemDetails`
+  для 5xx подменяет текст на нейтральное русское сообщение и НИКОГДА не отдаёт наружу
+  message/stack trace исключения (полное исключение логирует сам middleware; в Development
+  остаётся developer-exception-page). (2) В create/update/reassign `Infobase` и
+  create/update `Tenant` вокруг `SaveChanges` добавлен backstop: `DbUpdateException` от
+  нарушения уникального индекса мапится в тот же задокументированный 409 `ProblemCodes.*`,
+  что и предварительный `AnyAsync` (который остаётся быстрым happy-path'ом). Различение
+  индекса — по его имени (`IX_Infobases_ClusterInfobaseId`, `IX_Infobases_TenantId_Name`,
+  `IX_Tenants_Name`), стабильному идентификатору схемы в тексте `SqlException`, с гейтом
+  `SqlException.Number ∈ {2601, 2627}` — не по локализованному тексту. Один и тот же
+  индекс `IX_Infobases_TenantId_Name` мапится в `NAME_DUPLICATE_IN_TENANT` на create/update
+  и в `INFOBASE_NAME_TAKEN_IN_TARGET` на reassign (решение per-endpoint). Любое иное
+  `DbUpdateException` пробрасывается в глобальный handler → 500. Новые `ProblemCodes` не
+  заводились — backstop переиспользует существующие.
+- **Файлы:** `backend/src/MitLicenseCenter.Web/Program.cs` (AddProblemDetails +
+  UseExceptionHandler); `backend/src/MitLicenseCenter.Web/Endpoints/DbUniqueViolation.cs`
+  (новый recognizer `UniqueIndexViolation` + `DbUniqueViolation.Identify`);
+  `backend/src/MitLicenseCenter.Web/Endpoints/InfobasesEndpoints.cs` (try/catch backstop в
+  Create/Update/Reassign); `backend/src/MitLicenseCenter.Web/Endpoints/TenantsEndpoints.cs`
+  (backstop в Create/Update; их видимость поднята `private`→`internal` для тестов);
+  `backend/tests/MitLicenseCenter.Tests.Unit/Endpoints/TestHelpers.cs`
+  (`ThrowOnSaveInterceptor` + перегрузка `NewInMemoryDb` с interceptor);
+  `backend/tests/MitLicenseCenter.Tests.Unit/Endpoints/DbUpdateExceptionBackstopTests.cs`;
+  канон `docs/03_DOMAIN_MODEL.md` (binding «Global error envelope + uniqueness backstop»)
+  и `docs/DECISIONS.md` (**ADR-19**).
+- **Тесты:** +12 тестов — `Identify` по каждому имени индекса (+`None` для постороннего
+  исключения и для отсутствующего inner) и endpoint-уровень: гонка create/update/reassign
+  Infobase и create/update Tenant → ожидаемый `ProblemCodes.*`/409; нераспознанное
+  `DbUpdateException` (FK) не глотается, а пробрасывается. EF InMemory не воспроизводит
+  unique-violation (MLC-008), поэтому гонка эмулируется `SaveChanges`-перехватчиком,
+  бросающим SQL-Server-подобное `DbUpdateException`. Прогон: `dotnet test … --filter
+  "Category!=Smoke"` — **200 passed, 0 failed**.
 
 ### MLC-003 — Fail-fast старт: миграции/сидинг синхронно до приёма трафика — 2026-06-01
 - **Что сделано:** Сидинг переведён с fire-and-forget на синхронный fail-fast. В
