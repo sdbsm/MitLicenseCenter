@@ -1,7 +1,9 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using MitLicenseCenter.Application.Auditing;
 using MitLicenseCenter.Domain.Audit;
 using MitLicenseCenter.Infrastructure.Persistence;
@@ -19,6 +21,80 @@ internal static class TestHelpers
             builder.AddInterceptors(interceptor);
         }
         return new AppDbContext(builder.Options);
+    }
+
+    // MLC-008 — Реальный провайдер для контрактных тестов persistence-инвариантов.
+    // EF InMemory (NewInMemoryDb) НЕ соблюдает unique-индексы, FK-cascade/SetNull/Restrict
+    // и конкурентность — поэтому центральные доменные инварианты (per-tenant имя,
+    // глобальная уникальность кластер-базы, каскад публикации) на нём непроверяемы.
+    // SQLite-in-memory строит схему из той же модели через EnsureCreated (миграции —
+    // SQL-Server-специфичны, для SQLite неприменимы) и реально применяет индексы и FK.
+    //
+    // База живёт ровно пока открыто соединение ("DataSource=:memory:"), поэтому
+    // соединение держится открытым на всё время теста, а несколько контекстов
+    // (NewContext) разделяют одну БД — это позволяет проверять поведение на стороне БД,
+    // а не в change-tracker'е EF (удаление в «чистом» контексте, не отслеживающем зависимые
+    // сущности, заставляет каскад/SetNull выполнить именно СУБД). `Foreign Keys=True`
+    // включает PRAGMA foreign_keys для каждого соединения (в SQLite FK по умолчанию выкл.).
+    public sealed class SqliteTestDb : IDisposable
+    {
+        private readonly SqliteConnection _connection;
+        private readonly DbContextOptions<AppDbContext> _options;
+
+        private SqliteTestDb(SqliteConnection connection, DbContextOptions<AppDbContext> options)
+        {
+            _connection = connection;
+            _options = options;
+        }
+
+        public static SqliteTestDb Create()
+        {
+            var connection = new SqliteConnection("DataSource=:memory:;Foreign Keys=True");
+            connection.Open();
+            var options = new DbContextOptionsBuilder<AppDbContext>()
+                .UseSqlite(connection)
+                .ReplaceService<IModelCustomizer, SqliteModelCustomizer>()
+                .Options;
+            using (var ctx = new AppDbContext(options))
+            {
+                ctx.Database.EnsureCreated();
+            }
+            return new SqliteTestDb(connection, options);
+        }
+
+        public AppDbContext NewContext() => new(_options);
+
+        public void Dispose() => _connection.Dispose();
+    }
+
+    // Модель использует SQL-Server-специфичный тип колонки `varbinary(max)`
+    // (DPAPI-payload в dbo.Settings.Value) — SQLite его DDL не парсит. Этот кастомайзер
+    // применяется ТОЛЬКО к тестовым SQLite-опциям (через ReplaceService) и переписывает
+    // такие типы в нативный SQLite `BLOB`; продакшн-модель (AppDbContext) не трогается.
+    // Контрактные инварианты (unique-индексы, FK-поведение) к типу колонки не относятся —
+    // они остаются ровно теми, что задал AppDbContext.OnModelCreating.
+    private sealed class SqliteModelCustomizer : RelationalModelCustomizer
+    {
+        public SqliteModelCustomizer(ModelCustomizerDependencies dependencies)
+            : base(dependencies)
+        {
+        }
+
+        public override void Customize(ModelBuilder modelBuilder, DbContext context)
+        {
+            base.Customize(modelBuilder, context);
+
+            foreach (var property in modelBuilder.Model.GetEntityTypes()
+                         .SelectMany(e => e.GetProperties()))
+            {
+                var columnType = property.GetColumnType();
+                if (columnType is not null &&
+                    columnType.Contains("varbinary", StringComparison.OrdinalIgnoreCase))
+                {
+                    property.SetColumnType("BLOB");
+                }
+            }
+        }
     }
 
     // MLC-004 — EF InMemory не воспроизводит нарушение уникального индекса (это MLC-008),

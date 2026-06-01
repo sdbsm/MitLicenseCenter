@@ -178,7 +178,7 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
   кластер-базы, каскад публикации) не валидируются на уровне реального поведения БД.
 - **Recommendation:** Контрактные тесты на SQLite-in-memory или Testcontainers MSSQL для
   persistence-инвариантов.
-- **Status:** Open
+- **Status:** **Done** (2026-06-02) — см. «Выполненные работы».
 
 ### MLC-009 — Сообщения инфраструктурных исключений уходят клиенту дословно (не локализованы, info-leak)
 - **Category:** Security / Frontend (UX)
@@ -309,7 +309,9 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 3. **P2** — контракт ошибок (MLC-004 → **Done**: глобальный ProblemDetails + маппинг
    гонок уникальности в 409), doc-divergences (MLC-005/006 → **Done**: канон приведён к
    реальности — ручной деплой в `OPERATIONS.md`, рукописные TS-типы зафиксированы в
-   ADR-10.1), info-leak (MLC-009 → **NEXT TASK**), пробелы в тестах (MLC-007/008).
+   ADR-10.1), персистентность на реальном провайдере (MLC-008 → **Done**: SQLite-in-memory
+   контрактные тесты unique/cascade/restrict/setnull), info-leak (MLC-009 → **NEXT TASK**),
+   пробелы во FE-тестах (MLC-007).
 4. **P3** — производительность, хардненинг, сопровождаемость (MLC-010…017).
 
 ---
@@ -326,6 +328,45 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 ---
 
 ## Выполненные работы (Done)
+
+### MLC-008 — Контрактные тесты persistence-инвариантов на реальном провайдере (SQLite) — 2026-06-02
+- **Выбранный провайдер:** **SQLite-in-memory** с одним открытым соединением
+  (`DataSource=:memory:;Foreign Keys=True`). Воспроизводит все нужные инварианты
+  (unique-индексы, FK Cascade/Restrict/SetNull) — Testcontainers MSSQL не понадобился.
+  Схема строится из той же `AppDbContext`-модели через `EnsureCreated` (миграции —
+  SQL-Server-специфичны: `varbinary(max)`, `SYSUTCDATETIME()`, схемы `dbo`/`auth` — и для
+  SQLite неприменимы; `EnsureCreated` честно переносит индексы и FK-поведение из модели).
+- **Фабрика БД (рядом с `NewInMemoryDb`, существующие тесты не тронуты):**
+  `TestHelpers.SqliteTestDb` — держит соединение открытым на время теста (иначе in-memory
+  БД исчезает) и выдаёт несколько контекстов (`NewContext`). Несколько контекстов на одной
+  БД позволяют проверять поведение именно **на стороне СУБД**, а не в change-tracker'е EF:
+  каскад/SetNull/restrict выполняются при удалении в «чистом» контексте, который не
+  отслеживает зависимые сущности. `Foreign Keys=True` включает `PRAGMA foreign_keys`
+  (в SQLite FK по умолчанию выключены).
+- **Расхождение модель↔SQLite (НЕ баг схемы, отдельный MLC не заводился):** колонка
+  `dbo.Settings.Value` имеет `HasColumnType("varbinary(max)")` — валидный T-SQL, но SQLite
+  его DDL не парсит (`near "max": syntax error`). Решено **только в тестовом харнессе**:
+  `SqliteModelCustomizer : RelationalModelCustomizer` (подключён через
+  `ReplaceService<IModelCustomizer>` к тестовым опциям) после `base.Customize` переписывает
+  любые `varbinary*`-типы в нативный `BLOB`. Продакшн-модель/миграции не менялись; на
+  инварианты (индексы/FK) это не влияет — тип колонки к ним не относится.
+- **Файлы:** `backend/Directory.Packages.props` (+`Microsoft.EntityFrameworkCore.Sqlite`
+  10.0.8); `backend/tests/MitLicenseCenter.Tests.Unit/MitLicenseCenter.Tests.Unit.csproj`
+  (PackageReference); `backend/tests/.../Endpoints/TestHelpers.cs` (`SqliteTestDb` +
+  `SqliteModelCustomizer`); `backend/tests/.../Endpoints/PersistenceContractTests.cs` (новый).
+- **Тесты (+6):** (1) `IX_Infobases_TenantId_Name` — две одноимённые базы у одного клиента
+  → `DbUpdateException`; (2) одноимённые базы у **разных** клиентов — допускаются (не throw);
+  (3) `IX_Infobases_ClusterInfobaseId` — один `ClusterInfobaseId` у двух клиентов →
+  `DbUpdateException`; (4) FK Publication→Infobase = Cascade — удаление базы в чистом
+  контексте реально сносит публикацию на стороне БД; (5) FK Infobase→Tenant = Restrict —
+  БД блокирует удаление клиента с базами (`DbUpdateException`), база остаётся;
+  (6) `AuditLogs.TenantId` = SetNull — удаление клиента обнуляет ссылку, но строка аудита
+  остаётся. Прогон: `dotnet test … --filter "Category!=Smoke"` — **206 passed, 0 failed**
+  (было 200).
+- **Связь с MLC-004:** backstop-тест уникальности в `DbUpdateExceptionBackstopTests` пока
+  эмулирует гонку `SaveChanges`-перехватчиком (EF InMemory не бросает unique-violation).
+  Теперь, имея `SqliteTestDb`, его можно при желании укрепить **реальным**
+  unique-violation сквозь endpoint — вынесено как опциональное улучшение (не входит в MLC-008).
 
 ### MLC-005 — [Doc divergence] ADR-14: ручной деплой без несуществующего скрипта — 2026-06-02
 - **Выбранный вариант:** **(b)** — привести документацию к реальности (наименее рискованный
