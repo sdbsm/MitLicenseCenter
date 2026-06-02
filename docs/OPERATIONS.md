@@ -21,7 +21,7 @@ Per [ADR-14](DECISIONS.md#14-cicd--github-actions-ci-only-no-cd-in-v1), v1 has C
 2. **Publish the backend** — `dotnet publish backend/src/MitLicenseCenter.Web/MitLicenseCenter.Web.csproj -c Release -o <publish-dir>`, a framework-dependent publish against the .NET 10 runtime installed on the host (ADR-12).
 3. **Build the frontend** — `pnpm --dir frontend build` emits the static SPA in `frontend/dist/`. It is served at the panel origin (IIS static site or the host's static-file middleware) and calls the backend same-origin at `/api/v1/...`.
 4. **Stop the running backend** under its supervisor (Windows Service / IIS hosting / NSSM — whatever wraps the host; see the fail-fast startup section above).
-5. **Copy artefacts** — replace the backend binaries with the new publish output and the SPA with the new `dist/`. **Never overwrite** `appsettings.Production.json` or the Data Protection key ring under `%ProgramData%\MitLicenseCenter\keys\` (losing the key ring makes every secret in `dbo.Settings` unreadable — see below).
+5. **Copy artefacts** — replace the backend binaries with the new publish output and the SPA with the new `dist/`. **Never overwrite** `appsettings.Production.json` or the Data Protection key ring under `%ProgramData%\MitLicenseCenter\keys\` (losing the key ring makes every secret in `dbo.Settings` unreadable — see below). The publish output now **contains a template `appsettings.Production.json`** (placeholder `Server=YOUR-SQL-HOST`, hardened `Encrypt=True` / Swagger / `AllowedHosts` defaults — see "Transport hardening" below); on a redeploy **exclude it from the copy** so the operator-edited live file survives. On the very first deploy, copy it once and fill it in.
 6. **Back up first, then start.** Bootstrap is fail-fast: EF Core migrations and seeding run synchronously before the listener opens, so a schema upgrade is applied automatically on first start of the new version. **Take a database + key-ring backup before starting a version that carries migrations** — migrations are forward-only, so rollback of a schema change means restoring the pre-deploy backup. If migrations or seeding fail the process exits non-zero without serving; read the `Critical` log line, fix, and restart.
 7. **Smoke-check** — sign in, confirm the Dashboard RAS health card and the Sessions Monitor populate within ~30s.
 
@@ -58,6 +58,33 @@ Per [ADR-15](DECISIONS.md#15-backup-and-two-factor-authentication-scope-boundary
 - **Physical:** restricted physical access to the operator workstations from which the panel is reached.
 
 If the deployment cannot satisfy these network-level controls, the operator should re-evaluate whether the panel is being used in its intended environment (internal 1C-hosting operator station) before requesting in-app 2FA — ADR-15 makes the latter explicitly off-limits without a deliberate revocation.
+
+## Transport hardening — HTTPS, SQL encryption, Swagger, AllowedHosts
+
+The shipped defaults in `appsettings.json` are tuned for **local development** (plain HTTP, a local SQL instance without a TLS certificate, browsable Swagger). Production hardening lives in **`appsettings.Production.json`** — the environment-specific file ASP.NET Core loads when `ASPNETCORE_ENVIRONMENT=Production`. It ships as a **template you edit on first deploy and never overwrite on redeploy** (same rule as the deployment section above). Every knob can also be supplied via environment variables (double-underscore form, e.g. `Security__EnforceHttps=true`, `ConnectionStrings__Default=…`), which override the file. The settings are config-gated rather than always-on by design ([ADR-22](DECISIONS.md#22-transport-hardening-is-config-gated)).
+
+### HTTPS redirect + HSTS — `Security:EnforceHttps` (default `false`)
+
+The app forces HTTPS (redirect `http→https` + an HSTS header) **only** when `Security:EnforceHttps=true`, and **never in Development**. Which value is correct depends on **who terminates TLS** — pick by your topology:
+
+- **Behind a terminating TLS reverse proxy** (IIS with ARR / Nginx / Caddy in front): the proxy holds the certificate, speaks HTTPS to the browser, and forwards plain HTTP to the app on `localhost`. The **proxy** does the redirect and HSTS. **Leave `EnforceHttps=false`** — if the app also redirects it double-works and can loop (the app on `localhost` only ever sees HTTP and cannot tell TLS was already terminated upstream).
+- **No proxy — Kestrel terminates TLS itself** (e.g. a direct port-forward to the service): first configure an **HTTPS endpoint with a certificate on Kestrel** (`Kestrel:Endpoints` / `ASPNETCORE_URLS=https://…` + a cert), **then** set `EnforceHttps=true` so the app redirects and emits HSTS. **Do not** set it `true` without a configured HTTPS listener — the redirect target would not answer and the panel becomes unreachable.
+
+HSTS is **sticky**: once a browser sees the header it refuses plain HTTP for the max-age window even if HTTPS later breaks. Enable it only once HTTPS is solidly in place. The auth cookie is already `Secure=Always` outside Development (ADR-7) independently of this flag.
+
+> Reminder (ADR-15, "Authentication is delegated to the network edge" above): this panel is meant for a **LAN/VPN** perimeter and must not be exposed to the public internet. A raw port-forward to the internet is the wrong topology — prefer VPN. `EnforceHttps` hardens the transport; it does not make public exposure acceptable.
+
+### SQL channel encryption — `Encrypt=True` in production
+
+The base `appsettings.json` connection strings carry `Encrypt=False` so **local development against a local SQL instance with no TLS certificate keeps working**. The `appsettings.Production.json` template flips both `ConnectionStrings:Default` and `ConnectionStrings:Hangfire` to **`Encrypt=True`**, encrypting the client↔SQL channel. `TrustServerCertificate=True` is kept because on the single-node host SQL typically presents a self-signed certificate — this **encrypts the channel but skips certificate-chain validation**, which is acceptable when SQL is reachable only at `localhost`. To validate the chain too, install a trusted certificate on the SQL instance and set `TrustServerCertificate=False`. Fill the placeholder `Server=YOUR-SQL-HOST` (and switch `Trusted_Connection` to a SQL login if the service account is not used) before first Production start — a wrong/unreachable connection string aborts the fail-fast bootstrap (see the startup section).
+
+### Swagger UI — `Security:EnableSwagger` (default `false` outside Development)
+
+Swagger UI at `/api/docs` exposes the full API map. It is served **always in Development** (it is the browsable reference contract the hand-written TS types are synced against — [ADR-10.1](DECISIONS.md#adr-101--hand-written-typescript-api-types-no-openapi-codegen)) and **closed in Production by default**. Set `Security:EnableSwagger=true` to reopen it on the internal admin-only perimeter if you need it for debugging.
+
+### `AllowedHosts` — narrow it in production
+
+The base default `*` (accept any `Host` header) is fine for dev. The production template narrows it to the panel's hostname (`panel.example.local`) — set it to the real FQDN(s) the panel answers on (comma-separated for several). This is a defense-in-depth Host-header filter on top of the network perimeter.
 
 ## RAS adapter setup
 

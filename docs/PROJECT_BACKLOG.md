@@ -239,7 +239,7 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 - **Recommendation:** HSTS + redirect (если перед сервисом нет прокси, делающего это);
   prod-override строки подключения (`Encrypt=True`); ограничить Swagger non-prod либо
   за ролью Admin.
-- **Status:** Open
+- **Status:** **Done** (2026-06-02) — см. «Выполненные работы».
 
 ### MLC-013 — Пароль кластера 1С передаётся в командной строке rac.exe
 - **Category:** Security
@@ -324,28 +324,85 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
    выбор в **ADR-20**; рефакторинг в Application use-cases — открытая опция `MLC-011(a)`.
    `MLC-013` → **Done** (docs-only): пароль кластера в cmdline `rac.exe` зафиксирован как
    принятый риск в **ADR-21** + `04_INFRASTRUCTURE.md` §1.
-   `MLC-012` — **NEXT TASK** (прод-хардненинг безопасности: HTTPS-redirect/HSTS,
-   `Encrypt=True`, гейтинг Swagger).
+   `MLC-012` → **Done**: прод-хардненинг транспорта за конфиг-флагами (**ADR-22**) —
+   HTTPS-redirect/HSTS за `Security:EnforceHttps` (dev/за-прокси не ломаются),
+   `Encrypt=True` в `appsettings.Production.json`, гейт Swagger `Security:EnableSwagger`,
+   суженный `AllowedHosts`.
+   `MLC-014` — **NEXT TASK** (FE-сопровождаемость: вынести дублированный тип `ConflictBody`
+   в общий модуль и переиспользовать в ~5 диалогах).
 
 ---
 
 ## NEXT TASK
 
-> **MLC-012 — Хардненинг прод-конфигурации: нет HTTPS-redirect/HSTS;
-> `Encrypt=False`/`TrustServerCertificate=True`; Swagger в проде.**
-> Статус: Open. Все P1/P2 и первый P3 (MLC-010) закрыты. В pipeline
-> (`Program.cs:122-147`) нет `UseHttpsRedirection`/`UseHsts`; базовый `appsettings.json:3-4,14`
-> везёт `Encrypt=False;TrustServerCertificate=True`, `AllowedHosts:*`; Swagger UI отдаётся
-> без ограничения окружения. Приемлемо для single-node за периметром (см. `OPERATIONS.md`),
-> но стоит ужесточить/задокументировать для прода: HSTS + redirect (если перед сервисом нет
-> прокси, делающего TLS — уточнить у оператора), prod-override строки подключения
-> (`Encrypt=True`), ограничить Swagger non-prod либо за ролью Admin. Cookie `Secure=Always`
-> в проде уже корректно. Часть пунктов зависит от наличия reverse-proxy — уточнить в начале
-> сессии (AskUserQuestion), затем менять только согласованное.
+> **MLC-014 — Frontend: тип `ConflictBody` (форма 409-ответа) продублирован в ~5 диалогах.**
+> Статус: Open. Все P1/P2 и P3 MLC-010/011/012/013 закрыты. Тип `ConflictBody`
+> переопределяется в каждом диалоге (`frontend/src/features/infobases/{InfobaseFormDialog,
+> ReassignInfobaseDialog}.tsx`; `frontend/src/features/tenants/{TenantFormDialog,
+> DeleteTenantDialog}.tsx`) вместо единого определения. Вынести `ConflictBody` в `lib/api.ts`
+> (рядом с `ApiError`) или общий модуль типов и переиспользовать; чистый рефакторинг без
+> изменения поведения (диалоги уже покрыты тестами из MLC-007 — прогнать `pnpm test`/
+> `type-check`/`lint`). Связан по духу с MLC-016/006(a) (рукописные типы API).
 
 ---
 
 ## Выполненные работы (Done)
+
+### MLC-012 — Прод-хардненинг транспорта за конфиг-флагами (ADR-22) — 2026-06-02
+- **Согласовано с оператором (AskUserQuestion):** топология может быть и за реверс-прокси,
+  и без него (в основном без — проброс порта), оператор — сисадмин. Поэтому выбран
+  **флаг-gated** подход, не безусловное включение: дефолты остаются dev-безопасными, прод
+  ужесточается через `appsettings.Production.json`/ENV. Подтверждено: (1) `EnforceHttps`
+  по умолчанию `false` + инструкция; (2) Swagger закрыт в проде по умолчанию + override-флаг.
+- **Что сделано (код):** (1) **HSTS + HTTPS-redirect** добавлены в пайплайн сразу после
+  `UseExceptionHandler` (до `UseAuthentication`), но **за флагом**: `app.UseHsts()` +
+  `app.UseHttpsRedirection()` исполняются только когда `Security:EnforceHttps=true` **и**
+  окружение не Development. Решение вынесено в чистый помощник
+  `TransportSecurity.ShouldEnforceHttps(isDevelopment, config)`. Безусловно не включаем:
+  single-node может стоять за терминирующим TLS-прокси, который сам делает redirect/HSTS —
+  дублирование дало бы двойной редирект/петли (приложение на localhost видит уже
+  расшифрованный http). (2) **Swagger UI** (`/api/docs`) обёрнут в гейт
+  `TransportSecurity.ShouldEnableSwagger` = `Development || Security:EnableSwagger`: в
+  Development всегда (на нём держится ручная синхронизация TS-типов — ADR-10.1), в проде
+  закрыт по умолчанию, override-флаг возвращает для внутреннего admin-only периметра.
+  (3) **Строка подключения**: базовый `appsettings.json` **не тронут** (`Encrypt=False` —
+  локальный SQL без TLS-сертификата работает как прежде); прод-override живёт в новом
+  **`appsettings.Production.json`** (шаблон) с `Encrypt=True` для `Default` и `Hangfire`
+  (`TrustServerCertificate=True` оставлен — single-node SQL обычно с self-signed-сертом на
+  localhost: канал шифруется, валидация цепочки пропускается; для полной валидации —
+  доверенный серт + `TrustServerCertificate=False`). (4) **`AllowedHosts`** в прод-шаблоне
+  сужен с `*` до `panel.example.local` (оператор подставляет реальный FQDN). В базовый
+  `appsettings.json` добавлена секция `Security` с явными dev-дефолтами (`EnforceHttps:false`,
+  `EnableSwagger:false`). Cookie `Secure=Always` вне Development (ADR-7) не трогали — оно
+  независимо от флагов.
+- **Почему помощник `TransportSecurity` (а не инлайн):** полный boot `Program` тянет SQL
+  (Hangfire `SqlServerStorage` + fail-fast bootstrap-миграции), поэтому WebApplicationFactory-
+  smoke потребовал бы живой SQL и сертификат. Чистые решения гейтинга вынесены в
+  `internal static TransportSecurity` (виден тестам через существующий `InternalsVisibleTo`),
+  что даёт SQL-free smoke по таблице истинности — в стиле проекта (тесты вызывают логику
+  напрямую, без WebApplicationFactory).
+- **Канон:** `OPERATIONS.md` — новый раздел «Transport hardening» (TLS на сервисе vs на
+  прокси с инструкцией по `EnforceHttps`; `Encrypt=True` и нюанс `TrustServerCertificate`;
+  гейт Swagger; сужение `AllowedHosts`; ENV-override `Security__*`/`ConnectionStrings__*`) +
+  уточнение шага деплоя (publish теперь содержит шаблон `appsettings.Production.json` — на
+  redeploy исключать из копирования, не затирать отредактированный оператором).
+  `DECISIONS.md` — **ADR-22 «Transport hardening is config-gated»** (решение, отклонённые
+  альтернативы: безусловный redirect/HSTS ломает dev и петлит за прокси; правка базовой
+  строки на `Encrypt=True` ломает локальный SQL; удаление Swagger — он reference-контракт
+  ADR-10.1; revision signal — стандартизация на TLS-на-сервисе → дефолт `EnforceHttps:true`).
+- **Файлы:** `backend/src/MitLicenseCenter.Web/Program.cs` (флаг-gated HSTS/redirect +
+  гейт Swagger + `using MitLicenseCenter.Web`); `backend/src/MitLicenseCenter.Web/TransportSecurity.cs`
+  (новый, чистые решения); `backend/src/MitLicenseCenter.Web/appsettings.json` (секция
+  `Security`); `backend/src/MitLicenseCenter.Web/appsettings.Production.json` (новый шаблон:
+  `Encrypt=True`, `Security`, суженный `AllowedHosts`);
+  `backend/tests/.../Web/TransportSecurityTests.cs` (новый, +6); канон `docs/OPERATIONS.md`,
+  `docs/DECISIONS.md` (ADR-22).
+- **Тесты (+6):** таблица истинности гейтинга на in-memory `IConfiguration` без БД:
+  `EnforceHttps` — off в Development даже при флаге `true`; off в Production по умолчанию;
+  on в Production при флаге; Swagger — on в Development по умолчанию; off в Production по
+  умолчанию; on в Production при override-флаге. Прогон: `dotnet test … --filter
+  "Category!=Smoke"` — **230 passed, 0 failed** (было 224). Сборка Release: 0 ошибок,
+  0 предупреждений.
 
 ### MLC-013 — Принятый риск: пароль кластера в cmdline rac.exe (ADR-21) — 2026-06-02
 - **Выбранное решение:** задокументировать как **осознанно принятый остаточный риск** —

@@ -14,6 +14,7 @@ using MitLicenseCenter.Application.Jobs;
 using MitLicenseCenter.Infrastructure;
 using MitLicenseCenter.Infrastructure.Identity;
 using MitLicenseCenter.Infrastructure.Settings;
+using MitLicenseCenter.Web;
 using MitLicenseCenter.Web.Endpoints;
 using MitLicenseCenter.Web.Hangfire;
 
@@ -150,6 +151,25 @@ var app = builder.Build();
 // русский ProblemDetails, а полное исключение логируется этим же middleware.
 app.UseExceptionHandler();
 
+// MLC-012 — прод-хардненинг транспорта (HSTS + HTTPS-redirect) за флагом, НЕ безусловно.
+// Single-node может стоять либо за терминирующим TLS реверс-прокси (IIS/Nginx), либо без
+// него с HTTPS прямо на Kestrel. Включать redirect/HSTS в приложении нужно ТОЛЬКО во
+// втором случае — иначе за прокси получаются двойной редирект / петли (приложению на
+// localhost приходит уже расшифрованный http). Поэтому:
+//   • выключено в Development (dev ходит по http к локальному SQL без шифрования);
+//   • вне Development управляется флагом Security:EnforceHttps (по умолчанию false).
+// Оператор ставит true ТОЛЬКО когда сервис сам терминирует TLS (нет прокси + есть
+// сертификат на Kestrel); за терминирующим прокси флаг остаётся false — redirect/HSTS
+// делает прокси. См. OPERATIONS.md «Transport hardening». Cookie Secure=Always в проде
+// уже задаётся независимо от этого флага (см. AddCookie выше).
+var enforceHttps = TransportSecurity.ShouldEnforceHttps(
+    app.Environment.IsDevelopment(), app.Configuration);
+if (enforceHttps)
+{
+    app.UseHsts();
+    app.UseHttpsRedirection();
+}
+
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -169,13 +189,22 @@ app.MapSettingsEndpoints(versionSet);
 app.MapDashboardEndpoints(versionSet);
 app.MapDiscoveryEndpoints(versionSet);
 
-app.UseSwagger(o => o.RouteTemplate = "api/docs/{documentName}/swagger.json");
-app.UseSwaggerUI(o =>
+// MLC-012 — Swagger UI (/api/docs) раскрывает всю карту API. В Development отдаётся
+// всегда (на нём держится ручная синхронизация TS-типов — ADR-10.1). В проде закрыт
+// по умолчанию; override-флаг Security:EnableSwagger=true возвращает его для отладки на
+// внутреннем admin-only периметре. См. OPERATIONS.md «Transport hardening».
+var enableSwagger = TransportSecurity.ShouldEnableSwagger(
+    app.Environment.IsDevelopment(), app.Configuration);
+if (enableSwagger)
 {
-    o.RoutePrefix = "api/docs";
-    o.SwaggerEndpoint("/api/docs/v1/swagger.json", "MitLicense Center API v1");
-    o.DocumentTitle = "MitLicense Center API";
-});
+    app.UseSwagger(o => o.RouteTemplate = "api/docs/{documentName}/swagger.json");
+    app.UseSwaggerUI(o =>
+    {
+        o.RoutePrefix = "api/docs";
+        o.SwaggerEndpoint("/api/docs/v1/swagger.json", "MitLicense Center API v1");
+        o.DocumentTitle = "MitLicense Center API";
+    });
+}
 
 app.UseHangfireDashboard("/hangfire", new DashboardOptions
 {
