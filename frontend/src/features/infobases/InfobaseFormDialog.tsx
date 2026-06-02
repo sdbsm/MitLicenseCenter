@@ -34,7 +34,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { ApiError } from "@/lib/api";
+import { ApiError, readConflictBody } from "@/lib/api";
 import { DiscoveryField } from "@/features/discovery/DiscoveryField";
 import {
   toDiscoveryState,
@@ -52,10 +52,6 @@ import type {
 } from "./types";
 import { useCreateInfobase, useInfobases, useUpdateInfobase } from "./useInfobases";
 import { physicalPathFromDatabase, virtualPathFromDatabase } from "./paths";
-
-interface ConflictBody {
-  code?: string;
-}
 
 const PLATFORM_VERSION_PATTERN = /^\d+\.\d+\.\d+\.\d+$/;
 const GUID_PATTERN =
@@ -339,7 +335,7 @@ export function InfobaseFormDialog({
       } catch (error) {
         if (error instanceof ApiError) {
           if (error.status === 409) {
-            const body = error.body as ConflictBody | null;
+            const body = readConflictBody(error);
             if (body?.code === "NAME_DUPLICATE_IN_TENANT") {
               setAdvancedOpen(true);
               form.setError("name", {

@@ -18,14 +18,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ApiError } from "@/lib/api";
+import { ApiError, readConflictBody } from "@/lib/api";
 import type { Tenant } from "@/features/tenants/types";
 import type { InfobaseListItem } from "./types";
 import { useReassignInfobase } from "./useInfobases";
-
-interface ConflictBody {
-  code?: string;
-}
 
 interface ReassignInfobaseDialogProps {
   open: boolean;
@@ -61,7 +57,7 @@ export function ReassignInfobaseDialog({
       onOpenChange(false);
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
-        const body = err.body as ConflictBody | null;
+        const body = readConflictBody(err);
         if (body?.code === "INFOBASE_NAME_TAKEN_IN_TARGET") {
           setError(t("infobases.reassign.nameTaken"));
           return;

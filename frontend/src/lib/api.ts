@@ -10,6 +10,24 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Форма тела ответа 409 Conflict: машиночитаемый `code` (для маппинга в
+ * локализованную ошибку поля формы) и необязательный `detail`. Единое
+ * определение для всех диалогов — раньше дублировалось в каждом из них.
+ */
+export interface ConflictBody {
+  code?: string;
+  detail?: string;
+}
+
+/**
+ * Читает `error.body` как `ConflictBody`. Возвращает `null`, если тело пустое.
+ * Вызывать после проверки `error.status === 409`.
+ */
+export function readConflictBody(error: ApiError): ConflictBody | null {
+  return (error.body as ConflictBody | null) ?? null;
+}
+
 type UnauthorizedHandler = () => void;
 let onUnauthorized: UnauthorizedHandler | null = null;
 
@@ -39,7 +57,9 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
 
   if (response.status === 401) {
     onUnauthorized?.();
-    throw new ApiError(401, "Не авторизован", null);
+    // Без человекочитаемого литерала: статус 401 несёт сам сигнал, а текст для
+    // экрана берётся из i18n на месте показа (например, LoginPage по status===401).
+    throw new ApiError(401, "HTTP 401", null);
   }
 
   const contentType = response.headers.get("content-type") ?? "";

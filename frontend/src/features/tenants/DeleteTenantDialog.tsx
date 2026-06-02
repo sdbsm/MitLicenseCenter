@@ -13,13 +13,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ApiError } from "@/lib/api";
+import { ApiError, readConflictBody } from "@/lib/api";
 import type { Tenant } from "./types";
 import { useDeleteTenant } from "./useTenants";
-
-interface ConflictBody {
-  code?: string;
-}
 
 interface DeleteTenantDialogProps {
   open: boolean;
@@ -46,7 +42,7 @@ export function DeleteTenantDialog({ open, onOpenChange, tenant }: DeleteTenantD
       onOpenChange(false);
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
-        const body = error.body as ConflictBody | null;
+        const body = readConflictBody(error);
         if (body?.code === "TENANT_HAS_INFOBASES") {
           toast.error(t("tenants.errors.hasInfobases"));
           return;

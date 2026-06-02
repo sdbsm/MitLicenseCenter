@@ -11,8 +11,13 @@ import i18n from "@/i18n";
 export default function App() {
   useEffect(() => {
     setUnauthorizedHandler(() => {
-      if (window.location.pathname !== "/login") {
-        window.location.assign("/login");
+      // Прежний window.location.assign делал полную перезагрузку, что заодно
+      // сбрасывало in-memory кэш React Query. SPA-навигация через router-инстанс
+      // страницу не перезагружает, поэтому кэш чистим явно (защищённые данные
+      // протухшей сессии не должны пережить редирект на /login).
+      queryClient.clear();
+      if (router.state.location.pathname !== "/login") {
+        void router.navigate("/login", { replace: true });
       }
     });
     return () => setUnauthorizedHandler(null);

@@ -262,7 +262,7 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 - **Description:** Тип `ConflictBody` (форма 409-ответа) переопределяется в каждом
   диалоге вместо единого определения.
 - **Recommendation:** Вынести `ConflictBody` в `lib/api.ts` или общие типы, переиспользовать.
-- **Status:** Open
+- **Status:** **Done** (2026-06-02) — см. «Выполненные работы».
 
 ### MLC-015 — Frontend: pageSize=200 захардкожен, нет UI пагинации; allInfobases грузится при каждом открытии формы
 - **Category:** Performance / Frontend
@@ -295,7 +295,7 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
   впрочем, маппится в `errors.*` на LoginPage); редирект на `/login` идёт мимо React
   Router.
 - **Recommendation:** Бросать код ошибки без литерала; редирект — через router-навигацию.
-- **Status:** Open
+- **Status:** **Done** (2026-06-02) — см. «Выполненные работы».
 
 ---
 
@@ -328,25 +328,68 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
    HTTPS-redirect/HSTS за `Security:EnforceHttps` (dev/за-прокси не ломаются),
    `Encrypt=True` в `appsettings.Production.json`, гейт Swagger `Security:EnableSwagger`,
    суженный `AllowedHosts`.
-   `MLC-014` — **NEXT TASK** (FE-сопровождаемость: вынести дублированный тип `ConflictBody`
-   в общий модуль и переиспользовать в ~5 диалогах).
+   `MLC-014` → **Done**: единый `ConflictBody` + хелпер `readConflictBody` экспортируются
+   из `lib/api.ts`; четыре диалога переключены на них, локальные переопределения убраны.
+   `MLC-017` → **Done**: `ApiError` для 401 больше не несёт русский литерал «Не авторизован»
+   (текст экрана — из i18n по `status===401`, как на LoginPage); `onUnauthorized`-редирект
+   переведён с `window.location.assign` (полная перезагрузка) на SPA-навигацию через
+   router-инстанс с явной `queryClient.clear()` (перезагрузка раньше неявно чистила кэш).
+   `MLC-015` — **NEXT TASK** (FE-перф: серверная пагинация в UI и/или отдельный endpoint
+   проверки занятости кластер-базы вместо загрузки всех баз при каждом открытии формы).
 
 ---
 
 ## NEXT TASK
 
-> **MLC-014 — Frontend: тип `ConflictBody` (форма 409-ответа) продублирован в ~5 диалогах.**
-> Статус: Open. Все P1/P2 и P3 MLC-010/011/012/013 закрыты. Тип `ConflictBody`
-> переопределяется в каждом диалоге (`frontend/src/features/infobases/{InfobaseFormDialog,
-> ReassignInfobaseDialog}.tsx`; `frontend/src/features/tenants/{TenantFormDialog,
-> DeleteTenantDialog}.tsx`) вместо единого определения. Вынести `ConflictBody` в `lib/api.ts`
-> (рядом с `ApiError`) или общий модуль типов и переиспользовать; чистый рефакторинг без
-> изменения поведения (диалоги уже покрыты тестами из MLC-007 — прогнать `pnpm test`/
-> `type-check`/`lint`). Связан по духу с MLC-016/006(a) (рукописные типы API).
+> **MLC-015 — Frontend: pageSize=200 захардкожен, нет UI пагинации; allInfobases грузится
+> при каждом открытии формы.** Статус: Open. Все P1/P2 и P3 MLC-010..014 + MLC-017 закрыты;
+> из Open остаются только MLC-015 и MLC-016. Списки клиентов/баз (`useInfobases.ts`,
+> `useTenants.ts`) тянут до 200 элементов без UI пагинации; `InfobaseFormDialog`
+> (`allInfobasesQuery`) подгружает все базы для проверки занятости кластер-ID при каждом
+> открытии формы. Сделать серверную пагинацию в UI и/или отдельный endpoint проверки
+> занятости кластер-базы (вместо загрузки всех баз). Severity Low-Medium — выше, чем у
+> MLC-016 (Low). Связан по духу с MLC-016/006(a) (рукописные типы API).
 
 ---
 
 ## Выполненные работы (Done)
+
+### MLC-014 + MLC-017 — FE: единый `ConflictBody` и i18n-чистый 401-редирект через router — 2026-06-02
+- **Почему вместе:** обе мелкие FE-задачи правят одни и те же файлы (`lib/api.ts` + те же
+  диалоги + `App.tsx`), поэтому выполнены одним заходом.
+- **MLC-014 (дедуп `ConflictBody`):** в `frontend/src/lib/api.ts` рядом с `ApiError`
+  экспортированы единый `interface ConflictBody { code?: string; detail?: string }` и хелпер
+  `readConflictBody(error: ApiError): ConflictBody | null` (читает `error.body`, возвращает
+  `null` на пустом теле). Четыре диалога (`features/infobases/{InfobaseFormDialog,
+  ReassignInfobaseDialog}.tsx`, `features/tenants/{TenantFormDialog,DeleteTenantDialog}.tsx`)
+  переключены на импорт из `lib/api`, локальные `interface ConflictBody` удалены, разбор 409
+  идёт через `readConflictBody(error)`. Логика обработки 409 (коды → поле формы/тост) не
+  менялась — поведение сохранено, существующие тесты диалогов из MLC-007 зелёные.
+- **MLC-017 (i18n-чистый 401 + router-редирект):** (1) В `api()` ветка 401 больше не бросает
+  русский литерал «Не авторизован» — `throw new ApiError(401, "HTTP 401", null)`; статус 401
+  несёт сам сигнал, текст для экрана берётся из i18n на месте показа (LoginPage по
+  `status===401` → `auth.invalidCredentials`) — литерал нигде не отображался и до этого.
+  (2) В `App.tsx` `onUnauthorized`-хендлер переведён с `window.location.assign("/login")`
+  (полная перезагрузка) на SPA-навигацию через router-инстанс
+  (`router.navigate("/login", { replace: true })` с гардом `router.state.location.pathname
+  !== "/login"`). Поскольку SPA-навигация **не** перезагружает страницу (а прежний reload
+  неявно сбрасывал кэш React Query), добавлен явный `queryClient.clear()` — сценарий
+  «401 → уход на /login и очистка кэша» сохранён. Гонок/двойных редиректов нет: повторные
+  401 идут на тот же `/login` с `replace` (идемпотентно), гард отсекает лишнюю навигацию,
+  `clear()` повторно безвреден.
+- **Канон:** не трогали — `05_UI_REQUIREMENTS.md` §2 описывает наблюдаемый контракт
+  («Unauthenticated requests … the SPA redirects to the login screen»), который сохранён;
+  смена механизма (reload → router-навигация) и формы внутреннего `ApiError.message` —
+  деталь реализации, наблюдаемый исход тот же.
+- **Файлы:** `frontend/src/lib/api.ts` (`ConflictBody` + `readConflictBody`, 401 без
+  литерала); `frontend/src/App.tsx` (router-редирект + `queryClient.clear()`);
+  `frontend/src/features/infobases/{InfobaseFormDialog,ReassignInfobaseDialog}.tsx`;
+  `frontend/src/features/tenants/{TenantFormDialog,DeleteTenantDialog}.tsx`;
+  `frontend/src/lib/__tests__/api.test.ts` (+3).
+- **Тесты (+3):** `api()` — 401 даёт `ApiError` со `status===401`, `message` без кириллицы и
+  не равен «Не авторизован», `onUnauthorized`-хендлер вызван; `readConflictBody` — читает
+  `{code,detail}` и отдаёт `null` на пустом теле. Прогон в `frontend/`: `pnpm lint` (0),
+  `pnpm type-check` (0), `pnpm test` — **63 passed (14 файлов)** (было 60).
 
 ### MLC-012 — Прод-хардненинг транспорта за конфиг-флагами (ADR-22) — 2026-06-02
 - **Согласовано с оператором (AskUserQuestion):** топология может быть и за реверс-прокси,

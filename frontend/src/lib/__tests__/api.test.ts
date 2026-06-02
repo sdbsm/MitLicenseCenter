@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { api, ApiError } from "../api";
+import { api, ApiError, readConflictBody, setUnauthorizedHandler } from "../api";
 
 const originalFetch = globalThis.fetch;
 
@@ -72,5 +72,38 @@ describe("api()", () => {
       expect(error).toBeInstanceOf(ApiError);
       expect((error as ApiError).body).toBe("Internal Server Error");
     }
+  });
+
+  it("401 несёт статус без человекочитаемого/локализованного литерала и зовёт handler", async () => {
+    // MLC-017: текст для экрана берётся из i18n на месте показа (LoginPage по
+    // status===401), а сам ApiError не должен нести русский литерал «Не авторизован».
+    mockFetch(401, "");
+    const handler = vi.fn();
+    setUnauthorizedHandler(handler);
+
+    try {
+      await api("/api/v1/auth/me");
+      expect.fail("expected ApiError");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ApiError);
+      const apiError = error as ApiError;
+      expect(apiError.status).toBe(401);
+      expect(apiError.message).not.toMatch(/[А-Яа-я]/);
+      expect(apiError.message).not.toBe("Не авторизован");
+      expect(handler).toHaveBeenCalled();
+    } finally {
+      setUnauthorizedHandler(null);
+    }
+  });
+});
+
+describe("readConflictBody()", () => {
+  it("читает тело 409 как ConflictBody", () => {
+    const error = new ApiError(409, "conflict", { code: "NAME_DUPLICATE", detail: "x" });
+    expect(readConflictBody(error)).toEqual({ code: "NAME_DUPLICATE", detail: "x" });
+  });
+
+  it("возвращает null для пустого тела", () => {
+    expect(readConflictBody(new ApiError(409, "conflict", null))).toBeNull();
   });
 });

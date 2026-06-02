@@ -23,14 +23,9 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ApiError } from "@/lib/api";
+import { ApiError, readConflictBody } from "@/lib/api";
 import type { Tenant, TenantInput } from "./types";
 import { useCreateTenant, useUpdateTenant } from "./useTenants";
-
-interface ConflictBody {
-  code?: string;
-  detail?: string;
-}
 
 function buildSchema(t: (k: string) => string) {
   return z.object({
@@ -93,7 +88,7 @@ export function TenantFormDialog({ open, onOpenChange, tenant }: TenantFormDialo
     } catch (error) {
       if (error instanceof ApiError) {
         if (error.status === 409) {
-          const body = error.body as ConflictBody | null;
+          const body = readConflictBody(error);
           if (body?.code === "NAME_DUPLICATE") {
             form.setError("name", {
               type: "server",
@@ -205,11 +200,7 @@ export function TenantFormDialog({ open, onOpenChange, tenant }: TenantFormDialo
                 {t("common.cancel")}
               </Button>
               <Button type="submit" disabled={pending}>
-                {pending
-                  ? t("common.loading")
-                  : isEdit
-                    ? t("common.save")
-                    : t("common.create")}
+                {pending ? t("common.loading") : isEdit ? t("common.save") : t("common.create")}
               </Button>
             </DialogFooter>
           </form>
