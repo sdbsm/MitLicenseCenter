@@ -50,7 +50,7 @@ import type {
   InfobaseStatus,
   UpdateInfobaseInput,
 } from "./types";
-import { useCreateInfobase, useInfobases, useUpdateInfobase } from "./useInfobases";
+import { useClusterIdAvailability, useCreateInfobase, useUpdateInfobase } from "./useInfobases";
 import { physicalPathFromDatabase, virtualPathFromDatabase } from "./paths";
 
 const PLATFORM_VERSION_PATTERN = /^\d+\.\d+\.\d+\.\d+$/;
@@ -231,22 +231,38 @@ export function InfobaseFormDialog({
   const databasesState = toDiscoveryState(databasesQuery);
   const platformVersionsState = toDiscoveryState(platformVersionsQuery);
 
-  // Базы кластера, уже привязанные к любому клиенту, не предлагаем — одна база
-  // принадлежит только одному клиенту. Свою базу в режиме редактирования не исключаем.
-  const allInfobasesQuery = useInfobases();
-  const takenClusterIds = new Set(
-    (allInfobasesQuery.data?.items ?? [])
-      .filter((ib) => ib.id !== infobase?.id)
-      .map((ib) => ib.clusterInfobaseId)
+  const infobaseOptions = (infobasesQuery.data?.items ?? []).map((i) => ({
+    value: i.id,
+    label: i.name,
+    hint: i.description,
+  }));
+
+  // MLC-015 — занятость выбранной базы кластера проверяем точечно (а не выгружая весь
+  // список инфобаз при каждом открытии формы). Запрос идёт при валидном GUID; свою базу
+  // в режиме редактирования исключаем через excludeId. 409 на submit остаётся backstop'ом.
+  const watchedClusterId = useWatch({ control: form.control, name: "clusterInfobaseId" });
+  const clusterAvailability = useClusterIdAvailability(
+    (watchedClusterId ?? "").trim(),
+    infobase?.id,
+    open
   );
 
-  const infobaseOptions = (infobasesQuery.data?.items ?? [])
-    .filter((i) => !takenClusterIds.has(i.id))
-    .map((i) => ({
-      value: i.id,
-      label: i.name,
-      hint: i.description,
-    }));
+  useEffect(() => {
+    const data = clusterAvailability.data;
+    if (!data) return;
+    if (data.taken) {
+      form.setError("clusterInfobaseId", {
+        type: "server",
+        message: data.takenByTenantName
+          ? t("infobases.errors.clusterAlreadyAssignedNamed", { name: data.takenByTenantName })
+          : t("infobases.errors.clusterAlreadyAssigned"),
+      });
+    } else if (form.getFieldState("clusterInfobaseId").error?.type === "server") {
+      // База свободна — снимаем только нашу серверную подсказку, не трогая zod-ошибки.
+      form.clearErrors("clusterInfobaseId");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clusterAvailability.data]);
   const siteOptions = (sitesQuery.data?.items ?? []).map((s) => ({
     value: s.siteName,
     label: s.siteName,
@@ -294,6 +310,20 @@ export function InfobaseFormDialog({
 
   const onSubmit = form.handleSubmit(
     async (values) => {
+      // Точечная проверка занятости уже показала конфликт — не делаем заведомо обречённый
+      // запрос (на сервере его всё равно перехватит 409-backstop).
+      if (clusterAvailability.data?.taken) {
+        form.setError("clusterInfobaseId", {
+          type: "server",
+          message: clusterAvailability.data.takenByTenantName
+            ? t("infobases.errors.clusterAlreadyAssignedNamed", {
+                name: clusterAvailability.data.takenByTenantName,
+              })
+            : t("infobases.errors.clusterAlreadyAssigned"),
+        });
+        return;
+      }
+
       const publicationInput = {
         siteName: values.publication.siteName.trim(),
         virtualPath: values.publication.virtualPath.trim(),

@@ -109,6 +109,30 @@ describe("InfobaseFormDialog — маппинг 409", () => {
     expect(mockedToastError).not.toHaveBeenCalled();
   });
 
+  it("занятая база кластера (точечная проверка) → именованная ошибка, submit не уходит в сеть", async () => {
+    // MLC-015 — форма больше не выгружает все базы: занятость проверяется точечным
+    // эндпоинтом. Заняв базу, ждём именованную ошибку и отсутствие PUT.
+    mockedApi.mockImplementation((path: string, opts?: { method?: string }) => {
+      const method = opts?.method ?? "GET";
+      if (path.startsWith("/api/v1/infobases/cluster-id-availability")) {
+        return Promise.resolve({ taken: true, takenByTenantName: "Клиент B" });
+      }
+      if (path === "/api/v1/settings") return Promise.resolve([]);
+      if (method === "PUT") return Promise.reject(new Error("PUT не должен вызываться"));
+      return Promise.resolve({ items: [], available: true, error: null });
+    });
+    const { onOpenChange, user } = setup();
+
+    expect(
+      await screen.findByText("Эта база кластера уже привязана к клиенту «Клиент B».")
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Сохранить" }));
+
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(mockedToastError).not.toHaveBeenCalled();
+  });
+
   it("NAME_DUPLICATE_IN_TENANT → раскрывает «Дополнительно» и показывает ошибку на поле имени", async () => {
     mockApiRejectingPutWith("NAME_DUPLICATE_IN_TENANT");
     const { onOpenChange, user } = setup();

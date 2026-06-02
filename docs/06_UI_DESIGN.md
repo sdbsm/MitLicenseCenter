@@ -79,7 +79,7 @@ Sessions, Audit, Infobases, Publications, Admins — all tables. Single canonica
 - **Density:** compact by default (`text-sm`, `py-2` rows). User-toggleable to "comfortable" via a density button stored in localStorage.
 - **Filter bar above the table:** free-text search left, segmented status filter centre, date-range right. Filters serialize to URL query params so admins can share links.
 - **Column visibility menu** top-right of every table.
-- **Pagination:** server-side for tables that can exceed 500 rows (Audit). Client-side for the rest. Page size selector `25 / 50 / 100`.
+- **Pagination:** server-side for every list backed by a paged endpoint — Audit, Clients, Infobases (and the per-client infobase list on the tenant drill-down). Each fetches one page via `?page=&pageSize=` and renders the `{ items, total, page, pageSize }` envelope; a shared `PaginationBar` (range summary `«from–to из total»` + page-number links) shows only when `total > pageSize`, and a previous page stays on screen while the next loads (no skeleton flash). Audit offers a `25 / 50 / 100` page-size selector; the Clients/Infobases lists use a fixed page size of 25. The «По клиенту» grouping toggle groups the **current page** of infobases.
 - **Sticky header** when scrolling.
 - **Row hover** highlights the row; click does NOT navigate (avoids accidents). Navigation is via an explicit `<ChevronRight>` icon column or an action menu.
 - **Action menu per row** (`...` button → shadcn `DropdownMenu`) for row-level actions. Bulk actions (rare in this product) sit above the table only when at least one row is selected.

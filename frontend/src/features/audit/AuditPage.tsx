@@ -26,7 +26,8 @@ import {
 } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { useTenants } from "@/features/tenants/useTenants";
+import { pageLinkRange } from "@/lib/pagination";
+import { useAllTenants } from "@/features/tenants/useTenants";
 import { AuditFiltersBar } from "./AuditFiltersBar";
 import { isFilterBeyondRetention, retentionCutoffDate } from "./retention";
 import {
@@ -40,8 +41,6 @@ import {
 } from "./types";
 import { useAuditLog } from "./useAuditLog";
 import { useAuditRetention } from "./useAuditRetention";
-
-const MAX_PAGE_LINKS = 7;
 
 function parseFiltersFromUrl(params: URLSearchParams): AuditFilters {
   // Любая невалидная пара ключ-значение в URL → дефолт. URL остаётся
@@ -107,7 +106,7 @@ export function AuditPage() {
   const filters = useMemo(() => parseFiltersFromUrl(searchParams), [searchParams]);
   const backendFilters = useMemo(() => buildBackendFilters(filters), [filters]);
 
-  const { data: tenantsData } = useTenants();
+  const { data: tenantsData } = useAllTenants();
   const tenantNameById = useMemo(() => {
     const map = new Map<string, string>();
     for (const tenant of tenantsData?.items ?? []) {
@@ -366,18 +365,4 @@ function actionBadgeClass(action: AuditActionType): string {
     return "border-transparent bg-sky-500/15 text-sky-700 dark:text-sky-300";
   }
   return "border-transparent bg-muted text-muted-foreground";
-}
-
-function pageLinkRange(current: number, totalPages: number): number[] {
-  if (totalPages <= MAX_PAGE_LINKS) {
-    return Array.from({ length: totalPages }, (_, idx) => idx + 1);
-  }
-  const half = Math.floor(MAX_PAGE_LINKS / 2);
-  let start = Math.max(1, current - half);
-  let end = start + MAX_PAGE_LINKS - 1;
-  if (end > totalPages) {
-    end = totalPages;
-    start = end - MAX_PAGE_LINKS + 1;
-  }
-  return Array.from({ length: MAX_PAGE_LINKS }, (_, idx) => start + idx);
 }

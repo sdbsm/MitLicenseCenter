@@ -43,6 +43,11 @@ export interface InfobaseDetail {
   publication: Publication;
 }
 
+export interface ClusterIdAvailability {
+  taken: boolean;
+  takenByTenantName: string | null;
+}
+
 export interface PublicationInput {
   siteName: string;
   virtualPath: string;

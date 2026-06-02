@@ -275,7 +275,7 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 - **Impact:** Не масштабируется за ~200 баз; лишний трафик.
 - **Recommendation:** Серверная пагинация в UI и/или отдельный endpoint проверки
   занятости кластер-базы.
-- **Status:** Open
+- **Status:** **Done** (2026-06-02) — см. «Выполненные работы».
 
 ### MLC-016 — Frontend: рукописные типы API без runtime-валидации (риск расхождения)
 - **Category:** Maintainability / Frontend
@@ -334,25 +334,78 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
    (текст экрана — из i18n по `status===401`, как на LoginPage); `onUnauthorized`-редирект
    переведён с `window.location.assign` (полная перезагрузка) на SPA-навигацию через
    router-инстанс с явной `queryClient.clear()` (перезагрузка раньше неявно чистила кэш).
-   `MLC-015` — **NEXT TASK** (FE-перф: серверная пагинация в UI и/или отдельный endpoint
-   проверки занятости кластер-базы вместо загрузки всех баз при каждом открытии формы).
+   `MLC-015` → **Done**: серверная пагинация в UI списков клиентов/баз (`{items,total,page,
+   pageSize}` + общий `PaginationBar` поверх `ui/pagination`, page size 25, фильтр/группировка
+   сохранены) и точечная проверка занятости кластер-базы новым admin-эндпоинтом
+   `GET /api/v1/infobases/cluster-id-availability` вместо выгрузки всех баз в `InfobaseFormDialog`.
+   `MLC-016` — **NEXT TASK** (FE-сопровождаемость: рукописные типы API без runtime-валидации;
+   codegen из OpenAPI или Zod-схемы на границе ответа `api<T>()`).
 
 ---
 
 ## NEXT TASK
 
-> **MLC-015 — Frontend: pageSize=200 захардкожен, нет UI пагинации; allInfobases грузится
-> при каждом открытии формы.** Статус: Open. Все P1/P2 и P3 MLC-010..014 + MLC-017 закрыты;
-> из Open остаются только MLC-015 и MLC-016. Списки клиентов/баз (`useInfobases.ts`,
-> `useTenants.ts`) тянут до 200 элементов без UI пагинации; `InfobaseFormDialog`
-> (`allInfobasesQuery`) подгружает все базы для проверки занятости кластер-ID при каждом
-> открытии формы. Сделать серверную пагинацию в UI и/или отдельный endpoint проверки
-> занятости кластер-базы (вместо загрузки всех баз). Severity Low-Medium — выше, чем у
-> MLC-016 (Low). Связан по духу с MLC-016/006(a) (рукописные типы API).
+> **MLC-016 — Frontend: рукописные типы API без runtime-валидации (риск расхождения).**
+> Статус: Open. Все P1/P2 и P3 MLC-010..015 + MLC-017 закрыты — из Open остаётся только
+> MLC-016 (плюс открытые опции `MLC-006(a)` codegen и `MLC-011(a)` Application use-cases).
+> `frontend/src/lib/api.ts` приводит ответ к `T` через `payload as T` без runtime-проверки,
+> типы в `features/*/types.ts` рукописные → риск тихого расхождения FE-типов с реальным
+> контрактом backend. Сделать codegen из `/api/docs/v1/swagger.json` (закрывает и `MLC-006(a)`)
+> **или** Zod-схемы на границе ответа. Severity Low.
 
 ---
 
 ## Выполненные работы (Done)
+
+### MLC-015 — FE: серверная пагинация списков + точечная проверка занятости кластер-базы — 2026-06-02
+- **Что сделано (пагинация):** Списки клиентов и инфобаз переведены с «тянем до 200 + режем
+  на клиенте» на **серверную пагинацию** поверх уже существовавшего бэкенд-контракта
+  `{items,total,page,pageSize}`. Хуки `useTenants(page,pageSize)` / `useInfobases(tenantId,
+  page,pageSize)` принимают страницу, кладут её в queryKey (префикс `["tenants"]`/`["infobases"]`
+  сохранён — мутации инвалидируют все страницы разом) и используют `placeholderData:(prev)=>prev`
+  (страница не моргает скелетоном при перелистывании). Дефолтный размер страницы — 25
+  (`TENANTS_PAGE_SIZE` / `INFOBASES_PAGE_SIZE`). `TenantsPage`, `InfobasesPage` и
+  per-tenant `TenantDetailPage` рендерят текущую страницу `data.items`, `total` берут из
+  `data.total`. Фильтр по клиенту и тумблер «По клиенту» сохранены: смена фильтра сбрасывает
+  на стр. 1; группировка применяется к **текущей странице** (документировано в `06_UI_DESIGN.md`).
+- **Переиспользуемые контролы:** новый `components/PaginationBar.tsx` (поверх `ui/pagination`)
+  — сводка «from–to из total» + номера страниц + индикатор «Обновление…»; рендерит `null`,
+  если всё помещается на одной странице. Логика окна номеров вынесена в чистую
+  `lib/pagination.ts::pageLinkRange` (с unit-тестом); `AuditPage` (где серверная пагинация
+  уже была) переключён на тот же общий helper — локальная копия удалена (дедуп).
+- **Выпадающие списки клиентов:** где нужен полный набор (фильтры, формы, карта `id→имя`,
+  `AuditPage`), добавлен `useAllTenants()` (одна большая страница, pageSize=200). Клиентов на
+  порядок меньше, чем инфобаз, поэтому это приемлемо; если их станет больше предела — отдельная
+  задача (искомый/пагинированный селект). `AuditPage`/`InfobasesPage`/`TenantDetailPage`
+  переведены на `useAllTenants`.
+- **Точечная проверка занятости кластер-базы:** `InfobaseFormDialog` больше **не** грузит все
+  инфобазы (`allInfobasesQuery` убран) ради скрытия занятых баз в пикере. Вместо этого добавлен
+  лёгкий admin-эндпоинт `GET /api/v1/infobases/cluster-id-availability?clusterInfobaseId=…
+  [&excludeId=…]` → `{taken, takenByTenantName?}` (под `/api/v1`, версионирование как у группы).
+  Форма дёргает его при выборе/вводе валидного GUID (`useClusterIdAvailability`), показывает
+  «уже привязана к клиенту «…»» на поле и не делает заведомо обречённый submit. Пикер теперь
+  показывает **все** базы кластера. Контракт `409 INFOBASE_ALREADY_ASSIGNED` на create/update/
+  reassign + индекс `IX_Infobases_ClusterInfobaseId` остаются authoritative backstop'ом (не трогали).
+- **Канон:** `03_DOMAIN_MODEL.md` — `ClusterInfobaseId` (пикер показывает все + точечная
+  проверка), новые binding-контракты «List paging» и «Cluster-id availability probe»;
+  `06_UI_DESIGN.md` — раздел Pagination переписан под server-side для Audit/Clients/Infobases +
+  `PaginationBar` + группировка текущей страницы; `05_UI_REQUIREMENTS.md` — оговорка про
+  availability-probe в форме. OpenAPI — спека генерируется в рантайме (Swagger `/api/docs`),
+  отдельного committed-файла нет; эндпоинт документируется автоматически.
+- **Файлы:** `backend/.../Endpoints/InfobasesEndpoints.cs` (+`ClusterIdAvailabilityAsync`,
+  маршрут), `.../InfobasesContracts.cs` (+`ClusterIdAvailabilityResponse`);
+  `backend/tests/.../Endpoints/ClusterIdAvailabilityTests.cs` (новый, +3);
+  `frontend/src/lib/pagination.ts` (новый) + `lib/__tests__/pagination.test.ts` (новый);
+  `frontend/src/components/PaginationBar.tsx` (новый); `features/tenants/useTenants.ts`
+  (paged + `useAllTenants`); `features/infobases/useInfobases.ts` (paged +
+  `useClusterIdAvailability`); `features/infobases/types.ts` (+`ClusterIdAvailability`);
+  `features/{tenants/TenantsPage,tenants/TenantDetailPage,infobases/InfobasesPage,audit/AuditPage}.tsx`;
+  `features/infobases/InfobaseFormDialog.tsx`; `features/infobases/__tests__/InfobaseFormDialog.test.tsx`
+  (+1); `i18n/ru.json` (`common.pagination.*`, `infobases.errors.clusterAlreadyAssignedNamed`).
+- **Тесты:** backend `dotnet test … --filter "Category!=Smoke"` — **233 passed, 0 failed**
+  (было 230; +3: занятая/свободная база, исключение собственной через `excludeId`). frontend
+  `pnpm lint`/`type-check` (0) + `pnpm test` — **68 passed (15 файлов)** (было 63; +4
+  `pageLinkRange`, +1 точечная проверка занятости в форме).
 
 ### MLC-014 + MLC-017 — FE: единый `ConflictBody` и i18n-чистый 401-редирект через router — 2026-06-02
 - **Почему вместе:** обе мелкие FE-задачи правят одни и те же файлы (`lib/api.ts` + те же

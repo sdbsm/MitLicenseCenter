@@ -5,6 +5,7 @@ import { Link, useParams } from "react-router";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { PaginationBar } from "@/components/PaginationBar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { useMe } from "@/features/auth/useAuth";
@@ -14,8 +15,8 @@ import { infobaseColumnCount } from "@/features/infobases/infobaseFormat";
 import { InfobaseRow, InfobaseTableHeader } from "@/features/infobases/InfobaseRow";
 import { ReassignInfobaseDialog } from "@/features/infobases/ReassignInfobaseDialog";
 import type { InfobaseListItem } from "@/features/infobases/types";
-import { useInfobases } from "@/features/infobases/useInfobases";
-import { useTenants } from "./useTenants";
+import { INFOBASES_PAGE_SIZE, useInfobases } from "@/features/infobases/useInfobases";
+import { useAllTenants } from "./useTenants";
 
 const NUMBER_FORMATTER = new Intl.NumberFormat("ru-RU");
 
@@ -25,11 +26,19 @@ export function TenantDetailPage() {
   const { data: me } = useMe();
   const isAdmin = me?.roles?.includes("Admin") ?? false;
 
-  const { data: tenantsData, isLoading: tenantsLoading } = useTenants();
+  const { data: tenantsData, isLoading: tenantsLoading } = useAllTenants();
   const tenant = useMemo(() => tenantsData?.items.find((tnt) => tnt.id === id), [tenantsData, id]);
 
-  const { data, isLoading, isError, refetch } = useInfobases(id);
+  const [page, setPage] = useState(1);
+  const { data, isLoading, isError, isFetching, refetch } = useInfobases(
+    id,
+    page,
+    INFOBASES_PAGE_SIZE
+  );
   const items = useMemo<InfobaseListItem[]>(() => data?.items ?? [], [data]);
+  const total = data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / INFOBASES_PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<InfobaseListItem | null>(null);
@@ -169,6 +178,14 @@ export function TenantDetailPage() {
           </TableBody>
         </Table>
       </div>
+
+      <PaginationBar
+        page={currentPage}
+        pageSize={INFOBASES_PAGE_SIZE}
+        total={total}
+        onPageChange={setPage}
+        isFetching={isFetching && !isLoading}
+      />
 
       <InfobaseFormDialog
         key={editing?.id ?? "create"}

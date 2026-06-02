@@ -38,6 +38,13 @@ public sealed record InfobaseDetailResponse(
     InfobaseResponse Infobase,
     PublicationResponse Publication);
 
+// Точечная проверка занятости базы кластера: одна база кластера принадлежит ровно
+// одному клиенту (IX_Infobases_ClusterInfobaseId). Фронт дёргает её при выборе базы,
+// чтобы не выгружать весь список инфобаз ради проверки уникальности (MLC-015).
+public sealed record ClusterIdAvailabilityResponse(
+    bool Taken,
+    string? TakenByTenantName);
+
 public sealed record CreateInfobaseRequest(
     [property: Required] Guid TenantId,
     [property: Required, StringLength(200, MinimumLength = 1)] string Name,

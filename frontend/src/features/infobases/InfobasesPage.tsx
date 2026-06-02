@@ -3,14 +3,7 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import {
-  Pagination,
-  PaginationContent,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from "@/components/ui/pagination";
+import { PaginationBar } from "@/components/PaginationBar";
 import {
   Select,
   SelectContent,
@@ -21,7 +14,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { useMe } from "@/features/auth/useAuth";
-import { useTenants } from "@/features/tenants/useTenants";
+import { useAllTenants } from "@/features/tenants/useTenants";
 import { DeleteInfobaseDialog } from "./DeleteInfobaseDialog";
 import { groupByTenant } from "./grouping";
 import { InfobaseFormDialog } from "./InfobaseFormDialog";
@@ -29,9 +22,9 @@ import { infobaseColumnCount } from "./infobaseFormat";
 import { InfobaseRow, InfobaseTableHeader } from "./InfobaseRow";
 import { ReassignInfobaseDialog } from "./ReassignInfobaseDialog";
 import type { InfobaseListItem } from "./types";
-import { useInfobases } from "./useInfobases";
+import { INFOBASES_PAGE_SIZE, useInfobases } from "./useInfobases";
 
-const PAGE_SIZE = 25;
+const PAGE_SIZE = INFOBASES_PAGE_SIZE;
 const ALL_TENANTS = "__all__";
 type ViewMode = "flat" | "grouped";
 
@@ -40,7 +33,7 @@ export function InfobasesPage() {
   const { data: me } = useMe();
   const isAdmin = me?.roles?.includes("Admin") ?? false;
 
-  const { data: tenantsData } = useTenants();
+  const { data: tenantsData } = useAllTenants();
   const tenants = useMemo(() => tenantsData?.items ?? [], [tenantsData]);
   const tenantNameById = useMemo(() => {
     const map = new Map<string, string>();
@@ -53,25 +46,31 @@ export function InfobasesPage() {
   const [tenantFilter, setTenantFilter] = useState<string>(ALL_TENANTS);
   const tenantIdParam = tenantFilter === ALL_TENANTS ? null : tenantFilter;
 
-  const { data, isLoading, isError, refetch } = useInfobases(tenantIdParam);
+  const [page, setPage] = useState(1);
+  const { data, isLoading, isError, isFetching, refetch } = useInfobases(
+    tenantIdParam,
+    page,
+    PAGE_SIZE
+  );
 
   const [viewMode, setViewMode] = useState<ViewMode>("flat");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const [page, setPage] = useState(1);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<InfobaseListItem | null>(null);
   const [deleting, setDeleting] = useState<InfobaseListItem | null>(null);
   const [reassigning, setReassigning] = useState<InfobaseListItem | null>(null);
 
+  // Смена фильтра по клиенту возвращает на первую страницу — иначе можно «застрять»
+  // на несуществующей странице сильно меньшего отфильтрованного набора.
+  const changeTenantFilter = (value: string) => {
+    setTenantFilter(value);
+    setPage(1);
+  };
+
   const items = useMemo<InfobaseListItem[]>(() => data?.items ?? [], [data]);
-  const total = items.length;
+  const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
-
-  const pagedItems = useMemo(
-    () => items.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
-    [items, currentPage]
-  );
 
   const groups = useMemo(
     () => (viewMode === "grouped" ? groupByTenant(items, tenantNameById) : []),
@@ -115,7 +114,7 @@ export function InfobasesPage() {
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        <Select value={tenantFilter} onValueChange={setTenantFilter}>
+        <Select value={tenantFilter} onValueChange={changeTenantFilter}>
           <SelectTrigger className="w-72">
             <SelectValue placeholder={t("infobases.filters.tenant")} />
           </SelectTrigger>
@@ -129,7 +128,7 @@ export function InfobasesPage() {
           </SelectContent>
         </Select>
         {tenantFilter !== ALL_TENANTS && (
-          <Button variant="ghost" size="sm" onClick={() => setTenantFilter(ALL_TENANTS)}>
+          <Button variant="ghost" size="sm" onClick={() => changeTenantFilter(ALL_TENANTS)}>
             {t("common.reset")}
           </Button>
         )}
@@ -242,7 +241,7 @@ export function InfobasesPage() {
                       ))}
                     </TableRow>
                   ))
-                : pagedItems.map((item) => (
+                : items.map((item) => (
                     <InfobaseRow
                       key={item.id}
                       item={item}
@@ -258,50 +257,13 @@ export function InfobasesPage() {
         </div>
       )}
 
-      {viewMode === "flat" && total > PAGE_SIZE && (
-        <Pagination>
-          <PaginationContent>
-            <PaginationItem>
-              <PaginationPrevious
-                aria-disabled={currentPage === 1}
-                className={currentPage === 1 ? "pointer-events-none opacity-50" : undefined}
-                onClick={(e) => {
-                  e.preventDefault();
-                  if (currentPage > 1) setPage(currentPage - 1);
-                }}
-              />
-            </PaginationItem>
-            {Array.from({ length: totalPages }).map((_, idx) => {
-              const p = idx + 1;
-              return (
-                <PaginationItem key={p}>
-                  <PaginationLink
-                    isActive={p === currentPage}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      setPage(p);
-                    }}
-                  >
-                    {p}
-                  </PaginationLink>
-                </PaginationItem>
-              );
-            })}
-            <PaginationItem>
-              <PaginationNext
-                aria-disabled={currentPage === totalPages}
-                className={
-                  currentPage === totalPages ? "pointer-events-none opacity-50" : undefined
-                }
-                onClick={(e) => {
-                  e.preventDefault();
-                  if (currentPage < totalPages) setPage(currentPage + 1);
-                }}
-              />
-            </PaginationItem>
-          </PaginationContent>
-        </Pagination>
-      )}
+      <PaginationBar
+        page={currentPage}
+        pageSize={PAGE_SIZE}
+        total={total}
+        onPageChange={setPage}
+        isFetching={isFetching && !isLoading}
+      />
 
       <InfobaseFormDialog
         key={editing?.id ?? "create"}

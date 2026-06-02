@@ -32,6 +32,7 @@ public static partial class InfobasesEndpoints
             .WithTags("Infobases");
 
         group.MapGet("/", ListAsync).RequireAuthorization(Roles.Viewer);
+        group.MapGet("/cluster-id-availability", ClusterIdAvailabilityAsync).RequireAuthorization(Roles.Admin);
         group.MapGet("/{id:guid}", GetAsync).RequireAuthorization(Roles.Viewer);
         group.MapPost("/", CreateAsync).RequireAuthorization(Roles.Admin);
         group.MapPut("/{id:guid}", UpdateAsync).RequireAuthorization(Roles.Admin);
@@ -101,6 +102,35 @@ public static partial class InfobasesEndpoints
             .ToListAsync(ct).ConfigureAwait(false);
 
         return TypedResults.Ok(new InfobaseListResponse(items, total, p, ps));
+    }
+
+    // Занятость базы кластера для формы добавления/редактирования инфобазы. Возвращает
+    // имя клиента-владельца, если база уже привязана (с исключением собственной базы при
+    // редактировании через excludeId). Заменяет выгрузку всего списка баз на фронте (MLC-015).
+    // 409 INFOBASE_ALREADY_ASSIGNED на create/update остаётся backstop'ом — это лишь UX-подсказка.
+    internal static async Task<Ok<ClusterIdAvailabilityResponse>> ClusterIdAvailabilityAsync(
+        AppDbContext db,
+        [FromQuery] Guid clusterInfobaseId,
+        [FromQuery] Guid? excludeId,
+        CancellationToken ct)
+    {
+        var query = db.Infobases.AsNoTracking().Where(x => x.ClusterInfobaseId == clusterInfobaseId);
+        if (excludeId is { } ex)
+        {
+            query = query.Where(x => x.Id != ex);
+        }
+
+        // Глобальная уникальность ClusterInfobaseId → совпадение не более одного; имя
+        // владельца — имя единственного совпавшего клиента (null, если база свободна).
+        var takenByTenantName = await query
+            .Join(
+                db.Tenants.AsNoTracking(),
+                ib => ib.TenantId,
+                t => t.Id,
+                (ib, t) => t.Name)
+            .FirstOrDefaultAsync(ct).ConfigureAwait(false);
+
+        return TypedResults.Ok(new ClusterIdAvailabilityResponse(takenByTenantName is not null, takenByTenantName));
     }
 
     private static async Task<Results<Ok<InfobaseDetailResponse>, NotFound>> GetAsync(

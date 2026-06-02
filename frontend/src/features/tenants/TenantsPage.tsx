@@ -13,14 +13,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Pagination,
-  PaginationContent,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from "@/components/ui/pagination";
+import { PaginationBar } from "@/components/PaginationBar";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -34,9 +27,9 @@ import { useMe } from "@/features/auth/useAuth";
 import { DeleteTenantDialog } from "./DeleteTenantDialog";
 import { TenantFormDialog } from "./TenantFormDialog";
 import type { Tenant } from "./types";
-import { useTenants } from "./useTenants";
+import { TENANTS_PAGE_SIZE, useTenants } from "./useTenants";
 
-const PAGE_SIZE = 25;
+const PAGE_SIZE = TENANTS_PAGE_SIZE;
 const NUMBER_FORMATTER = new Intl.NumberFormat("ru-RU");
 
 function formatDateTime(value: string | null | undefined): string {
@@ -49,22 +42,17 @@ export function TenantsPage() {
   const { data: me } = useMe();
   const isAdmin = me?.roles?.includes("Admin") ?? false;
 
-  const { data, isLoading, isError, refetch } = useTenants();
-
   const [page, setPage] = useState(1);
+  const { data, isLoading, isError, isFetching, refetch } = useTenants(page, PAGE_SIZE);
+
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Tenant | null>(null);
   const [deleting, setDeleting] = useState<Tenant | null>(null);
 
   const items = useMemo<Tenant[]>(() => data?.items ?? [], [data]);
-  const total = items.length;
+  const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
-
-  const pagedItems = useMemo(
-    () => items.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
-    [items, currentPage]
-  );
 
   const handleOpenCreate = () => {
     setEditing(null);
@@ -148,7 +136,7 @@ export function TenantsPage() {
                     <TableCell />
                   </TableRow>
                 ))
-              : pagedItems.length === 0
+              : items.length === 0
                 ? !isError && (
                     <TableRow>
                       <TableCell colSpan={7} className="py-12">
@@ -170,7 +158,7 @@ export function TenantsPage() {
                       </TableCell>
                     </TableRow>
                   )
-                : pagedItems.map((tenant) => (
+                : items.map((tenant) => (
                     <TableRow key={tenant.id}>
                       <TableCell className="font-medium">
                         <Link
@@ -232,50 +220,13 @@ export function TenantsPage() {
         </Table>
       </div>
 
-      {total > PAGE_SIZE && (
-        <Pagination>
-          <PaginationContent>
-            <PaginationItem>
-              <PaginationPrevious
-                aria-disabled={currentPage === 1}
-                className={currentPage === 1 ? "pointer-events-none opacity-50" : undefined}
-                onClick={(e) => {
-                  e.preventDefault();
-                  if (currentPage > 1) setPage(currentPage - 1);
-                }}
-              />
-            </PaginationItem>
-            {Array.from({ length: totalPages }).map((_, idx) => {
-              const p = idx + 1;
-              return (
-                <PaginationItem key={p}>
-                  <PaginationLink
-                    isActive={p === currentPage}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      setPage(p);
-                    }}
-                  >
-                    {p}
-                  </PaginationLink>
-                </PaginationItem>
-              );
-            })}
-            <PaginationItem>
-              <PaginationNext
-                aria-disabled={currentPage === totalPages}
-                className={
-                  currentPage === totalPages ? "pointer-events-none opacity-50" : undefined
-                }
-                onClick={(e) => {
-                  e.preventDefault();
-                  if (currentPage < totalPages) setPage(currentPage + 1);
-                }}
-              />
-            </PaginationItem>
-          </PaginationContent>
-        </Pagination>
-      )}
+      <PaginationBar
+        page={currentPage}
+        pageSize={PAGE_SIZE}
+        total={total}
+        onPageChange={setPage}
+        isFetching={isFetching && !isLoading}
+      />
 
       <TenantFormDialog
         key={editing?.id ?? "create"}
