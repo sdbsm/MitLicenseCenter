@@ -27,7 +27,7 @@ public static class ProblemCodes
 
 public static class Problems
 {
-    public static ProblemDetails Conflict(string code, string title, string detail)
+    public static ProblemDetails Conflict(string code, string title, string detail, string? correlationId = null)
     {
         var problem = new ProblemDetails
         {
@@ -37,6 +37,14 @@ public static class Problems
             Detail = detail,
         };
         problem.Extensions["code"] = code;
+        // MLC-009: машинно-читаемый идентификатор для сопоставления с записью в
+        // журнале сервера. Сам текст исключения наружу не уходит — оператор
+        // находит детали в логе по correlationId.
+        if (!string.IsNullOrEmpty(correlationId))
+        {
+            problem.Extensions["correlationId"] = correlationId;
+        }
+
         return problem;
     }
 
@@ -70,17 +78,23 @@ public static class Problems
             "Конфликт названия при переносе",
             $"У целевого клиента уже есть инфобаза с названием «{name}». Переименуйте базу перед переносом.");
 
-    public static ProblemDetails IisReconcileFailed(string detail) =>
+    // MLC-009: наружу — только санитизированный русский текст без имён серверов,
+    // путей и текста COM/IO-исключения. Технические детали логируются и находятся
+    // по необязательному correlationId.
+    public static ProblemDetails IisReconcileFailed(string? correlationId = null) =>
         Conflict(
             ProblemCodes.IisReconcileFailed,
             "Согласование не удалось",
-            detail);
+            "Не удалось согласовать публикацию IIS. Технические подробности записаны в журнал сервера.",
+            correlationId);
 
-    public static ProblemDetails IisAccessDenied(string detail) =>
+    public static ProblemDetails IisAccessDenied(string? correlationId = null) =>
         Conflict(
             ProblemCodes.IisAccessDenied,
             "Нет доступа к IIS / default.vrd",
-            detail);
+            "Недостаточно прав для изменения публикации IIS или файла default.vrd. "
+                + "Технические подробности записаны в журнал сервера.",
+            correlationId);
 
     // MLC-002 — снапшот устарел: сеанс с тем же SessionId сменил дескриптор
     // (InfobaseId/AppID/StartedAt). 409 — оператору нужно обновить список.

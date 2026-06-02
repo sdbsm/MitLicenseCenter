@@ -2,6 +2,7 @@ using Asp.Versioning;
 using Asp.Versioning.Builder;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using MitLicenseCenter.Application.Clusters;
 using MitLicenseCenter.Application.Discovery;
 using MitLicenseCenter.Application.Publishing;
@@ -13,7 +14,7 @@ namespace MitLicenseCenter.Web.Endpoints;
 // оператор выбирает значения из списков, которые приложение строит из источников
 // истины (кластер 1С, SQL-сервер, IIS, файловая система). Admin-only, как /settings.
 // Каждый ответ несёт флаг Available — фронт по нему решает показать ручной fallback.
-public static class DiscoveryEndpoints
+public static partial class DiscoveryEndpoints
 {
     public static void MapDiscoveryEndpoints(this IEndpointRouteBuilder endpoints, ApiVersionSet versionSet)
     {
@@ -46,6 +47,7 @@ public static class DiscoveryEndpoints
     internal static async Task<Ok<DiscoveryResponse<string>>> GetDatabasesAsync(
         [FromQuery] string? server,
         [FromServices] ISqlDatabaseDiscovery discovery,
+        [FromServices] ILoggerFactory loggerFactory,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(server))
@@ -59,16 +61,23 @@ public static class DiscoveryEndpoints
             var databases = await discovery.ListDatabasesAsync(server, ct).ConfigureAwait(false);
             return TypedResults.Ok(new DiscoveryResponse<string>(databases, Available: true, Error: null));
         }
-        catch (Exception ex)
+        // MLC-009: отмену запроса не выдаём за «ошибку discovery» — пробрасываем.
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // Сервер недоступен / нет прав / неверное имя — фронт покажет ручной ввод.
+            // Сервер недоступен / нет прав / неверное имя. Полное исключение — в лог;
+            // наружу только санитизированный русский текст (без имён серверов/SQL-деталей):
+            // фронт по Available:false покажет ручной ввод.
+            LogDatabaseDiscoveryFailed(loggerFactory.CreateLogger(typeof(DiscoveryEndpoints).FullName!), server, ex);
             return TypedResults.Ok(new DiscoveryResponse<string>(
-                Array.Empty<string>(), Available: false, Error: ex.Message));
+                Array.Empty<string>(),
+                Available: false,
+                Error: "Не удалось получить список баз данных. Проверьте доступность SQL-сервера и права доступа или введите имя базы вручную."));
         }
     }
 
     internal static async Task<Ok<DiscoveryResponse<IisSiteDto>>> GetIisSitesAsync(
         [FromServices] IIisPublishingService iis,
+        [FromServices] ILoggerFactory loggerFactory,
         CancellationToken ct)
     {
         try
@@ -77,10 +86,16 @@ public static class DiscoveryEndpoints
             var items = sites.Select(s => new IisSiteDto(s.SiteName)).ToList();
             return TypedResults.Ok(new DiscoveryResponse<IisSiteDto>(items, Available: true, Error: null));
         }
-        catch (Exception ex)
+        // MLC-009: отмену запроса не выдаём за «ошибку discovery» — пробрасываем.
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            // COM/нет прав/IIS недоступен. Полное исключение — в лог; наружу только
+            // санитизированный русский текст (без путей/имён сайтов).
+            LogIisSitesDiscoveryFailed(loggerFactory.CreateLogger(typeof(DiscoveryEndpoints).FullName!), ex);
             return TypedResults.Ok(new DiscoveryResponse<IisSiteDto>(
-                Array.Empty<IisSiteDto>(), Available: false, Error: ex.Message));
+                Array.Empty<IisSiteDto>(),
+                Available: false,
+                Error: "Не удалось получить список сайтов IIS. Проверьте доступность веб-сервера и права службы или введите имя сайта вручную."));
         }
     }
 
@@ -100,6 +115,21 @@ public static class DiscoveryEndpoints
         return TypedResults.Ok(
             new DiscoveryResponse<PlatformVersionDto>(versions, Available: true, Error: null));
     }
+}
+
+// MLC-009: полное инфраструктурное исключение пишем в журнал сервера (source-gen
+// logger, как в остальном коде); наружу уходит только санитизированный русский текст.
+public static partial class DiscoveryEndpoints
+{
+    [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "Discovery: не удалось получить список баз данных с SQL-сервера {Server}.")]
+    private static partial void LogDatabaseDiscoveryFailed(ILogger logger, string server, Exception ex);
+
+    [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "Discovery: не удалось получить список сайтов IIS.")]
+    private static partial void LogIisSitesDiscoveryFailed(ILogger logger, Exception ex);
 }
 
 public sealed record DiscoveryResponse<T>(IReadOnlyList<T> Items, bool Available, string? Error);

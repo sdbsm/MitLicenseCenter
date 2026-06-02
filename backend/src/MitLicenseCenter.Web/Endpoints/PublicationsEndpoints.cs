@@ -4,6 +4,7 @@ using Hangfire;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using MitLicenseCenter.Application.Auditing;
 using MitLicenseCenter.Application.Jobs;
 using MitLicenseCenter.Application.Publishing;
@@ -20,7 +21,7 @@ namespace MitLicenseCenter.Web.Endpoints;
 //
 // PR 3.5 добавляет drift-операции: проверка дрейфа default.vrd, чтение
 // последнего drift-статуса, согласование (reconcile) — surgical XML-patch.
-public static class PublicationsEndpoints
+public static partial class PublicationsEndpoints
 {
     public static void MapPublicationsEndpoints(this IEndpointRouteBuilder endpoints, ApiVersionSet versionSet)
     {
@@ -174,6 +175,7 @@ public static class PublicationsEndpoints
         IDriftCheckJob driftJob,
         IAuditLogger audit,
         HttpContext httpContext,
+        ILoggerFactory loggerFactory,
         CancellationToken ct)
     {
         var publication = await db.Publications.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct).ConfigureAwait(false);
@@ -187,27 +189,36 @@ public static class PublicationsEndpoints
         // ApplyDesiredStateAsync — surgical XML-patch. При IIS-исключении
         // короткое замыкание на 409: НЕ обновляем drift-статус и НЕ пишем
         // аудит (план PR 3.5: «не записывать audit при отказе»).
+        // MLC-009: коды IIS_ACCESS_DENIED / IIS_RECONCILE_FAILED сохранены, но
+        // detail санитизирован — текст COM/IO-исключения (пути, имена сайтов)
+        // больше не уходит клиенту; полное исключение логируется, оператор
+        // находит его в журнале по correlationId.
+        var correlationId = httpContext.TraceIdentifier;
         try
         {
             await iis.ApplyDesiredStateAsync(publication, ct).ConfigureAwait(false);
         }
         catch (UnauthorizedAccessException ex)
         {
-            return TypedResults.Conflict(Problems.IisAccessDenied(ex.Message));
+            LogReconcileAccessDenied(loggerFactory.CreateLogger(typeof(PublicationsEndpoints).FullName!), id, correlationId, ex);
+            return TypedResults.Conflict(Problems.IisAccessDenied(correlationId));
         }
         catch (System.Runtime.InteropServices.COMException ex)
         {
-            return TypedResults.Conflict(Problems.IisReconcileFailed(ex.Message));
+            LogReconcileFailed(loggerFactory.CreateLogger(typeof(PublicationsEndpoints).FullName!), id, correlationId, ex);
+            return TypedResults.Conflict(Problems.IisReconcileFailed(correlationId));
         }
         catch (IOException ex)
         {
-            return TypedResults.Conflict(Problems.IisReconcileFailed(ex.Message));
+            LogReconcileFailed(loggerFactory.CreateLogger(typeof(PublicationsEndpoints).FullName!), id, correlationId, ex);
+            return TypedResults.Conflict(Problems.IisReconcileFailed(correlationId));
         }
         catch (InvalidOperationException ex)
         {
             // Невалидный VrdCustomXml, отсутствие default.vrd, и другие
             // прикладные сбои согласования — все пакуем под единый код 409.
-            return TypedResults.Conflict(Problems.IisReconcileFailed(ex.Message));
+            LogReconcileFailed(loggerFactory.CreateLogger(typeof(PublicationsEndpoints).FullName!), id, correlationId, ex);
+            return TypedResults.Conflict(Problems.IisReconcileFailed(correlationId));
         }
 
         // Повторно прогоняем drift-check, чтобы вернуть оператору актуальный
@@ -248,4 +259,16 @@ public static class PublicationsEndpoints
 
         return TypedResults.Ok(new DriftStatusResponse(updated.Status, updated.CheckedAt, updated.Details));
     }
+
+    // MLC-009: полное инфраструктурное исключение reconcile пишем в журнал сервера;
+    // наружу (409) уходит только санитизированный русский detail + correlationId.
+    [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "Reconcile {PublicationId}: нет доступа к IIS/default.vrd (correlationId={CorrelationId}).")]
+    private static partial void LogReconcileAccessDenied(ILogger logger, Guid publicationId, string correlationId, Exception ex);
+
+    [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "Reconcile {PublicationId}: согласование публикации IIS не удалось (correlationId={CorrelationId}).")]
+    private static partial void LogReconcileFailed(ILogger logger, Guid publicationId, string correlationId, Exception ex);
 }

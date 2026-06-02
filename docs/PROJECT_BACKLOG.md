@@ -191,7 +191,7 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 - **Impact:** Утечка внутренних деталей в UI; нарушение требования локализации.
 - **Recommendation:** Логировать исключение полностью, наружу отдавать санитизированное
   локализованное сообщение (детали — в логи / Hangfire dashboard).
-- **Status:** Open
+- **Status:** **Done** (2026-06-02) — см. «Выполненные работы».
 
 ---
 
@@ -312,23 +312,64 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
    ADR-10.1), персистентность на реальном провайдере (MLC-008 → **Done**: SQLite-in-memory
    контрактные тесты unique/cascade/restrict/setnull), пробелы во FE-тестах (MLC-007 →
    **Done**: vitest + @testing-library тесты на ProtectedRoute, CRUD-мутации и маппинг
-   409 в поле формы), info-leak (MLC-009 → **NEXT TASK**).
+   409 в поле формы), info-leak (MLC-009 → **Done**: discovery/reconcile логируют
+   полное исключение, наружу — санитизированный русский текст + correlationId, отмена
+   пробрасывается).
 4. **P3** — производительность, хардненинг, сопровождаемость (MLC-010…017).
+   `MLC-010` — **NEXT TASK** (наивысший ROI в блоке: hot-path лок + sync-over-async).
 
 ---
 
 ## NEXT TASK
 
-> **MLC-009 — Сообщения инфраструктурных исключений уходят клиенту дословно (не локализованы, info-leak).**
-> Статус: Open. MLC-004 закрыт (есть глобальный ProblemDetails + санитайзинг 5xx). Этот
-> таск — точечно убрать дословный `ex.Message` (SQL / COM / IO) из тел ответов в
-> `DiscoveryEndpoints.cs:62-67,80-84` и `PublicationsEndpoints.cs:194-211`: логировать
-> исключение полностью, наружу отдавать локализованное (русское) санитизированное
-> сообщение без имён серверов/путей. Малый объём, security + i18n.
+> **MLC-010 — SettingsSnapshot: sync-over-async под локом + N запросов на каждое обновление кэша.**
+> Статус: Open. Первый таск блока P3 (все P1/P2 закрыты). `EnsureLoaded`
+> (`SettingsSnapshot.cs:53-78`) держит `lock` и выполняет
+> `store.GetAsync(key).GetAwaiter().GetResult()` по каждому из ~13 ключей каталога — это
+> sync-over-async под локом на hot-path (reconciliation / hot-polling / адаптер). При
+> залипании БД все читатели блокируются на локе, плюс риск истощения пула потоков.
+> Рекомендация: грузить одним запросом и вне лока (или асинхронный refresh с
+> double-check в короткой критической секции). Замерить, не сломать снапшот-семантику.
 
 ---
 
 ## Выполненные работы (Done)
+
+### MLC-009 — Санитизация инфраструктурных исключений в discovery/reconcile — 2026-06-02
+- **Что сделано:** Дословный `ex.Message` (SQL / COM / IO) больше не уходит клиенту.
+  (1) **Discovery** (`DiscoveryEndpoints.GetDatabasesAsync` / `GetIisSitesAsync`): полное
+  исключение логируется source-gen логгером (`LogDatabaseDiscoveryFailed` со `{Server}` /
+  `LogIisSitesDiscoveryFailed`), наружу сохранён контракт `DiscoveryResponse { Available:
+  false, Error: <короткий русский текст> }` (фронт показывает ручной ввод). Сырой
+  `ex.Message` (имена серверов, пути, SQL/COM-детали) в `Error` не попадает. `catch(Exception)`
+  заменён на `catch(Exception) when (ex is not OperationCanceledException)` — отмена запроса
+  больше не выдаётся за «ошибку discovery», а пробрасывается. (2) **Reconcile**
+  (`PublicationsEndpoints.ReconcileAsync`): коды `ProblemCodes.IisReconcileFailed` /
+  `IisAccessDenied` сохранены, но `detail` теперь санитизированный русский текст без
+  путей/имён; добавлен `correlationId` (= `HttpContext.TraceIdentifier`) в `Extensions`
+  ответа и в лог (`LogReconcileAccessDenied` / `LogReconcileFailed`), чтобы оператор нашёл
+  полное исключение в журнале. Перехватываются те же типы (`UnauthorizedAccessException` →
+  access-denied; `COMException` / `IOException` / `InvalidOperationException` →
+  reconcile-failed); cancellation там и раньше не глушился (catch'и узкие).
+- **Изменения контракта:** `Problems.IisReconcileFailed` / `IisAccessDenied` больше не
+  принимают `detail` из `ex.Message`, а формируют фиксированный русский текст и
+  необязательный `correlationId` (новый параметр `Problems.Conflict(..., correlationId)` →
+  `Extensions["correlationId"]`). Эндпоинты `GetDatabasesAsync` / `GetIisSitesAsync` /
+  `ReconcileAsync` получили параметр `ILoggerFactory loggerFactory` (DI minimal-API;
+  классы стали `partial` для source-gen логгеров).
+- **Файлы:** `backend/src/MitLicenseCenter.Web/Endpoints/DiscoveryEndpoints.cs`,
+  `.../PublicationsEndpoints.cs`, `.../Problems.cs`;
+  `backend/tests/.../Endpoints/DiscoveryEndpointsTests.cs` (новый),
+  `.../Endpoints/PublicationsReconcileTests.cs` (расширен); канон
+  `docs/04_INFRASTRUCTURE.md` (discovery error-contract + sanitized reconcile detail) и
+  `docs/DECISIONS.md` (ADR-4.1 — оговорка про санитизацию detail + correlationId).
+- **Тесты (+7):** discovery — исключение → `Available:false`, `Error` без сырого текста и
+  без имени сервера/`applicationHost.config`; пустой server → без вызова discovery; отмена
+  (`OperationCanceledException`) пробрасывается (databases + iis-sites). Reconcile —
+  `IOException`/`InvalidOperationException` → `IIS_RECONCILE_FAILED` с русским detail без
+  секрета; `UnauthorizedAccessException` → `IIS_ACCESS_DENIED` + `correlationId`; во всех
+  случаях аудит не пишется. Прогон: `dotnet test … --filter "Category!=Smoke"` —
+  **213 passed, 0 failed** (было 206).
 
 ### MLC-008 — Контрактные тесты persistence-инвариантов на реальном провайдере (SQLite) — 2026-06-02
 - **Выбранный провайдер:** **SQLite-in-memory** с одним открытым соединением

@@ -47,6 +47,7 @@ public sealed class PublicationsReconcileTests
             ctx.Job,
             ctx.Audit,
             TestHelpers.NewHttpContext("admin"),
+            NullLoggerFactory.Instance,
             CancellationToken.None);
 
         var ok = result.Result.Should().BeOfType<Ok<DriftStatusResponse>>().Subject;
@@ -63,9 +64,11 @@ public sealed class PublicationsReconcileTests
         await using var ctx = await TestContext.NewAsync(initialStatus: PublicationDriftStatus.Drift);
         // IOException — один из перехватываемых reconcile-endpoint'ом типов (тот
         // же путь обработки, что у COMException; CA2201 не разрешает кидать
-        // COMException в тестах).
+        // COMException в тестах). Текст несёт «секрет» (путь к метабазе) — он не
+        // должен утечь в detail ответа (MLC-009).
+        const string secret = "C:\\Windows\\System32\\inetsrv\\metabase.xml access denied";
         ctx.Iis.ApplyDesiredStateAsync(Arg.Any<Publication>(), Arg.Any<CancellationToken>())
-            .ThrowsAsync(new IOException("Access denied to IIS metabase"));
+            .ThrowsAsync(new IOException(secret));
 
         var result = await PublicationsEndpoints.ReconcileAsync(
             ctx.PublicationId,
@@ -74,11 +77,68 @@ public sealed class PublicationsReconcileTests
             ctx.Job,
             ctx.Audit,
             TestHelpers.NewHttpContext("admin"),
+            NullLoggerFactory.Instance,
             CancellationToken.None);
 
         var conflict = result.Result.Should().BeOfType<Conflict<ProblemDetails>>().Subject;
         conflict.Value!.Extensions["code"].Should().Be(ProblemCodes.IisReconcileFailed);
+        // MLC-009: detail — санитизированный русский текст, БЕЗ сырого ex.Message.
+        conflict.Value.Detail.Should().NotContain(secret);
+        conflict.Value.Detail.Should().Contain("Не удалось согласовать публикацию");
         ctx.Audit.Entries.Should().BeEmpty("аудит не пишется при отказе IIS");
+    }
+
+    [Fact]
+    public async Task Reconcile_access_denied_returns_409_access_code_with_russian_detail()
+    {
+        await using var ctx = await TestContext.NewAsync(initialStatus: PublicationDriftStatus.Drift);
+        const string secret = "\\\\server\\share\\app\\default.vrd — отказано в доступе";
+        ctx.Iis.ApplyDesiredStateAsync(Arg.Any<Publication>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new UnauthorizedAccessException(secret));
+
+        var result = await PublicationsEndpoints.ReconcileAsync(
+            ctx.PublicationId,
+            ctx.Db,
+            ctx.Iis,
+            ctx.Job,
+            ctx.Audit,
+            TestHelpers.NewHttpContext("admin"),
+            NullLoggerFactory.Instance,
+            CancellationToken.None);
+
+        var conflict = result.Result.Should().BeOfType<Conflict<ProblemDetails>>().Subject;
+        conflict.Value!.Extensions["code"].Should().Be(ProblemCodes.IisAccessDenied);
+        conflict.Value.Detail.Should().NotContain(secret);
+        conflict.Value.Detail.Should().Contain("Недостаточно прав");
+        conflict.Value.Extensions.Should().ContainKey("correlationId");
+        ctx.Audit.Entries.Should().BeEmpty("аудит не пишется при отказе IIS");
+    }
+
+    [Fact]
+    public async Task Reconcile_invalid_vrd_returns_409_reconcile_failed_with_sanitized_detail()
+    {
+        await using var ctx = await TestContext.NewAsync(initialStatus: PublicationDriftStatus.Drift);
+        // InvalidOperationException — прикладной сбой (например, невалидный
+        // VrdCustomXml). Тоже маппится в IIS_RECONCILE_FAILED с санитизацией.
+        const string secret = "Malformed XML at C:\\pub\\acme\\default.vrd line 42";
+        ctx.Iis.ApplyDesiredStateAsync(Arg.Any<Publication>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException(secret));
+
+        var result = await PublicationsEndpoints.ReconcileAsync(
+            ctx.PublicationId,
+            ctx.Db,
+            ctx.Iis,
+            ctx.Job,
+            ctx.Audit,
+            TestHelpers.NewHttpContext("admin"),
+            NullLoggerFactory.Instance,
+            CancellationToken.None);
+
+        var conflict = result.Result.Should().BeOfType<Conflict<ProblemDetails>>().Subject;
+        conflict.Value!.Extensions["code"].Should().Be(ProblemCodes.IisReconcileFailed);
+        conflict.Value.Detail.Should().NotContain(secret);
+        conflict.Value.Detail.Should().NotContain("default.vrd line 42");
+        ctx.Audit.Entries.Should().BeEmpty();
     }
 
     [Fact]
@@ -93,6 +153,7 @@ public sealed class PublicationsReconcileTests
             ctx.Job,
             ctx.Audit,
             TestHelpers.NewHttpContext("admin"),
+            NullLoggerFactory.Instance,
             CancellationToken.None);
 
         result.Result.Should().BeOfType<NotFound>();
