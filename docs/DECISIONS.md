@@ -178,7 +178,7 @@ The authoritative `default.vrd` mutation contract. `VrdPatcher` references this 
 - **Pre-commit hooks:** a custom `.husky/pre-commit` registered via `git config core.hooksPath .husky` (set idempotently by `frontend/scripts/install-git-hooks.mjs`). The `husky` npm package is intentionally not installed. The hook runs `lint-staged` on staged JS/TS/JSON/CSS and `dotnet format --verify-no-changes` on staged `.cs`; requires Git Bash on Windows.
 - **PowerShell script encoding:** all `scripts/*.ps1` are saved as **UTF-8 with BOM** — Windows PowerShell 5.1 reads BOM-less UTF-8 as cp1251 and corrupts Cyrillic.
 - **shadcn on Windows:** add components via `scripts/shadcn-add.ps1` (workaround for `pnpm dlx shadcn` — uses `pnpm add --ignore-scripts --config.node-linker=hoisted` in a temp folder).
-- **Dev scripts:** `build.ps1` (build + test + lint, "is the project healthy?"), `dev.ps1` (backend `dotnet watch` + frontend `pnpm dev` in parallel), `db-reset.ps1` (drop + migrate + seed admin).
+- **Dev scripts:** `build.ps1` (the "is the project healthy?" gate — backend build/test/format + frontend lint/type-check/**test**/build, so frontend tests are part of the full check; each native step passes or fails strictly by `$LASTEXITCODE`, so a tool writing a banner to stderr under Windows PowerShell 5.1 — e.g. pnpm's `$ eslint .` — never becomes a false failure, even when output is captured to a log via `*>&1`/`Tee-Object`; `db-reset.ps1` guards its `dotnet ef` step the same way), `dev.ps1` (backend `dotnet watch` + frontend `pnpm dev` in parallel), `db-reset.ps1` (drop + migrate + seed admin).
 
 ## Revoked ADRs
 The following decisions were revoked and no longer apply; their numbers are retained only so cross-references stay valid:

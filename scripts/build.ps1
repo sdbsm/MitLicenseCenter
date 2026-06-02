@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    Полная проверка проекта: backend (restore/build/test/format) + frontend (lint/type-check/build).
+    Полная проверка проекта: backend (restore/build/test/format) + frontend (lint/type-check/test/build).
 .DESCRIPTION
     Запускается локально и в CI. Завершается ненулевым exit-кодом при любой ошибке.
 .PARAMETER Configuration
@@ -32,7 +32,21 @@ function Invoke-Step {
     param([string]$Title, [scriptblock]$Action)
     Write-Host ""
     Write-Host "==> $Title" -ForegroundColor Cyan
-    & $Action
+    # Успех нативного шага определяется ТОЛЬКО по $LASTEXITCODE. Под Windows PowerShell 5.1
+    # при $ErrorActionPreference='Stop' запись нативной команды в stderr превращается в
+    # терминирующую NativeCommandError ещё до реального exit-кода — например, pnpm печатает
+    # баннер команды («$ eslint .») в stderr, хотя шаг проходит с кодом 0. Прямого запуска
+    # это не ломает, но проявляется при захвате лога (build.ps1 *> log.txt / | Tee-Object).
+    # Поэтому локально снимаем Stop вокруг самого вызова: реальный ненулевой код по-прежнему
+    # валит сборку проверкой ниже, а вывод в stderr перестаёт давать ложный «красный».
+    $previousEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $Action
+    }
+    finally {
+        $ErrorActionPreference = $previousEap
+    }
     if ($LASTEXITCODE -ne 0) {
         throw "Шаг провален: $Title (exit code $LASTEXITCODE)."
     }
@@ -63,6 +77,7 @@ try {
     Invoke-Step "Frontend · pnpm install"    { pnpm install --frozen-lockfile }
     Invoke-Step "Frontend · pnpm lint"       { pnpm lint }
     Invoke-Step "Frontend · pnpm type-check" { pnpm type-check }
+    Invoke-Step "Frontend · pnpm test"       { pnpm test }
     Invoke-Step "Frontend · pnpm build"      { pnpm build }
 }
 finally {

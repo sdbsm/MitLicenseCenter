@@ -90,7 +90,19 @@ Write-Host ""
 Write-Host "Накатываю миграции..." -ForegroundColor Cyan
 $env:ConnectionStrings__Default  = "$ConnectionString;Database=$DatabaseName"
 $env:ConnectionStrings__Hangfire = "$ConnectionString;Database=$DatabaseName"
-dotnet ef database update --project $EfProject --startup-project $StartupProject
+# Успех нативного шага определяется ТОЛЬКО по $LASTEXITCODE (тот же паттерн, что в
+# build.ps1 Invoke-Step): под Windows PowerShell 5.1 при $ErrorActionPreference='Stop'
+# вывод `dotnet ef` в stderr может стать терминирующей ошибкой ещё до реального exit-кода
+# (особенно при захвате лога). Локально снимаем Stop вокруг вызова — реальный ненулевой
+# код по-прежнему обрабатывается проверкой ниже.
+$previousEap = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+try {
+    dotnet ef database update --project $EfProject --startup-project $StartupProject
+}
+finally {
+    $ErrorActionPreference = $previousEap
+}
 if ($LASTEXITCODE -ne 0) {
     throw "dotnet ef database update завершился с ошибкой."
 }
