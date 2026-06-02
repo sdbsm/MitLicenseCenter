@@ -8,6 +8,14 @@ public interface ISettingsStore
 {
     Task<string?> GetAsync(string key, CancellationToken ct = default);
     Task<int?> GetIntAsync(string key, CancellationToken ct = default);
+
+    // Bulk-чтение для hot-path-кэша (ISettingsSnapshot): одним запросом тянет все
+    // строки и расшифровывает секреты тем же DPAPI-протектором, что и GetAsync —
+    // вместо N отдельных round-trip'ов. Ключ → расшифрованное значение (`null` =
+    // параметр не задан). Маскировки секретов здесь НЕТ (в отличие от ListAsync):
+    // снапшоту нужен plaintext для адаптеров.
+    Task<IReadOnlyDictionary<string, string?>> GetAllAsync(CancellationToken ct = default);
+
     Task SetAsync(string key, string? value, bool isSecret, string updatedBy, CancellationToken ct = default);
     Task<IReadOnlyList<SettingDescriptor>> ListAsync(CancellationToken ct = default);
 }

@@ -208,7 +208,7 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
   блокируются на локе; sync-over-async рискует истощением пула потоков.
 - **Recommendation:** Грузить одним запросом и вне лока (либо асинхронный refresh с
   double-check внутри короткой критической секции).
-- **Status:** Open
+- **Status:** **Done** (2026-06-02) — см. «Выполненные работы».
 
 ### MLC-011 — Web-слой зависит от AppDbContext/Infrastructure напрямую; бизнес-правила в endpoint'ах
 - **Category:** Architecture
@@ -316,24 +316,74 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
    полное исключение, наружу — санитизированный русский текст + correlationId, отмена
    пробрасывается).
 4. **P3** — производительность, хардненинг, сопровождаемость (MLC-010…017).
-   `MLC-010` — **NEXT TASK** (наивысший ROI в блоке: hot-path лок + sync-over-async).
+   `MLC-010` → **Done**: hot-path-кэш `SettingsSnapshot` читает БД через bulk
+   `ISettingsStore.GetAllAsync` вне лока, single-flight; прогретый путь lock-light без БД.
+   `MLC-012` — **NEXT TASK** (прод-хардненинг безопасности: HTTPS-redirect/HSTS,
+   `Encrypt=True`, гейтинг Swagger).
 
 ---
 
 ## NEXT TASK
 
-> **MLC-010 — SettingsSnapshot: sync-over-async под локом + N запросов на каждое обновление кэша.**
-> Статус: Open. Первый таск блока P3 (все P1/P2 закрыты). `EnsureLoaded`
-> (`SettingsSnapshot.cs:53-78`) держит `lock` и выполняет
-> `store.GetAsync(key).GetAwaiter().GetResult()` по каждому из ~13 ключей каталога — это
-> sync-over-async под локом на hot-path (reconciliation / hot-polling / адаптер). При
-> залипании БД все читатели блокируются на локе, плюс риск истощения пула потоков.
-> Рекомендация: грузить одним запросом и вне лока (или асинхронный refresh с
-> double-check в короткой критической секции). Замерить, не сломать снапшот-семантику.
+> **MLC-012 — Хардненинг прод-конфигурации: нет HTTPS-redirect/HSTS;
+> `Encrypt=False`/`TrustServerCertificate=True`; Swagger в проде.**
+> Статус: Open. Все P1/P2 и первый P3 (MLC-010) закрыты. В pipeline
+> (`Program.cs:122-147`) нет `UseHttpsRedirection`/`UseHsts`; базовый `appsettings.json:3-4,14`
+> везёт `Encrypt=False;TrustServerCertificate=True`, `AllowedHosts:*`; Swagger UI отдаётся
+> без ограничения окружения. Приемлемо для single-node за периметром (см. `OPERATIONS.md`),
+> но стоит ужесточить/задокументировать для прода: HSTS + redirect (если перед сервисом нет
+> прокси, делающего TLS — уточнить у оператора), prod-override строки подключения
+> (`Encrypt=True`), ограничить Swagger non-prod либо за ролью Admin. Cookie `Secure=Always`
+> в проде уже корректно. Часть пунктов зависит от наличия reverse-proxy — уточнить в начале
+> сессии (AskUserQuestion), затем менять только согласованное.
 
 ---
 
 ## Выполненные работы (Done)
+
+### MLC-010 — SettingsSnapshot: bulk-загрузка вне лока + single-flight (hot-path) — 2026-06-02
+- **Что сделано:** Убран sync-over-async под локом и N запросов на обновление кэша.
+  (1) В `ISettingsStore` добавлен bulk-метод `GetAllAsync(ct) →
+  IReadOnlyDictionary<string,string?>`: одним `ToListAsync` тянет все строки `dbo.Settings`
+  и расшифровывает секреты тем же `IDataProtector` (purpose `mlc.settings.v1`), что и
+  пер-ключевой `GetAsync` — plaintext без маскировки (это hot-path для адаптеров/jobs).
+  (2) `SettingsSnapshot.EnsureLoaded` переписан: прогретый кэш (TTL ≈ 30s) читается
+  **без лока** через `Volatile.Read` ссылки на неизменяемый `CacheState` (словарь после
+  публикации не мутируется → нет «рваных» чтений). Обращение к БД идёт **вне лока**:
+  первый «холодный»/просроченный читатель под коротким локом публикует общий
+  `TaskCompletionSource` и становится единственным загрузчиком, остальные ждут **тот же**
+  Task — **single-flight**, поэтому конкурентные читатели не грузят дважды и не
+  блокируются друг на друге во время DB-вызова. Готовый словарь подменяет `_state` под
+  коротким локом (double-check по TTL на входе и по `_version` при публикации).
+- **Сохранённая семантика:** TTL ≈ 30s, расшифровка секретов, потокобезопасность,
+  whitelist-приоритет каталога (кэшируются строго ключи `SettingDefinitions.All`, ключ без
+  строки → null). `Invalidate()` сохранён и теперь бампит `_version`, гася in-flight
+  загрузку, начатую до него (её результат не публикуется — SetAsync мог записать новое
+  значение в БД уже после чтения загрузчиком), → следующее чтение перезагружает свежие
+  данные. Контракт `ISettingsSnapshot` (`GetString`/`GetInt`/`Invalidate`) для вызывающих
+  не менялся — публичные методы остаются синхронными. Блокирующее ожидание осталось только
+  на холодном чтении (интерфейс синхронный) и минимизировано: один загрузчик, один запрос.
+- **Ordering-нюанс (важно):** первый вариант с `_inFlight ??= LoadAsync()` ломался на
+  синхронно-завершающемся `GetAllAsync` (EF InMemory / `Task.FromResult`): `LoadAsync`
+  обнулял `_inFlight` до того, как `??=` присваивал ему завершённый Task, и кэш переставал
+  перезагружаться. Поэтому загрузчик отделён от ожидающих явным `TaskCompletionSource`
+  (`RunLoad`), а `_inFlight` чистит только загрузчик после публикации.
+- **Канон:** не трогали — это внутренняя оптимизация, наблюдаемый контракт
+  `ISettingsSnapshot` и каталог Settings (`04_INFRASTRUCTURE.md`) без изменений; новый
+  bulk-метод `ISettingsStore` в сигнатурах канона не описан.
+- **Файлы:** `backend/src/MitLicenseCenter.Application/Settings/ISettingsStore.cs`
+  (контракт `GetAllAsync`); `backend/src/MitLicenseCenter.Infrastructure/Settings/SettingsStore.cs`
+  (реализация bulk-расшифровки); `backend/src/MitLicenseCenter.Infrastructure/Settings/SettingsSnapshot.cs`
+  (single-flight, lock-light hot-path); `backend/tests/.../Settings/SettingsStoreEncryptionTests.cs`
+  (+2); `backend/tests/.../Settings/SettingsSnapshotTests.cs` (новый, +9).
+- **Тесты (+11):** store — `GetAllAsync` возвращает расшифрованный секрет + plain + null
+  для незаданного, и совпадает с пер-ключевым `GetAsync`; snapshot (фейковый store с
+  счётчиком загрузок + `MutableClock`) — `GetString`/`GetInt` отдают значения каталога;
+  повторные чтения в пределах TTL грузят БД **один раз**; чтение за TTL перезагружает;
+  чтение под TTL — нет; `Invalidate()` форсит перезагрузку и подхватывает новые значения;
+  16 конкурентных холодных читателей (загрузка заблокирована внутри store) вызывают
+  ровно **одну** загрузку (single-flight). Прогон: `dotnet test … --filter
+  "Category!=Smoke"` — **224 passed, 0 failed** (было 213).
 
 ### MLC-009 — Санитизация инфраструктурных исключений в discovery/reconcile — 2026-06-02
 - **Что сделано:** Дословный `ex.Message` (SQL / COM / IO) больше не уходит клиенту.

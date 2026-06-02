@@ -59,6 +59,24 @@ internal sealed class SettingsStore : ISettingsStore
         return int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed : null;
     }
 
+    public async Task<IReadOnlyDictionary<string, string?>> GetAllAsync(CancellationToken ct = default)
+    {
+        var rows = await _db.Settings.AsNoTracking().ToListAsync(ct).ConfigureAwait(false);
+
+        // Один проход по всем строкам: секреты расшифровываем тем же протектором, что
+        // и GetAsync (purpose mlc.settings.v1), plain-значения берём из ValueText.
+        // Возвращаем plaintext (без маскировки) — это hot-path для адаптеров/jobs.
+        var result = new Dictionary<string, string?>(rows.Count, StringComparer.Ordinal);
+        foreach (var row in rows)
+        {
+            result[row.Key] = row.IsSecret
+                ? (row.Value is null ? null : Encoding.UTF8.GetString(_protector.Unprotect(row.Value)))
+                : row.ValueText;
+        }
+
+        return result;
+    }
+
     public async Task SetAsync(string key, string? value, bool isSecret, string updatedBy, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrEmpty(key);

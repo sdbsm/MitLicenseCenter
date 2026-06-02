@@ -109,6 +109,37 @@ public sealed class SettingsStoreEncryptionTests
     }
 
     [Fact]
+    public async Task GetAllAsync_returns_decrypted_secret_plain_and_null()
+    {
+        var (store, _, _) = MakeStore();
+
+        await store.SetAsync("OneC.Cluster.AdminPassword", "hunter2", isSecret: true, updatedBy: "admin");
+        await store.SetAsync("OneC.Cluster.AdminUser", "admin", isSecret: false, updatedBy: "admin");
+
+        var all = await store.GetAllAsync();
+
+        // Секрет приходит расшифрованным (как GetAsync), plain — как есть.
+        all["OneC.Cluster.AdminPassword"].Should().Be("hunter2");
+        all["OneC.Cluster.AdminUser"].Should().Be("admin");
+        // Незаданный ключ просто отсутствует в словаре.
+        all.ContainsKey("OneC.RAS.Endpoint").Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task GetAllAsync_matches_per_key_GetAsync()
+    {
+        var (store, _, _) = MakeStore();
+
+        await store.SetAsync("OneC.Cluster.AdminPassword", "p@ss", isSecret: true, updatedBy: "admin");
+        await store.SetAsync("Polling.HotIntervalSeconds", "7", isSecret: false, updatedBy: "admin");
+
+        var all = await store.GetAllAsync();
+
+        all["OneC.Cluster.AdminPassword"].Should().Be(await store.GetAsync("OneC.Cluster.AdminPassword"));
+        all["Polling.HotIntervalSeconds"].Should().Be(await store.GetAsync("Polling.HotIntervalSeconds"));
+    }
+
+    [Fact]
     public async Task SetAsync_invalidates_snapshot()
     {
         var (store, _, snapshot) = MakeStore();
