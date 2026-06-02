@@ -28,6 +28,34 @@ export function readConflictBody(error: ApiError): ConflictBody | null {
   return (error.body as ConflictBody | null) ?? null;
 }
 
+/**
+ * Минимальный контракт схемы-валидатора ответа (структурно совместим с zod
+ * `ZodType`). `lib/api` намеренно НЕ зависит от zod — сами схемы живут рядом с
+ * типами фичей (`features/<feature>/types.ts`); сюда они попадают только через
+ * этот узкий интерфейс.
+ */
+export interface ResponseSchema<T> {
+  parse(data: unknown): T;
+}
+
+/**
+ * Ответ получен успешно (2xx), но не прошёл runtime-валидацию схемой: контракт
+ * backend разошёлся с ожидаемым FE-типом. Управляемая ошибка вместо «тихого»
+ * неверного типа (ADR-10.1 → MLC-016). Бросается только на КРИТИЧНЫХ границах,
+ * где вызывающий передал `schema`; на остальных эндпоинтах поведение не меняется.
+ */
+export class ApiSchemaError extends Error {
+  public readonly path: string;
+  public readonly issues: unknown;
+
+  constructor(path: string, issues: unknown) {
+    super(`Ответ ${path} не соответствует ожидаемой схеме API`);
+    this.name = "ApiSchemaError";
+    this.path = path;
+    this.issues = issues;
+  }
+}
+
 type UnauthorizedHandler = () => void;
 let onUnauthorized: UnauthorizedHandler | null = null;
 
@@ -35,12 +63,19 @@ export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): voi
   onUnauthorized = handler;
 }
 
-interface RequestOptions extends Omit<RequestInit, "body"> {
+interface RequestOptions<T> extends Omit<RequestInit, "body"> {
   body?: unknown;
+  /**
+   * Необязательная runtime-схема ответа. Если передана — распарсенный JSON
+   * валидируется ею (а не «кастится вслепую» через `as T`). Включается только
+   * на критичных границах (auth/me, sessions snapshot, пагинированные списки —
+   * MLC-016); остальные вызовы оставляют прежний `payload as T`.
+   */
+  schema?: ResponseSchema<T>;
 }
 
-export async function api<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { body, headers, ...rest } = options;
+export async function api<T>(path: string, options: RequestOptions<T> = {}): Promise<T> {
+  const { body, headers, schema, ...rest } = options;
 
   const init: RequestInit = {
     credentials: "include",
@@ -71,6 +106,16 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
   if (!response.ok) {
     const message = extractMessage(payload) ?? `HTTP ${response.status}`;
     throw new ApiError(response.status, message, payload);
+  }
+
+  if (schema) {
+    try {
+      return schema.parse(payload);
+    } catch (issues) {
+      // Управляемый сбой границы вместо «тихого» неверного типа: backend-контракт
+      // разошёлся с ожидаемым FE-типом (MLC-016 / ADR-10.1).
+      throw new ApiSchemaError(path, issues);
+    }
   }
 
   return payload as T;

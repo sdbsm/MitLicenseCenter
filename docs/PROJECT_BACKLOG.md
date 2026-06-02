@@ -284,7 +284,9 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 - **File(s):** `frontend/src/lib/api.ts` (`payload as T`); `frontend/src/features/*/types.ts`
 - **Description:** `api<T>()` приводит ответ к `T` без runtime-проверки; типы рукописные.
 - **Recommendation:** Codegen из OpenAPI или Zod-схемы на границе ответа.
-- **Status:** Open
+- **Status:** **Done** (2026-06-03, вариант **A** точечно — Zod-схемы на 3 критичных
+  границах) — см. «Выполненные работы». Codegen из OpenAPI остаётся открытой опцией
+  `MLC-006(a)`.
 
 ### MLC-017 — Frontend: захардкоженная строка «Не авторизован» в api.ts и 401-redirect через window.location.assign
 - **Category:** Frontend (i18n)
@@ -338,24 +340,83 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
    pageSize}` + общий `PaginationBar` поверх `ui/pagination`, page size 25, фильтр/группировка
    сохранены) и точечная проверка занятости кластер-базы новым admin-эндпоинтом
    `GET /api/v1/infobases/cluster-id-availability` вместо выгрузки всех баз в `InfobaseFormDialog`.
-   `MLC-016` — **NEXT TASK** (FE-сопровождаемость: рукописные типы API без runtime-валидации;
-   codegen из OpenAPI или Zod-схемы на границе ответа `api<T>()`).
+   `MLC-016` → **Done** (вариант **A** точечно): Zod-валидация введена только на 3 критичных
+   границах (`/auth/me`+`/auth/login` — роли/гейтинг; `/sessions/snapshot`; пагинированные
+   списки tenants+infobases через фабрику `pagedResponseSchema`), типы выведены из схем
+   (`z.infer`), `api<T>()` получил опциональный `schema` + управляемую `ApiSchemaError`. Zod
+   на каждом эндпоинте сознательно НЕ вводился (нет нового toolchain — `zod` уже в зависимостях).
+   Codegen из OpenAPI остаётся открытой опцией `MLC-006(a)`.
 
 ---
 
 ## NEXT TASK
 
-> **MLC-016 — Frontend: рукописные типы API без runtime-валидации (риск расхождения).**
-> Статус: Open. Все P1/P2 и P3 MLC-010..015 + MLC-017 закрыты — из Open остаётся только
-> MLC-016 (плюс открытые опции `MLC-006(a)` codegen и `MLC-011(a)` Application use-cases).
-> `frontend/src/lib/api.ts` приводит ответ к `T` через `payload as T` без runtime-проверки,
-> типы в `features/*/types.ts` рукописные → риск тихого расхождения FE-типов с реальным
-> контрактом backend. Сделать codegen из `/api/docs/v1/swagger.json` (закрывает и `MLC-006(a)`)
-> **или** Zod-схемы на границе ответа. Severity Low.
+> **Нет открытых задач MLC-001..017.** Все P1/P2/P3 закрыты. Остаются только осознанно
+> отложенные **открытые опции** (не дефекты, объём = новая работа, выбирать по появлению
+> триггера, не по умолчанию):
+> - `MLC-006(a)` — внедрить OpenAPI-codegen TS-клиента из `/api/docs/v1/swagger.json`
+>   (триггер: рост API-поверхности / частые расхождения, которых рукописные типы + точечный
+>   Zod уже не ловят).
+> - `MLC-011(a)` — вынести бизнес-правила из Web-эндпоинтов в Application use-cases (триггер:
+>   появление второго потребителя правил — второй транспорт/worker вне HTTP; см. ADR-20).
+>
+> При следующем запуске: если новых дефектов нет — подтвердить, что бэклог пуст, и при
+> необходимости провести свежий аудит для пополнения реестра.
 
 ---
 
 ## Выполненные работы (Done)
+
+### MLC-016 — FE: точечная Zod runtime-валидация на критичных границах ответа — 2026-06-03
+- **Решение (вариант A точечно, с учётом ADR-10.1):** не codegen и не Zod-на-всё, а
+  **лёгкая runtime-валидация только на 2-3 самых критичных границах**. Ключевой фактор ROI,
+  меняющий вердикт «Rejected» из ADR-10.1: `zod` v4 **уже прямая зависимость** фронта (идёт
+  в паре с `react-hook-form`, ADR-11), а `vitest` настроен — то есть точечная валидация **не
+  тянет новый toolchain** (возражение ADR-10.1 относилось к Zod *на каждой* границе + лишней
+  оснастке). Вариант B (отклонить/отложить) отвергнут именно из-за этого: стоимость околонулевая,
+  а выигрыш на ролевой границе — реальный (безопасность).
+- **Где введена валидация (3 критичные границы, не везде):** (1) **`GET /api/v1/auth/me` +
+  `POST /api/v1/auth/login`** — `CurrentUser.roles` управляет ролевым гейтингом `ProtectedRoute`;
+  тихое расхождение тут = ошибка авторизации (fail-open/closed) → наивысшая ценность. (2)
+  **`GET /api/v1/sessions/snapshot`** — данные снимка (`consumesLicense`, `durationSeconds`,
+  дескрипторы) питают операционную картину over-limit/kill. (3) **Пагинированные списки**
+  `{items,total,page,pageSize}` для tenants и infobases — через generic-фабрику
+  `pagedResponseSchema(item)` (одна схема конверта покрывает оба эндпоинта). Остальные
+  эндпоинты сознательно оставлены на прежнем `payload as T`.
+- **Единый источник правды:** схемы живут рядом с типами фичей (`features/<feature>/types.ts`),
+  типы выводятся из схем через `z.infer` — нет двойного определения. `features/sessions/types.ts`,
+  `features/tenants/types.ts`, `features/infobases/types.ts` переведены с рукописных интерфейсов
+  на `z.infer` (структурно идентичны — потребители не тронуты); новый `features/auth/types.ts`
+  (раньше `CurrentUser` был инлайном в `useAuth.ts`; re-export из `useAuth` сохранён для
+  существующих импортов). Тела **запросов** (`*Input`), `InfobaseDetail`, `ClusterIdAvailability`
+  оставлены рукописными — валидируется только ответ на критичной границе.
+- **Механизм (api.ts):** `api<T>()` сохранён; `RequestOptions<T>` получил опциональный
+  `schema?: ResponseSchema<T>` (узкий структурный интерфейс `{ parse(data:unknown):T }` —
+  `lib/api` намеренно НЕ импортирует zod, схемы приходят только через него). При наличии схемы
+  на **успешном (2xx)** ответе вместо `payload as T` выполняется `schema.parse`; провал →
+  **управляемая `ApiSchemaError`** (несёт `path` + исходные `issues`), а не «тихий» неверный
+  тип. Ветка ошибок (`!response.ok`) и 401-хендлер не тронуты — там по-прежнему `ApiError`.
+  Generic-фабрика конверта вынесена в `lib/apiSchema.ts` (изолирует zod от zod-агностичного
+  `lib/api.ts`).
+- **Канон:** `DECISIONS.md` ADR-10.1 — добавлен **Update (MLC-016)**: точечная валидация как
+  осознанное сужение «no runtime validation» (zod уже в deps → нет нового toolchain; перечень
+  границ; `z.infer`-источник правды; что сознательно НЕ сделано — Zod-на-всё и codegen
+  `MLC-006(a)`). `05_UI_REQUIREMENTS.md` §2 — оговорка про runtime-валидацию критичных границ
+  и `ApiSchemaError`.
+- **Файлы:** `frontend/src/lib/api.ts` (`ResponseSchema`, `ApiSchemaError`, `schema`-параметр);
+  `frontend/src/lib/apiSchema.ts` (новый, `pagedResponseSchema`); `frontend/src/features/auth/types.ts`
+  (новый); `features/auth/useAuth.ts` (схема на me/login + re-export `CurrentUser`);
+  `features/sessions/types.ts` + `useSessionsSnapshot.ts`; `features/tenants/types.ts` +
+  `useTenants.ts`; `features/infobases/types.ts` + `useInfobases.ts`;
+  `frontend/src/lib/__tests__/api.test.ts` (+3); `frontend/src/lib/__tests__/apiSchema.test.ts`
+  (новый, +7); канон `docs/DECISIONS.md` (ADR-10.1 Update), `docs/05_UI_REQUIREMENTS.md` (§2).
+- **Тесты (+10):** `api()` со схемой — валидная нагрузка проходит и типизируется; искажённая
+  (`roles:42`) кидает `ApiSchemaError` (не `ApiError`, `path` верный, `issues` есть); без схемы
+  поведение прежнее (сырой каст без выброса). `pagedResponseSchema` — валидный конверт принят,
+  кривой элемент / отсутствующий `total` отклонены. `currentUserSchema` — валидный принят, `roles`
+  неверного типа отклонён. `sessionsSnapshotResponseSchema` — валидный снимок принят, кривой
+  `consumesLicense` отклонён. Прогон в `frontend/`: `pnpm lint` (0), `pnpm type-check` (0),
+  `pnpm test` — **78 passed (16 файлов)** (было 68/15; +10 тестов, +1 файл).
 
 ### MLC-015 — FE: серверная пагинация списков + точечная проверка занятости кластер-базы — 2026-06-02
 - **Что сделано (пагинация):** Списки клиентов и инфобаз переведены с «тянем до 200 + режем

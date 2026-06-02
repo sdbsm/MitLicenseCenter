@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { Tenant, TenantInput, TenantListResponse } from "./types";
+import { tenantListResponseSchema, type Tenant, type TenantInput } from "./types";
 
 export const tenantsQueryKey = ["tenants"] as const;
 
@@ -15,7 +15,10 @@ const ALL_TENANTS_PAGE_SIZE = 200;
 export function useTenants(page = 1, pageSize = TENANTS_PAGE_SIZE) {
   return useQuery({
     queryKey: [...tenantsQueryKey, { page, pageSize }],
-    queryFn: () => api<TenantListResponse>(`/api/v1/tenants?page=${page}&pageSize=${pageSize}`),
+    queryFn: () =>
+      api(`/api/v1/tenants?page=${page}&pageSize=${pageSize}`, {
+        schema: tenantListResponseSchema,
+      }),
     // Не моргаем скелетоном при смене страницы — показываем предыдущие данные.
     placeholderData: (prev) => prev,
   });

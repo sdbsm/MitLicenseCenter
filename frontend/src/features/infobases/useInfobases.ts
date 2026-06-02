@@ -1,12 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { tenantsQueryKey } from "@/features/tenants/useTenants";
-import type {
-  ClusterIdAvailability,
-  CreateInfobaseInput,
-  InfobaseDetail,
-  InfobaseListResponse,
-  UpdateInfobaseInput,
+import {
+  infobaseListResponseSchema,
+  type ClusterIdAvailability,
+  type CreateInfobaseInput,
+  type InfobaseDetail,
+  type UpdateInfobaseInput,
 } from "./types";
 
 export const infobasesQueryKey = ["infobases"] as const;
@@ -25,7 +25,8 @@ export function useInfobases(tenantId?: string | null, page = 1, pageSize = INFO
   }
   return useQuery({
     queryKey: [...infobasesQueryKey, { tenantId: tenantId ?? null, page, pageSize }],
-    queryFn: () => api<InfobaseListResponse>(`/api/v1/infobases?${qs.toString()}`),
+    queryFn: () =>
+      api(`/api/v1/infobases?${qs.toString()}`, { schema: infobaseListResponseSchema }),
     // Не моргаем скелетоном при смене страницы/фильтра — показываем предыдущие данные.
     placeholderData: (prev) => prev,
   });

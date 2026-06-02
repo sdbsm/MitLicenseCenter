@@ -1,16 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "@/lib/api";
+import { currentUserSchema, type CurrentUser } from "./types";
 
-export interface CurrentUser {
-  userName: string;
-  roles: string[];
-}
+export type { CurrentUser };
 
 const ME_KEY = ["auth", "me"] as const;
 
 async function fetchMe(): Promise<CurrentUser | null> {
   try {
-    return await api<CurrentUser>("/api/v1/auth/me");
+    return await api("/api/v1/auth/me", { schema: currentUserSchema });
   } catch (error) {
     if (error instanceof ApiError && error.status === 401) {
       return null;
@@ -32,7 +30,7 @@ export function useLogin() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: { userName: string; password: string }) =>
-      api<CurrentUser>("/api/v1/auth/login", { method: "POST", body: input }),
+      api("/api/v1/auth/login", { method: "POST", body: input, schema: currentUserSchema }),
     onSuccess: (user) => {
       qc.setQueryData(ME_KEY, user);
     },

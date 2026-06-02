@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { api, ApiError, readConflictBody, setUnauthorizedHandler } from "../api";
+import { z } from "zod";
+import { api, ApiError, ApiSchemaError, readConflictBody, setUnauthorizedHandler } from "../api";
 
 const originalFetch = globalThis.fetch;
 
@@ -94,6 +95,49 @@ describe("api()", () => {
     } finally {
       setUnauthorizedHandler(null);
     }
+  });
+});
+
+describe("api() с runtime-схемой (MLC-016)", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const schema = z.object({ userName: z.string(), roles: z.array(z.string()) });
+
+  it("валидная нагрузка проходит схему и возвращается типизированной", async () => {
+    mockFetch(200, { userName: "admin", roles: ["Admin"] });
+
+    const result = await api("/api/v1/auth/me", { schema });
+    expect(result).toEqual({ userName: "admin", roles: ["Admin"] });
+  });
+
+  it("искажённая нагрузка кидает управляемую ApiSchemaError, а не «тихий» неверный тип", async () => {
+    // roles ожидается string[]; backend «разошёлся» и прислал число.
+    mockFetch(200, { userName: "admin", roles: 42 });
+
+    try {
+      await api("/api/v1/auth/me", { schema });
+      expect.fail("ожидалась ApiSchemaError");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ApiSchemaError);
+      expect(error).not.toBeInstanceOf(ApiError);
+      expect((error as ApiSchemaError).path).toBe("/api/v1/auth/me");
+      // issues несёт исходную ошибку валидации для диагностики.
+      expect((error as ApiSchemaError).issues).toBeDefined();
+    }
+  });
+
+  it("без схемы поведение прежнее: сырой каст без валидации", async () => {
+    // Контракт «разошёлся», но схема не передана → as T, без выброса (прежнее поведение).
+    mockFetch(200, { userName: "admin", roles: 42 });
+
+    const result = await api<{ userName: string; roles: unknown }>("/api/v1/auth/me");
+    expect(result).toEqual({ userName: "admin", roles: 42 });
   });
 });
 
