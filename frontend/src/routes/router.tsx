@@ -1,19 +1,58 @@
+/* Это модуль конфигурации маршрутов, а не HMR-граница компонента: lazy()-консты
+   страниц правило react-refresh принимает за определения компонентов рядом с
+   не-компонентным экспортом `router`. Fast-refresh здесь неприменим — отключаем
+   предупреждение для файла. */
+/* eslint-disable react-refresh/only-export-components */
+import { Suspense, lazy } from "react";
 import { Navigate, createBrowserRouter } from "react-router";
 import { AppShell } from "@/components/layout/AppShell";
-import { AuditPage } from "@/features/audit/AuditPage";
-import { LoginPage } from "@/features/auth/LoginPage";
+import { PageFallback } from "@/components/PageFallback";
 import { ProtectedRoute } from "@/features/auth/ProtectedRoute";
-import { DashboardPage } from "@/features/dashboard/DashboardPage";
-import { InfobasesPage } from "@/features/infobases/InfobasesPage";
-import { ProfilePage } from "@/features/profile/ProfilePage";
-import { PublicationsPage } from "@/features/publications/PublicationsPage";
-import { SessionsPage } from "@/features/sessions/SessionsPage";
-import { SettingsPage } from "@/features/settings/SettingsPage";
-import { TenantDetailPage } from "@/features/tenants/TenantDetailPage";
-import { TenantsPage } from "@/features/tenants/TenantsPage";
+
+// Страницы маршрутов грузятся лениво (React.lazy), чтобы разбить единый бандл на
+// чанки по страницам (MLC-018). Компоненты — именованные экспорты, поэтому
+// маппим их в { default } для React.lazy. Каркас (AppShell/ProtectedRoute) и сам
+// роутер остаются в главном чанке — они нужны на каждом маршруте.
+const LoginPage = lazy(() =>
+  import("@/features/auth/LoginPage").then((m) => ({ default: m.LoginPage }))
+);
+const DashboardPage = lazy(() =>
+  import("@/features/dashboard/DashboardPage").then((m) => ({ default: m.DashboardPage }))
+);
+const ProfilePage = lazy(() =>
+  import("@/features/profile/ProfilePage").then((m) => ({ default: m.ProfilePage }))
+);
+const TenantsPage = lazy(() =>
+  import("@/features/tenants/TenantsPage").then((m) => ({ default: m.TenantsPage }))
+);
+const TenantDetailPage = lazy(() =>
+  import("@/features/tenants/TenantDetailPage").then((m) => ({ default: m.TenantDetailPage }))
+);
+const InfobasesPage = lazy(() =>
+  import("@/features/infobases/InfobasesPage").then((m) => ({ default: m.InfobasesPage }))
+);
+const PublicationsPage = lazy(() =>
+  import("@/features/publications/PublicationsPage").then((m) => ({ default: m.PublicationsPage }))
+);
+const SessionsPage = lazy(() =>
+  import("@/features/sessions/SessionsPage").then((m) => ({ default: m.SessionsPage }))
+);
+const AuditPage = lazy(() =>
+  import("@/features/audit/AuditPage").then((m) => ({ default: m.AuditPage }))
+);
+const SettingsPage = lazy(() =>
+  import("@/features/settings/SettingsPage").then((m) => ({ default: m.SettingsPage }))
+);
 
 export const router = createBrowserRouter([
-  { path: "/login", element: <LoginPage /> },
+  {
+    path: "/login",
+    element: (
+      <Suspense fallback={<PageFallback />}>
+        <LoginPage />
+      </Suspense>
+    ),
+  },
   {
     element: (
       <ProtectedRoute>

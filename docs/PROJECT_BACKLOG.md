@@ -299,6 +299,21 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 - **Recommendation:** Бросать код ошибки без литерала; редирект — через router-навигацию.
 - **Status:** **Done** (2026-06-02) — см. «Выполненные работы».
 
+### MLC-018 — Frontend: единый бандл ~829 kB, нет code-splitting по маршрутам → предупреждение билда
+- **Category:** Performance / Frontend
+- **Priority:** P3 · **Severity:** Low
+- **Module:** Frontend
+- **File(s):** `frontend/src/routes/router.tsx`; `frontend/src/App.tsx`; `frontend/vite.config.ts`
+- **Description:** `pnpm build` (vite v8/rolldown) предупреждает «Some chunks are larger
+  than 500 kB» — единый клиентский бандл ~829 kB (gzip ~244 kB), нет code-splitting по
+  маршрутам (все страницы импортируются статически).
+- **Impact:** дольше первичная загрузка; для LAN-панели админа некритично, но это лишний
+  вес и предупреждение в каждом билде.
+- **Recommendation:** лениво грузить страницы маршрутов (React.lazy + Suspense) и/или
+  настроить ручной chunking; цель — убрать предупреждение осмысленно, а не поднятием
+  лимита вслепую.
+- **Status:** **Done** (2026-06-03) — см. «Выполненные работы».
+
 ---
 
 ## Приоритезация по ROI
@@ -346,12 +361,17 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
    (`z.infer`), `api<T>()` получил опциональный `schema` + управляемую `ApiSchemaError`. Zod
    на каждом эндпоинте сознательно НЕ вводился (нет нового toolchain — `zod` уже в зависимостях).
    Codegen из OpenAPI остаётся открытой опцией `MLC-006(a)`.
+   `MLC-018` → **Done**: страницы маршрутов лениво грузятся (`React.lazy` + общий `<Suspense>`
+   с фолбэком-скелетоном в `AppShell`), вендоры разбиты на `react-vendor`/`vendor` через
+   `build.rolldownOptions.output.codeSplitting`. Единый бандл ~829 kB → крупнейший чанк
+   `vendor` ~392 kB (gzip ~117 kB); предупреждение «chunks larger than 500 kB» ушло без
+   подъёма лимита.
 
 ---
 
 ## NEXT TASK
 
-> **Нет открытых задач MLC-001..017.** Все P1/P2/P3 закрыты. Остаются только осознанно
+> **Нет открытых задач MLC-001..018.** Все P1/P2/P3 закрыты. Остаются только осознанно
 > отложенные **открытые опции** (не дефекты, объём = новая работа, выбирать по появлению
 > триггера, не по умолчанию):
 > - `MLC-006(a)` — внедрить OpenAPI-codegen TS-клиента из `/api/docs/v1/swagger.json`
@@ -366,6 +386,54 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 ---
 
 ## Выполненные работы (Done)
+
+### MLC-018 — FE: code-splitting маршрутов (React.lazy) + разбиение вендоров — 2026-06-03
+- **Проблема:** `pnpm build` (vite v8/rolldown) выдавал «Some chunks are larger than 500 kB»
+  — единый клиентский бандл **829.44 kB** (gzip 244.43 kB), все страницы импортировались
+  статически в `routes/router.tsx`.
+- **Что сделано (lazy-границы):** Все десять страниц маршрутов переведены на `React.lazy`
+  (`LoginPage`, `DashboardPage`, `ProfilePage`, `TenantsPage`, `TenantDetailPage`,
+  `InfobasesPage`, `PublicationsPage`, `SessionsPage`, `AuditPage`, `SettingsPage`).
+  Компоненты — именованные экспорты, поэтому маппятся в `{ default: m.XxxPage }`. Каркас
+  (`AppShell`, `ProtectedRoute`, сам роутер) остаётся в главном чанке — нужен на каждом
+  маршруте. **ProtectedRoute-гейтинг и пути не тронуты** (включая `requireAdmin` на
+  `/settings` — `<Suspense>` ловит ленивый `SettingsPage` уже под гардом).
+- **Что сделано (Suspense):** Общая граница `<Suspense fallback={<PageFallback />}>` вокруг
+  `<Outlet/>` в `AppShell` (каркас — сайдбар/топбар — остаётся на месте, пока грузится чанк
+  страницы) + отдельный `<Suspense>` вокруг ленивого `LoginPage` в роутере (он вне
+  `AppShell`). Новый `components/PageFallback.tsx` — короткий скелетон поверх существующего
+  `ui/skeleton` (без i18n: это мгновенный лоадер чанка, не пользовательский текст — как
+  оговорено в задаче).
+- **Что сделано (chunking):** Только lazy недостаточно — оставался крупный вендорный остаток
+  **638 kB** (React/react-dom/router/query/radix и пр. сходятся в общий чанк). Добавлено
+  `build.rolldownOptions.output.codeSplitting.groups` (vite 8 / rolldown — именно этот API
+  указывает само предупреждение): группа `react-vendor` (`react`/`react-dom`/`react-router`/
+  `scheduler`, priority 20) и общий `vendor` (`node_modules`, priority 10). Лимит
+  `chunkSizeWarningLimit` **не поднимался** — разбиение осмысленное.
+- **Расчёт:** Итог — крупнейшие чанки `vendor` **391.55 kB** (gzip 117.18 kB) и
+  `react-vendor` **284.69 kB** (gzip 90.49 kB), главный app-чанк `index` 52.69 kB, каждая
+  страница — отдельный чанк 2–13 kB. **Предупреждение о размере ушло.**
+- **Lint-нюанс:** `lazy()`-консты в `router.tsx` правило `react-refresh/only-export-components`
+  (`warn`) принимает за определения компонентов рядом с не-компонентным экспортом `router`
+  → 10 предупреждений. `router.tsx` — модуль конфигурации маршрутов, не HMR-граница
+  компонента, поэтому добавлен file-level `eslint-disable` этого правила с пояснением
+  (в духе уже существующего override для тестовых файлов в `eslint.config.js`).
+- **Наблюдение (не входит в задачу):** `recharts` объявлен в зависимостях (ADR-11, под
+  будущие графики), но **нигде не импортируется** — дашборд использует `ui/progress`.
+  Поэтому отдельная группа под recharts не заводилась (была бы мёртвым правилом). Если
+  графики появятся — вынести их в свою lazy-группу.
+- **Канон:** не трогали — наблюдаемое поведение (маршруты, гейтинг, экраны) идентично;
+  ленивая загрузка + разбиение чанков — деталь сборки. ADR не требуется (подтверждено
+  условием задачи).
+- **Файлы:** `frontend/src/routes/router.tsx` (React.lazy + Suspense вокруг LoginPage +
+  eslint-disable); `frontend/src/components/layout/AppShell.tsx` (Suspense вокруг Outlet);
+  `frontend/src/components/PageFallback.tsx` (новый); `frontend/vite.config.ts`
+  (`rolldownOptions.output.codeSplitting`).
+- **Прогон (в `frontend/`):** `pnpm lint` — 0 проблем; `pnpm type-check` — 0; `pnpm test` —
+  **78 passed (16 файлов)** (без изменений — поведение то же); `pnpm build` — **без
+  предупреждения о размере**. Дополнительно проверено в браузере (preview): `/` под
+  неавторизованной сессией редиректит на `/login`, ленивый `LoginPage` монтируется через
+  Suspense, консоль чистая (0 warn/error).
 
 ### MLC-016 — FE: точечная Zod runtime-валидация на критичных границах ответа — 2026-06-03
 - **Решение (вариант A точечно, с учётом ADR-10.1):** не codegen и не Zod-на-всё, а
