@@ -1301,3 +1301,50 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 - **Прогон:** frontend `pnpm lint` / `type-check` / `test` (108 passed, 19 файлов) — зелёные;
   `scripts/build.ps1` — зелёный end-to-end (backend 255 passed, FE lint/type-check/test 108 +
   build, «Все шаги пройдены успешно»).
+
+### MLC-024 — App-id whitelist лицензий → dbo.Settings — 2026-06-03
+
+- **Проблема:** набор client-типов 1С, потребляющих лицензию, был статическим `HashSet`
+  в `RacExecutableRasClusterClient.cs` (использовался в `TryParseSession` для вычисления
+  `ConsumesLicense`). По природе это настройка — ввод/переименование типа 1С требовал правки
+  кода + редеплоя, хотя оператор должен мочь подстроить список без релиза. Cost if ignored: S.
+- **Решение:** whitelist вынесен в `dbo.Settings` (`OneC.LicenseConsumingAppIds`), читается
+  адаптером через `ISettingsSnapshot` (тот же TTL-кэш ≈30s, что у `ExePath`/`Endpoint`). Единый
+  источник дефолта и парсинга — новый чистый хелпер `LicenseConsumingAppIds` (стиль `LicenseConsumption`
+  MLC-020 / `InfobaseValidationRules` MLC-022):
+  - **`LicenseConsumingAppIds.Default`** = `"1CV8,1CV8C,WebClient,Designer,COMConnection"` —
+    единственное место хранения дефолта (на него же ссылается `SettingDefinitions.DefaultValue`,
+    без дрейфа строки и кода).
+  - **`LicenseConsumingAppIds.Parse(string?)`** — split по запятой (`RemoveEmptyEntries | TrimEntries`),
+    case-insensitive (`OrdinalIgnoreCase`); пустой результат (null/whitespace/только разделители)
+    откатывается на `Default`. Гарантирует поведение **1:1** с прежним статическим набором при
+    незаданной настройке.
+- **Каталог настроек (14-й ключ):** `SettingKey.OneCLicenseConsumingAppIds`
+  (`"OneC.LicenseConsumingAppIds"`, wire-контракт) + запись в `SettingDefinitions.All`
+  (`Kind=Text`, `IsSecret=false`, русское `Description`, `DefaultValue=LicenseConsumingAppIds.Default`).
+  `Text` ⇒ `ValidateValue` без ограничений (любой список запятых проходит). Сидер автоматически
+  засевает дефолт при первом старте; снапшот кэширует строго ключи каталога — новый ключ доступен
+  без правок инфраструктуры.
+- **Адаптер:** удалён static `LicenseConsumingAppIds`; в `ListActiveSessionsAsync` список читается
+  один раз на вызов (не per-session — бюджет спавна не затронут) и прокидывается в `TryParseSession`
+  (остался статическим/чистым, добавлен параметр `HashSet<string>`; `ConsumesLicense = set.Contains(appId)`).
+- **Frontend (Option A — поле не появляется само):** `SettingsPage.tsx` рендерит из захардкоженного
+  `SECTIONS`, не из каталога (это и фиксирует отложенная MLC-026). Поэтому ключ добавлен в секцию
+  «cluster» + `FIELD_META` (text + placeholder с дефолтом) и i18n `settings.labels`/`settings.hints`
+  в `ru.json`. Оператор правит whitelist через «Параметры».
+- **Канон:** `docs/DECISIONS.md` — описание `ConsumesLicense` обновлено: дефолтный набор теперь
+  operator-overridable через `OneC.LicenseConsumingAppIds` (present-tense).
+- **Тесты:** новый `Settings/LicenseConsumingAppIdsTests.cs` (null/""/whitespace/только-разделители
+  → дефолт; default-константа = 5 app-id; case-insensitive; trim; кастомный список полностью заменяет
+  дефолт). Новый кейс в `RacExecutableRasClusterClientTests` (настройка `"BackgroundJob"` делает
+  BackgroundJob лицензионным, а `1CV8` — нет: доказывает чтение из Settings и полную замену).
+  Существующие RAS-тесты зелёные без правок (`BuildSettings` не стабит новый ключ → `null` → дефолт).
+  Новый FE `settings/__tests__/SettingsPage.test.tsx` (рендер: поле и input появляются из каталога).
+- **Файлы:** `backend/.../Application/Settings/LicenseConsumingAppIds.cs` (новый),
+  `…/Domain/Settings/SettingKey.cs`, `…/Application/Settings/SettingDefinitions.cs`,
+  `…/Infrastructure/Clusters/RacExecutableRasClusterClient.cs`,
+  `backend/tests/.../Settings/LicenseConsumingAppIdsTests.cs` (новый),
+  `…/Clusters/RacExecutableRasClusterClientTests.cs`; `frontend/src/features/settings/SettingsPage.tsx`,
+  `…/settings/__tests__/SettingsPage.test.tsx` (новый), `frontend/src/i18n/ru.json`; `docs/DECISIONS.md`.
+- **Прогон:** `dotnet test --filter "Category!=Smoke"` — 262 passed; frontend `pnpm test` —
+  109 passed (20 файлов); `scripts/build.ps1` — зелёный end-to-end («Все шаги пройдены успешно»).

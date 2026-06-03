@@ -23,14 +23,6 @@ internal sealed partial class RacExecutableRasClusterClient : IClusterClient
     // 30s оставляет запас на cold-кластер и сетевую задержку.
     private static readonly TimeSpan InvocationTimeout = TimeSpan.FromSeconds(30);
 
-    // Тот же список app-id, что в REST-адаптере (PR 3.2). Source of truth
-    // зафиксирован в ADR-3.1/3.3; см. также memory/domain_definitions.md.
-    private static readonly HashSet<string> LicenseConsumingAppIds =
-        new(StringComparer.OrdinalIgnoreCase)
-        {
-            "1CV8", "1CV8C", "WebClient", "Designer", "COMConnection",
-        };
-
     private readonly IRacProcessRunner _runner;
     private readonly ISettingsSnapshot _settings;
     private readonly ILogger<RacExecutableRasClusterClient> _logger;
@@ -71,12 +63,17 @@ internal sealed partial class RacExecutableRasClusterClient : IClusterClient
             return Array.Empty<ClusterSession>();
         }
 
+        // Whitelist лицензионных app-id читаем один раз на вызов (не per-session) через
+        // тот же TTL-кэш SettingsSnapshot, что и ExePath/Endpoint. Пусто/незадано → дефолт.
+        var licenseAppIds = LicenseConsumingAppIds.Parse(
+            _settings.GetString(SettingKey.OneCLicenseConsumingAppIds));
+
         var records = RacOutputParser.Parse(invocation.Stdout);
         var sessions = new List<ClusterSession>(records.Count);
 
         foreach (var rec in records)
         {
-            if (!TryParseSession(rec, out var session))
+            if (!TryParseSession(rec, licenseAppIds, out var session))
             {
                 continue;
             }
@@ -276,7 +273,10 @@ internal sealed partial class RacExecutableRasClusterClient : IClusterClient
         return args;
     }
 
-    private static bool TryParseSession(IReadOnlyDictionary<string, string> rec, out ClusterSession session)
+    private static bool TryParseSession(
+        IReadOnlyDictionary<string, string> rec,
+        HashSet<string> licenseConsumingAppIds,
+        out ClusterSession session)
     {
         session = default!;
 
@@ -299,7 +299,7 @@ internal sealed partial class RacExecutableRasClusterClient : IClusterClient
             AppId: appId,
             UserName: rec.GetValueOrDefault("user-name") ?? string.Empty,
             Host: rec.GetValueOrDefault("host") ?? string.Empty,
-            ConsumesLicense: LicenseConsumingAppIds.Contains(appId),
+            ConsumesLicense: licenseConsumingAppIds.Contains(appId),
             StartedAtUtc: ParseUtc(rec.GetValueOrDefault("started-at")));
 
         return true;

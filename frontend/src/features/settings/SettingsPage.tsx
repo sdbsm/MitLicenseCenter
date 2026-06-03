@@ -19,6 +19,7 @@ const SECTIONS: { titleKey: string; keys: string[] }[] = [
       "OneC.Cluster.AdminPassword",
       "OneC.RAS.Endpoint",
       "OneC.RAS.ExePath",
+      "OneC.LicenseConsumingAppIds",
     ],
   },
   {
@@ -50,6 +51,10 @@ const FIELD_META: Record<
   "OneC.Cluster.AdminPassword": { type: "password" },
   "OneC.RAS.Endpoint": { type: "text", placeholder: "host:1545" },
   "OneC.RAS.ExePath": { type: "text" },
+  "OneC.LicenseConsumingAppIds": {
+    type: "text",
+    placeholder: "1CV8,1CV8C,WebClient,Designer,COMConnection",
+  },
   "IIS.DefaultVrdRoot": { type: "text" },
   "Defaults.DatabaseServer": { type: "text", placeholder: "sql.local или (local)" },
   "IIS.DefaultSiteName": { type: "text", placeholder: "Default Web Site" },

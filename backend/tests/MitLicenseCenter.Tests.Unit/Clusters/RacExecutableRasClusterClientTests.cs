@@ -76,6 +76,31 @@ public sealed class RacExecutableRasClusterClientTests
     }
 
     [Fact]
+    public async Task ListActiveSessionsAsync_consumes_license_per_configured_app_id_list()
+    {
+        // MLC-024: whitelist читается из Settings. Кастомный список делает BackgroundJob
+        // лицензионным, а дефолтный 1CV8 — нет (полная замена, не дополнение).
+        const string twoSessions =
+            "session : 11111111-1111-1111-1111-111111111111\r\n" +
+            "infobase : 6256b6f3-dde1-41f9-a6c2-bdfc36bca7aa\r\n" +
+            "app-id : 1CV8\r\n" +
+            "\r\n" +
+            "session : 22222222-2222-2222-2222-222222222222\r\n" +
+            "infobase : 6256b6f3-dde1-41f9-a6c2-bdfc36bca7aa\r\n" +
+            "app-id : BackgroundJob\r\n";
+
+        var settings = BuildSettings();
+        settings.GetString(SettingKey.OneCLicenseConsumingAppIds).Returns("BackgroundJob");
+        var runner = BuildRunner(clusterList: FakeClusterListStdout, sessionList: twoSessions);
+        var client = new RacExecutableRasClusterClient(runner, settings, NullLogger<RacExecutableRasClusterClient>.Instance);
+
+        var sessions = await client.ListActiveSessionsAsync(default);
+
+        sessions.Single(s => s.AppId == "BackgroundJob").ConsumesLicense.Should().BeTrue();
+        sessions.Single(s => s.AppId == "1CV8").ConsumesLicense.Should().BeFalse("список заменён кастомным");
+    }
+
+    [Fact]
     public async Task ListActiveSessionsAsync_returns_empty_when_cluster_list_fails()
     {
         var settings = BuildSettings();

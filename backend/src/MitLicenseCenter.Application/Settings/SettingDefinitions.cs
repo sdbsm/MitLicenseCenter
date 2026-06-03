@@ -54,6 +54,13 @@ public static class SettingDefinitions
                 Description: "Путь к rac.exe для RAS fallback (например, C:\\Program Files\\1cv8\\8.5.1.1302\\bin\\rac.exe).",
                 Kind: SettingValueKind.Path),
 
+            [SettingKey.OneCLicenseConsumingAppIds] = new(
+                SettingKey.OneCLicenseConsumingAppIds,
+                IsSecret: false,
+                Description: "Список client-типов 1С (app-id), потребляющих серверную лицензию, через запятую. Регистр не важен. Пусто → стандартный набор (1CV8, 1CV8C, WebClient, Designer, COMConnection).",
+                Kind: SettingValueKind.Text,
+                DefaultValue: LicenseConsumingAppIds.Default),
+
             [SettingKey.IisDefaultVrdRoot] = new(
                 SettingKey.IisDefaultVrdRoot,
                 IsSecret: false,
