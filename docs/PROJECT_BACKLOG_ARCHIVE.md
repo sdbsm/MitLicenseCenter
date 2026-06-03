@@ -1239,3 +1239,65 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
   `pnpm lint` / `type-check` / `test` (97 passed) — зелёные; `scripts/build.ps1` — зелёный
   end-to-end (backend build 0 warnings, FE lint/type-check/test 97 + build, «Все шаги пройдены
   успешно»).
+
+### MLC-023 — Декомпозиция InfobaseFormDialog (787 строк) — 2026-06-03
+
+- **Проблема:** `frontend/src/features/infobases/InfobaseFormDialog.tsx` (787 строк) — самый
+  большой и связный компонент проекта, главная форма продукта. В одном файле совмещались:
+  режимы create+edit, `defaultValues`, эффект prefill настроек, три `touched`-рефа
+  автоподстановки + `settingsApplied`, точечная проверка занятости кластер-базы (set/clear
+  server-ошибки), раскрытие блока «Дополнительно», маппинг 409/404→ошибки полей и весь JSX.
+  Каждый новый атрибут Infobase/Publication оседал здесь — росли стоимость изменения и риск
+  регрессий в prefill-логике. Cost if ignored: M–L.
+- **Решение:** поведение-сохраняющий рефакторинг (как MLC-018: декомпозиция, наблюдаемое
+  поведение 1:1). Правила валидации **не** возвращены в форму — переиспользован извлечённый в
+  MLC-022 `validation.ts` (`buildInfobaseFormSchema`, `STATUSES`, regex/лимиты). Ответственности
+  разложены на 4 модуля:
+  - **`useInfobaseForm.ts`** (новый хук) — вся не-презентационная логика, перенесённая из
+    компонента **дословно**: чтение настроек + дефолты, `useForm` + `zodResolver` +
+    `defaultValues` (ветки create/edit), три `touched`-рефа (`useRef(isEdit)`) +
+    `settingsApplied` (`useRef(false)`), эффект prefill настроек (тот же guard
+    `isEdit || settingsApplied.current || !settings`, те же `setValue`, та же
+    `eslint-disable`-строка deps), `useWatch`, discovery-запросы (gated по `open`) + состояния +
+    опции + refetch-колбэки, `useClusterIdAvailability` + эффект set/clear server-ошибки,
+    `handleClusterChange`/`handleDatabaseNameChange`, `computedDefaultPath`,
+    `advancedOpen`/`setAdvancedOpen`, `onSubmit` (предчек занятости, сборка input'ов, мутации,
+    toast'ы, маппинг 409, `onInvalid`→раскрытие «Дополнительно» по `ADVANCED_ERROR_KEYS`).
+    Закрытие диалога на успехе (`onOpenChange(false)`) перенесено внутрь хука — `onOpenChange`
+    добавлен в аргументы (т.к. `form.handleSubmit` не пробрасывает результат во вью).
+    `touched`-рефы наружу отданы как `markNameTouched`/`markVirtualPathTouched`/
+    `markPhysicalPathTouched`.
+  - **`PublicationFieldset.tsx`** (новый презентационный компонент) — всё тело блока
+    «Дополнительно» (3 группы: Инфобаза name+status, СУБД databaseServer, Публикация в IIS:
+    siteName/virtualPath/platformVersion/physicalPath + 2 чекбокса). Без состояния и эффектов:
+    принимает `control`, discovery-пропсы для site/platformVersion, `computedDefaultPath` и
+    `mark*Touched`-колбэки (вызываются в `onChange` перед `field.onChange` — 1:1 прежнее
+    поведение). `STATUSES` импортируется из `validation.ts`.
+  - **`mapConflictToField.ts`** (новый чистый helper) — классификация ошибки API → дескриптор
+    ошибки поля (`{ field, messageKey, openAdvanced? }`): 409 `NAME_DUPLICATE_IN_TENANT`→name
+    +openAdvanced, 409 `INFOBASE_ALREADY_ASSIGNED`→clusterInfobaseId, 404→tenantId, иначе→null.
+    i18n/`setError`/toast и fallback (ApiError 400→`message`-toast, прочее→generic) остаются в
+    хуке. Тестируется отдельно от рендера.
+  - **`InfobaseFormDialog.tsx`** → тонкий вью (787→~230 строк): `useInfobaseForm` + разметка
+    диалога, видимые поля (tenantId/clusterInfobaseId/databaseName), disclosure-кнопка и
+    `<PublicationFieldset/>`. Публичный API компонента (пропсы) не изменён.
+- **Сохранение поведения prefill/touched (1:1):** инициализация рефов (`isEdit` для трёх
+  touched, `false` для `settingsApplied`), guard и `setValue` эффекта prefill, авто-раскрытие
+  «Дополнительно» (`onInvalid` по `ADVANCED_ERROR_KEYS` + ветка `NAME_DUPLICATE`
+  через `openAdvanced`) — перенесены дословно.
+- **Тесты:** существующие `InfobaseFormDialog.test.tsx` (маппинг 409, точечная занятость,
+  раскрытие «Дополнительно») и `ReassignInfobaseDialog.test.tsx` — зелёные **без правок**
+  (регрессионный гейт: публичный API формы не менялся). Добавлены точечные:
+  `__tests__/mapConflictToField.test.ts` (оба 409-кода, 404, неизвестный код/без тела/400/
+  не-ApiError→null) и `__tests__/useInfobaseForm.test.tsx` (`renderHook`: create-prefill
+  заполняет пустые поля после загрузки каталога; edit стартует со значений инфобазы и prefill
+  их не перетирает; автоподстановка virtualPath/physicalPath из имени БД отключается точечно
+  после `markVirtualPathTouched`).
+- **Канон:** не трогали (`docs/` и бэкенд без изменений) — наблюдаемое поведение тождественно.
+- **Файлы:** `frontend/src/features/infobases/useInfobaseForm.ts` (новый),
+  `…/PublicationFieldset.tsx` (новый), `…/mapConflictToField.ts` (новый),
+  `…/__tests__/useInfobaseForm.test.tsx` (новый), `…/__tests__/mapConflictToField.test.ts`
+  (новый); правка `…/InfobaseFormDialog.tsx`.
+- **Прогон:** frontend `pnpm lint` / `type-check` / `test` (108 passed, 19 файлов) — зелёные;
+  `scripts/build.ps1` — зелёный end-to-end (backend 255 passed, FE lint/type-check/test 108 +
+  build, «Все шаги пройдены успешно»).

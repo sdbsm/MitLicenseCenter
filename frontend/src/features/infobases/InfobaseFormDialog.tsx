@@ -1,10 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm, useWatch } from "react-hook-form";
 import { useTranslation } from "react-i18next";
-import { useSettings } from "@/features/settings/useSettings";
 import { ChevronDown } from "lucide-react";
-import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -23,8 +18,6 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -33,26 +26,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { ApiError, readConflictBody } from "@/lib/api";
 import { DiscoveryField } from "@/features/discovery/DiscoveryField";
-import {
-  toDiscoveryState,
-  useClusterInfobases,
-  useDatabases,
-  useIisSites,
-  usePlatformVersions,
-} from "@/features/discovery/useDiscovery";
 import type { Tenant } from "@/features/tenants/types";
-import type { CreateInfobaseInput, InfobaseListItem, UpdateInfobaseInput } from "./types";
-import { useClusterIdAvailability, useCreateInfobase, useUpdateInfobase } from "./useInfobases";
-import { physicalPathFromDatabase, virtualPathFromDatabase } from "./paths";
-import { buildInfobaseFormSchema, STATUSES, type InfobaseFormValues } from "./validation";
-
-type FormValues = InfobaseFormValues;
-
-// Поля, которые живут в свёрнутом блоке «Дополнительно». Если валидация падает
-// на одном из них, блок надо раскрыть, иначе пользователь не увидит ошибку.
-const ADVANCED_ERROR_KEYS = new Set(["name", "databaseServer", "status", "publication"]);
+import type { InfobaseListItem } from "./types";
+import { useInfobaseForm } from "./useInfobaseForm";
+import { PublicationFieldset } from "./PublicationFieldset";
 
 interface InfobaseFormDialogProps {
   open: boolean;
@@ -62,6 +40,9 @@ interface InfobaseFormDialogProps {
   defaultTenantId?: string;
 }
 
+// MLC-023 — тонкий вью главной формы инфобазы. Вся логика (схема, prefill, touched,
+// discovery, submit, маппинг 409) живёт в useInfobaseForm; блок «Дополнительно» — в
+// PublicationFieldset. Здесь только разметка диалога и видимые поля.
 export function InfobaseFormDialog({
   open,
   onOpenChange,
@@ -70,278 +51,33 @@ export function InfobaseFormDialog({
   defaultTenantId,
 }: InfobaseFormDialogProps) {
   const { t } = useTranslation();
-  const isEdit = Boolean(infobase);
-
-  const create = useCreateInfobase();
-  const update = useUpdateInfobase();
-
-  const { data: settings } = useSettings();
-  const settingValue = (key: string) => settings?.find((s) => s.key === key)?.value ?? undefined;
-  const defaultDatabaseServer = settingValue("Defaults.DatabaseServer") ?? "";
-  const defaultSiteName = settingValue("IIS.DefaultSiteName") ?? "Default Web Site";
-  const defaultPlatformVersion = settingValue("OneC.DefaultPlatformVersion") ?? "";
-  const defaultVrdRoot = settingValue("IIS.DefaultVrdRoot") ?? "C:\\inetpub\\wwwroot";
-
-  // Блок «Дополнительно» свёрнут по умолчанию — основная цель упрощённой формы.
-  const [advancedOpen, setAdvancedOpen] = useState(false);
-
-  // Автоподстановка названия из базы кластера и виртуального пути из имени БД
-  // работает, только пока пользователь не правил поле руками. В edit-режиме
-  // значения уже заданы — считаем их «тронутыми», чтобы не перетирать.
-  const nameTouched = useRef(isEdit);
-  const virtualPathTouched = useRef(isEdit);
-  const physicalPathTouched = useRef(isEdit);
-  const settingsApplied = useRef(false);
-
-  const form = useForm<FormValues>({
-    resolver: zodResolver(buildInfobaseFormSchema(t)),
-    defaultValues: infobase
-      ? {
-          tenantId: infobase.tenantId,
-          name: infobase.name,
-          clusterInfobaseId: infobase.clusterInfobaseId,
-          databaseServer: infobase.databaseServer,
-          databaseName: infobase.databaseName,
-          status: infobase.status,
-          publication: {
-            siteName: infobase.publication.siteName,
-            virtualPath: infobase.publication.virtualPath,
-            platformVersion: infobase.publication.platformVersion,
-            enableOData: infobase.publication.enableOData,
-            enableHttpServices: infobase.publication.enableHttpServices,
-            vrdCustomXml: infobase.publication.vrdCustomXml ?? "",
-            physicalPathOverride: infobase.publication.physicalPathOverride ?? "",
-          },
-        }
-      : {
-          tenantId: defaultTenantId ?? tenants[0]?.id ?? "",
-          name: "",
-          clusterInfobaseId: "",
-          databaseServer: defaultDatabaseServer,
-          databaseName: "",
-          status: "Active",
-          publication: {
-            siteName: defaultSiteName,
-            virtualPath: "",
-            platformVersion: defaultPlatformVersion,
-            enableOData: false,
-            enableHttpServices: false,
-            vrdCustomXml: "",
-            physicalPathOverride: "",
-          },
-        },
-  });
-
-  // Настройки грузятся асинхронно — на момент mount'а формы дефолтов могло ещё
-  // не быть. Когда они приходят, подставляем их в незаполненные поля один раз
-  // (только при создании и только если пользователь их не трогал).
-  useEffect(() => {
-    if (isEdit || settingsApplied.current || !settings) return;
-    settingsApplied.current = true;
-    if (!form.getValues("databaseServer")) {
-      form.setValue("databaseServer", defaultDatabaseServer);
-    }
-    if (!form.getValues("publication.platformVersion")) {
-      form.setValue("publication.platformVersion", defaultPlatformVersion);
-    }
-    const site = form.getValues("publication.siteName");
-    if (!site || site === "Default Web Site") {
-      form.setValue("publication.siteName", defaultSiteName);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings, isEdit]);
-
-  const [watchedDatabaseServer, watchedDatabaseName] = useWatch({
-    control: form.control,
-    name: ["databaseServer", "databaseName"],
-  });
-
-  // Discovery: тянем списки, пока диалог открыт (ленивая загрузка по `open`).
-  const infobasesQuery = useClusterInfobases(open);
-  const sitesQuery = useIisSites(open);
-  const databasesQuery = useDatabases(watchedDatabaseServer ?? "", open);
-  const platformVersionsQuery = usePlatformVersions(open);
-
-  const infobasesState = toDiscoveryState(infobasesQuery);
-  const sitesState = toDiscoveryState(sitesQuery);
-  const databasesState = toDiscoveryState(databasesQuery);
-  const platformVersionsState = toDiscoveryState(platformVersionsQuery);
-
-  const infobaseOptions = (infobasesQuery.data?.items ?? []).map((i) => ({
-    value: i.id,
-    label: i.name,
-    hint: i.description,
-  }));
-
-  // MLC-015 — занятость выбранной базы кластера проверяем точечно (а не выгружая весь
-  // список инфобаз при каждом открытии формы). Запрос идёт при валидном GUID; свою базу
-  // в режиме редактирования исключаем через excludeId. 409 на submit остаётся backstop'ом.
-  const watchedClusterId = useWatch({ control: form.control, name: "clusterInfobaseId" });
-  const clusterAvailability = useClusterIdAvailability(
-    (watchedClusterId ?? "").trim(),
-    infobase?.id,
-    open
-  );
-
-  useEffect(() => {
-    const data = clusterAvailability.data;
-    if (!data) return;
-    if (data.taken) {
-      form.setError("clusterInfobaseId", {
-        type: "server",
-        message: data.takenByTenantName
-          ? t("infobases.errors.clusterAlreadyAssignedNamed", { name: data.takenByTenantName })
-          : t("infobases.errors.clusterAlreadyAssigned"),
-      });
-    } else if (form.getFieldState("clusterInfobaseId").error?.type === "server") {
-      // База свободна — снимаем только нашу серверную подсказку, не трогая zod-ошибки.
-      form.clearErrors("clusterInfobaseId");
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clusterAvailability.data]);
-  const siteOptions = (sitesQuery.data?.items ?? []).map((s) => ({
-    value: s.siteName,
-    label: s.siteName,
-  }));
-  const databaseOptions = (databasesQuery.data?.items ?? []).map((d) => ({
-    value: d,
-    label: d,
-  }));
-  const platformVersionOptions = (platformVersionsQuery.data?.items ?? []).map((v) => ({
-    value: v.version,
-    label: v.version,
-    hint: v.architecture,
-  }));
-
-  // Выбор базы кластера по имени — подставляем имя как название инфобазы.
-  const handleClusterChange = (value: string, onChange: (v: string) => void) => {
-    onChange(value);
-    if (nameTouched.current) return;
-    const picked = infobaseOptions.find((o) => o.value === value);
-    if (picked) {
-      form.setValue("name", picked.label, { shouldValidate: true });
-    }
-  };
-
-  // Выбор/ввод имени БД — генерируем из него виртуальный и физический путь
-  // публикации (каждый — только пока пользователь его не правил руками).
-  const handleDatabaseNameChange = (value: string, onChange: (v: string) => void) => {
-    onChange(value);
-    if (!virtualPathTouched.current) {
-      const vp = virtualPathFromDatabase(value);
-      if (vp) {
-        form.setValue("publication.virtualPath", vp, { shouldValidate: true });
-      }
-    }
-    if (!physicalPathTouched.current) {
-      const pp = physicalPathFromDatabase(defaultVrdRoot, value);
-      form.setValue("publication.physicalPathOverride", pp, { shouldValidate: true });
-    }
-  };
-
-  const computedDefaultPath = (() => {
-    const pp = physicalPathFromDatabase(defaultVrdRoot, watchedDatabaseName ?? "");
-    return pp || t("publications.form.physicalPathOverridePlaceholderGeneric");
-  })();
-
-  const onSubmit = form.handleSubmit(
-    async (values) => {
-      // Точечная проверка занятости уже показала конфликт — не делаем заведомо обречённый
-      // запрос (на сервере его всё равно перехватит 409-backstop).
-      if (clusterAvailability.data?.taken) {
-        form.setError("clusterInfobaseId", {
-          type: "server",
-          message: clusterAvailability.data.takenByTenantName
-            ? t("infobases.errors.clusterAlreadyAssignedNamed", {
-                name: clusterAvailability.data.takenByTenantName,
-              })
-            : t("infobases.errors.clusterAlreadyAssigned"),
-        });
-        return;
-      }
-
-      const publicationInput = {
-        siteName: values.publication.siteName.trim(),
-        virtualPath: values.publication.virtualPath.trim(),
-        platformVersion: values.publication.platformVersion.trim(),
-        enableOData: values.publication.enableOData,
-        enableHttpServices: values.publication.enableHttpServices,
-        vrdCustomXml: values.publication.vrdCustomXml?.trim()
-          ? values.publication.vrdCustomXml.trim()
-          : null,
-        physicalPathOverride: values.publication.physicalPathOverride?.trim() || null,
-      };
-
-      try {
-        if (infobase) {
-          const input: UpdateInfobaseInput = {
-            name: values.name.trim(),
-            clusterInfobaseId: values.clusterInfobaseId.trim(),
-            databaseServer: values.databaseServer.trim(),
-            databaseName: values.databaseName.trim(),
-            status: values.status,
-            publication: publicationInput,
-          };
-          await update.mutateAsync({ id: infobase.id, input });
-          toast.success(t("infobases.toasts.updated", { name: input.name }));
-        } else {
-          const input: CreateInfobaseInput = {
-            tenantId: values.tenantId,
-            name: values.name.trim(),
-            clusterInfobaseId: values.clusterInfobaseId.trim(),
-            databaseServer: values.databaseServer.trim(),
-            databaseName: values.databaseName.trim(),
-            status: values.status,
-            publication: publicationInput,
-          };
-          await create.mutateAsync(input);
-          toast.success(t("infobases.toasts.created", { name: input.name }));
-        }
-        onOpenChange(false);
-      } catch (error) {
-        if (error instanceof ApiError) {
-          if (error.status === 409) {
-            const body = readConflictBody(error);
-            if (body?.code === "NAME_DUPLICATE_IN_TENANT") {
-              setAdvancedOpen(true);
-              form.setError("name", {
-                type: "server",
-                message: t("infobases.errors.nameDuplicate"),
-              });
-              return;
-            }
-            if (body?.code === "INFOBASE_ALREADY_ASSIGNED") {
-              form.setError("clusterInfobaseId", {
-                type: "server",
-                message: t("infobases.errors.clusterAlreadyAssigned"),
-              });
-              return;
-            }
-          }
-          if (error.status === 404) {
-            form.setError("tenantId", {
-              type: "server",
-              message: t("infobases.errors.tenantNotFound"),
-            });
-            return;
-          }
-          if (error.status === 400) {
-            toast.error(error.message || t("errors.generic"));
-            return;
-          }
-        }
-        toast.error(t("errors.generic"));
-      }
-    },
-    (errors) => {
-      // Раскрываем «Дополнительно», если ошибка валидации в одном из его полей.
-      if (Object.keys(errors).some((k) => ADVANCED_ERROR_KEYS.has(k))) {
-        setAdvancedOpen(true);
-      }
-    }
-  );
-
-  const pending = create.isPending || update.isPending;
+  const {
+    form,
+    isEdit,
+    pending,
+    advancedOpen,
+    setAdvancedOpen,
+    onSubmit,
+    infobaseOptions,
+    infobasesState,
+    refetchInfobases,
+    databaseOptions,
+    databasesState,
+    refetchDatabases,
+    siteOptions,
+    sitesState,
+    refetchSites,
+    platformVersionOptions,
+    platformVersionsState,
+    refetchPlatformVersions,
+    watchedDatabaseServer,
+    computedDefaultPath,
+    handleClusterChange,
+    handleDatabaseNameChange,
+    markNameTouched,
+    markVirtualPathTouched,
+    markPhysicalPathTouched,
+  } = useInfobaseForm({ open, onOpenChange, infobase, tenants, defaultTenantId });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -397,7 +133,7 @@ export function InfobaseFormDialog({
                       available={infobasesState.available}
                       loading={infobasesState.loading}
                       error={infobasesState.error}
-                      onRefresh={() => void infobasesQuery.refetch()}
+                      onRefresh={refetchInfobases}
                       manualPlaceholder="00000000-0000-0000-0000-000000000000"
                       inputClassName="font-mono text-xs"
                     />
@@ -422,7 +158,7 @@ export function InfobaseFormDialog({
                       available={databasesState.available}
                       loading={databasesState.loading}
                       error={databasesState.error}
-                      onRefresh={() => void databasesQuery.refetch()}
+                      onRefresh={refetchDatabases}
                       manualPlaceholder={t("infobases.form.databaseNamePlaceholder")}
                       disabledHint={
                         (watchedDatabaseServer ?? "").trim()
@@ -452,254 +188,19 @@ export function InfobaseFormDialog({
             </button>
 
             {advancedOpen && (
-              <div className="grid gap-5">
-                <p className="text-muted-foreground text-xs">{t("infobases.form.advancedHint")}</p>
-
-                {/* Группа: Инфобаза (название + статус) */}
-                <div className="grid gap-4">
-                  <div className="space-y-0.5">
-                    <h4 className="text-sm font-semibold">{t("infobases.form.groupInfobase")}</h4>
-                    <p className="text-muted-foreground text-xs">
-                      {t("infobases.form.groupInfobaseHint")}
-                    </p>
-                  </div>
-
-                  <FormField
-                    control={form.control}
-                    name="name"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t("infobases.fields.name")}</FormLabel>
-                        <FormControl>
-                          <Input
-                            autoComplete="off"
-                            placeholder={t("infobases.form.namePlaceholder")}
-                            {...field}
-                            onChange={(e) => {
-                              nameTouched.current = true;
-                              field.onChange(e);
-                            }}
-                          />
-                        </FormControl>
-                        <FormDescription>{t("infobases.form.nameHint")}</FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="status"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t("infobases.fields.status")}</FormLabel>
-                        <Select value={field.value} onValueChange={field.onChange}>
-                          <FormControl>
-                            <SelectTrigger className="w-full">
-                              <SelectValue />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {STATUSES.map((status) => (
-                              <SelectItem key={status} value={status}>
-                                {t(`infobases.status.${status}`)}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-
-                <Separator />
-
-                {/* Группа: СУБД (SQL Server) */}
-                <div className="grid gap-4">
-                  <div className="space-y-0.5">
-                    <h4 className="text-sm font-semibold">{t("infobases.form.groupDatabase")}</h4>
-                    <p className="text-muted-foreground text-xs">
-                      {t("infobases.form.groupDatabaseHint")}
-                    </p>
-                  </div>
-
-                  <FormField
-                    control={form.control}
-                    name="databaseServer"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t("infobases.form.databaseServerLabel")}</FormLabel>
-                        <FormControl>
-                          <Input
-                            autoComplete="off"
-                            placeholder={t("infobases.form.databaseServerPlaceholder")}
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-
-                <Separator />
-
-                {/* Группа: Публикация в IIS */}
-                <div className="space-y-0.5">
-                  <h4 className="text-sm font-semibold">{t("infobases.form.groupPublication")}</h4>
-                  <p className="text-muted-foreground text-xs">
-                    {t("infobases.form.groupPublicationHint")}
-                  </p>
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <FormField
-                    control={form.control}
-                    name="publication.siteName"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t("publications.fields.siteName")}</FormLabel>
-                        <FormControl>
-                          <DiscoveryField
-                            value={field.value}
-                            onChange={field.onChange}
-                            options={siteOptions}
-                            available={sitesState.available}
-                            loading={sitesState.loading}
-                            error={sitesState.error}
-                            onRefresh={() => void sitesQuery.refetch()}
-                            manualPlaceholder="Default Web Site"
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="publication.virtualPath"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t("publications.fields.virtualPath")}</FormLabel>
-                        <FormControl>
-                          <Input
-                            autoComplete="off"
-                            placeholder="/acme-bp"
-                            className="font-mono text-xs"
-                            {...field}
-                            onChange={(e) => {
-                              virtualPathTouched.current = true;
-                              field.onChange(e);
-                            }}
-                          />
-                        </FormControl>
-                        <FormDescription>{t("publications.form.virtualPathHint")}</FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-
-                <FormField
-                  control={form.control}
-                  name="publication.platformVersion"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("publications.fields.platformVersion")}</FormLabel>
-                      <FormControl>
-                        <DiscoveryField
-                          value={field.value}
-                          onChange={field.onChange}
-                          options={platformVersionOptions}
-                          available={platformVersionsState.available}
-                          loading={platformVersionsState.loading}
-                          error={platformVersionsState.error}
-                          onRefresh={() => void platformVersionsQuery.refetch()}
-                          manualPlaceholder="8.3.23.1865"
-                          inputClassName="font-mono text-xs"
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        {t("publications.form.platformVersionHint")}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="publication.physicalPathOverride"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("publications.fields.physicalPathOverride")}</FormLabel>
-                      <FormControl>
-                        <Input
-                          autoComplete="off"
-                          placeholder={computedDefaultPath}
-                          className="font-mono text-xs"
-                          {...field}
-                          value={field.value ?? ""}
-                          onChange={(e) => {
-                            physicalPathTouched.current = true;
-                            field.onChange(e);
-                          }}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        {t("publications.form.physicalPathOverrideHint")}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <FormField
-                    control={form.control}
-                    name="publication.enableOData"
-                    render={({ field }) => (
-                      <FormItem>
-                        <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
-                          <Label htmlFor="publication-oData" className="font-medium">
-                            {t("publications.fields.enableOData")}
-                          </Label>
-                          <input
-                            id="publication-oData"
-                            type="checkbox"
-                            className="size-4 cursor-pointer"
-                            checked={field.value}
-                            onChange={(e) => field.onChange(e.target.checked)}
-                          />
-                        </div>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="publication.enableHttpServices"
-                    render={({ field }) => (
-                      <FormItem>
-                        <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
-                          <Label htmlFor="publication-http" className="font-medium">
-                            {t("publications.fields.enableHttpServices")}
-                          </Label>
-                          <input
-                            id="publication-http"
-                            type="checkbox"
-                            className="size-4 cursor-pointer"
-                            checked={field.value}
-                            onChange={(e) => field.onChange(e.target.checked)}
-                          />
-                        </div>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-              </div>
+              <PublicationFieldset
+                control={form.control}
+                siteOptions={siteOptions}
+                sitesState={sitesState}
+                onRefreshSites={refetchSites}
+                platformVersionOptions={platformVersionOptions}
+                platformVersionsState={platformVersionsState}
+                onRefreshPlatformVersions={refetchPlatformVersions}
+                computedDefaultPath={computedDefaultPath}
+                markNameTouched={markNameTouched}
+                markVirtualPathTouched={markVirtualPathTouched}
+                markPhysicalPathTouched={markPhysicalPathTouched}
+              />
             )}
 
             <DialogFooter className="gap-2">
