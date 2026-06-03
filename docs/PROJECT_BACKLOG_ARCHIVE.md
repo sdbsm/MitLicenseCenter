@@ -1392,3 +1392,35 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
   `dotnet format --verify-no-changes` — без правок; frontend `pnpm lint`/`type-check`/`test`/`build` —
   зелёные (109 тестов, сборка ОК). Smoke-тесты `RacExecutableSmokeTests` требуют живого RAS и в этом
   гейте исключаются (как и в CI: `--filter "Category!=Smoke"`).
+
+### MLC-029 (REF-01) — Дедуп маппинга `Publication` request→entity в `InfobasesEndpoints` — 2026-06-03
+
+- **Проблема:** блок присваивания 7 полей публикации дословно дублировался между `CreateAsync`
+  (инициализатор `new Publication { … }`, ~стр. 201–215) и `UpdateAsync` (присваивания
+  `publication.* = …`, ~стр. 302–311) в `Web/Endpoints/InfobasesEndpoints.cs`. Совпадали и значения,
+  и логика нормализации: `SiteName`/`VirtualPath`/`PlatformVersion` → `.Trim()`, `EnableOData`/
+  `EnableHttpServices` как есть, `VrdCustomXml` → `IsNullOrWhiteSpace ? null : …`, `PhysicalPathOverride`
+  → `IsNullOrWhiteSpace ? null : .Trim().TrimEnd('\\','/')`. Правка правила в одном месте легко
+  забывалась в другом. По REF-01 плана `distributed-orbiting-snail.md` — самый дешёвый чистый выигрыш,
+  берётся вторым после фундамента-страховки REF-02 (MLC-030). Cost if ignored: S.
+- **Решение (intra-slice, ADR-20 не затрагивается — use-case-слой не вводился):** новый приватный
+  статический хелпер `ApplyPublicationFields(Publication target, …)` в том же partial-классе, рядом с
+  `AppendPublicationErrors`. Ядро принимает **дискретные значения** 7 полей и заполняет цель с той же
+  нормализацией/порядком 1:1. Поскольку `CreatePublicationRequest` и `UpdatePublicationRequest` — разные
+  типы, добавлены две тонкие перегрузки-адаптера (как уже сделано для `AppendPublicationErrors`),
+  разворачивающие request в ядро. Хелпер закрывает **только** 7 общих полей: `CreateAsync` сохраняет
+  своё `Id`/`InfobaseId`/`CreatedAt`, `UpdateAsync` — своё `UpdatedAt`.
+- **Тонкость с `required`:** `SiteName`/`VirtualPath`/`PlatformVersion` помечены `required` в доменной
+  `Publication`, поэтому инициализатор в `CreateAsync` обязан их задать формально — заданы как `null!`
+  с комментарием; `ApplyPublicationFields` тут же перезаписывает их реальными значениями. Единый
+  источник маппинга сохранён, поведение не меняется.
+- **Контракт неизменен:** валидация (`ValidateInfobase` + `AppendPublicationErrors`), backstop-409
+  (`SaveWithUniquenessBackstopAsync`), состав аудита (`InfobaseCreated`+`PublicationCreated` /
+  `InfobaseUpdated`+`PublicationUpdated`) — без правок.
+- **Файлы:** `backend/src/MitLicenseCenter.Web/Endpoints/InfobasesEndpoints.cs` (только этот файл;
+  `InfobasesContracts.cs` менять не потребовалось).
+- **Прогон:** `dotnet build -c Release` — 0 ошибок/предупреждений; `dotnet test --filter "Category!=Smoke"`
+  — 265 passed (тесты эндпоинтов Infobases + guard-тесты MLC-030 зелёные → поведение 1:1);
+  `dotnet format --verify-no-changes` — без правок. Smoke-тесты `RacExecutableSmokeTests` (2 шт.)
+  требуют живого 1С RAS на 1540 и в этом окружении падают на отказе соединения — предсуществующее
+  окружное ограничение, к правке отношения не имеющее; исключаются как и в CI (`--filter "Category!=Smoke"`).

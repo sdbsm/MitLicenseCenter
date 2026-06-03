@@ -198,21 +198,18 @@ public static partial class InfobasesEndpoints
             CreatedAt = now,
         };
 
+        // Required-поля (SiteName/VirtualPath/PlatformVersion) тут же заполняет
+        // ApplyPublicationFields — placeholder'ы лишь удовлетворяют инициализатор.
         var publication = new Publication
         {
             Id = Guid.NewGuid(),
             InfobaseId = infobase.Id,
-            SiteName = request.Publication.SiteName.Trim(),
-            VirtualPath = request.Publication.VirtualPath.Trim(),
-            PlatformVersion = request.Publication.PlatformVersion.Trim(),
-            EnableOData = request.Publication.EnableOData,
-            EnableHttpServices = request.Publication.EnableHttpServices,
-            VrdCustomXml = string.IsNullOrWhiteSpace(request.Publication.VrdCustomXml) ? null : request.Publication.VrdCustomXml,
-            PhysicalPathOverride = string.IsNullOrWhiteSpace(request.Publication.PhysicalPathOverride)
-                ? null
-                : request.Publication.PhysicalPathOverride.Trim().TrimEnd('\\', '/'),
             CreatedAt = now,
+            SiteName = null!,
+            VirtualPath = null!,
+            PlatformVersion = null!,
         };
+        ApplyPublicationFields(publication, request.Publication);
 
         // Инфобаза + публикация — один aggregate, попадают в БД одним SaveChanges.
         db.Infobases.Add(infobase);
@@ -299,15 +296,7 @@ public static partial class InfobasesEndpoints
         infobase.Status = request.Status;
         infobase.UpdatedAt = now;
 
-        publication.SiteName = request.Publication.SiteName.Trim();
-        publication.VirtualPath = request.Publication.VirtualPath.Trim();
-        publication.PlatformVersion = request.Publication.PlatformVersion.Trim();
-        publication.EnableOData = request.Publication.EnableOData;
-        publication.EnableHttpServices = request.Publication.EnableHttpServices;
-        publication.VrdCustomXml = string.IsNullOrWhiteSpace(request.Publication.VrdCustomXml) ? null : request.Publication.VrdCustomXml;
-        publication.PhysicalPathOverride = string.IsNullOrWhiteSpace(request.Publication.PhysicalPathOverride)
-            ? null
-            : request.Publication.PhysicalPathOverride.Trim().TrimEnd('\\', '/');
+        ApplyPublicationFields(publication, request.Publication);
         publication.UpdatedAt = now;
 
         // MLC-004 — backstop на гонке (см. CreateAsync): нарушение уникального индекса
@@ -499,4 +488,38 @@ public static partial class InfobasesEndpoints
         InfobaseValidationRules.AppendPublicationFieldErrors(errors, $"{nameof(CreateInfobaseRequest.Publication)}.",
             publication.SiteName, publication.VirtualPath, publication.PlatformVersion, publication.PhysicalPathOverride);
     }
+
+    // MLC-029 — единый маппинг полей публикации request→entity для Create и Update.
+    // Закрывает только 7 общих полей (с тем же trim + null-нормализацией VrdCustomXml/
+    // PhysicalPathOverride); Id/InfobaseId/CreatedAt (Create) и UpdatedAt (Update) остаются
+    // за вызывающим. Create/UpdatePublicationRequest — разные типы, поэтому, как и у
+    // AppendPublicationErrors, две тонкие перегрузки-адаптера над общим ядром.
+    private static void ApplyPublicationFields(
+        Publication target,
+        string siteName,
+        string virtualPath,
+        string platformVersion,
+        bool enableOData,
+        bool enableHttpServices,
+        string? vrdCustomXml,
+        string? physicalPathOverride)
+    {
+        target.SiteName = siteName.Trim();
+        target.VirtualPath = virtualPath.Trim();
+        target.PlatformVersion = platformVersion.Trim();
+        target.EnableOData = enableOData;
+        target.EnableHttpServices = enableHttpServices;
+        target.VrdCustomXml = string.IsNullOrWhiteSpace(vrdCustomXml) ? null : vrdCustomXml;
+        target.PhysicalPathOverride = string.IsNullOrWhiteSpace(physicalPathOverride)
+            ? null
+            : physicalPathOverride.Trim().TrimEnd('\\', '/');
+    }
+
+    private static void ApplyPublicationFields(Publication target, CreatePublicationRequest request) =>
+        ApplyPublicationFields(target, request.SiteName, request.VirtualPath, request.PlatformVersion,
+            request.EnableOData, request.EnableHttpServices, request.VrdCustomXml, request.PhysicalPathOverride);
+
+    private static void ApplyPublicationFields(Publication target, UpdatePublicationRequest request) =>
+        ApplyPublicationFields(target, request.SiteName, request.VirtualPath, request.PlatformVersion,
+            request.EnableOData, request.EnableHttpServices, request.VrdCustomXml, request.PhysicalPathOverride);
 }

@@ -69,8 +69,8 @@ REF-10→MLC-027, REF-11→MLC-011(a), REF-13→MLC-028). Phase 1–2 (MLC-029..
 в план-файле `distributed-orbiting-snail.md`. Берём строго в этом порядке, по одной за сессию.
 
 1. ~~`MLC-030` (REF-02)~~ — **Done** (2026-06-03): архитектурные guard-тесты границ слоёв на NetArchTest (см. архив).
-2. `MLC-029` (REF-01) — дедуп маппинга `Publication` request→entity в `InfobasesEndpoints`. Риск очень низкий. **← NEXT**
-3. `MLC-031` (REF-03) — фабрика CRUD-mutation хуков (FE). Риск низкий.
+2. ~~`MLC-029` (REF-01)~~ — **Done** (2026-06-03): дедуп маппинга `Publication` request→entity в `InfobasesEndpoints` (хелпер `ApplyPublicationFields`), поведение 1:1 (см. архив).
+3. `MLC-031` (REF-03) — фабрика CRUD-mutation хуков (FE). Риск низкий. **← NEXT**
 4. `MLC-034` (REF-06) — консолидация аудит-бойлерплейта мутирующих эндпоинтов (Web, ADR-20-safe).
 5. `MLC-033` (REF-05) — обобщённый form-dialog + conflict→field маппинг (FE).
 6. `MLC-032` (REF-04) — декомпозиция крупных FE-страниц (Audit/Publications/Sessions).
@@ -82,16 +82,14 @@ Phase 3–4 (`MLC-025/026/027/011(a)/028` + `MLC-036` RAS Strategy B) — gated 
 
 ## NEXT TASK
 
-> **`MLC-029` (REF-01) — дедуп маппинга `Publication` request→entity в `InfobasesEndpoints`.**
-> `MLC-030` (REF-02, guard-тесты границ слоёв на NetArchTest) закрыта — см. архив; границы теперь
-> закреплены автоматически, и этот рефакторинг проходит под их страховкой. Сейчас блок присваивания
-> полей публикации дословно дублируется между `CreateAsync` (~стр. 201–215) и `UpdateAsync`
-> (~стр. 302–311) в `Web/Endpoints/InfobasesEndpoints.cs` (trim + null-coalescing `VrdCustomXml`/
-> `PhysicalPathOverride`) — правка правила в одном месте легко забывается в другом. Свернуть в один
-> intra-slice private-хелпер; поведение 1:1, ADR-20 не затрагивается, покрыто существующими тестами
-> эндпоинтов. Только дедуп внутри файла. Полная спека — REF-01 в `distributed-orbiting-snail.md`.
-> Definition of done: дедуп без смены поведения; `scripts/build.ps1` зелёный целиком;
-> отчёт в `PROJECT_BACKLOG_ARCHIVE.md`, индекс-строка здесь, коммит с префиксом `MLC-029`.
+> **`MLC-031` (REF-03) — фабрика CRUD-mutation хуков на фронте.**
+> `MLC-029` (REF-01, дедуп маппинга публикации в `InfobasesEndpoints`) закрыта — см. архив. Сейчас в
+> каждой `features/*/use<X>.ts` повторяется один шаблон `useMutation` + `invalidateQueries` для
+> `useCreate`/`useUpdate`/`useDelete` (образец — `useInfobases.ts`). Свернуть бойлерплейт в один
+> генератор в `frontend/src/lib`, дав единое место политики инвалидации; поведение хуков 1:1, покрыто
+> FE-тестами CRUD-мутаций (MLC-007). Риск низкий. Полная спека — REF-03 в `distributed-orbiting-snail.md`.
+> Definition of done: дедуп без смены поведения; `scripts/build.ps1` зелёный целиком (`pnpm test` +
+> `pnpm type-check`); отчёт в `PROJECT_BACKLOG_ARCHIVE.md`, индекс-строка здесь, коммит с префиксом `MLC-031`.
 
 ---
 
@@ -122,7 +120,7 @@ Phase 3–4 (`MLC-025/026/027/011(a)/028` + `MLC-036` RAS Strategy B) — gated 
 
 ---
 
-## Закрыто (MLC-001..024, 030) — индекс
+## Закрыто (MLC-001..024, 029, 030) — индекс
 
 Полные постановки и отчёты: **`docs/PROJECT_BACKLOG_ARCHIVE.md`**.
 
@@ -150,4 +148,5 @@ Phase 3–4 (`MLC-025/026/027/011(a)/028` + `MLC-036` RAS Strategy B) — gated 
 - `MLC-022` — Единый источник правил валидации Infobase/Publication (BE `InfobaseValidationRules` + FE `validation.ts` + parity-тесты) — Done (2026-06-03)
 - `MLC-023` — FE: декомпозиция InfobaseFormDialog (`useInfobaseForm` + `PublicationFieldset` + `mapConflictToField`), поведение 1:1 — Done (2026-06-03)
 - `MLC-024` — App-id whitelist лицензий → `dbo.Settings` (`OneC.LicenseConsumingAppIds`, хелпер `LicenseConsumingAppIds` + UI-поле), правка без редеплоя — Done (2026-06-03)
+- `MLC-029` (REF-01) — Дедуп маппинга `Publication` request→entity в `InfobasesEndpoints` (приватный хелпер `ApplyPublicationFields` + две перегрузки-адаптера), поведение 1:1, ADR-20 не затронут — Done (2026-06-03)
 - `MLC-030` (REF-02) — Архитектурные guard-тесты границ слоёв на NetArchTest (`Architecture/LayerBoundaryTests.cs`): Domain без зависимостей, Application без Infra/Web, Web без прямых адаптеров 1С/IIS (ADR-5/16/20) — Done (2026-06-03)
