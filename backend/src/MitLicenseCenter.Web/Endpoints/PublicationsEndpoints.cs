@@ -122,11 +122,12 @@ public static partial class PublicationsEndpoints
 
         await db.SaveChangesAsync(ct).ConfigureAwait(false);
 
-        var initiator = httpContext.User.Identity?.Name ?? "unknown";
+        var initiator = httpContext.ResolveInitiator();
         await audit.LogAsync(
             AuditActionType.PublicationUpdated,
             initiator: initiator,
-            description: $"Публикация «{publication.SiteName}{publication.VirtualPath}» обновлена администратором {initiator}.",
+            description: AuditDescriptions.PublicationUpdated(
+                $"{publication.SiteName}{publication.VirtualPath}", initiator),
             tenantId: infobase?.TenantId,
             ct: ct).ConfigureAwait(false);
 
@@ -249,11 +250,12 @@ public static partial class PublicationsEndpoints
             .FirstOrDefaultAsync(ct)
             .ConfigureAwait(false);
 
-        var initiator = httpContext.User.Identity?.Name ?? "unknown";
+        var initiator = httpContext.ResolveInitiator();
         await audit.LogAsync(
             AuditActionType.PublicationReconciled,
             initiator: initiator,
-            description: $"Публикация {updated.SiteName}{updated.VirtualPath} согласована оператором {initiator}: статус {previousStatus} → {updated.Status}.",
+            description: AuditDescriptions.PublicationReconciled(
+                $"{updated.SiteName}{updated.VirtualPath}", previousStatus, updated.Status, initiator),
             tenantId: tenantId,
             ct: ct).ConfigureAwait(false);
 

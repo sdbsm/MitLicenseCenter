@@ -1113,3 +1113,64 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 - **Прогон:** `dotnet test --filter "Category!=Smoke"` — 249 passed, 0 failed;
   `scripts/build.ps1` — зелёный (backend build 0 warnings, FE lint/type-check/test 78
   passed, FE build).
+
+### MLC-021 — Web-хелперы: uniqueness-backstop + каталог описаний аудита + резолв initiator — 2026-06-03
+
+- **Проблема:** в мутирующих Web-эндпоинтах (`InfobasesEndpoints`, `TenantsEndpoints`,
+  `PublicationsEndpoints`) дословно повторялся бойлерплейт трёх видов: (1) резолв initiator
+  `httpContext.User.Identity?.Name ?? "unknown"` (12 вхождений; в `TenantsEndpoints` ещё и
+  инлайнился повторно внутри строки описания); (2) `try { SaveChanges } catch
+  (DbUpdateException) when (DbUniqueViolation.Identify…)` → `Conflict(Problems.*)` (5 блоков);
+  (3) ручная сборка русских строк аудита прямо в `audit.LogAsync(...)`. Следствие
+  vertical-slice (ADR-20), но дублирование живёт **внутри одного транспорта** — убирается
+  тонкими Web-хелперами без use-case-слоя. Cost if ignored: M (новая аудируемая сущность =
+  копирование паттерна; разрозненные строки аудита дрейфуют и непроверяемы как единица).
+- **Решение:** три тонких Web-хелпера, рефакторинг строго **1:1** (контракт API не изменён —
+  те же ProblemCodes/409, те же строки и состав записей аудита). Application use-case слой
+  **не вводился** (`MLC-011(a)` остаётся отложенным; ADR-20 в силе).
+- **Проектные решения (ответы на постановочные вопросы):**
+  - **Backstop с per-call маппингом (ADR-19).** Ключевой нюанс: один индекс
+    `IX_Infobases_TenantId_Name` → `NAME_DUPLICATE_IN_TENANT` на create/update, но →
+    `INFOBASE_NAME_TAKEN_IN_TARGET` на reassign. Поэтому маппинг **per-call**, не глобальная
+    таблица. Хелпер — extension на `AppDbContext`:
+    `Task<ProblemDetails?> SaveWithUniquenessBackstopAsync(this AppDbContext db,
+    CancellationToken ct, params (UniqueIndexViolation Index, Func<ProblemDetails> Problem)[]
+    mappings)`. Возвращает `null` при успехе и `ProblemDetails` при смапленном конфликте;
+    эндпоинт сам оборачивает в `TypedResults.Conflict(...)`, сохраняя свой точный union-тип
+    результата. `ProblemDetails` строится **лениво** (`Func`) — только на фактическом
+    конфликте, а не на каждом happy-path-сохранении. Неузнанное (`None`) либо не перечисленное
+    в `mappings` нарушение **пробрасывается** дальше (re-throw) → глобальный
+    `UseExceptionHandler` вернёт 500. `DbUniqueViolation.Identify` остался единственным
+    распознавателем — не трогали.
+  - **Каталог описаний аудита** — статический класс `AuditDescriptions` в `Web/Endpoints/`,
+    по методу на формулировку, русский текст и подстановка имён сущностей инкапсулированы.
+    Тексты перенесены дословно. Раздельно сохранены **различающиеся** шаблоны одного
+    `AuditActionType.PublicationUpdated`: `PublicationUpdatedForInfobase` (в составе агрегата
+    Infobase — «…обновлена **для инфобазы «X»**…») и `PublicationUpdated` (прямое
+    редактирование — без «для инфобазы»). `PublicationReconciled` сохранён буквально: без « »
+    вокруг метки и со словом «**оператором**» (не «администратором»), формат «…: статус
+    {prev} → {new}.». Метка публикации = `SiteName + VirtualPath` передаётся аргументом,
+    пунктуацию задаёт шаблон. Каталог наполнен **полностью** (включая строки `DeleteAsync`
+    Infobase/Tenant), чтобы устранять дрейф целиком, а не наполовину.
+  - **Резолв initiator** — extension `ResolveInitiator(this HttpContext)` в
+    `Web/Endpoints/EndpointHelpers.cs`; в трёх целевых файлах вызывается один раз и
+    переиспользуется. `SettingsEndpoints` (вне scope MLC-021) не трогали.
+- **Фиделити 1:1:** `DeleteAsync` (Infobase/Tenant) backstop не используют (там нет
+  insert/uniqueness) — их `SaveChangesAsync` оставлен как есть; изменены только initiator +
+  строки аудита. Поведение `when`-фильтров точно воспроизведено: успех → null; смапленное
+  нарушение → тот же ProblemCodes 409; неузнанное → re-throw.
+- **Файлы:** `backend/src/MitLicenseCenter.Web/Endpoints/EndpointHelpers.cs` (новый),
+  `…/Endpoints/AuditDescriptions.cs` (новый); правки в `…/Endpoints/InfobasesEndpoints.cs`,
+  `…/Endpoints/TenantsEndpoints.cs`, `…/Endpoints/PublicationsEndpoints.cs`;
+  `backend/tests/MitLicenseCenter.Tests.Unit/Endpoints/AuditDescriptionsTests.cs` (новый).
+  Канон (`docs/`) не правили — контракт не изменился, ADR-19/ADR-20 описывают сохранённое
+  поведение.
+- **Тесты:** новый `AuditDescriptionsTests` (5 фактов) фиксирует точные строки каждого
+  шаблона как единицу. `DbUpdateExceptionBackstopTests` (коды 409 + re-throw на FK),
+  `InfobaseReassignTests`, `InfobaseCascadeDeleteTests`, `PublicationsReconcileTests`,
+  `TenantDeletionGuardTests`, `InfobaseUniquePerTenantTests` — зелёные без правок
+  (регрессионный гейт 1:1). Отдельный юнит-тест backstop-хелпера не добавляли: он уже
+  покрыт сквозь эндпоинты.
+- **Прогон:** `dotnet test --filter "Category!=Smoke"` — 254 passed, 0 failed;
+  `scripts/build.ps1` — зелёный (backend build 0 warnings, dotnet format чистый, FE
+  lint/type-check/test 78 passed, FE build).

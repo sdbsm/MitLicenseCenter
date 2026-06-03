@@ -226,30 +226,26 @@ public static partial class InfobasesEndpoints
         // MLC-004 — предварительные AnyAsync выше остаются happy-path'ом; на гонке двух
         // вставок их backstop — уникальные индексы. DbUpdateException мапим в тот же 409,
         // что и happy-path, вместо голого 500.
-        try
+        var conflict = await db.SaveWithUniquenessBackstopAsync(ct,
+            (UniqueIndexViolation.InfobaseTenantName, () => Problems.InfobaseNameDuplicateInTenant(normalizedName)),
+            (UniqueIndexViolation.InfobaseClusterId, Problems.InfobaseAlreadyAssigned)).ConfigureAwait(false);
+        if (conflict is not null)
         {
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
-        }
-        catch (DbUpdateException ex) when (DbUniqueViolation.Identify(ex) == UniqueIndexViolation.InfobaseTenantName)
-        {
-            return TypedResults.Conflict(Problems.InfobaseNameDuplicateInTenant(normalizedName));
-        }
-        catch (DbUpdateException ex) when (DbUniqueViolation.Identify(ex) == UniqueIndexViolation.InfobaseClusterId)
-        {
-            return TypedResults.Conflict(Problems.InfobaseAlreadyAssigned());
+            return TypedResults.Conflict(conflict);
         }
 
-        var initiator = httpContext.User.Identity?.Name ?? "unknown";
+        var initiator = httpContext.ResolveInitiator();
         await audit.LogAsync(
             AuditActionType.InfobaseCreated,
             initiator: initiator,
-            description: $"Инфобаза «{infobase.Name}» создана администратором {initiator}.",
+            description: AuditDescriptions.InfobaseCreated(infobase.Name, initiator),
             tenantId: infobase.TenantId,
             ct: ct).ConfigureAwait(false);
         await audit.LogAsync(
             AuditActionType.PublicationCreated,
             initiator: initiator,
-            description: $"Публикация «{publication.SiteName}{publication.VirtualPath}» создана для инфобазы «{infobase.Name}» администратором {initiator}.",
+            description: AuditDescriptions.PublicationCreatedForInfobase(
+                $"{publication.SiteName}{publication.VirtualPath}", infobase.Name, initiator),
             tenantId: infobase.TenantId,
             ct: ct).ConfigureAwait(false);
 
@@ -322,30 +318,26 @@ public static partial class InfobasesEndpoints
 
         // MLC-004 — backstop на гонке (см. CreateAsync): нарушение уникального индекса
         // мапим в тот же 409, что и предварительные AnyAsync.
-        try
+        var conflict = await db.SaveWithUniquenessBackstopAsync(ct,
+            (UniqueIndexViolation.InfobaseTenantName, () => Problems.InfobaseNameDuplicateInTenant(normalizedName)),
+            (UniqueIndexViolation.InfobaseClusterId, Problems.InfobaseAlreadyAssigned)).ConfigureAwait(false);
+        if (conflict is not null)
         {
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
-        }
-        catch (DbUpdateException ex) when (DbUniqueViolation.Identify(ex) == UniqueIndexViolation.InfobaseTenantName)
-        {
-            return TypedResults.Conflict(Problems.InfobaseNameDuplicateInTenant(normalizedName));
-        }
-        catch (DbUpdateException ex) when (DbUniqueViolation.Identify(ex) == UniqueIndexViolation.InfobaseClusterId)
-        {
-            return TypedResults.Conflict(Problems.InfobaseAlreadyAssigned());
+            return TypedResults.Conflict(conflict);
         }
 
-        var initiator = httpContext.User.Identity?.Name ?? "unknown";
+        var initiator = httpContext.ResolveInitiator();
         await audit.LogAsync(
             AuditActionType.InfobaseUpdated,
             initiator: initiator,
-            description: $"Инфобаза «{infobase.Name}» обновлена администратором {initiator}.",
+            description: AuditDescriptions.InfobaseUpdated(infobase.Name, initiator),
             tenantId: infobase.TenantId,
             ct: ct).ConfigureAwait(false);
         await audit.LogAsync(
             AuditActionType.PublicationUpdated,
             initiator: initiator,
-            description: $"Публикация «{publication.SiteName}{publication.VirtualPath}» обновлена для инфобазы «{infobase.Name}» администратором {initiator}.",
+            description: AuditDescriptions.PublicationUpdatedForInfobase(
+                $"{publication.SiteName}{publication.VirtualPath}", infobase.Name, initiator),
             tenantId: infobase.TenantId,
             ct: ct).ConfigureAwait(false);
 
@@ -401,20 +393,18 @@ public static partial class InfobasesEndpoints
         // MLC-004 — backstop: одновременный перенос/создание одноимённой базы у целевого
         // клиента нарушит IX_Infobases_TenantId_Name. В контексте переноса это 409
         // INFOBASE_NAME_TAKEN_IN_TARGET (тот же индекс, другой ProblemCodes, чем в create).
-        try
+        var conflict = await db.SaveWithUniquenessBackstopAsync(ct,
+            (UniqueIndexViolation.InfobaseTenantName, () => Problems.InfobaseNameTakenInTarget(infobase.Name))).ConfigureAwait(false);
+        if (conflict is not null)
         {
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
-        }
-        catch (DbUpdateException ex) when (DbUniqueViolation.Identify(ex) == UniqueIndexViolation.InfobaseTenantName)
-        {
-            return TypedResults.Conflict(Problems.InfobaseNameTakenInTarget(infobase.Name));
+            return TypedResults.Conflict(conflict);
         }
 
-        var initiator = httpContext.User.Identity?.Name ?? "unknown";
+        var initiator = httpContext.ResolveInitiator();
         await audit.LogAsync(
             AuditActionType.InfobaseReassigned,
             initiator: initiator,
-            description: $"Инфобаза «{infobase.Name}» перенесена от клиента «{sourceName}» к клиенту «{target.Name}» администратором {initiator}.",
+            description: AuditDescriptions.InfobaseReassigned(infobase.Name, sourceName, target.Name, initiator),
             tenantId: target.Id,
             ct: ct).ConfigureAwait(false);
 
@@ -436,7 +426,7 @@ public static partial class InfobasesEndpoints
 
         var publication = await db.Publications.FirstOrDefaultAsync(p => p.InfobaseId == id, ct).ConfigureAwait(false);
 
-        var initiator = httpContext.User.Identity?.Name ?? "unknown";
+        var initiator = httpContext.ResolveInitiator();
         var infobaseName = infobase.Name;
         var tenantId = infobase.TenantId;
         var publicationLabel = publication is null
@@ -449,14 +439,14 @@ public static partial class InfobasesEndpoints
             await audit.LogAsync(
                 AuditActionType.PublicationDeleted,
                 initiator: initiator,
-                description: $"Публикация «{publicationLabel}» удалена вместе с инфобазой «{infobaseName}» администратором {initiator}.",
+                description: AuditDescriptions.PublicationDeletedWithInfobase(publicationLabel!, infobaseName, initiator),
                 tenantId: tenantId,
                 ct: ct).ConfigureAwait(false);
         }
         await audit.LogAsync(
             AuditActionType.InfobaseDeleted,
             initiator: initiator,
-            description: $"Инфобаза «{infobaseName}» удалена администратором {initiator}.",
+            description: AuditDescriptions.InfobaseDeleted(infobaseName, initiator),
             tenantId: tenantId,
             ct: ct).ConfigureAwait(false);
 

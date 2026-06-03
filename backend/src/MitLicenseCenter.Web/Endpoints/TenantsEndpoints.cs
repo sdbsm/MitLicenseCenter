@@ -104,19 +104,18 @@ public static class TenantsEndpoints
         // MLC-004 — предварительный AnyAsync выше остаётся happy-path'ом; на гонке двух
         // вставок backstop — уникальный индекс IX_Tenants_Name. DbUpdateException мапим
         // в тот же 409, что и happy-path, вместо голого 500.
-        try
+        var conflict = await db.SaveWithUniquenessBackstopAsync(ct,
+            (UniqueIndexViolation.TenantName, () => Problems.TenantNameDuplicate(normalized))).ConfigureAwait(false);
+        if (conflict is not null)
         {
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
-        }
-        catch (DbUpdateException ex) when (DbUniqueViolation.Identify(ex) == UniqueIndexViolation.TenantName)
-        {
-            return TypedResults.Conflict(Problems.TenantNameDuplicate(normalized));
+            return TypedResults.Conflict(conflict);
         }
 
+        var initiator = httpContext.ResolveInitiator();
         await audit.LogAsync(
             AuditActionType.TenantCreated,
-            initiator: httpContext.User.Identity?.Name ?? "unknown",
-            description: $"Клиент «{tenant.Name}» создан администратором {httpContext.User.Identity?.Name ?? "unknown"}.",
+            initiator: initiator,
+            description: AuditDescriptions.TenantCreated(tenant.Name, initiator),
             tenantId: tenant.Id,
             ct: ct).ConfigureAwait(false);
 
@@ -158,19 +157,18 @@ public static class TenantsEndpoints
 
         // MLC-004 — backstop на гонке (см. CreateAsync): нарушение IX_Tenants_Name мапим
         // в тот же 409, что и предварительный AnyAsync.
-        try
+        var conflict = await db.SaveWithUniquenessBackstopAsync(ct,
+            (UniqueIndexViolation.TenantName, () => Problems.TenantNameDuplicate(normalized))).ConfigureAwait(false);
+        if (conflict is not null)
         {
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
-        }
-        catch (DbUpdateException ex) when (DbUniqueViolation.Identify(ex) == UniqueIndexViolation.TenantName)
-        {
-            return TypedResults.Conflict(Problems.TenantNameDuplicate(normalized));
+            return TypedResults.Conflict(conflict);
         }
 
+        var initiator = httpContext.ResolveInitiator();
         await audit.LogAsync(
             AuditActionType.TenantUpdated,
-            initiator: httpContext.User.Identity?.Name ?? "unknown",
-            description: $"Клиент «{tenant.Name}» обновлён администратором {httpContext.User.Identity?.Name ?? "unknown"}.",
+            initiator: initiator,
+            description: AuditDescriptions.TenantUpdated(tenant.Name, initiator),
             tenantId: tenant.Id,
             ct: ct).ConfigureAwait(false);
 
@@ -196,12 +194,13 @@ public static class TenantsEndpoints
         }
 
         var name = tenant.Name;
+        var initiator = httpContext.ResolveInitiator();
         // Запись аудита кладём ДО удаления, пока tenant ещё существует — FK SetNull
         // потом сам обнулит TenantId в этой строке.
         await audit.LogAsync(
             AuditActionType.TenantDeleted,
-            initiator: httpContext.User.Identity?.Name ?? "unknown",
-            description: $"Клиент «{name}» удалён администратором {httpContext.User.Identity?.Name ?? "unknown"}.",
+            initiator: initiator,
+            description: AuditDescriptions.TenantDeleted(name, initiator),
             tenantId: id,
             ct: ct).ConfigureAwait(false);
 
