@@ -73,8 +73,8 @@ REF-10→MLC-027, REF-11→MLC-011(a), REF-13→MLC-028). Phase 1–2 (MLC-029..
 3. ~~`MLC-031` (REF-03)~~ — **Done** (2026-06-03): фабрика CRUD-mutation хуков `useInvalidatingMutation` (FE), 10 хуков переведены, поведение 1:1 (см. архив).
 4. ~~`MLC-034` (REF-06)~~ — **Done** (2026-06-04): тонкий Web-аудит-фасад `HttpContext.AuditAsync` (делегат-описание), 9 каноничных сайтов свёрнуты, состав журнала 1:1, ADR-20 не затронут (см. архив).
 5. ~~`MLC-033` (REF-05)~~ — **Done** (2026-06-04): обобщённый conflict→descriptor маппер `matchConflictCode` + общий хвост submit форм `toastFormSubmitError` (`lib/apiErrors`), 5 сайтов переведены, поведение 1:1 (см. архив).
-6. `MLC-032` (REF-04) — декомпозиция крупных FE-страниц (Audit/Publications/Sessions). **← NEXT**
-7. `MLC-035` (REF-07) — группировка плоского `Web/Endpoints` по фиче (после MLC-029/034).
+6. ~~`MLC-032` (REF-04)~~ — **Done** (2026-06-04): декомпозиция крупных FE-страниц (Audit/Publications/Sessions) на контейнер + оркестрационный хук + презентационные части по образцу MLC-023, поведение 1:1 (см. архив).
+7. `MLC-035` (REF-07) — группировка плоского `Web/Endpoints` по фиче (после MLC-029/034). **← NEXT**
 
 Phase 3–4 (`MLC-025/026/027/011(a)/028` + `MLC-036` RAS Strategy B) — gated на триггеры, см. ниже.
 
@@ -82,16 +82,15 @@ Phase 3–4 (`MLC-025/026/027/011(a)/028` + `MLC-036` RAS Strategy B) — gated 
 
 ## NEXT TASK
 
-> **`MLC-032` (REF-04) — декомпозиция крупных FE-страниц (Audit/Publications/Sessions).**
-> `MLC-033` (REF-05, обобщённый conflict→descriptor маппер + хвост submit форм) закрыта — см. архив.
-> Сейчас `AuditPage` (368), `PublicationsPage` (356), `SessionsPage` (290) смешивают оркестрацию данных,
-> разметку таблицы и диалоги. Разнести каждую на контейнер + презентационные части (таблица, фильтры,
-> диалоги) по уже принятому образцу MLC-023 (`InfobaseFormDialog`/`useInfobaseForm`/`PublicationFieldset`).
-> Поведение UI 1:1; нужна аккуратность с состоянием/URL-фильтрами. Риск средний (чисто структурный рефактор).
-> Желателен после REF-03 (`useInvalidatingMutation`, MLC-031) — уже выполнено. Полная спека — REF-04 в
-> `distributed-orbiting-snail.md`. Definition of done: страницы декомпозированы без смены поведения;
-> `pnpm test`/`type-check` зелёные, `scripts/build.ps1` зелёный целиком; отчёт в
-> `PROJECT_BACKLOG_ARCHIVE.md`, индекс-строка здесь, коммит с префиксом `MLC-032`.
+> **`MLC-035` (REF-07) — группировка плоского `Web/Endpoints` по фиче.**
+> `MLC-032` (REF-04, декомпозиция крупных FE-страниц Audit/Publications/Sessions) закрыта — см. архив.
+> Сейчас ~24 файла (`*Endpoints.cs` + `*Contracts.cs` + helpers) лежат плоско в `Web/Endpoints`; при росте
+> числа фич каталог теряет навигируемость. Разложить по подпапкам-фичам (Infobases/Tenants/Publications/
+> Sessions/Settings/Auth/Audit) для локальности изменений и онбординга. Риск низкий, но churn (перемещение
+> файлов + namespaces). Делать после REF-01/REF-06 (MLC-029/034) — уже выполнено, чтобы не перемещать файлы
+> дважды. Полная спека — REF-07 в `distributed-orbiting-snail.md`. Definition of done: файлы разложены по
+> подпапкам без смены поведения/контрактов; `scripts/build.ps1` зелёный целиком; отчёт в
+> `PROJECT_BACKLOG_ARCHIVE.md`, индекс-строка здесь, коммит с префиксом `MLC-035`.
 
 ---
 
@@ -122,7 +121,7 @@ Phase 3–4 (`MLC-025/026/027/011(a)/028` + `MLC-036` RAS Strategy B) — gated 
 
 ---
 
-## Закрыто (MLC-001..024, 029, 030, 031, 033, 034) — индекс
+## Закрыто (MLC-001..024, 029, 030, 031, 032, 033, 034) — индекс
 
 Полные постановки и отчёты: **`docs/PROJECT_BACKLOG_ARCHIVE.md`**.
 
@@ -153,5 +152,6 @@ Phase 3–4 (`MLC-025/026/027/011(a)/028` + `MLC-036` RAS Strategy B) — gated 
 - `MLC-029` (REF-01) — Дедуп маппинга `Publication` request→entity в `InfobasesEndpoints` (приватный хелпер `ApplyPublicationFields` + две перегрузки-адаптера), поведение 1:1, ADR-20 не затронут — Done (2026-06-03)
 - `MLC-030` (REF-02) — Архитектурные guard-тесты границ слоёв на NetArchTest (`Architecture/LayerBoundaryTests.cs`): Domain без зависимостей, Application без Infra/Web, Web без прямых адаптеров 1С/IIS (ADR-5/16/20) — Done (2026-06-03)
 - `MLC-031` (REF-03) — Фабрика CRUD-mutation хуков `useInvalidatingMutation` (`frontend/src/lib`): generic по переменным мутации, один ключ / массив ключей / функция-резолвер, опц. доп-`onSuccess`; 10 хуков 5 фич переведены, поведение/политика инвалидации 1:1 — Done (2026-06-03)
+- `MLC-032` (REF-04) — Декомпозиция крупных FE-страниц Audit/Publications/Sessions на контейнер + оркестрационный хук (`use<Page>`) + презентационные части (`<Feature>Table`/`<Feature>FiltersBar`, Audit ещё `auditUrlState.ts`/`AuditPagination.tsx`) по образцу MLC-023; JSX/i18n/колонки/фильтры/пагинация/polling/диалоги 1:1, query-ключи и контракты не тронуты, code-splitting сохранён — Done (2026-06-04)
 - `MLC-033` (REF-05) — Обобщённый conflict→descriptor маппер `matchConflictCode<T>` + общий хвост submit форм `toastFormSubmitError` (`frontend/src/lib/apiErrors.ts`, надстройка над `lib/api`, контракт `ConflictBody`/`readConflictBody` не тронут); `mapConflictToField` + 4 диалога переведены, диалоги-подтверждения иной природы (Kill/Reconcile/DeleteInfobase) не тронуты, поведение/сообщения 1:1 — Done (2026-06-04)
 - `MLC-034` (REF-06) — Тонкий Web-аудит-фасад `HttpContext.AuditAsync` (`EndpointHelpers.cs`, форма «делегат-описание»): инкапсулирует `ResolveInitiator()` + плумбинг `initiator`/`ct`, `AuditActionType`/`AuditDescriptions.*` остаются явными в строке вызова; 9 каноничных сайтов (Infobases/Tenants/Publications) свёрнуты, парные записи раздельны, состав/порядок/условность журнала 1:1; Sessions/Settings/Auth вне объёма; ADR-20 не затронут — Done (2026-06-04)

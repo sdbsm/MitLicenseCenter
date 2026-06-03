@@ -1541,3 +1541,48 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 - **Прогон:** `scripts/build.ps1` зелёный целиком — backend `dotnet test` 268 passed, frontend
   `lint`/`type-check`/`test` (118 passed, +1 файл `apiErrors.test.ts`)/`build` ОК («Все шаги пройдены
   успешно»).
+
+### MLC-032 (REF-04) — Декомпозиция крупных FE-страниц (Audit/Publications/Sessions) — 2026-06-04
+
+- **Проблема:** три страницы-монолита смешивали оркестрацию данных, разметку таблицы и диалоги:
+  `AuditPage` (368 строк), `PublicationsPage` (356), `SessionsPage` (290). По REF-04 плана
+  `distributed-orbiting-snail.md` — берётся шестым (Phase 2), после REF-03 (`useInvalidatingMutation`,
+  MLC-031) и REF-05 (MLC-033). Cost if ignored: M. Образец декомпозиции — MLC-023
+  (`InfobasesPage` контейнер + `InfobaseRow`/`InfobaseTableHeader` презентация + `useInfobaseForm` хук).
+- **Подход (чистое извлечение, не переписывание):** каждая страница разнесена на **контейнер**
+  (header + error-banner + проводка диалогов), **оркестрационный хук** (`use<Page>` — запросы/мутации,
+  URL-фильтры, пагинация, polling, состояние диалогов) и **презентационные части** (`<Feature>Table` с
+  внутренней строкой-компонентом, `<Feature>FiltersBar`). Разметка/JSX, i18n-ключи, порядок колонок,
+  поведение фильтров/пагинации/диалогов перенесены дословно 1:1; контракты API и query-ключи не тронуты.
+  Страницы делались по одной, type-check/lint после каждой — регрессия локализуется.
+- **Sessions** (NEW: `useSessionsPage.ts`, `SessionsFiltersBar.tsx`, `SessionsTable.tsx`): хук держит
+  `parseParams`/`setFilter` (URL `q`+`infobaseId`), `infobaseById`-карту, `filtered`, состояние
+  `KillSessionDialog`; `formatDuration` переехал в `SessionsTable` (используется только строкой `SessionRow`).
+- **Publications** (NEW: `usePublicationsPage.ts`, `PublicationsFiltersBar.tsx`, `PublicationsTable.tsx`):
+  хук инкапсулирует URL-фильтры (клиент+drift), **polling проверки дрейфа** (single-flight через
+  `pollIntervalRef` + cleanup-effect, тосты started/completed/timeout, инвалидация `publicationsQueryKey`),
+  состояние `ReconcilePublicationDialog`, `hasAnyPublications` для пустого состояния; `DRIFT_VARIANT` и
+  `columnCount` (производное от `isAdmin`) переехали в `PublicationsTable`.
+- **Audit** (NEW: `auditUrlState.ts`, `useAuditPage.ts`, `AuditTable.tsx`, `AuditPagination.tsx`): чистая
+  URL/фильтр-логика (`parseFiltersFromUrl`/`filtersToUrl`/`buildBackendFilters` + date→ISO хелперы)
+  вынесена в `auditUrlState.ts`; хук держит запросы (журнал/клиенты/ретенция), пагинацию
+  (`total`/`totalPages`/`currentPage`), логику баннера ретенции (`nowUtc` зафиксирован на mount),
+  `applyFilters`/`goToPage`; `actionBadgeClass` и `AuditRow` переехали в `AuditTable`, блок пагинации —
+  в `AuditPagination`. Ранее существовавший `AuditFiltersBar` оставлен как есть.
+- **Намеренно не трогал:** общие куски между страницами не вводил (преждевременная абстракция —
+  таблицы/строки/фильтры трёх фич расходятся структурно и по колонкам); `AuditFiltersBar`,
+  `ReconcilePublicationDialog`, `KillSessionDialog`, `urlState.ts`/`retention.ts` публикаций/аудита —
+  без правок; именованные экспорты `AuditPage`/`PublicationsPage`/`SessionsPage` из тех же путей
+  сохранены (lazy-импорты `routes/router.tsx` целы), code-splitting на чанк-на-страницу сохранён.
+- **Поведение 1:1:** существующие чистые тесты (`audit/retention.test.ts`, `publications/urlState.test.ts`)
+  остаются регрессией; ни один тест не импортировал перенесённые внутренние функции
+  (`parseFiltersFromUrl`/`actionBadgeClass`/`formatDuration`/`DRIFT_VARIANT`) — проверено grep'ом.
+  Извлечение чисто механическое (идентичный JSX), preview не потребовался.
+- **Файлы:** НОВЫЕ `features/sessions/{useSessionsPage.ts,SessionsFiltersBar.tsx,SessionsTable.tsx}`,
+  `features/publications/{usePublicationsPage.ts,PublicationsFiltersBar.tsx,PublicationsTable.tsx}`,
+  `features/audit/{auditUrlState.ts,useAuditPage.ts,AuditTable.tsx,AuditPagination.tsx}`; переписаны
+  контейнеры `features/sessions/SessionsPage.tsx` (290→~95), `features/publications/PublicationsPage.tsx`
+  (356→~80), `features/audit/AuditPage.tsx` (368→~100).
+- **Прогон:** `scripts/build.ps1` зелёный целиком — backend `dotnet test` 268 passed, `dotnet format`
+  без правок; frontend `lint`/`type-check`/`test` (118 passed)/`build` ОК (каждая страница — отдельный
+  чанк) — «Все шаги пройдены успешно».
