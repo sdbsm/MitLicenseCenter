@@ -1348,3 +1348,47 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
   `…/settings/__tests__/SettingsPage.test.tsx` (новый), `frontend/src/i18n/ru.json`; `docs/DECISIONS.md`.
 - **Прогон:** `dotnet test --filter "Category!=Smoke"` — 262 passed; frontend `pnpm test` —
   109 passed (20 файлов); `scripts/build.ps1` — зелёный end-to-end («Все шаги пройдены успешно»).
+
+### MLC-030 (REF-02) — Архитектурные guard-тесты границ слоёв — 2026-06-03
+
+- **Проблема:** направление зависимостей (Web → Infrastructure → Application → Domain) и главная
+  anti-corruption граница к 1С/IIS (ADR-5/16, расширенная ADR-20: «Web никогда не трогает
+  `rac.exe`/`ras.exe`/IIS/`Microsoft.Web.Administration` напрямую — только через Infrastructure-адаптер
+  за Application-интерфейсом») держались **только дисциплиной и код-ревью**. Ничто в CI не падало,
+  если бы кто-то заинжектил инфраструктурный адаптер или `new Process()` прямо в эндпоинт — регресс
+  границы мог пройти молча. Это (по REF-02 плана `distributed-orbiting-snail.md`) — фундамент-страховка
+  под все последующие рефакторинги, поэтому берётся первой. Cost if ignored: S–M.
+- **Решение (только тесты, прод-код/архитектура/ADR не тронуты):** новый класс
+  `Architecture/LayerBoundaryTests.cs` в `tests/MitLicenseCenter.Tests.Unit` на **NetArchTest.Rules**
+  (анализ зависимостей сборок на уровне IL через Mono.Cecil — ловит использование запрещённого типа
+  даже в теле метода; рефлексия по сигнатурам этого не видит). Три факта:
+  1. **`Domain_has_no_dependency_on_other_layers`** — Domain-сборка не зависит от
+     `MitLicenseCenter.Application`/`.Infrastructure`/`.Web`.
+  2. **`Application_has_no_dependency_on_Infrastructure_or_Web`** — Application-сборка не зависит от
+     `MitLicenseCenter.Infrastructure`/`.Web`.
+  3. **`Web_does_not_reference_OneC_IIS_infrastructure_adapters_directly`** (ADR-5/16/20) — Web-сборка
+     не зависит ни от одного из: `…Infrastructure.Clusters`, `…Publishing`, `…Discovery`, `…Jobs`,
+     `Microsoft.Web.Administration`, `System.Diagnostics.Process`.
+- **Почему правило 3 — на уровне типов, а не сборки:** Web **легитимно** ссылается на сборку
+  Infrastructure (ADR-20 vertical slice к собственной БД панели) — `…Persistence` (`AppDbContext`),
+  `…Identity` (AppUser/AppRole/Roles), `…Audit` (сущность `AuditLog` через `db.AuditLogs`),
+  `…Settings` (`SettingsSeeder` в fail-fast bootstrap), корневой `…Infrastructure` (`AddInfrastructure`).
+  Запрещены только адаптерные неймспейсы 1С/IIS и внешние инфраструктурные типы. Тонкость: запрещён
+  **тип** `System.Diagnostics.Process`, а не весь неймспейс — `Program.cs` легитимно использует
+  `System.Diagnostics.Activity` для `traceId`.
+- **Правило 4 (опц., «Web не обходит DI/интерфейсы») сознательно не выделено:** единственный реальный
+  способ обхода — напрямую использовать адаптерный тип/`Process`/`Microsoft.Web.Administration`, что уже
+  запрещает правило 3 на уровне IL; отдельный тест без ложных срабатываний здесь невыразим
+  (зафиксировано комментарием в файле).
+- **Негативная проверка (локально, в коммит не включена):** временная вставка
+  `System.Diagnostics.Process.GetProcesses()` в тело `MapDashboardEndpoints` — правило 3 краснеет и
+  называет нарушителя (`MitLicenseCenter.Web.Endpoints.DashboardEndpoints`), доказывая IL-анализ тела
+  метода; откат → снова зелёно.
+- **Зависимость:** `NetArchTest.Rules` 1.3.2 — test-only (`PackageVersion` в `backend/Directory.Packages.props`
+  + `PackageReference` в тест-csproj); прод-сборки её не тянут.
+- **Файлы:** `backend/tests/.../Architecture/LayerBoundaryTests.cs` (новый),
+  `backend/Directory.Packages.props`, `backend/tests/.../MitLicenseCenter.Tests.Unit.csproj`.
+- **Прогон:** `dotnet test --filter "Category!=Smoke"` — 265 passed (3 новых guard-теста зелёные);
+  `dotnet format --verify-no-changes` — без правок; frontend `pnpm lint`/`type-check`/`test`/`build` —
+  зелёные (109 тестов, сборка ОК). Smoke-тесты `RacExecutableSmokeTests` требуют живого RAS и в этом
+  гейте исключаются (как и в CI: `--filter "Category!=Smoke"`).
