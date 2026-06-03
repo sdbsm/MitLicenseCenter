@@ -38,22 +38,9 @@ internal sealed partial class KillEnforcer : IKillEnforcer
             .ToDictionaryAsync(t => t.Id, t => t.MaxConcurrentLicenses, ct)
             .ConfigureAwait(false);
 
-        var consumptionByTenant = snapshot.Items
-            .Where(e => e.ConsumesLicense)
-            .GroupBy(e => e.TenantId)
-            .ToDictionary(g => g.Key, g => g.Count());
+        var consumptionByTenant = LicenseConsumption.CountByTenant(snapshot.Items);
 
-        var overLimitTenants = new List<(Guid TenantId, int Consumed, int Limit)>();
-        foreach (var (tenantId, consumed) in consumptionByTenant)
-        {
-            if (!tenantLimits.TryGetValue(tenantId, out var limit))
-                continue;
-            if (limit <= 0)
-                continue;
-            if (consumed <= limit)
-                continue;
-            overLimitTenants.Add((tenantId, consumed, limit));
-        }
+        var overLimitTenants = LicenseConsumption.FindOverLimit(consumptionByTenant, tenantLimits);
 
         if (overLimitTenants.Count == 0)
             return;
@@ -74,10 +61,7 @@ internal sealed partial class KillEnforcer : IKillEnforcer
             var currentConsumed = consumed;
 
             // Candidates: sessions for this tenant that consume a license, sorted newest-first.
-            var candidates = snapshot.Items
-                .Where(e => e.TenantId == tenantId && e.ConsumesLicense)
-                .OrderByDescending(e => e.StartedAtUtc)
-                .ToList();
+            var candidates = LicenseConsumption.KillCandidates(snapshot.Items, tenantId);
 
             foreach (var candidate in candidates)
             {

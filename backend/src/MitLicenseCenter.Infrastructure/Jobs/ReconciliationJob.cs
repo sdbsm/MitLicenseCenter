@@ -105,10 +105,7 @@ internal sealed partial class ReconciliationJob : IReconciliationJob
             var threshold = _settings.GetInt(SettingKey.PollingHotThresholdPercent) ?? 90;
             var promotedThisCycle = new HashSet<Guid>();
 
-            var consumptionByTenant = entries
-                .Where(e => e.ConsumesLicense)
-                .GroupBy(e => e.TenantId)
-                .ToDictionary(g => g.Key, g => g.Count());
+            var consumptionByTenant = LicenseConsumption.CountByTenant(entries);
 
             foreach (var (clusterInfobaseId, mapped) in infobaseMap)
             {

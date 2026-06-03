@@ -71,10 +71,7 @@ public static class DashboardEndpoints
         var totalLimits = tenants.Where(t => t.IsActive).Sum(t => t.MaxConcurrentLicenses);
         var licensesAvailableTotal = Math.Max(0, totalLimits - licensesConsumedTotal);
 
-        var consumedByTenant = payload.Items
-            .Where(s => s.ConsumesLicense)
-            .GroupBy(s => s.TenantId)
-            .ToDictionary(g => g.Key, g => g.Count());
+        var consumedByTenant = LicenseConsumption.CountByTenant(payload.Items);
 
         // Top-5 ranking: percent (с защитой от div-by-zero) → consumed (tiebreaker).
         // Tenant с limit=0 даёт percent=0 — не попадает в топ, если есть кто-то с >0%.
