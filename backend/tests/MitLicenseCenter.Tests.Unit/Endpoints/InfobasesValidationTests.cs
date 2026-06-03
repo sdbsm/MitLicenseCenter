@@ -55,6 +55,9 @@ public sealed class InfobasesValidationTests
         results.Should().Contain(r => r.MemberNames.Contains(nameof(CreateInfobaseRequest.Name)));
     }
 
+    // MLC-022 — golden-таблица версии платформы. Идентична FE-таблице в
+    // frontend/src/features/infobases/__tests__/validation.test.ts: обе пинятся к
+    // прозе-спеке docs/03_DOMAIN_MODEL.md (§3) и ловят дрейф regex FE↔BE без codegen.
     [Theory]
     [InlineData("8.3.23.1865", true)]
     [InlineData("8.3.24.1654", true)]
@@ -70,6 +73,21 @@ public sealed class InfobasesValidationTests
     [InlineData("8.3.23.1865.0", false)]
     public void PlatformVersion_regex_requires_four_numeric_segments(string value, bool expected)
     {
-        InfobasesEndpoints.IsValidPlatformVersion(value).Should().Be(expected);
+        InfobaseValidationRules.IsValidPlatformVersion(value).Should().Be(expected);
+    }
+
+    // MLC-022 — пины единого источника к литералам спеки 03_DOMAIN_MODEL.md. Любая правка
+    // regex/лимита ломает этот тест (и парный FE-тест), пока спека не изменена осознанно.
+    [Fact]
+    public void Validation_rules_match_documented_spec()
+    {
+        InfobaseValidationRules.PlatformVersionRegex().ToString().Should().Be(@"^\d+\.\d+\.\d+\.\d+$");
+        InfobaseValidationRules.NameMaxLength.Should().Be(200);
+        InfobaseValidationRules.DatabaseServerMaxLength.Should().Be(200);
+        InfobaseValidationRules.DatabaseNameMaxLength.Should().Be(200);
+        InfobaseValidationRules.SiteNameMaxLength.Should().Be(200);
+        InfobaseValidationRules.VirtualPathMaxLength.Should().Be(200);
+        InfobaseValidationRules.PlatformVersionMaxLength.Should().Be(50);
+        InfobaseValidationRules.PhysicalPathMaxLength.Should().Be(260);
     }
 }

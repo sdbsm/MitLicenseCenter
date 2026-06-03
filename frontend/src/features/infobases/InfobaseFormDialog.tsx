@@ -5,7 +5,6 @@ import { useTranslation } from "react-i18next";
 import { useSettings } from "@/features/settings/useSettings";
 import { ChevronDown } from "lucide-react";
 import { toast } from "sonner";
-import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -44,75 +43,12 @@ import {
   usePlatformVersions,
 } from "@/features/discovery/useDiscovery";
 import type { Tenant } from "@/features/tenants/types";
-import type {
-  CreateInfobaseInput,
-  InfobaseListItem,
-  InfobaseStatus,
-  UpdateInfobaseInput,
-} from "./types";
+import type { CreateInfobaseInput, InfobaseListItem, UpdateInfobaseInput } from "./types";
 import { useClusterIdAvailability, useCreateInfobase, useUpdateInfobase } from "./useInfobases";
 import { physicalPathFromDatabase, virtualPathFromDatabase } from "./paths";
+import { buildInfobaseFormSchema, STATUSES, type InfobaseFormValues } from "./validation";
 
-const PLATFORM_VERSION_PATTERN = /^\d+\.\d+\.\d+\.\d+$/;
-const GUID_PATTERN =
-  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
-const STATUSES: InfobaseStatus[] = ["Active", "Maintenance", "Suspended"];
-
-function buildSchema(t: (k: string) => string) {
-  return z.object({
-    tenantId: z
-      .string()
-      .min(1, t("infobases.errors.tenantRequired"))
-      .regex(GUID_PATTERN, t("infobases.errors.tenantRequired")),
-    name: z
-      .string()
-      .trim()
-      .min(1, t("infobases.errors.nameRequired"))
-      .max(200, t("infobases.errors.nameTooLong")),
-    clusterInfobaseId: z
-      .string()
-      .trim()
-      .regex(GUID_PATTERN, t("infobases.errors.clusterIdInvalid")),
-    databaseServer: z
-      .string()
-      .trim()
-      .min(1, t("infobases.errors.databaseServerRequired"))
-      .max(200, t("infobases.errors.fieldTooLong")),
-    databaseName: z
-      .string()
-      .trim()
-      .min(1, t("infobases.errors.databaseNameRequired"))
-      .max(200, t("infobases.errors.fieldTooLong")),
-    status: z.enum(STATUSES),
-    publication: z.object({
-      siteName: z
-        .string()
-        .trim()
-        .min(1, t("publications.errors.siteNameRequired"))
-        .max(200, t("infobases.errors.fieldTooLong")),
-      virtualPath: z
-        .string()
-        .trim()
-        .min(1, t("publications.errors.virtualPathRequired"))
-        .startsWith("/", t("publications.errors.virtualPathLeadingSlash"))
-        .refine((v) => !/\s/.test(v), t("publications.errors.virtualPathNoSpaces")),
-      platformVersion: z
-        .string()
-        .trim()
-        .min(1, t("publications.errors.platformVersionRequired"))
-        .regex(PLATFORM_VERSION_PATTERN, t("publications.errors.platformVersionFormat")),
-      enableOData: z.boolean(),
-      enableHttpServices: z.boolean(),
-      vrdCustomXml: z.string().optional(),
-      physicalPathOverride: z
-        .string()
-        .max(260, t("publications.errors.physicalPathOverrideTooLong"))
-        .optional(),
-    }),
-  });
-}
-
-type FormValues = z.infer<ReturnType<typeof buildSchema>>;
+type FormValues = InfobaseFormValues;
 
 // Поля, которые живут в свёрнутом блоке «Дополнительно». Если валидация падает
 // на одном из них, блок надо раскрыть, иначе пользователь не увидит ошибку.
@@ -158,7 +94,7 @@ export function InfobaseFormDialog({
   const settingsApplied = useRef(false);
 
   const form = useForm<FormValues>({
-    resolver: zodResolver(buildSchema(t)),
+    resolver: zodResolver(buildInfobaseFormSchema(t)),
     defaultValues: infobase
       ? {
           tenantId: infobase.tenantId,

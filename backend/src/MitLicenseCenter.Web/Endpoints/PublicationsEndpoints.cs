@@ -70,38 +70,12 @@ public static partial class PublicationsEndpoints
         var virtualPath = (request.VirtualPath ?? string.Empty).Trim();
         var platformVersion = (request.PlatformVersion ?? string.Empty).Trim();
 
+        // MLC-022 — публикационная валидация централизована в InfobaseValidationRules
+        // (тот же набор правил, что и для вложенной публикации инфобазы). Пустой префикс
+        // сохраняет плоские ключи полей PUT /publications/{id}.
         var errors = new Dictionary<string, string[]>(StringComparer.Ordinal);
-        if (string.IsNullOrWhiteSpace(siteName))
-        {
-            errors[nameof(UpdatePublicationRequest.SiteName)] = ["Укажите имя сайта IIS."];
-        }
-        if (string.IsNullOrEmpty(virtualPath))
-        {
-            errors[nameof(UpdatePublicationRequest.VirtualPath)] = ["Укажите виртуальный путь."];
-        }
-        else if (!virtualPath.StartsWith('/'))
-        {
-            errors[nameof(UpdatePublicationRequest.VirtualPath)] = ["Виртуальный путь должен начинаться с «/»."];
-        }
-        else if (virtualPath.Any(char.IsWhiteSpace))
-        {
-            errors[nameof(UpdatePublicationRequest.VirtualPath)] = ["Виртуальный путь не должен содержать пробелов."];
-        }
-        if (string.IsNullOrEmpty(platformVersion))
-        {
-            errors[nameof(UpdatePublicationRequest.PlatformVersion)] = ["Укажите версию платформы 1С."];
-        }
-        else if (!InfobasesEndpoints.IsValidPlatformVersion(platformVersion))
-        {
-            errors[nameof(UpdatePublicationRequest.PlatformVersion)] = ["Версия должна состоять из четырёх числовых сегментов, например «8.3.23.1865» или «8.5.1.1302»."];
-        }
-        // Physical-path override (PR 4.1): принимаем только абсолютные пути.
-        if (!string.IsNullOrWhiteSpace(request.PhysicalPathOverride)
-            && !Path.IsPathFullyQualified(request.PhysicalPathOverride.Trim()))
-        {
-            errors[nameof(UpdatePublicationRequest.PhysicalPathOverride)] =
-                ["Укажите абсолютный путь к папке (например, C:\\pub\\app или \\\\server\\share\\app)."];
-        }
+        InfobaseValidationRules.AppendPublicationFieldErrors(
+            errors, string.Empty, siteName, virtualPath, platformVersion, request.PhysicalPathOverride);
         if (errors.Count > 0)
         {
             return TypedResults.ValidationProblem(errors);

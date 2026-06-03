@@ -42,6 +42,8 @@ Stores the *Desired State* of the IIS publication for a specific Infobase.
 - `PhysicalPathOverride` (`NVARCHAR(260)`, Nullable): override физической папки IIS-приложения. Если задан — `VrdPathResolver` использует `{PhysicalPathOverride}\default.vrd` вместо convention `{IIS.DefaultVrdRoot}/{siteName}/{virtualPath}/default.vrd`. NULL/empty → fallback на convention. Принимается только абсолютный путь (local `C:\...` или UNC `\\server\share\...`); relative paths отклоняются с 400.
 - **Relationships:** Belongs to `Infobase`.
 
+> **Единый источник правил валидации (Infobase + Publication).** Regex версии платформы, max-длины и правила virtual-/physical-path централизованы: backend — `MitLicenseCenter.Web/Endpoints/InfobaseValidationRules.cs` (его же используют DTO-аннотации и оба эндпоинта), frontend — `frontend/src/features/infobases/validation.ts`. Эта проза остаётся человекочитаемой спекой; константы обеих сторон закреплены к её литералам parity-тестами (`InfobasesValidationTests.cs` и `validation.test.ts`) — дрейф ловится без codegen (codegen — отдельная задача).
+
 ## 4. AuditLog
 Immutable record of all critical system and administrator actions.
 - `Id` (Guid, PK)

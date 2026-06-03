@@ -1174,3 +1174,68 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 - **Прогон:** `dotnet test --filter "Category!=Smoke"` — 254 passed, 0 failed;
   `scripts/build.ps1` — зелёный (backend build 0 warnings, dotnet format чистый, FE
   lint/type-check/test 78 passed, FE build).
+
+### MLC-022 — Единый источник правил валидации Infobase/Publication (FE↔BE) — 2026-06-03
+
+- **Проблема:** один набор правил валидации Infobase/Publication был продублирован в трёх
+  местах: (1) FE — `InfobaseFormDialog.tsx` (константы `PLATFORM_VERSION_PATTERN`,
+  `GUID_PATTERN`, Zod-фабрика `buildSchema`); (2) BE-дубль №1 — `InfobasesEndpoints.
+  AppendPublicationFieldErrors`; (3) BE-дубль №2 — `PublicationsEndpoints.UpdateAsync`
+  (построчно тот же набор правил публикации, отличался только префиксом ключей полей).
+  Лимиты 200/50/260/8000 — в DataAnnotations DTO. Источника правды нет: новое поле/правило =
+  правка 2–3 мест, рассинхрон тихий. Cost if ignored: M (формы растут).
+- **Проверенные факты (для трактовки «1:1»):** backend **не** прогоняет DataAnnotations в
+  runtime (нет endpoint-фильтра валидации) — реальная runtime-валидация только ручная
+  (non-empty + regex + virtual-path-правила + physical-path-абсолютность); max-длины в runtime
+  BE не режутся (только DTO-аннотации для swagger + nvarchar-констрейнт БД). FE применяет
+  `max` к name/dbServer/dbName/siteName (200) и physicalPath (260), к virtualPath/platformVersion
+  max не применяет (regex/правила). Регекс уже частично был расшарен через
+  `InfobasesEndpoints.IsValidPlatformVersion`.
+- **Решение:** поведение-сохраняющий рефакторинг (дедуп + централизация), **без codegen**
+  (codegen — отдельная отложенная `MLC-025`). Ни одно accept/reject не изменено.
+  - **BE — единый источник** `MitLicenseCenter.Web/Endpoints/InfobaseValidationRules.cs`
+    (новый `public static partial class`): `const int` лимиты (Name/DatabaseServer/DatabaseName/
+    SiteName/VirtualPath = 200, PlatformVersion = 50, PhysicalPath = 260, VrdCustomXml = 8000),
+    `[GeneratedRegex] PlatformVersionRegex()`, `IsValidPlatformVersion`, и единый
+    `AppendPublicationFieldErrors(errors, prefix, …)`. Параметр `prefix` задаёт префикс ключей
+    полей: `"Publication."` для вложенной публикации инфобазы (`InfobasesEndpoints`) и `""` для
+    плоских ключей прямого `PUT /publications/{id}` (`PublicationsEndpoints`). Тексты-сообщения
+    перенесены дословно (один экземпляр). `PublicationsEndpoints.UpdateAsync` потерял инлайн-блок
+    валидации (~30 строк) → вызывает общий хелпер; `InfobasesEndpoints` потерял свой regex/
+    `IsValidPlatformVersion`/`AppendPublicationFieldErrors`. DTO-аннотации (`InfobasesContracts`,
+    `PublicationsContracts`) `StringLength(…)` → `StringLength(InfobaseValidationRules.*MaxLength)`
+    (значения те же, `const int` валиден в атрибуте).
+  - **FE — единый источник** `frontend/src/features/infobases/validation.ts` (новый):
+    экспорт `PLATFORM_VERSION_PATTERN`, `GUID_PATTERN`, `STATUSES`, лимиты-константы
+    (`*_MAX_LENGTH`), фабрика `buildInfobaseFormSchema(t)` (перенос `buildSchema` **дословно**,
+    литералы лимитов заменены на константы там, где они уже применялись), тип
+    `InfobaseFormValues`. `InfobaseFormDialog.tsx` импортирует их; локальные определения и
+    неиспользуемый импорт `z`/`InfobaseStatus` удалены. **Поведение и сообщения 1:1.**
+    `VIRTUAL_PATH_MAX_LENGTH`/`PLATFORM_VERSION_MAX_LENGTH` существуют как документированный
+    источник (схему не меняли — длина platformVersion связана regex'ом, virtualPath режется на
+    уровне БД/DTO); потребляются parity-тестом.
+- **Защита от дрейфа без codegen:** parity-тесты на **обеих** сторонах с идентичной golden-
+  таблицей версии платформы и пинами констант к литералам прозы-спеки `03_DOMAIN_MODEL.md`:
+  BE — расширен `InfobasesValidationTests.cs` (theory перенацелена на `InfobaseValidationRules.
+  IsValidPlatformVersion`; новый факт `Validation_rules_match_documented_spec` пинит
+  `PlatformVersionRegex().ToString()` и лимиты); FE — новый `__tests__/validation.test.ts`
+  (та же golden-таблица + пины `*_MAX_LENGTH`/`PLATFORM_VERSION_PATTERN.source` + кейсы
+  virtualPath). Кто меняет regex/лимит на своей стороне — ломает свой же тест (пин к спеке).
+- **Канон:** `03_DOMAIN_MODEL.md` остаётся человекочитаемой прозой-спекой; добавлен один блок-
+  указатель «единый источник правил валидации» (где централизованы FE/BE, что закреплено
+  parity-тестами). Формулировки самих правил не трогали. `DECISIONS.md` не правили (контракт и
+  поведение не изменились).
+- **Файлы:** `backend/src/MitLicenseCenter.Web/Endpoints/InfobaseValidationRules.cs` (новый);
+  правки `…/Endpoints/InfobasesEndpoints.cs`, `…/Endpoints/PublicationsEndpoints.cs`,
+  `…/Endpoints/InfobasesContracts.cs`, `…/Endpoints/PublicationsContracts.cs`;
+  `backend/tests/MitLicenseCenter.Tests.Unit/Endpoints/InfobasesValidationTests.cs`;
+  `frontend/src/features/infobases/validation.ts` (новый),
+  `frontend/src/features/infobases/__tests__/validation.test.ts` (новый),
+  `frontend/src/features/infobases/InfobaseFormDialog.tsx`; `docs/03_DOMAIN_MODEL.md`.
+- **Фиделити 1:1:** существующий `InfobaseFormDialog.test.tsx` (маппинг 409, edit-режим) и
+  backend endpoint-тесты — зелёные без правок (регрессионный гейт). `ValidateInfobase`
+  (infobase-специфичная, не дублировалась) оставлена в `InfobasesEndpoints` без изменений.
+- **Прогон:** backend `dotnet test --filter "Category!=Smoke"` — 252 passed, 0 failed; frontend
+  `pnpm lint` / `type-check` / `test` (97 passed) — зелёные; `scripts/build.ps1` — зелёный
+  end-to-end (backend build 0 warnings, FE lint/type-check/test 97 + build, «Все шаги пройдены
+  успешно»).

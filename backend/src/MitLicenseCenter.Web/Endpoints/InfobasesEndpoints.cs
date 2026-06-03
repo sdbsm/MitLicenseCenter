@@ -1,4 +1,3 @@
-using System.Text.RegularExpressions;
 using Asp.Versioning;
 using Asp.Versioning.Builder;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -17,11 +16,6 @@ public static partial class InfobasesEndpoints
 {
     private const int DefaultPageSize = 50;
     private const int MaxPageSize = 200;
-
-    // Версия платформы 1С — 4 числовых сегмента «Major.Minor.Build.Revision».
-    // Длины сегментов не фиксируем: реальные сборки бывают и «8.3.23.1865», и «8.5.1.1302».
-    [GeneratedRegex(@"^\d+\.\d+\.\d+\.\d+$", RegexOptions.CultureInvariant)]
-    private static partial Regex PlatformVersionRegex();
 
     public static void MapInfobasesEndpoints(this IEndpointRouteBuilder endpoints, ApiVersionSet versionSet)
     {
@@ -488,67 +482,21 @@ public static partial class InfobasesEndpoints
         return errors;
     }
 
+    // MLC-022 — публикационная валидация централизована в InfobaseValidationRules.
+    // Вложенная публикация инфобазы префиксует ключи полей «Publication.».
     private static void AppendPublicationErrors(
         Dictionary<string, string[]> errors,
         CreatePublicationRequest publication)
     {
-        AppendPublicationFieldErrors(errors, publication.SiteName, publication.VirtualPath,
-            publication.PlatformVersion, publication.PhysicalPathOverride);
+        InfobaseValidationRules.AppendPublicationFieldErrors(errors, $"{nameof(CreateInfobaseRequest.Publication)}.",
+            publication.SiteName, publication.VirtualPath, publication.PlatformVersion, publication.PhysicalPathOverride);
     }
 
     private static void AppendPublicationErrors(
         Dictionary<string, string[]> errors,
         UpdatePublicationRequest publication)
     {
-        AppendPublicationFieldErrors(errors, publication.SiteName, publication.VirtualPath,
-            publication.PlatformVersion, publication.PhysicalPathOverride);
+        InfobaseValidationRules.AppendPublicationFieldErrors(errors, $"{nameof(CreateInfobaseRequest.Publication)}.",
+            publication.SiteName, publication.VirtualPath, publication.PlatformVersion, publication.PhysicalPathOverride);
     }
-
-    private static void AppendPublicationFieldErrors(
-        Dictionary<string, string[]> errors,
-        string? siteName,
-        string? virtualPath,
-        string? platformVersion,
-        string? physicalPathOverride)
-    {
-        if (string.IsNullOrWhiteSpace(siteName))
-        {
-            errors[$"{nameof(CreateInfobaseRequest.Publication)}.{nameof(CreatePublicationRequest.SiteName)}"] = ["Укажите имя сайта IIS."];
-        }
-
-        var vp = (virtualPath ?? string.Empty).Trim();
-        if (string.IsNullOrEmpty(vp))
-        {
-            errors[$"{nameof(CreateInfobaseRequest.Publication)}.{nameof(CreatePublicationRequest.VirtualPath)}"] = ["Укажите виртуальный путь."];
-        }
-        else if (!vp.StartsWith('/'))
-        {
-            errors[$"{nameof(CreateInfobaseRequest.Publication)}.{nameof(CreatePublicationRequest.VirtualPath)}"] = ["Виртуальный путь должен начинаться с «/»."];
-        }
-        else if (vp.Any(char.IsWhiteSpace))
-        {
-            errors[$"{nameof(CreateInfobaseRequest.Publication)}.{nameof(CreatePublicationRequest.VirtualPath)}"] = ["Виртуальный путь не должен содержать пробелов."];
-        }
-
-        var version = (platformVersion ?? string.Empty).Trim();
-        if (string.IsNullOrEmpty(version))
-        {
-            errors[$"{nameof(CreateInfobaseRequest.Publication)}.{nameof(CreatePublicationRequest.PlatformVersion)}"] = ["Укажите версию платформы 1С."];
-        }
-        else if (!PlatformVersionRegex().IsMatch(version))
-        {
-            errors[$"{nameof(CreateInfobaseRequest.Publication)}.{nameof(CreatePublicationRequest.PlatformVersion)}"] = ["Версия должна состоять из четырёх числовых сегментов, например «8.3.23.1865» или «8.5.1.1302»."];
-        }
-
-        // Physical-path override (PR 4.1): если задан — принимаем только абсолютные пути
-        // (local C:\... или UNC \\server\share\...). Relative-пути отклоняем.
-        if (!string.IsNullOrWhiteSpace(physicalPathOverride)
-            && !Path.IsPathFullyQualified(physicalPathOverride.Trim()))
-        {
-            errors[$"{nameof(CreateInfobaseRequest.Publication)}.{nameof(CreatePublicationRequest.PhysicalPathOverride)}"] =
-                ["Укажите абсолютный путь к папке (например, C:\\pub\\app или \\\\server\\share\\app)."];
-        }
-    }
-
-    internal static bool IsValidPlatformVersion(string value) => PlatformVersionRegex().IsMatch(value ?? string.Empty);
 }

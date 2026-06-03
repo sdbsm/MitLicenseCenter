@@ -47,18 +47,18 @@ public sealed record ClusterIdAvailabilityResponse(
 
 public sealed record CreateInfobaseRequest(
     [property: Required] Guid TenantId,
-    [property: Required, StringLength(200, MinimumLength = 1)] string Name,
+    [property: Required, StringLength(InfobaseValidationRules.NameMaxLength, MinimumLength = 1)] string Name,
     [property: Required] Guid ClusterInfobaseId,
-    [property: Required, StringLength(200, MinimumLength = 1)] string DatabaseServer,
-    [property: Required, StringLength(200, MinimumLength = 1)] string DatabaseName,
+    [property: Required, StringLength(InfobaseValidationRules.DatabaseServerMaxLength, MinimumLength = 1)] string DatabaseServer,
+    [property: Required, StringLength(InfobaseValidationRules.DatabaseNameMaxLength, MinimumLength = 1)] string DatabaseName,
     [property: Required] InfobaseStatus Status,
     [property: Required] CreatePublicationRequest Publication);
 
 public sealed record UpdateInfobaseRequest(
-    [property: Required, StringLength(200, MinimumLength = 1)] string Name,
+    [property: Required, StringLength(InfobaseValidationRules.NameMaxLength, MinimumLength = 1)] string Name,
     [property: Required] Guid ClusterInfobaseId,
-    [property: Required, StringLength(200, MinimumLength = 1)] string DatabaseServer,
-    [property: Required, StringLength(200, MinimumLength = 1)] string DatabaseName,
+    [property: Required, StringLength(InfobaseValidationRules.DatabaseServerMaxLength, MinimumLength = 1)] string DatabaseServer,
+    [property: Required, StringLength(InfobaseValidationRules.DatabaseNameMaxLength, MinimumLength = 1)] string DatabaseName,
     [property: Required] InfobaseStatus Status,
     [property: Required] UpdatePublicationRequest Publication);
 

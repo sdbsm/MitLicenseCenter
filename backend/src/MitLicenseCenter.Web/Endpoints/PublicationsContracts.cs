@@ -27,22 +27,22 @@ public sealed record DriftStatusResponse(
     string? Details);
 
 public sealed record CreatePublicationRequest(
-    [property: Required, StringLength(200, MinimumLength = 1)] string SiteName,
-    [property: Required, StringLength(200, MinimumLength = 1)] string VirtualPath,
-    [property: Required, StringLength(50, MinimumLength = 1)] string PlatformVersion,
+    [property: Required, StringLength(InfobaseValidationRules.SiteNameMaxLength, MinimumLength = 1)] string SiteName,
+    [property: Required, StringLength(InfobaseValidationRules.VirtualPathMaxLength, MinimumLength = 1)] string VirtualPath,
+    [property: Required, StringLength(InfobaseValidationRules.PlatformVersionMaxLength, MinimumLength = 1)] string PlatformVersion,
     bool EnableOData,
     bool EnableHttpServices,
-    [property: StringLength(8000)] string? VrdCustomXml,
-    [property: StringLength(260)] string? PhysicalPathOverride);
+    [property: StringLength(InfobaseValidationRules.VrdCustomXmlMaxLength)] string? VrdCustomXml,
+    [property: StringLength(InfobaseValidationRules.PhysicalPathMaxLength)] string? PhysicalPathOverride);
 
 public sealed record UpdatePublicationRequest(
-    [property: Required, StringLength(200, MinimumLength = 1)] string SiteName,
-    [property: Required, StringLength(200, MinimumLength = 1)] string VirtualPath,
-    [property: Required, StringLength(50, MinimumLength = 1)] string PlatformVersion,
+    [property: Required, StringLength(InfobaseValidationRules.SiteNameMaxLength, MinimumLength = 1)] string SiteName,
+    [property: Required, StringLength(InfobaseValidationRules.VirtualPathMaxLength, MinimumLength = 1)] string VirtualPath,
+    [property: Required, StringLength(InfobaseValidationRules.PlatformVersionMaxLength, MinimumLength = 1)] string PlatformVersion,
     bool EnableOData,
     bool EnableHttpServices,
-    [property: StringLength(8000)] string? VrdCustomXml,
-    [property: StringLength(260)] string? PhysicalPathOverride);
+    [property: StringLength(InfobaseValidationRules.VrdCustomXmlMaxLength)] string? VrdCustomXml,
+    [property: StringLength(InfobaseValidationRules.PhysicalPathMaxLength)] string? PhysicalPathOverride);
 
 internal static class PublicationMappings
 {
