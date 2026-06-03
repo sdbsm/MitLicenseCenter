@@ -1456,3 +1456,47 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 - **Прогон:** `scripts/build.ps1` зелёный целиком — backend 268 passed + `dotnet format` без правок;
   frontend `pnpm lint`/`type-check`/`test` (109 passed, CRUD-тесты MLC-007 без правок)/`build` ОК
   («Все шаги пройдены успешно»).
+
+### MLC-034 (REF-06) — Консолидация аудит-бойлерплейта мутирующих эндпоинтов — 2026-06-04
+
+- **Проблема:** каждый мутирующий Web-эндпоинт повторял один скелет логирования —
+  `var initiator = httpContext.ResolveInitiator();` затем одна-несколько
+  `await audit.LogAsync(action, initiator: …, description: AuditDescriptions.X(…, initiator), tenantId: …, ct: ct)`.
+  Дублировался резолв инициатора + именованный плумбинг `initiator:`/`ct:`/`ConfigureAwait`; при парных
+  записях (`InfobaseCreated`+`PublicationCreated` и т.п.) легко забыть вторую. По REF-06 плана
+  `distributed-orbiting-snail.md` — берётся четвёртым (Phase 2), после REF-01 (MLC-029), чтобы не двигать
+  `InfobasesEndpoints.cs` дважды. Cost if ignored: M.
+- **Решение (intra-Web, ADR-20-safe — use-case-слой НЕ вводился):** новый extension-метод
+  `HttpContext.AuditAsync(IAuditLogger audit, AuditActionType action, Func<string,string> description, Guid? tenantId, CancellationToken ct)`
+  в `Web/Endpoints/EndpointHelpers.cs` (рядом с `ResolveInitiator`/`SaveWithUniquenessBackstopAsync`,
+  родом из MLC-021). Фасад инкапсулирует `ResolveInitiator()` и плумбинг `initiator`/`ct`, оставляя
+  `AuditActionType.X` и `AuditDescriptions.X` явными и грепаемыми в строке вызова. Описания встраивают
+  имя инициатора, поэтому форма — **делегат-описание**: `init => AuditDescriptions.X(…, init)`, фасад
+  резолвит initiator и отдаёт его в фабрику. Парные записи остаются **раздельными** вызовами
+  `AuditAsync` — состав/порядок журнала читается по коду, а не выводится из «умного» комбинированного метода.
+- **Свёрнуто 9 каноничных сайтов (состав/порядок/условность аудита 1:1):** `InfobasesEndpoints`
+  Create (`InfobaseCreated`→`PublicationCreated`), Update (`InfobaseUpdated`→`PublicationUpdated`),
+  Reassign (`InfobaseReassigned`), Delete (`PublicationDeleted` **условно** `if (publication is not null)`
+  → `InfobaseDeleted`, оба ДО удаления); `TenantsEndpoints` Create/Update/Delete (`TenantDeleted` ДО
+  `Remove`); `PublicationsEndpoints` Update (`PublicationUpdated`, `tenantId = infobase?.TenantId`),
+  reconcile (`PublicationReconciled`, nullable `tenantId`). Неиспользуемые после свёртки локали
+  `var initiator` удалены; `infobaseName`/`tenantId`/`publicationLabel`/`name` (нужны до удаления) — оставлены.
+- **Намеренно вне объёма (другой шаблон — не трогали, чтобы не сместить immutable-журнал):**
+  `SessionsEndpoints.KillAsync` — инициатор `User.Identity?.Name ?? "Unknown"` (заглавная «U», ≠
+  `ResolveInitiator()`'s «unknown»), inline-описание, `AuditReason.ManualByAdmin`; `SettingsEndpoints.UpdateAsync`
+  — initiator переиспользуется для `store.SetAsync`, inline-описание без инициатора в тексте, без `tenantId`;
+  `AuthEndpoints` (Login/Logout/ChangePassword) — инициатор из `user.UserName`/guarded имени, без
+  fallback «unknown», `LoginAsync` вообще без `HttpContext`. Делегат-форма им не подходит, складывание
+  изменило бы содержимое журнала.
+- **Контракт неизменен:** тот же набор `AuditActionType`, те же `AuditDescriptions.*`, тот же `tenantId`,
+  тот же порядок и условность; `IAuditLogger.LogAsync` (Application) не менялся (`reason` остаётся default
+  `null` на этих сайтах); валидация/409/коды без правок. Граница слоёв (MLC-030) цела — фасад живёт в Web,
+  зовёт `IAuditLogger` (Application-интерфейс).
+- **Файлы:** `backend/src/MitLicenseCenter.Web/Endpoints/EndpointHelpers.cs` (новый `AuditAsync` + usings
+  `Application.Auditing`/`Domain.Audit`), `InfobasesEndpoints.cs`, `TenantsEndpoints.cs`,
+  `PublicationsEndpoints.cs`.
+- **Прогон:** `scripts/build.ps1` зелёный целиком — backend build 0 ошибок/0 предупреждений, `dotnet test`
+  268 passed (аудит/эндпоинт-тесты: `InfobaseCascadeDeleteTests`, `InfobaseReassignTests`,
+  `PublicationsReconcileTests`, `TenantDeletionGuardTests` + регресс «вне объёма» `SettingsValidationTests`/
+  `SessionsKillEndpointTests` + guard-тесты MLC-030 → состав журнала 1:1), `dotnet format` без правок;
+  frontend `lint`/`type-check`/`test` (109 passed)/`build` ОК («Все шаги пройдены успешно»).

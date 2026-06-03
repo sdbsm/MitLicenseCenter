@@ -111,13 +111,9 @@ public static class TenantsEndpoints
             return TypedResults.Conflict(conflict);
         }
 
-        var initiator = httpContext.ResolveInitiator();
-        await audit.LogAsync(
-            AuditActionType.TenantCreated,
-            initiator: initiator,
-            description: AuditDescriptions.TenantCreated(tenant.Name, initiator),
-            tenantId: tenant.Id,
-            ct: ct).ConfigureAwait(false);
+        await httpContext.AuditAsync(audit, AuditActionType.TenantCreated,
+            init => AuditDescriptions.TenantCreated(tenant.Name, init),
+            tenant.Id, ct).ConfigureAwait(false);
 
         return TypedResults.Created($"/api/v1/tenants/{tenant.Id}", tenant.ToResponse());
     }
@@ -164,13 +160,9 @@ public static class TenantsEndpoints
             return TypedResults.Conflict(conflict);
         }
 
-        var initiator = httpContext.ResolveInitiator();
-        await audit.LogAsync(
-            AuditActionType.TenantUpdated,
-            initiator: initiator,
-            description: AuditDescriptions.TenantUpdated(tenant.Name, initiator),
-            tenantId: tenant.Id,
-            ct: ct).ConfigureAwait(false);
+        await httpContext.AuditAsync(audit, AuditActionType.TenantUpdated,
+            init => AuditDescriptions.TenantUpdated(tenant.Name, init),
+            tenant.Id, ct).ConfigureAwait(false);
 
         return TypedResults.Ok(tenant.ToResponse());
     }
@@ -194,15 +186,11 @@ public static class TenantsEndpoints
         }
 
         var name = tenant.Name;
-        var initiator = httpContext.ResolveInitiator();
         // Запись аудита кладём ДО удаления, пока tenant ещё существует — FK SetNull
         // потом сам обнулит TenantId в этой строке.
-        await audit.LogAsync(
-            AuditActionType.TenantDeleted,
-            initiator: initiator,
-            description: AuditDescriptions.TenantDeleted(name, initiator),
-            tenantId: id,
-            ct: ct).ConfigureAwait(false);
+        await httpContext.AuditAsync(audit, AuditActionType.TenantDeleted,
+            init => AuditDescriptions.TenantDeleted(name, init),
+            id, ct).ConfigureAwait(false);
 
         db.Tenants.Remove(tenant);
         await db.SaveChangesAsync(ct).ConfigureAwait(false);

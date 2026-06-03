@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using MitLicenseCenter.Application.Auditing;
+using MitLicenseCenter.Domain.Audit;
 using MitLicenseCenter.Infrastructure.Persistence;
 
 namespace MitLicenseCenter.Web.Endpoints;
@@ -15,6 +17,24 @@ internal static class EndpointHelpers
     // повторяющегося `httpContext.User.Identity?.Name ?? "unknown"`.
     public static string ResolveInitiator(this HttpContext httpContext) =>
         httpContext.User.Identity?.Name ?? "unknown";
+
+    // MLC-034 — тонкий per-write аудит-фасад. Инкапсулирует ResolveInitiator() и плумбинг
+    // initiator/ct, оставляя AuditActionType и AuditDescriptions.* явными в строке вызова
+    // (грепаемыми). Описания аудита встраивают имя инициатора, поэтому описание строится
+    // фабрикой от резолвнутого initiator. Это intra-Web дедуп в духе ADR-20 (НЕ use-case-слой);
+    // immutable-audit контракт не меняется — состав/порядок/условность записей задаёт сам
+    // эндпоинт (парные записи остаются раздельными вызовами, а не «умным» комбинированным методом).
+    public static Task AuditAsync(
+        this HttpContext httpContext,
+        IAuditLogger audit,
+        AuditActionType action,
+        Func<string, string> description,
+        Guid? tenantId = null,
+        CancellationToken ct = default)
+    {
+        var initiator = httpContext.ResolveInitiator();
+        return audit.LogAsync(action, initiator, description(initiator), tenantId, ct: ct);
+    }
 
     // MLC-004/ADR-19 — backstop уникальности поверх предварительного AnyAsync.
     // Сохраняем изменения; если БД подняла нарушение уникального индекса (гонка двух

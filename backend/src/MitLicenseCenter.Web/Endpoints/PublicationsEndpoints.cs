@@ -96,14 +96,10 @@ public static partial class PublicationsEndpoints
 
         await db.SaveChangesAsync(ct).ConfigureAwait(false);
 
-        var initiator = httpContext.ResolveInitiator();
-        await audit.LogAsync(
-            AuditActionType.PublicationUpdated,
-            initiator: initiator,
-            description: AuditDescriptions.PublicationUpdated(
-                $"{publication.SiteName}{publication.VirtualPath}", initiator),
-            tenantId: infobase?.TenantId,
-            ct: ct).ConfigureAwait(false);
+        await httpContext.AuditAsync(audit, AuditActionType.PublicationUpdated,
+            init => AuditDescriptions.PublicationUpdated(
+                $"{publication.SiteName}{publication.VirtualPath}", init),
+            infobase?.TenantId, ct).ConfigureAwait(false);
 
         return TypedResults.Ok(publication.ToResponse());
     }
@@ -224,14 +220,10 @@ public static partial class PublicationsEndpoints
             .FirstOrDefaultAsync(ct)
             .ConfigureAwait(false);
 
-        var initiator = httpContext.ResolveInitiator();
-        await audit.LogAsync(
-            AuditActionType.PublicationReconciled,
-            initiator: initiator,
-            description: AuditDescriptions.PublicationReconciled(
-                $"{updated.SiteName}{updated.VirtualPath}", previousStatus, updated.Status, initiator),
-            tenantId: tenantId,
-            ct: ct).ConfigureAwait(false);
+        await httpContext.AuditAsync(audit, AuditActionType.PublicationReconciled,
+            init => AuditDescriptions.PublicationReconciled(
+                $"{updated.SiteName}{updated.VirtualPath}", previousStatus, updated.Status, init),
+            tenantId, ct).ConfigureAwait(false);
 
         return TypedResults.Ok(new DriftStatusResponse(updated.Status, updated.CheckedAt, updated.Details));
     }

@@ -225,20 +225,13 @@ public static partial class InfobasesEndpoints
             return TypedResults.Conflict(conflict);
         }
 
-        var initiator = httpContext.ResolveInitiator();
-        await audit.LogAsync(
-            AuditActionType.InfobaseCreated,
-            initiator: initiator,
-            description: AuditDescriptions.InfobaseCreated(infobase.Name, initiator),
-            tenantId: infobase.TenantId,
-            ct: ct).ConfigureAwait(false);
-        await audit.LogAsync(
-            AuditActionType.PublicationCreated,
-            initiator: initiator,
-            description: AuditDescriptions.PublicationCreatedForInfobase(
-                $"{publication.SiteName}{publication.VirtualPath}", infobase.Name, initiator),
-            tenantId: infobase.TenantId,
-            ct: ct).ConfigureAwait(false);
+        await httpContext.AuditAsync(audit, AuditActionType.InfobaseCreated,
+            init => AuditDescriptions.InfobaseCreated(infobase.Name, init),
+            infobase.TenantId, ct).ConfigureAwait(false);
+        await httpContext.AuditAsync(audit, AuditActionType.PublicationCreated,
+            init => AuditDescriptions.PublicationCreatedForInfobase(
+                $"{publication.SiteName}{publication.VirtualPath}", infobase.Name, init),
+            infobase.TenantId, ct).ConfigureAwait(false);
 
         return TypedResults.Created($"/api/v1/infobases/{infobase.Id}", infobase.ToDetailResponse(publication));
     }
@@ -309,20 +302,13 @@ public static partial class InfobasesEndpoints
             return TypedResults.Conflict(conflict);
         }
 
-        var initiator = httpContext.ResolveInitiator();
-        await audit.LogAsync(
-            AuditActionType.InfobaseUpdated,
-            initiator: initiator,
-            description: AuditDescriptions.InfobaseUpdated(infobase.Name, initiator),
-            tenantId: infobase.TenantId,
-            ct: ct).ConfigureAwait(false);
-        await audit.LogAsync(
-            AuditActionType.PublicationUpdated,
-            initiator: initiator,
-            description: AuditDescriptions.PublicationUpdatedForInfobase(
-                $"{publication.SiteName}{publication.VirtualPath}", infobase.Name, initiator),
-            tenantId: infobase.TenantId,
-            ct: ct).ConfigureAwait(false);
+        await httpContext.AuditAsync(audit, AuditActionType.InfobaseUpdated,
+            init => AuditDescriptions.InfobaseUpdated(infobase.Name, init),
+            infobase.TenantId, ct).ConfigureAwait(false);
+        await httpContext.AuditAsync(audit, AuditActionType.PublicationUpdated,
+            init => AuditDescriptions.PublicationUpdatedForInfobase(
+                $"{publication.SiteName}{publication.VirtualPath}", infobase.Name, init),
+            infobase.TenantId, ct).ConfigureAwait(false);
 
         return TypedResults.Ok(infobase.ToDetailResponse(publication));
     }
@@ -383,13 +369,9 @@ public static partial class InfobasesEndpoints
             return TypedResults.Conflict(conflict);
         }
 
-        var initiator = httpContext.ResolveInitiator();
-        await audit.LogAsync(
-            AuditActionType.InfobaseReassigned,
-            initiator: initiator,
-            description: AuditDescriptions.InfobaseReassigned(infobase.Name, sourceName, target.Name, initiator),
-            tenantId: target.Id,
-            ct: ct).ConfigureAwait(false);
+        await httpContext.AuditAsync(audit, AuditActionType.InfobaseReassigned,
+            init => AuditDescriptions.InfobaseReassigned(infobase.Name, sourceName, target.Name, init),
+            target.Id, ct).ConfigureAwait(false);
 
         return TypedResults.Ok(infobase.ToDetailResponse(publication));
     }
@@ -409,7 +391,6 @@ public static partial class InfobasesEndpoints
 
         var publication = await db.Publications.FirstOrDefaultAsync(p => p.InfobaseId == id, ct).ConfigureAwait(false);
 
-        var initiator = httpContext.ResolveInitiator();
         var infobaseName = infobase.Name;
         var tenantId = infobase.TenantId;
         var publicationLabel = publication is null
@@ -419,19 +400,13 @@ public static partial class InfobasesEndpoints
         // Аудит пишем ДО удаления — TenantId ещё валиден, FK не нарушается.
         if (publication is not null)
         {
-            await audit.LogAsync(
-                AuditActionType.PublicationDeleted,
-                initiator: initiator,
-                description: AuditDescriptions.PublicationDeletedWithInfobase(publicationLabel!, infobaseName, initiator),
-                tenantId: tenantId,
-                ct: ct).ConfigureAwait(false);
+            await httpContext.AuditAsync(audit, AuditActionType.PublicationDeleted,
+                init => AuditDescriptions.PublicationDeletedWithInfobase(publicationLabel!, infobaseName, init),
+                tenantId, ct).ConfigureAwait(false);
         }
-        await audit.LogAsync(
-            AuditActionType.InfobaseDeleted,
-            initiator: initiator,
-            description: AuditDescriptions.InfobaseDeleted(infobaseName, initiator),
-            tenantId: tenantId,
-            ct: ct).ConfigureAwait(false);
+        await httpContext.AuditAsync(audit, AuditActionType.InfobaseDeleted,
+            init => AuditDescriptions.InfobaseDeleted(infobaseName, init),
+            tenantId, ct).ConfigureAwait(false);
 
         // FK Publication→Infobase = Cascade на стороне БД, но InMemory-провайдер в
         // тестах его не уважает. Сносим публикацию вручную — поведение одинаковое.
