@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ApiError, readConflictBody } from "@/lib/api";
+import { matchConflictCode, toastFormSubmitError } from "@/lib/apiErrors";
 import type { Tenant, TenantInput } from "./types";
 import { useCreateTenant, useUpdateTenant } from "./useTenants";
 
@@ -86,23 +86,14 @@ export function TenantFormDialog({ open, onOpenChange, tenant }: TenantFormDialo
       }
       onOpenChange(false);
     } catch (error) {
-      if (error instanceof ApiError) {
-        if (error.status === 409) {
-          const body = readConflictBody(error);
-          if (body?.code === "NAME_DUPLICATE") {
-            form.setError("name", {
-              type: "server",
-              message: t("tenants.errors.nameDuplicate"),
-            });
-            return;
-          }
-        }
-        if (error.status === 400) {
-          toast.error(error.message || t("errors.generic"));
-          return;
-        }
+      const mapped = matchConflictCode(error, {
+        NAME_DUPLICATE: { field: "name", messageKey: "tenants.errors.nameDuplicate" } as const,
+      });
+      if (mapped) {
+        form.setError(mapped.field, { type: "server", message: t(mapped.messageKey) });
+        return;
       }
-      toast.error(t("errors.generic"));
+      toastFormSubmitError(error, t);
     }
   });
 

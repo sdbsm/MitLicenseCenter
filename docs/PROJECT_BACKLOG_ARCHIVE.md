@@ -1500,3 +1500,44 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
   `PublicationsReconcileTests`, `TenantDeletionGuardTests` + регресс «вне объёма» `SettingsValidationTests`/
   `SessionsKillEndpointTests` + guard-тесты MLC-030 → состав журнала 1:1), `dotnet format` без правок;
   frontend `lint`/`type-check`/`test` (109 passed)/`build` ОК («Все шаги пройдены успешно»).
+
+### MLC-033 (REF-05) — Обобщённый conflict→descriptor маппер + общий хвост submit форм — 2026-06-04
+
+- **Проблема:** паттерн «диалог формы + разбор `ConflictBody` (409 `code`) → действие» был введён точечно
+  в MLC-023 как `features/infobases/mapConflictToField.ts`, но та же логика «409 + проверка `code` →
+  действие» оставалась заинлайненной в нескольких диалогах. По REF-05 плана `distributed-orbiting-snail.md`
+  — берётся пятым (Phase 2), после REF-03 (`useInvalidatingMutation`, MLC-031). Cost if ignored: M.
+- **Разведка (карта обработки конфликтов):** реально общий — лишь приём «409 + таблица `code` → дескриптор»,
+  повторявшийся в 4 диалогах (`TenantFormDialog`, `useInfobaseForm`×2 кода, `ReassignInfobaseDialog`,
+  `DeleteTenantDialog`). Дополнительно — дословно совпадавший «хвост» submit-catch двух форм
+  (`400` → серверное сообщение, прочее → generic-тост). Каркас-компонент `<FormDialog>` отклонён как
+  переусложнение (формы Tenant и Infobase расходятся радикально); объём согласован с пользователем как
+  «маппер + хвост форм, без компонента-каркаса».
+- **Решение (надстройка над `lib/api`, контракт `ConflictBody`/`readConflictBody` не тронут):** новый
+  модуль `frontend/src/lib/apiErrors.ts` с двумя экспортами —
+  `matchConflictCode<T>(error, table): T | null` (чистый классификатор: `table[code]` при `ApiError`
+  `status===409` и непустом `code`, иначе `null`) и `toastFormSubmitError(error, t)` (общий хвост:
+  `400` → `toast.error(error.message || t("errors.generic"))`, прочее → generic).
+- **Переведено 5 сайтов (поведение/сообщения/поля-цели 1:1):** `mapConflictToField` (409-ветка свёрнута в
+  `matchConflictCode<ConflictFieldError>`, **404-кейс** `tenantId` остаётся отдельной веткой — он не 409;
+  экспорт `ConflictFieldError`/сигнатура не менялись); `useInfobaseForm` submit-хвост → `toastFormSubmitError`
+  (с сохранением `openAdvanced`+`setError`); `TenantFormDialog` (inline 409 `NAME_DUPLICATE` →
+  `matchConflictCode` + `form.setError`, хвост → `toastFormSubmitError`); `DeleteTenantDialog`
+  (`TENANT_HAS_INFOBASES` → `toast`); `ReassignInfobaseDialog` (`INFOBASE_NAME_TAKEN_IN_TARGET` →
+  локальный `setError`). Ставшие лишними импорты `ApiError`/`readConflictBody` убраны.
+- **Намеренно вне объёма (иная природа — в form-абстракцию не загоняли):** `KillSessionDialog`
+  (404 без code-таблицы, своя ветка «уже завершён» + close), `ReconcilePublicationDialog` (показывает
+  серверный `detail`/`title`, локальный `ConflictBody` с `title` ≠ контрактный — code-таблицы нет),
+  `DeleteInfobaseDialog` (разбора конфликтов нет). Общего code-маппинга у них нет.
+- **Тест нового примитива:** `frontend/src/lib/__tests__/apiErrors.test.ts` — `matchConflictCode`
+  (409 совпавший/неизвестный/без тела/без `code`, не-409 статусы, не-`ApiError`) и `toastFormSubmitError`
+  (400 с message / пустой message / прочее). Существующие диалоговые тесты (MLC-007/023:
+  `mapConflictToField`, `TenantFormDialog`, `DeleteTenantDialog`, `ReassignInfobaseDialog`,
+  `InfobaseFormDialog`, `useInfobaseForm`) остаются регрессией, что переписывание не сменило поведение.
+- **Файлы:** НОВЫЕ `frontend/src/lib/apiErrors.ts`, `frontend/src/lib/__tests__/apiErrors.test.ts`;
+  правки `features/infobases/mapConflictToField.ts`, `features/infobases/useInfobaseForm.ts`,
+  `features/tenants/TenantFormDialog.tsx`, `features/tenants/DeleteTenantDialog.tsx`,
+  `features/infobases/ReassignInfobaseDialog.tsx`.
+- **Прогон:** `scripts/build.ps1` зелёный целиком — backend `dotnet test` 268 passed, frontend
+  `lint`/`type-check`/`test` (118 passed, +1 файл `apiErrors.test.ts`)/`build` ОК («Все шаги пройдены
+  успешно»).

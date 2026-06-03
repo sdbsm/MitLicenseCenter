@@ -3,7 +3,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, useWatch } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { ApiError } from "@/lib/api";
+import { toastFormSubmitError } from "@/lib/apiErrors";
 import { useSettings } from "@/features/settings/useSettings";
 import {
   toDiscoveryState,
@@ -282,11 +282,7 @@ export function useInfobaseForm({
           form.setError(mapped.field, { type: "server", message: t(mapped.messageKey) });
           return;
         }
-        if (error instanceof ApiError && error.status === 400) {
-          toast.error(error.message || t("errors.generic"));
-          return;
-        }
-        toast.error(t("errors.generic"));
+        toastFormSubmitError(error, t);
       }
     },
     (errors) => {

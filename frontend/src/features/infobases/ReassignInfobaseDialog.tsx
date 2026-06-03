@@ -18,7 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ApiError, readConflictBody } from "@/lib/api";
+import { matchConflictCode } from "@/lib/apiErrors";
 import type { Tenant } from "@/features/tenants/types";
 import type { InfobaseListItem } from "./types";
 import { useReassignInfobase } from "./useInfobases";
@@ -56,12 +56,12 @@ export function ReassignInfobaseDialog({
       toast.success(t("infobases.reassign.success", { name: infobase.name, tenant: targetName }));
       onOpenChange(false);
     } catch (err) {
-      if (err instanceof ApiError && err.status === 409) {
-        const body = readConflictBody(err);
-        if (body?.code === "INFOBASE_NAME_TAKEN_IN_TARGET") {
-          setError(t("infobases.reassign.nameTaken"));
-          return;
-        }
+      const messageKey = matchConflictCode(err, {
+        INFOBASE_NAME_TAKEN_IN_TARGET: "infobases.reassign.nameTaken",
+      });
+      if (messageKey) {
+        setError(t(messageKey));
+        return;
       }
       toast.error(t("errors.generic"));
     }

@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ApiError, readConflictBody } from "@/lib/api";
+import { matchConflictCode } from "@/lib/apiErrors";
 import type { Tenant } from "./types";
 import { useDeleteTenant } from "./useTenants";
 
@@ -41,12 +41,12 @@ export function DeleteTenantDialog({ open, onOpenChange, tenant }: DeleteTenantD
       toast.success(t("tenants.toasts.deleted", { name: tenant.name }));
       onOpenChange(false);
     } catch (error) {
-      if (error instanceof ApiError && error.status === 409) {
-        const body = readConflictBody(error);
-        if (body?.code === "TENANT_HAS_INFOBASES") {
-          toast.error(t("tenants.errors.hasInfobases"));
-          return;
-        }
+      const messageKey = matchConflictCode(error, {
+        TENANT_HAS_INFOBASES: "tenants.errors.hasInfobases",
+      });
+      if (messageKey) {
+        toast.error(t(messageKey));
+        return;
       }
       toast.error(t("errors.generic"));
     }
