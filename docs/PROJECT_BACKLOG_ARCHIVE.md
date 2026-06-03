@@ -1424,3 +1424,35 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
   `dotnet format --verify-no-changes` — без правок. Smoke-тесты `RacExecutableSmokeTests` (2 шт.)
   требуют живого 1С RAS на 1540 и в этом окружении падают на отказе соединения — предсуществующее
   окружное ограничение, к правке отношения не имеющее; исключаются как и в CI (`--filter "Category!=Smoke"`).
+
+### MLC-031 (REF-03) — Фабрика CRUD-mutation хуков на фронте — 2026-06-03
+
+- **Проблема:** в каждой `features/*/use<X>.ts` повторялся один шаблон мутации —
+  `useMutation({ mutationFn: (v) => api(...), onSuccess: () => qc.invalidateQueries({ queryKey }) })`
+  для create/update/delete (канон — `features/infobases/useInfobases.ts`). Бойлерплейт `useQueryClient()`
+  + ручной `invalidateQueries` дублировался в 10 хуках 5 фич; политика инвалидации размазана. По REF-03
+  плана `distributed-orbiting-snail.md` — дешёвый FE-дедуп, берётся третьим (Phase 1). Cost if ignored: S.
+- **Решение:** новый generic-хелпер `useInvalidatingMutation` в `frontend/src/lib/useInvalidatingMutation.ts`.
+  Generic по типу переменных мутации (`CreateInput`, `{id, input}`, `string` для delete — все сигнатуры).
+  Параметр `invalidate` принимает: один ключ (`infobasesQueryKey`), массив ключей
+  (`[infobasesQueryKey, tenantsQueryKey]`) или функцию от переменных (`(id) => […]`), если ключ зависит
+  от переменных. Нормализация «один ключ vs массив ключей» — `toKeyList`: QueryKey сам массив, поэтому
+  массив ключей распознаётся по тому, что все элементы — массивы. Доп-логика в `onSuccess` сохранена
+  необязательным параметром `(data, variables) => void`, вызывается после инвалидации.
+- **Переведены 10 хуков (поведение 1:1):** `useCreateInfobase`/`useUpdateInfobase`/`useDeleteInfobase`
+  (1 ключ), `useReassignInfobase` (2 ключа — `infobases`+`tenants`), `useCreateTenant`/`useUpdateTenant`/
+  `useDeleteTenant`, `useUpdateSetting`, `useKillSession` (1 ключ), `useReconcile` (функция —
+  `[publicationsQueryKey, driftStatusQueryKey(publicationId)]`, ключ drift-статуса зависит от id).
+- **Намеренно не тронуты (не CRUD-invalidation паттерн):** `useLogin`/`useLogout` (политика —
+  `setQueryData`/`qc.clear()`, не инвалидация), `useChangePassword`/`useCheckDrift` (без `onSuccess`).
+  Фабрика не переусложнялась под их сигнатуры.
+- **Контракт неизменен:** те же queryKey-префиксы, та же политика инвалидации (fire-and-forget `void`),
+  сетевые вызовы `api(...)` без правок; query-хуки (`useQuery`) и серверная пагинация не затронуты.
+  Тесты диалогов (`TenantFormDialog`/`ReassignInfobaseDialog`/`DeleteTenantDialog`) проверяют
+  `invalidateQueries({ queryKey })` теми же ссылками-ключами → зелёные без правок.
+- **Файлы:** `frontend/src/lib/useInvalidatingMutation.ts` (новый), `features/infobases/useInfobases.ts`,
+  `features/tenants/useTenants.ts`, `features/publications/usePublications.ts`,
+  `features/sessions/useKillSession.ts`, `features/settings/useSettings.ts`.
+- **Прогон:** `scripts/build.ps1` зелёный целиком — backend 268 passed + `dotnet format` без правок;
+  frontend `pnpm lint`/`type-check`/`test` (109 passed, CRUD-тесты MLC-007 без правок)/`build` ОК
+  («Все шаги пройдены успешно»).

@@ -1,5 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { useInvalidatingMutation } from "@/lib/useInvalidatingMutation";
 import { tenantsQueryKey } from "@/features/tenants/useTenants";
 import {
   infobaseListResponseSchema,
@@ -58,49 +59,36 @@ export function useClusterIdAvailability(
 }
 
 export function useCreateInfobase() {
-  const qc = useQueryClient();
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (input: CreateInfobaseInput) =>
       api<InfobaseDetail>("/api/v1/infobases", { method: "POST", body: input }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: infobasesQueryKey });
-    },
+    invalidate: infobasesQueryKey,
   });
 }
 
 export function useUpdateInfobase() {
-  const qc = useQueryClient();
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateInfobaseInput }) =>
       api<InfobaseDetail>(`/api/v1/infobases/${id}`, { method: "PUT", body: input }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: infobasesQueryKey });
-    },
+    invalidate: infobasesQueryKey,
   });
 }
 
 export function useReassignInfobase() {
-  const qc = useQueryClient();
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: ({ id, targetTenantId }: { id: string; targetTenantId: string }) =>
       api<InfobaseDetail>(`/api/v1/infobases/${id}/reassign`, {
         method: "POST",
         body: { targetTenantId },
       }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: infobasesQueryKey });
-      // Счётчики баз на странице клиентов зависят от привязки — обновляем их тоже.
-      void qc.invalidateQueries({ queryKey: tenantsQueryKey });
-    },
+    // Счётчики баз на странице клиентов зависят от привязки — обновляем их тоже.
+    invalidate: [infobasesQueryKey, tenantsQueryKey],
   });
 }
 
 export function useDeleteInfobase() {
-  const qc = useQueryClient();
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (id: string) => api<null>(`/api/v1/infobases/${id}`, { method: "DELETE" }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: infobasesQueryKey });
-    },
+    invalidate: infobasesQueryKey,
   });
 }

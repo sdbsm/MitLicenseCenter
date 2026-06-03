@@ -1,5 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { useInvalidatingMutation } from "@/lib/useInvalidatingMutation";
 import { tenantListResponseSchema, type Tenant, type TenantInput } from "./types";
 
 export const tenantsQueryKey = ["tenants"] as const;
@@ -30,33 +31,24 @@ export function useAllTenants() {
 }
 
 export function useCreateTenant() {
-  const qc = useQueryClient();
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (input: TenantInput) =>
       api<Tenant>("/api/v1/tenants", { method: "POST", body: input }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: tenantsQueryKey });
-    },
+    invalidate: tenantsQueryKey,
   });
 }
 
 export function useUpdateTenant() {
-  const qc = useQueryClient();
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: ({ id, input }: { id: string; input: TenantInput }) =>
       api<Tenant>(`/api/v1/tenants/${id}`, { method: "PUT", body: input }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: tenantsQueryKey });
-    },
+    invalidate: tenantsQueryKey,
   });
 }
 
 export function useDeleteTenant() {
-  const qc = useQueryClient();
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (id: string) => api<null>(`/api/v1/tenants/${id}`, { method: "DELETE" }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: tenantsQueryKey });
-    },
+    invalidate: tenantsQueryKey,
   });
 }

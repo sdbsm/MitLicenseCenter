@@ -1,5 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { useInvalidatingMutation } from "@/lib/useInvalidatingMutation";
 import type {
   CheckDriftAcceptedResponse,
   DriftStatusResponse,
@@ -56,15 +57,12 @@ export function useCheckDrift() {
 }
 
 export function useReconcile() {
-  const qc = useQueryClient();
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (publicationId: string) =>
       api<DriftStatusResponse>(`/api/v1/publications/${publicationId}/reconcile`, {
         method: "POST",
       }),
-    onSuccess: (_data, publicationId) => {
-      void qc.invalidateQueries({ queryKey: publicationsQueryKey });
-      void qc.invalidateQueries({ queryKey: driftStatusQueryKey(publicationId) });
-    },
+    // Ключ drift-статуса зависит от id публикации — резолвим его из переменных мутации.
+    invalidate: (publicationId) => [publicationsQueryKey, driftStatusQueryKey(publicationId)],
   });
 }
