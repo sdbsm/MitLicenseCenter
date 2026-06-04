@@ -10,6 +10,7 @@
     <ProjectReference Include="..\..\src\MitLicenseCenter.Application\MitLicenseCenter.Application.csproj" />
     <ProjectReference Include="..\..\src\MitLicenseCenter.Infrastructure\MitLicenseCenter.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\MitLicenseCenter.Web\MitLicenseCenter.Web.csproj" />
+    <ProjectReference Include="..\..\tools\MitLicenseCenter.Tools.PerfHarness\MitLicenseCenter.Tools.PerfHarness.csproj" />
   </ItemGroup>
 
   <ItemGroup>

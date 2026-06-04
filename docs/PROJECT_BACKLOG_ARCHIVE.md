@@ -1687,3 +1687,65 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 - **Прогон:** `scripts/build.ps1` зелёный целиком — backend `restore`/`build`/`test` (277)/`format`
   (`--verify-no-changes`, без правок); frontend `lint`/`type-check`/`test` (118)/`build` ОК —
   «Все шаги пройдены успешно».
+
+### MLC-039 (PERF-03) — Нагрузочный seed-харнесс: проверка роста баз/сессий/аудита — 2026-06-04
+
+- **Проблема:** метрики MLC-037 есть, но **нет воспроизводимого способа создать рост** — на
+  idle-кластере hot/kill-инструменты нулевые, «держит ли рост» неизмеримо. Второй пункт перф-трека
+  (план `compressed-giggling-grove.md`, PERF-03): даёт стенд, на котором меряются MLC-037 и валидируются
+  PERF-05/06/07/09.
+- **Что сделано (только dev/test-tooling, прод-код не тронут — задача аддитивная).** Новый
+  **dev/test-only** консольный проект `backend/tools/MitLicenseCenter.Tools.PerfHarness` (папка `/tools/`
+  в `MitLicenseCenter.slnx`), `IsPublishable=false`, **Web на него не ссылается**:
+  - **seed-режим** (`PerfHarness seed --tenants N --infobases M --audit K --sessions S
+    --over-limit-fraction F --seed`) — засев dev-БД через **реальный** `AppDbContext`, поэтому FK,
+    уникальные индексы (`IX Tenants.Name`, `IX_Infobases_TenantId_Name`,
+    `IX_Infobases_ClusterInfobaseId`) и 1:1-публикация соблюдаются самой моделью; миграции не трогаются.
+    Аудит вставляется батчами по 10k с отключённым change-tracking (K=1e6 без разрыва памяти). Пишет
+    `scenario.json` (S синтетических сессий + over-limit тенанты + список инфобаз для discovery).
+  - **rac-stub-режим** (любые иные аргументы) — фейковый `rac.exe`, на который указывает
+    `OneC.RAS.ExePath`. Классифицирует `cluster list`/`session list`/`session terminate`/`infobase
+    summary list` (тем же приёмом, что тест-`BuildRunner`) и рендерит синтетику из `scenario.json` в
+    формате `RacOutputParser`. **Stateless** (те же сессии на каждый вызов) → over-limit тенанты остаются
+    over-limit → устойчивый kill-поток. `session terminate` → exit 0 (killed). Вывод ASCII → OEM-декод
+    в `SystemProcessRacRunner` корректен. **Заглушка стоит за существующим
+    `SystemProcessRacRunner`/`IRacProcessRunner` как внешний субпроцесс** — новый кластерный адаптер
+    НЕ введён (ADR-16), и `rac.exe.spawns` снимаются **реально** (метрика живёт в точке спавна).
+  - Чистая логика (`SeedDataGenerator`, `RacStub.Classify/Render`) вынесена в статические методы —
+    покрыта 11 unit-тестами в `Tests.Unit/PerfHarness/` (инварианты графа, детерминизм по seed, K строк
+    аудита, маршрутизация команд, round-trip session-list через `RacOutputParser`).
+- **Скрипты:** `scripts/perf-seed.ps1` (обёртка над seed; UTF-8 BOM; `$LASTEXITCODE`-судейство;
+  инвариантное форматирование доли) и `scripts/perf-counters.ps1` (обёртка `dotnet-counters
+  monitor/collect`). Процедура прогона + ростовые точки — в `docs/OPERATIONS.md` (рядом с §MLC-037).
+- **Ростовые точки:** baseline (N=20, M=50, K=100k, S=500) → ×10 (N=200, M=500, K=1e6, S=5000),
+  over-limit ~30%.
+- **Замер «до→после» (DoD).** Прогон на выделенной dev-БД `MitLicenseCenter_Perf` (миграции
+  `db-reset.ps1`), `OneC.RAS.ExePath` → заглушка, реальный backend (Release) + `dotnet-counters collect`
+  по обоим Meter'ам. Hot/kill-инструменты из нулевых стали ненулевыми и масштабируются:
+
+  | Метрика | Baseline (S=500) | ×10 (S=5000) |
+  | --- | --- | --- |
+  | `reconciliation.hot_tenants` (gauge) | **6** | **60** (ровно ×10) |
+  | `reconciliation.cold.duration` P50 | ~154 ms | ~196 ms |
+  | `reconciliation.hot.duration` P50 | ~149 ms | ~196 ms |
+  | `rac.exe.invocation.duration` (session.list) P50 | ~75 ms | ~89 ms |
+  | `rac.exe.spawns[cluster.list]` /мин | ~32 | ~30 |
+  | `rac.exe.spawns[session.list]` /мин | ~16 | ~16 |
+  | `rac.exe.spawns[session.terminate]` /мин | ~14 | ~12 |
+  | `reconciliation.kills` /мин | ~14 | ~12 |
+
+  Вывод замера: длительности цикла растут с числом сессий/баз, а **спавн-бюджет каденционно-ограничен**
+  (не зависит от объёма данных) — фактический спавн остаётся в рамках ADR-3.3 и под ростом. Это и есть
+  демонстрация, что харнесс позволяет мерить рост.
+- **Прод-сборка не включает харнесс (DoD).** `dotnet publish src/MitLicenseCenter.Web -c Release` →
+  в выходе (89 файлов) `MitLicenseCenter.Tools.PerfHarness.dll` **отсутствует**.
+- **Locked-границы соблюдены:** новый кластерный адаптер не введён (ADR-16/3.3 — заглушка за существующим
+  раннером); каденция/over-kill (`MaxKillsPerCycle`, ADR-6/MLC-001) не тронуты; ADR-20/single-node
+  (один кластер)/RU-only не затронуты; seed уважает FK и уникальные индексы; миграции не менялись.
+- **Файлы:** новые `backend/tools/MitLicenseCenter.Tools.PerfHarness/{*.csproj,Program,Seeder,SeedGraph,
+  RacStub,Scenario}.cs`, `backend/tests/MitLicenseCenter.Tests.Unit/PerfHarness/PerfHarnessTests.cs`,
+  `scripts/{perf-seed,perf-counters}.ps1`; правки `backend/MitLicenseCenter.slnx` (+`/tools/`),
+  `backend/tests/.../MitLicenseCenter.Tests.Unit.csproj` (ProjectReference), `docs/OPERATIONS.md`.
+- **Прогон:** `scripts/build.ps1` зелёный целиком — backend `restore`/`build` (0 warnings,
+  `TreatWarningsAsErrors`)/`test` (288 — +11 PerfHarness)/`format` (без правок); frontend
+  `lint`/`type-check`/`test` (118)/`build` ОК — «Все шаги пройдены успешно».

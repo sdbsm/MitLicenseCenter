@@ -174,3 +174,59 @@ near-zero overhead (инструменты no-op, теги не вычисляю
 (`reconciliation.hot.duration`, `reconciliation.kills`, теги `session.list`/`session.terminate`)
 ожидаемо нулевые — они проявляются под нагрузкой с over-quota сессиями (seed-харнесс PERF-03).
 
+## Нагрузочный seed-харнесс — проверка роста (`MLC-039` / PERF-03)
+
+**Только для dev/test.** Воспроизводимо создаёт «рост» (много клиентов/баз/аудита/сессий), чтобы
+под синтетической нагрузкой снять метрики выше и ответить замером «держит ли рост». Реализован
+консольным проектом `backend/tools/MitLicenseCenter.Tools.PerfHarness` — **dev-only артефакт**: Web
+на него не ссылается, в `dotnet publish` Web он не попадает; прод-поведение 1:1 (прод: `OneC.RAS.ExePath`
+= реальный `rac.exe`). Никакого нового кластерного адаптера (ADR-16): заглушка стоит за существующим
+`SystemProcessRacRunner` как внешний субпроцесс, поэтому метрики `rac.exe.spawns` снимаются реально.
+
+Два режима одного бинаря:
+
+- **seed** (`PerfHarness seed …`) — засевает dev-БД через реальный `AppDbContext` (FK, уникальные
+  индексы `IX Tenants.Name` / `IX_Infobases_TenantId_Name` / `IX_Infobases_ClusterInfobaseId`,
+  1:1 публикация — соблюдаются самой моделью; миграции не трогаются) и пишет `scenario.json`.
+- **rac-stub** (любые иные аргументы) — фейковый `rac.exe`: отвечает на `cluster list` / `session list`
+  / `session terminate` / `infobase summary list` синтетикой из `scenario.json`. Заглушка **stateless**
+  (те же сессии на каждый вызов) → over-limit тенанты остаются over-limit → устойчивый kill-поток.
+
+### Ростовые точки
+
+Панель — 5–20 пользователей. Дефолты = baseline (ожидаемый масштаб); ×10 = ростовая точка. «до→после»
+= baseline-прогон → ×10-прогон.
+
+| Параметр | Baseline | Ростовая точка (×10) | CLI-флаг |
+| --- | --- | --- | --- |
+| Клиенты | 20 | 200 | `--tenants` |
+| Инфобазы + публикации | 50 | 500 | `--infobases` |
+| Строки `AuditLogs` | 100 000 | 1 000 000 | `--audit` |
+| Активные сессии | 500 | 5 000 | `--sessions` |
+| Доля over-limit | ~30% | ~30% | `--over-limit-fraction` |
+
+### Процедура прогона
+
+1. Пересоздать dev-БД: `scripts\db-reset.ps1` (миграции + admin/настройки). Рекомендуется отдельная
+   БД (напр. `MitLicenseCenter_Perf`), чтобы не смешивать с рабочими данными:
+   `scripts\db-reset.ps1 -DatabaseName MitLicenseCenter_Perf -Force`.
+2. Засеять (ростовая точка): `scripts\perf-seed.ps1 -Tenants 200 -Infobases 500 -Audit 1000000 -Sessions 5000 -ConnectionString '…;Database=MitLicenseCenter_Perf'`
+   → пишет `scenario.json` (по умолчанию `%LOCALAPPDATA%\MitLicenseCenter\perf\scenario.json`).
+3. Указать заглушку как адаптер: в «Параметры» (или прямо в `dbo.Settings`) задать
+   `OneC.RAS.ExePath` = путь к собранному `MitLicenseCenter.Tools.PerfHarness.exe`,
+   `OneC.RAS.Endpoint` оставить пустым. Если `scenario.json` лежит не в дефолтном пути — выставить
+   env `MLC_PERF_SCENARIO` в окружении backend (субпроцесс-заглушка наследует env).
+4. Запустить backend (`scripts\dev.ps1`/`dotnet run` на той же `ConnectionStrings__Default`).
+   Cold-цикл (Hangfire, троттл 25 c) и hot-поллинг (4 c при наличии hot-тенанта) запускаются сами;
+   ускорить — уменьшить `Polling.Cold.IntervalSeconds` или триггернуть `cold-snapshot` из Hangfire-дэшборда.
+5. Снять метрики: `scripts\perf-counters.ps1` (или напрямую `dotnet-counters` — см. раздел выше).
+   Зафиксировать спавны/мин по тегам `cluster.list`/`session.list`/`session.terminate`,
+   `reconciliation.cold.duration`/`hot.duration` (P50/P95/P99), `reconciliation.kills`, `hot_tenants`.
+6. Повторить п.2/5 на baseline-параметрах — это и есть «до→после».
+
+Под нагрузкой (в отличие от idle-кластера) hot/kill-инструменты становятся ненулевыми: over-limit
+тенанты промоутятся в hot (gauge `hot_tenants` > 0), hot-поллинг даёт `session.list`-спавны каждые 4 c,
+а `KillEnforcer` — `session.terminate`-спавны и `reconciliation.kills` (≤ 20/цикл, `MaxKillsPerCycle`).
+Рост числа сессий/баз отражается в длительностях цикла и в спавн-бюджете — это и есть демонстрация,
+что харнесс позволяет мерить рост.
+

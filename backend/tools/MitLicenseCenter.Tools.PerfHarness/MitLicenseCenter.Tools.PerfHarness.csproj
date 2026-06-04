@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    MLC-039 (PERF-03) — dev/test-only нагрузочный харнесс. НЕ прод-артефакт: Web на этот
+    проект не ссылается, поэтому `dotnet publish` Web его не включает (проверяется в DoD).
+    Активируется только вручную (seed dev-БД + OneC.RAS.ExePath → этот exe). Прод-поведение 1:1.
+    FrameworkReference AspNetCore.App нужен, т.к. AppDbContext наследует IdentityDbContext —
+    Identity-типы должны присутствовать в shared framework на рантайме.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <IsPublishable>false</IsPublishable>
+    <!--
+      Dev-only CLI: CA1303 (локализация консольных строк не нужна — RU-only внутренний инструмент);
+      CA5394 (System.Random для ВОСПРОИЗВОДИМЫХ синтетических данных — не криптография).
+    -->
+    <NoWarn>$(NoWarn);CA1303;CA5394</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\MitLicenseCenter.Infrastructure\MitLicenseCenter.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="MitLicenseCenter.Tests.Unit" />
+  </ItemGroup>
+
+</Project>
