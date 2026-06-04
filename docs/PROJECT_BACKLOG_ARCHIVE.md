@@ -1586,3 +1586,44 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 - **Прогон:** `scripts/build.ps1` зелёный целиком — backend `dotnet test` 268 passed, `dotnet format`
   без правок; frontend `lint`/`type-check`/`test` (118 passed)/`build` ОК (каждая страница — отдельный
   чанк) — «Все шаги пройдены успешно».
+
+### MLC-035 (REF-07) — Группировка плоского `Web/Endpoints` по фиче — 2026-06-04
+
+- **Проблема:** 23 файла (`*Endpoints.cs` + `*Contracts.cs` + общие хелперы) лежали плоско в
+  `backend/src/MitLicenseCenter.Web/Endpoints/`; при росте числа фич каталог терял навигируемость.
+  По REF-07 плана `distributed-orbiting-snail.md` — берётся седьмым (Phase 2), последним активным
+  пунктом рефакторинг-трека, после REF-01/REF-06 (MLC-029/034), чтобы не перемещать файлы дважды.
+  Cost if ignored: M (низкий риск, но churn).
+- **Стратегия namespace (определена по факту конфига).** Проверено: в `.editorconfig` правила
+  `dotnet_style_namespace_match_folder` / IDE0130 **нет**; IDE0130 по умолчанию severity = suggestion —
+  ниже порога `dotnet format --verify-no-changes --severity warn` и ниже `TreatWarningsAsErrors`
+  (`backend/Directory.Build.props`, `EnforceCodeStyleInBuild=true`). Поэтому выбран **минимальный churn:
+  плоский namespace** — файлы перемещены в подпапки, но `namespace MitLicenseCenter.Web.Endpoints`
+  сохранён во всех (в C# папка ≠ namespace). Следствие: using-и, регистрация эндпоинтов в `Program.cs`
+  и ссылки в тестах **не тронуты вовсе**; контент файлов не менялся ни в одном.
+- **Подход (чистое перемещение, `git mv`).** 23 файла раскрыты как pure renames (история git
+  сохранена), ноль правок содержимого. Раскладка по фиче + общий `Shared/`:
+  - `Infobases/` — InfobasesEndpoints, InfobasesContracts
+  - `Tenants/` — TenantsEndpoints, TenantsContracts
+  - `Publications/` — PublicationsEndpoints, PublicationsContracts
+  - `Sessions/` — SessionsEndpoints, SessionsContracts
+  - `Settings/` — SettingsEndpoints, SettingsContracts
+  - `Auth/` — AuthEndpoints, AuthContracts
+  - `Audit/` — AuditEndpoints, AuditContracts
+  - `Discovery/` — DiscoveryEndpoints
+  - `Dashboard/` — DashboardEndpoints, DashboardContracts
+  - `Health/` — HealthEndpoints
+  - `Shared/` — EndpointHelpers, Problems, DbUniqueViolation, AuditDescriptions, InfobaseValidationRules
+    (кросс-фичевые: `AuditDescriptions` описывает записи журнала, порождаемые мутирующими эндпоинтами
+    Infobases/Tenants/Publications; `InfobaseValidationRules` используется Infobases/Publications/Tenants).
+- **Намеренно не трогал:** `TransportSecurity.cs` лежит в корне `Web/` (не в `Endpoints/`) — вне объёма,
+  оставлен на месте. Классы не сливались/не переименовывались, код не «причёсывался» — только раскладка.
+  Поведение, маршруты, контракты, состав/порядок аудита, регистрация эндпоинтов — 1:1.
+- **Поведение 1:1:** guard-тесты MLC-030 (`Architecture/LayerBoundaryTests.cs`, проверяют
+  Infra-неймспейсы, не внутреннюю раскладку Web) и тесты эндпоинтов остались зелёными без правок —
+  namespace не менялся, ссылки целы.
+- **Файлы:** перемещены 23 файла `Web/Endpoints/*.cs` → подпапки-фичи + `Shared/` (renames, контент
+  неизменен); правок исходников/тестов/`Program.cs`/`.csproj` (SDK-style glob) — ноль.
+- **Прогон:** `scripts/build.ps1` зелёный целиком — backend `dotnet restore`/`build`/`test`/`format`
+  (`--verify-no-changes`, без правок); frontend `lint`/`type-check`/`test` (118 passed)/`build` ОК —
+  «Все шаги пройдены успешно».
