@@ -84,8 +84,11 @@ REF-10→MLC-027, REF-11→MLC-011(a), REF-13→MLC-028). Phase 1–2 (MLC-029..
 ## NEXT TASK
 
 > **Нет активных задач.** Рефакторинг-трек Phase 1–2 (MLC-029..035 / REF-01..07) закрыт полностью —
-> последним выполнен `MLC-035` (REF-07, группировка `Web/Endpoints` по фиче; см. архив). Остаются только
-> **отложенные опции** (`MLC-025/026/027/028/011(a)`, ниже) и **Phase 3–4** рефакторинг-трека
+> последним выполнен `MLC-035` (REF-07, группировка `Web/Endpoints` по фиче; см. архив). **Перф-трек
+> Phase 1 (PERF-01..04 = MLC-037/039/038/040) также закрыт полностью** — последним выполнен `MLC-040`
+> (PERF-04, readiness-проба `/api/v1/health/ready`; см. архив); остальные пункты перф-плана
+> (`compressed-giggling-grove.md`, PERF-05+) — gated. Остаются только **отложенные опции**
+> (`MLC-025/026/027/028/011(a)`, ниже) и **Phase 3–4** рефакторинг-трека
 > (`REF-08..13` = `MLC-025/026/027/011(a)/028` + `MLC-036` RAS Strategy B) — все **gated на триггеры**,
 > не берутся по умолчанию. Новую `NEXT TASK` не ставить, пока не сработает триггер одной из отложенных
 > опций или не появится новая постановка от куратора.
@@ -119,7 +122,7 @@ REF-10→MLC-027, REF-11→MLC-011(a), REF-13→MLC-028). Phase 1–2 (MLC-029..
 
 ---
 
-## Закрыто (MLC-001..024, 029, 030, 031, 032, 033, 034, 035, 037, 038, 039) — индекс
+## Закрыто (MLC-001..024, 029, 030, 031, 032, 033, 034, 035, 037, 038, 039, 040) — индекс
 
 Полные постановки и отчёты: **`docs/PROJECT_BACKLOG_ARCHIVE.md`**.
 
@@ -157,3 +160,4 @@ REF-10→MLC-027, REF-11→MLC-011(a), REF-13→MLC-028). Phase 1–2 (MLC-029..
 - `MLC-037` (PERF-01) — Инструментирование горячего пути: лёгкий слой `Meter` (`System.Diagnostics.Metrics`) в единственной точке спавна `SystemProcessRacRunner.RunAsync` (Counter `rac.exe.spawns` + Histogram длительности, тег `command`/`outcome`) и на cold/hot-цикле (`reconciliation.cold/hot.duration`, `kills`, ObservableGauge `hot_tenants`) поверх существующих `Stopwatch`; near-zero overhead под гардом `Enabled`, поведение 1:1. Baseline снят `dotnet-counters` (спавны видны, кросс-чек с логом; счётчик = полный спавн-бюджет, надмножество логов), процедура — в `docs/OPERATIONS.md` «Наблюдаемость перфа». Фундамент перф-трека (разблокирует измеримость; триггер-замер для `MLC-036`). ADR-16/3.3/6/15/20 не затронуты. — Done (2026-06-04)
 - `MLC-039` (PERF-03) — Нагрузочный seed-харнесс (dev/test-only проект `backend/tools/MitLicenseCenter.Tools.PerfHarness`, `/tools/` в slnx, не в прод-publish): seed-режим засевает N клиентов / M инфобаз+публикаций (1:1) / K строк аудита через реальный `AppDbContext` (FK + уникальные индексы соблюдены, миграции не тронуты), пишет `scenario.json`; rac-stub-режим (за существующим `SystemProcessRacRunner`, новый адаптер не введён — ADR-16) отдаёт S синтетических сессий с over-limit тенантами, прогоняя cold/hot/kill-путь под ростом. Замер «до→после» снят `dotnet-counters`: `hot_tenants` 6→60 (ровно ×10), cold/hot.duration растут с числом сессий, спавн-бюджет каденционно-ограничен (в рамках ADR-3.3). 11 unit-тестов; процедура + ростовые точки — в `docs/OPERATIONS.md`. ADR-6/16/3.3/20/single-node/RU-only не затронуты. — Done (2026-06-04)
 - `MLC-038` (PERF-02) — Профиль наблюдаемости EF + захват baseline запросов: опт-ин гейт `Diagnostics:EfQueryProfiling` (+ отдельный `EfSensitiveDataLogging`, gated) навешивает `LogTo`(CommandExecuted) на `AddDbContext` (`Infrastructure/Diagnostics/EfQueryProfiling.cs` + 7 unit-тестов); по умолчанию выключен, прод-логи/поведение 1:1 (`Database.Command=Warning` не тронут), подтверждено рантаймом (флаг off → 0 EF-command-строк, файл-приёмник не создаётся). Снят baseline+×10 (харнесс MLC-039, Perf-БД): сгенерированный SQL + warm-тайминги четырёх эндпоинтов + Actual Execution Plan аудита. Вывод: дорогой растущий паттерн — фильтр-список аудита по `TenantId` + `ORDER BY Timestamp DESC,Id DESC` (Sort+key lookup, logical reads 2241→7480 на ×10, SQL сам просит индекс impact 69%) — прямой вход в **PERF-06**; `/sessions/snapshot` = 0 EF; коррелированный COUNT `/tenants` подтверждён как не-N+1. Запросы не менялись (наблюдение). Результаты — в `docs/OPERATIONS.md`. ADR-20/16/3.3/single-node/RU-only не затронуты. — Done (2026-06-05)
+- `MLC-040` (PERF-04) — Readiness-проба зависимостей: новый анонимный `GET /api/v1/health/ready` (liveness `/health` оставлен дёшевым 1:1) с тремя read-only пробами под таймаутом 2с — БД `CanConnectAsync` (единственная гейтит `not_ready`/`503`), RAS через готовый снапшот `IRasHealthReader` (ok/degraded/unknown, **без нового спавна `rac.exe`** — ADR-16/3.3), Hangfire-сторадж `GetStatistics()`; RAS-Сбой и Hangfire-down → `degraded`/`200` (single-node). Тело санитизировано (ADR-4.1/MLC-009): только грубые суб-статусы, сырые ошибки — в журнал сервера. Чистый агрегатор `ReadinessEvaluator` + 13 тестов. Замер «до→после» (`dotnet-counters`): суб-статусы различаются (db/ras/hangfire), 650+ health-запросов дали **0** записей `rac.exe.spawns` (контроль `System.Runtime` активен → сбор живой), DB-down→503 покрыт юнит-тестом (fail-fast ADR-18 не даёт стартовать против опущенной БД). ADR-18/22/20/single-node/RU-only не затронуты. — Done (2026-06-05)

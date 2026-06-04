@@ -96,6 +96,34 @@ The 1C cluster is administered exclusively through RAS via `rac.exe` ([ADR-16](D
 4. In the «Параметры» admin UI set `OneC.RAS.ExePath` to the version-specific `rac.exe` path (no seeded default), verify `OneC.RAS.Endpoint` (`localhost:1545`), and set `OneC.Cluster.AdminUser` / `OneC.Cluster.AdminPassword` (leave both empty for a cluster with no registered administrators — `rac.exe` runs anonymously).
 5. On the Dashboard the RAS health card should flip to `OK` within 30s. If it stays `Сбой`, open "детали ошибки" for the `rac.exe` stderr — usually a wrong `OneC.RAS.ExePath`, `ras.exe` not running, or missing ACLs. The Sessions Monitor resumes from the next reconciliation cycle (≤ 30s).
 
+## Проверки готовности — liveness vs readiness (`MLC-040` / PERF-04)
+
+Два анонимных эндпоинта с разной семантикой и ценой:
+
+| Эндпоинт | Назначение | Что проверяет | Коды |
+| --- | --- | --- | --- |
+| `GET /api/v1/health` | **liveness** — процесс жив | ничего (дёшев, без зависимостей) | всегда `200` `{status, version, utcNow}` |
+| `GET /api/v1/health/ready` | **readiness** — зависимости готовы | БД, RAS, Hangfire-сторадж | `200` (`ready`/`degraded`) · `503` (`not_ready`) |
+
+Тело readiness санитизировано (анонимный вызов — без путей/имён серверов/текстов исключений,
+[ADR-4.1](DECISIONS.md) / MLC-009; полные детали сбоя пишутся в журнал сервера):
+
+```json
+{ "status": "ready|degraded|not_ready",
+  "utcNow": "…",
+  "checks": { "database": "ok|down", "ras": "ok|degraded|unknown", "hangfire": "ok|down" } }
+```
+
+- **БД** (`CanConnectAsync`, под таймаутом 2с) — единственная зависимость, гейтящая
+  `not_ready`/`503`. Используйте код ответа в LB/мониторинге.
+- **RAS** — читается готовый снапшот `IRasHealthReader` (тот же 30с-пробер, что и карточка
+  Dashboard): `ok` / `degraded` (Сбой) / `unknown` (первые 30с). Readiness **не** делает новый
+  спавн `rac.exe` — счётчик `rac.exe.spawns` от health-запросов **не растёт** (растёт только от
+  фонового пробера). Это проверяется в DoD через `dotnet-counters` (см. ниже).
+- **Hangfire-сторадж** (`GetStatistics()`, под таймаутом 2с) — `ok` / `down`.
+- RAS-`Сбой` и Hangfire-`down` дают `degraded`, но остаются на `200`: single-node не имеет
+  смысла снимать из ротации из-за RAS — это уронит и сам Dashboard, где оператор видит ошибку.
+
 ## Наблюдаемость перфа — метрики горячего пути (`dotnet-counters`)
 
 Горячий путь (спавны `rac.exe` и цикл согласования) инструментирован встроенным

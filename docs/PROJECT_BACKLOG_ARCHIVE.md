@@ -1810,3 +1810,69 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 - **Прогон:** `scripts/build.ps1` зелёный целиком — backend `restore`/`build` (0 warnings,
   `TreatWarningsAsErrors`)/`test` (295 — +7 EfQueryProfiling)/`format` (без правок); frontend
   `lint`/`type-check`/`test` (118)/`build` ОК.
+
+### MLC-040 (PERF-04) — Readiness-проба зависимостей: `/api/v1/health/ready` — 2026-06-05
+
+- **Проблема:** `GET /api/v1/health` анонимен и возвращал только `{status, version, utcNow}` — не
+  проверял ни одной зависимости. «Процесс жив» было неотличимо от «БД недоступна / RAS в Сбое /
+  Hangfire-сторадж лёг»: оператор и нагрузочные замеры (перф-трек) не имели машинно-читаемого сигнала
+  готовности. Последний пункт Phase 1 перф-трека (план `compressed-giggling-grove.md`, PERF-04).
+- **Развилки (решены).**
+  - **Liveness vs readiness — разделены.** `/health` остался дешёвым liveness **1:1** (процесс отвечает
+    ⇒ жив; без зависимостей — контракт уже могут дёргать мониторинг/оркестратор). Добавлен отдельный
+    `GET /api/v1/health/ready` с пробами.
+  - **Гейтинг (решение куратора):** **только БД гейтит `not_ready`/`503`**. RAS-`Сбой` и Hangfire-`down`
+    → `degraded` на `200` (single-node: снимать узел из-за RAS бессмысленно — это уронит и сам Dashboard,
+    где оператор видит ошибку RAS).
+  - **Транспорт (решение куратора):** `503` при `not_ready`, `200` при `ready`/`degraded`.
+  - **Анонимность/раскрытие (ADR-4.1 / MLC-009):** endpoint анонимный (нужен probe-инструментам без
+    аутентификации), но **санитизирован** — только грубые суб-статусы, без путей/имён серверов/текстов
+    исключений и `RasHealthSnapshot.LastErrorMessage`; полное исключение пробы → в журнал сервера
+    (source-gen logger, как в Discovery).
+- **Что сделано.**
+  - Контракт `GET /api/v1/health/ready` (`AllowAnonymous`, тег `Health`, v1.0, тот же `versionSet`):
+    `{ status: ready|degraded|not_ready, utcNow, checks: { database: ok|down, ras: ok|degraded|unknown,
+    hangfire: ok|down } }`.
+  - Три read-only пробы под общим таймаутом 2с (linked-CTS / `WhenAny`):
+    **БД** — `db.Database.CanConnectAsync` (единственная зависимость, гейтящая `not_ready`/`503`);
+    **RAS** — чистое чтение снапшота `IRasHealthReader.GetSnapshot()` (тот же 30с-пробер, что и карточка
+    Dashboard) → `ok`/`degraded`(Сбой)/`unknown`(первые 30с); **никакого нового спавна `rac.exe`**
+    (ADR-16/3.3, спавн-бюджет); **Hangfire** — `JobStorage.GetMonitoringApi().GetStatistics()` (синхрон
+    уведён в пул и ограничен таймаутом).
+  - Чистый агрегатор `ReadinessEvaluator.Evaluate(db, ras, hangfire) → (overall, http)` вынесен из
+    хендлера → вся матрица решений покрыта юнит-тестами без реально лежащих зависимостей.
+  - Санитизация: тело несёт только enum-строки; `LogDatabaseProbeFailed`/`LogHangfireProbeFailed`
+    (source-gen) пишут полное исключение на сервер.
+  - **13 тестов** (`Endpoints/ReadinessEvaluatorTests.cs` — 8 матричных `[Theory]`;
+    `Endpoints/HealthReadyEndpointTests.cs` — 5: happy-path `ready`/200; RAS-`Сбой`→`degraded`/200 +
+    проверка что текст ошибки RAS **не утекает** в тело; RAS-`unknown`→`ready`; Hangfire-`down`→
+    `degraded`/200; disposed-контекст→`down`/`not_ready`/503).
+- **Замер «до→после» (DoD).** Backend (Release) в Development, живой SQL (`Server=.`), `dotnet-counters`
+  на `MitLicenseCenter.Rac`:
+  - **БД доступна:** `/health/ready` → `200`, `checks.database=ok`, `hangfire=ok` (Hangfire SQL-objects
+    установлены, сторадж читается); `ras=degraded` (в dev `OneC.RAS.ExePath` не задан → пробер фиксирует
+    Сбой), overall `degraded`/`200` — суб-статусы корректно различаются.
+  - **БД недоступна:** `503`, `status=not_ready`, `database=down` — подтверждено детерминированным
+    юнит-тестом (disposed-контекст; на живом инстансе не воспроизводится без остановки общего SQL-сервиса
+    — fail-fast ADR-18 не даёт стартовать против опущенной БД).
+  - **RAS-`Сбой`:** живьём `ras=degraded` при `database=ok` → `degraded`/`200` (не гейтит).
+  - **Спавны `rac.exe` (ключевой DoD):** **650+ health-запросов** (`/health/ready`×400 в одном окне +
+    предыдущие серии) при работающем коллекторе → инструмент `rac.exe.spawns` **не дал ни одной записи**
+    (Meter молчит ⇒ ноль инкрементов). Контроль: в том же окне `System.Runtime` дал десятки сэмплов —
+    коллектор заведомо живой, т.е. пустота по `Rac` = именно ноль спавнов, а не сломанный сбор. Лог
+    подтверждает: пробер падает на «`OneC.RAS.ExePath` не задан» ещё до спавна. Health-запросы спавнов
+    не порождают — структурно (хендлер читает только снапшот), эмпирически (счётчик 0) и в юнит-тестах
+    (substitute `IRasHealthReader`, без реального клиента).
+  - **Liveness 1:1:** `/health` → `200 {status:"ok", version, utcNow}`, без изменений.
+- **Locked-границы:** ADR-16/3.3 (RAS только через готовый снапшот, ни одного нового `rac.exe`),
+  ADR-18 fail-fast (тронут только runtime-роут, стартовый контракт не менялся), ADR-22 (добавлен только
+  роут, middleware/HSTS/redirect не тронуты), ADR-20/single-node/RU-only — не затронуты; liveness `/health`
+  не редактировался.
+- **Файлы:** новые `backend/src/MitLicenseCenter.Web/Endpoints/Health/HealthContracts.cs`,
+  `…/Health/ReadinessEvaluator.cs`,
+  `backend/tests/MitLicenseCenter.Tests.Unit/Endpoints/ReadinessEvaluatorTests.cs`,
+  `…/Endpoints/HealthReadyEndpointTests.cs`; правки `…/Endpoints/Health/HealthEndpoints.cs`,
+  `docs/04_INFRASTRUCTURE.md`, `docs/OPERATIONS.md`.
+- **Прогон:** `scripts/build.ps1` зелёный целиком — backend `restore`/`build` (0 warnings,
+  `TreatWarningsAsErrors`)/`test` (**308** — +13 readiness)/`format` (без правок); frontend
+  `lint`/`type-check`/`test` (118)/`build` ОК.
