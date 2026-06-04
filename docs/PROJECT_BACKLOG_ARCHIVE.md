@@ -1749,3 +1749,64 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 - **Прогон:** `scripts/build.ps1` зелёный целиком — backend `restore`/`build` (0 warnings,
   `TreatWarningsAsErrors`)/`test` (288 — +11 PerfHarness)/`format` (без правок); frontend
   `lint`/`type-check`/`test` (118)/`build` ОК — «Все шаги пройдены успешно».
+
+### MLC-038 (PERF-02) — Профиль наблюдаемости EF + захват baseline запросов — 2026-06-05
+
+- **Проблема:** в проде EF command-логирование = `Warning` — сгенерированный SQL не виден, медленный
+  запрос не диагностируется. Утверждения «на `AuditLogs` возможен sort/lookup без составного индекса» и
+  «correlated COUNT в `/tenants`» оставались догадкой. Третий пункт перф-трека (план
+  `compressed-giggling-grove.md`, PERF-02): сделать паттерны EF-запросов измеримыми, чтобы PERF-06
+  (индекс аудита) и PERF-07 (batch в `DriftCheckJob`) опирались на план запроса, а не на глаз.
+- **Что сделано (наблюдение, сами запросы не тронуты).**
+  - Новый чистый предикат-хелпер `Infrastructure/Diagnostics/EfQueryProfiling.cs` (по образцу
+    `TransportSecurity`, MLC-012): `IsEnabled`/`IsSensitiveEnabled`/`ResolveLogPath` + файловый
+    приёмник `BuildSink` (append под локом → файл + Console).
+  - Гейт в `Infrastructure/DependencyInjection.cs` (лямбда `AddDbContext`): при включённом флаге —
+    `options.LogTo(sink, [RelationalEventId.CommandExecuted], Information)`; `EnableSensitiveDataLogging`
+    только при **отдельном** явном opt-in (`IsSensitiveEnabled` ⇒ требует и профиль, и свой флаг). Свой
+    приёмник `LogTo` не зависит от секции `Logging` — единственный гейт это флаг.
+  - `appsettings.Development.json`: документирующий блок `Diagnostics` (оба флага `false`).
+    `appsettings.json`/`appsettings.Production.json` и уровни `Logging` **не тронуты** → прод 1:1.
+  - 7 unit-тестов `Tests.Unit/Diagnostics/EfQueryProfilingTests.cs` (таблица истинности гейта:
+    дефолт off, sensitive невозможен без профиля, путь по умолчанию/override).
+- **Замер «до→после» (DoD).** Perf-БД `MitLicenseCenter_Perf` (харнесс MLC-039): baseline (100k аудита)
+  и ×10 (1M аудита). Backend (Debug) с `Diagnostics__EfQueryProfiling=true`, логин admin → четыре
+  эндпоинта, `ef-profile.log` усекался перед каждым вызовом. План аудита — `SET STATISTICS XML ON`
+  напрямую по БД (Actual Execution Plan: операторы, `ActualLogicalReads`, `MissingIndexes`).
+  - **Сгенерированный SQL** (идентичен на обоих объёмах): `/tenants` — COUNT + страница с
+    **коррелированным** `SELECT COUNT(*) FROM [Infobases] WHERE [TenantId]=[t].[Id]` (один стейтмент,
+    не N round-trips); `/infobases` — COUNT + два INNER JOIN (`Tenants`,`Publications`); `/audit` —
+    COUNT + `ORDER BY [Timestamp] DESC,[Id] DESC OFFSET/FETCH` с опц. фильтрами; `/sessions/snapshot` —
+    **0 EF-команд** (читает in-memory `IActiveSessionSnapshotStore`).
+  - **Warm-тайминги (EF DbCommand, мс):** все sub-ms кроме `/audit` без фильтра COUNT **5→43** мс и
+    `/audit?tenantId=` страница **10→8** мс (данные в buffer cache → кэшонезависимая метрика = logical
+    reads плана).
+  - **План `AuditLogs`** (индексы: три одноколоночных + `PK(Id)`; составного нет):
+
+  | Запрос | baseline 100k | ×10 1M |
+  | --- | --- | --- |
+  | Страница без фильтра (`ORDER BY Timestamp DESC`) | Top + Scan `IX_Timestamp` + lookup — **130** reads | то же — **129** (не растёт) |
+  | Страница `TenantId`-only | Clustered Scan + **Sort** — **2241** | `IX_TenantId` Seek + **Sort** + lookup — **7480** + **Missing Index impact 69.3%** |
+  | Страница `ActionType`+`TenantId`+range (селективно) | Index Seek — **12** | — **6** |
+  | `COUNT(*)` без фильтра | Index Scan — **499** | — **4461** (линейно) |
+
+- **Вывод (вход в PERF-06/07).** Дорогой и растущий паттерн — **фильтр-список аудита по неселективному
+  `TenantId` + `ORDER BY Timestamp DESC, Id DESC`**: Sort + key lookup, logical reads 2241→7480, SQL сам
+  выдаёт missing-index (ключ `TenantId`, impact 69%). **PERF-06:** составной индекс
+  `(TenantId, Timestamp DESC, Id DESC)` (и аналог `(ActionType, …)`) убирает Sort и lookup. `COUNT(*)`
+  без фильтра растёт линейно (присуще offset-пагинации; watch-item). Список без фильтра уже эффективен
+  (`IX_Timestamp` + `Top`). `/tenants` correlated COUNT — не N+1 (подтверждено). PERF-07 (`DriftCheckJob`)
+  — фоновый джоб, снимается тем же профилем при прогоне дрейфа.
+- **Прод 1:1 при выключенном флаге (DoD).** Рантайм-проверка: backend без `Diagnostics__*` —
+  стартует и обслуживает, в stdout **0** строк `Executed DbCommand`/`RelationalEventId.CommandExecuted`
+  (включая логин+`/audit`), `ef-profile.log` не создаётся.
+- **Locked-границы:** запросы не менялись (только наблюдение); ADR-20 (vertical-slice, без use-case-слоя),
+  single-node, ADR-16/3.3, ADR-21, RU-only не затронуты; уровень логов прода (`Database.Command=Warning`)
+  не тронут.
+- **Файлы:** новые `backend/src/MitLicenseCenter.Infrastructure/Diagnostics/EfQueryProfiling.cs`,
+  `backend/tests/MitLicenseCenter.Tests.Unit/Diagnostics/EfQueryProfilingTests.cs`; правки
+  `backend/src/MitLicenseCenter.Infrastructure/DependencyInjection.cs`,
+  `backend/src/MitLicenseCenter.Web/appsettings.Development.json`, `docs/OPERATIONS.md`.
+- **Прогон:** `scripts/build.ps1` зелёный целиком — backend `restore`/`build` (0 warnings,
+  `TreatWarningsAsErrors`)/`test` (295 — +7 EfQueryProfiling)/`format` (без правок); frontend
+  `lint`/`type-check`/`test` (118)/`build` ОК.

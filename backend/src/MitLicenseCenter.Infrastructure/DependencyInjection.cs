@@ -1,9 +1,11 @@
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using MitLicenseCenter.Application.Auditing;
 using MitLicenseCenter.Application.Clusters;
 using MitLicenseCenter.Application.Discovery;
@@ -42,6 +44,27 @@ public static class DependencyInjection
                 sql.MigrationsHistoryTable("__EFMigrationsHistory", "dbo");
                 sql.EnableRetryOnFailure(maxRetryCount: 3);
             });
+
+            // MLC-038 (PERF-02): опт-ин профиль EF-команд для замера baseline-запросов.
+            // По умолчанию выключен — навешивается ТОЛЬКО когда задан флаг
+            // Diagnostics:EfQueryProfiling (config/env). Свой приёмник LogTo не зависит от
+            // секции Logging в appsettings, поэтому прод-уровень (Database.Command=Warning)
+            // и прод-поведение при выключенном флаге 1:1. Фильтр по CommandExecuted даёт
+            // ровно «Executed DbCommand (Xms) … SQL» без шума open/close-соединений.
+            if (EfQueryProfiling.IsEnabled(configuration))
+            {
+                options.LogTo(
+                    EfQueryProfiling.BuildSink(configuration),
+                    new[] { RelationalEventId.CommandExecuted },
+                    LogLevel.Information);
+
+                // Значения параметров в открытом виде — только при отдельном явном opt-in
+                // (gated в IsSensitiveEnabled). Никогда не включается без флага.
+                if (EfQueryProfiling.IsSensitiveEnabled(configuration))
+                {
+                    options.EnableSensitiveDataLogging();
+                }
+            }
         });
 
         services

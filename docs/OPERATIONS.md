@@ -230,3 +230,97 @@ near-zero overhead (инструменты no-op, теги не вычисляю
 Рост числа сессий/баз отражается в длительностях цикла и в спавн-бюджете — это и есть демонстрация,
 что харнесс позволяет мерить рост.
 
+## Профиль EF-запросов — baseline (`MLC-038` / PERF-02)
+
+**Только для диагностики, по умолчанию выключен.** Опт-ин профиль логирует сгенерированный EF SQL с
+таймингами для четырёх ключевых эндпоинтов, чтобы оптимизации (PERF-06 индекс аудита, PERF-07 batch в
+`DriftCheckJob`) опирались на план запроса, а не на догадку. Прод-поведение и прод-логи при выключенном
+флаге 1:1 (`Microsoft.EntityFrameworkCore.Database.Command` остаётся `Warning`).
+
+### Как включить
+
+| Флаг (config-ключ / env) | Дефолт | Что делает |
+| --- | --- | --- |
+| `Diagnostics:EfQueryProfiling` (`Diagnostics__EfQueryProfiling`) | `false` | навешивает `DbContextOptionsBuilder.LogTo` на событие `CommandExecuted` (Information) — «Executed DbCommand (Xms) … SQL» в файл-приёмник + Console |
+| `Diagnostics:EfSensitiveDataLogging` (`Diagnostics__EfSensitiveDataLogging`) | `false` | `EnableSensitiveDataLogging` — значения параметров в открытом виде. **Невозможен без включённого профиля** (gated); включается только явным opt-in, иначе секреты/значения не пишутся |
+| `Diagnostics:EfQueryProfilingLogPath` | `%LOCALAPPDATA%\MitLicenseCenter\perf\ef-profile.log` | путь файла-приёмника (создаётся лениво при первой записи) |
+
+Гейт — в `Infrastructure/DependencyInjection.cs` (лямбда `AddDbContext`); чистые предикаты —
+`Infrastructure/Diagnostics/EfQueryProfiling.cs` (юнит-тест `EfQueryProfilingTests`). Свой приёмник
+`LogTo` не зависит от секции `Logging` в appsettings — единственный гейт это флаг.
+
+### Процедура снятия baseline
+
+1. Засеять Perf-БД харнессом (см. раздел выше): baseline `--audit 100000` и ростовая точка
+   `--audit 1000000` (`db-reset.ps1 -DatabaseName MitLicenseCenter_Perf -Force` перед каждым засевом).
+2. Запустить backend с профилем: env `ConnectionStrings__Default=…MitLicenseCenter_Perf`,
+   `Diagnostics__EfQueryProfiling=true`, `Diagnostics__EfSensitiveDataLogging=true` (dev — чтобы видеть
+   параметры), `dotnet run`.
+3. Залогиниться (пароль admin печатается в лог при первом старте) и дёрнуть эндпоинты; усечь
+   `ef-profile.log` перед каждым вызовом, чтобы изолировать его SQL от фонового опроса.
+4. План запроса аудита — напрямую по Perf-БД (независимо от кэша EF): `SET STATISTICS XML ON` (Actual
+   Execution Plan: операторы, `ActualLogicalReads`, `MissingIndexes`) и/или `SET STATISTICS IO, TIME ON`.
+
+### Сгенерированный SQL (идентичен на baseline и ×10)
+
+- **`GET /tenants`** — `SELECT COUNT(*) FROM [Tenants]` + страница `… (SELECT COUNT(*) FROM [Infobases]
+  WHERE [TenantId]=[t].[Id]) … ORDER BY [Name] OFFSET/FETCH`. Коррелированный COUNT транслируется в
+  **один** SQL-стейтмент (подтверждено — НЕ N round-trips).
+- **`GET /infobases`** — `SELECT COUNT(*) FROM [Infobases] [WHERE TenantId=@tid]` + страница с **двумя
+  INNER JOIN** (`Tenants`, `Publications`) поверх пагинированного подзапроса, `ORDER BY [Name],[Id]`.
+- **`GET /audit`** — `SELECT COUNT(*) FROM [AuditLogs] [фильтры]` + страница `… WHERE [ActionType]=@action
+  AND [TenantId]=@tid AND [Timestamp] BETWEEN @from AND @to ORDER BY [Timestamp] DESC,[Id] DESC
+  OFFSET/FETCH`. Каждый фильтр опционален.
+- **`GET /sessions/snapshot`** — **0 EF-команд**: читает in-memory `IActiveSessionSnapshotStore.Current()`,
+  БД не трогает (подтверждённый отрицательный результат — оптимизации SQL тут неприменимы; рост — это
+  память снапшота, watch-item PERF-09).
+
+### Тайминги (warm EF DbCommand, мс: COUNT / страница)
+
+| Эндпоинт | baseline (100k аудита) | ×10 (1M аудита) |
+| --- | --- | --- |
+| `GET /tenants` | 0 / 0 | 0 / 0 |
+| `GET /infobases` | 0 / 0 | 0 / 1 |
+| `GET /infobases?tenantId=` | 0 / 0 | 0 / 0 |
+| `GET /audit` (без фильтра) | **5** / 0 | **43** / 0 |
+| `GET /audit?actionType=&tenantId=&from=&to=` (селективно) | 0 / 0 (cold first-touch COUNT ≈ 107) | 0 / 0 |
+| `GET /audit?tenantId=` (широкий фильтр) | 0 / **10** | 0 / **8** |
+| `GET /sessions/snapshot` | — (0 EF) | — (0 EF) |
+
+На обоих объёмах данные помещаются в buffer cache (1M строк аудита ≈ десятки МБ), поэтому warm-тайминги
+горячего пути ничтожны — кэшонезависимая метрика роста это **logical reads** из плана запроса (ниже).
+
+### План запроса `AuditLogs` (Actual Execution Plan; вход в PERF-06)
+
+Индексы на `dbo.AuditLogs`: три **одноколоночных** (`IX_AuditLogs_Timestamp`, `_ActionType`, `_TenantId`)
++ кластерный `PK_AuditLogs (Id)`. Составного индекса под «фильтр + `ORDER BY Timestamp DESC, Id DESC`» нет.
+
+| Запрос | baseline (100k), logical reads | ×10 (1M), logical reads |
+| --- | --- | --- |
+| Страница **без фильтра** (`ORDER BY Timestamp DESC`) | Top + Index Scan `IX_Timestamp` + key lookup — **130** | то же — **129** (не растёт: индекс даёт порядок, `Top 50` обрывает рано) |
+| Страница **`TenantId`-only** | Clustered Index Scan + **Sort** — **2241** | `IX_TenantId` Seek + **Sort** + key lookup — **7480** + **Missing Index, impact 69.3%** |
+| Страница **`ActionType`+`TenantId`+range** (селективно) | Index Seek — **12** | Index Seek — **6** |
+| `COUNT(*)` **без фильтра** | Index Scan — **499** | Index Scan — **4461** (растёт ~линейно) |
+| `COUNT(*)` **`TenantId`-only** | — | `IX_TenantId` Seek — **22** |
+
+Missing-Index, который SQL Server выдал сам на `TenantId`-only ×10: ключ `TenantId`, include
+`Timestamp, ActionType, Initiator, Description, Reason` (impact 69.3%).
+
+### Вывод — какие запросы дорогие и почему
+
+- **Дорогой и растущий — фильтрованный список аудита по неселективному предикату** (`TenantId`) +
+  `ORDER BY Timestamp DESC, Id DESC`: вынуждает **Sort + key lookup**, logical reads растут
+  **2241 → 7480** при росте таблицы (при том же объёме на тенант), и оптимизатор сам просит индекс
+  (impact 69%). **Прямой вход в PERF-06:** составной индекс `(TenantId, Timestamp DESC, Id DESC)` (и по
+  аналогии `(ActionType, Timestamp DESC, Id DESC)`) убирает и Sort, и lookup. Авто-подсказка SQL держит
+  `Timestamp` в include (Sort не уберёт) — осознанный дизайн ключует `Timestamp DESC, Id DESC`.
+- **`COUNT(*)` без фильтра растёт линейно** (499 → 4461 reads, 5 → 43 мс) — это присуще offset-пагинации
+  (нужен полный счёт); составной индекс его не уберёт. Watch-item, не PERF-06.
+- **Список аудита без фильтра уже эффективен** (едет по `IX_Timestamp`, `Top` обрывает рано; ~130 reads,
+  не растёт) — действий не требует.
+- **Коррелированный COUNT в `/tenants`** — один SQL, sub-ms даже на ×10: подтверждено, что это **не N+1**
+  (watch-item, не задача).
+- **`/infobases`** (два JOIN) и **`/sessions/snapshot`** (0 EF) — на горячем пути не дорогие.
+- **PERF-07** (`DriftCheckJob` N round-trips) — это фоновый джоб, не один из четырёх эндпоинтов; его
+  число SQL/проход снимается тем же профилем во время прогона дрейфа.
+
