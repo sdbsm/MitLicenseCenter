@@ -95,3 +95,82 @@ The 1C cluster is administered exclusively through RAS via `rac.exe` ([ADR-16](D
 3. **Grant the backend service account Read+Execute** on `1cv8\<version>\bin\`. `Network Service` is sufficient on stock installs; locked-down accounts may need an explicit ACL grant.
 4. In the «Параметры» admin UI set `OneC.RAS.ExePath` to the version-specific `rac.exe` path (no seeded default), verify `OneC.RAS.Endpoint` (`localhost:1545`), and set `OneC.Cluster.AdminUser` / `OneC.Cluster.AdminPassword` (leave both empty for a cluster with no registered administrators — `rac.exe` runs anonymously).
 5. On the Dashboard the RAS health card should flip to `OK` within 30s. If it stays `Сбой`, open "детали ошибки" for the `rac.exe` stderr — usually a wrong `OneC.RAS.ExePath`, `ras.exe` not running, or missing ACLs. The Sessions Monitor resumes from the next reconciliation cycle (≤ 30s).
+
+## Наблюдаемость перфа — метрики горячего пути (`dotnet-counters`)
+
+Горячий путь (спавны `rac.exe` и цикл согласования) инструментирован встроенным
+`System.Diagnostics.Metrics` (MLC-037 / PERF-01). Никаких внешних телеметрических систем
+([ADR-15](DECISIONS.md#15-backup-and-two-factor-authentication-scope-boundary)) — метрики
+снимаются локально утилитой **`dotnet-counters`**. Без активного слушателя метрики имеют
+near-zero overhead (инструменты no-op, теги не вычисляются), поэтому их можно держать в проде
+всегда — а снимать только когда нужно подтвердить спавн-бюджет
+([ADR-3.3](DECISIONS.md#33-rac-cli-spawn-contract)) или латентность цикла.
+
+### Инструменты
+
+**Meter `MitLicenseCenter.Rac`** (единственная точка спавна — `SystemProcessRacRunner`):
+
+| Инструмент | Тип | Единица | Теги | Что меряет |
+| --- | --- | --- | --- | --- |
+| `rac.exe.spawns` | Counter | `{spawn}` | `command` | каждый спавн процесса `rac.exe` (полный спавн-бюджет, включая health-ping) |
+| `rac.exe.invocation.duration` | Histogram | `ms` | `command`, `outcome` | длительность одного вызова `rac.exe` |
+
+- `command` ∈ `cluster.list` / `session.list` / `session.terminate` / `infobase.summary.list` / `other`.
+- `outcome` ∈ `ok` (exit 0) / `failed` (exit ≠ 0) / `timeout` (локальный 30s-дедлайн).
+
+**Meter `MitLicenseCenter.Reconciliation`** (цикл согласования):
+
+| Инструмент | Тип | Единица | Что меряет |
+| --- | --- | --- | --- |
+| `reconciliation.cold.duration` | Histogram | `ms` | длительность успешного cold-цикла (`ReconciliationJob`) |
+| `reconciliation.hot.duration` | Histogram | `ms` | длительность hot-поллинга RAS-fetch (`HotTierPollingService`) |
+| `reconciliation.kills` | Counter | `{session}` | число завершённых сессий за цикл enforcement (rate ≈ kills/мин) |
+| `reconciliation.hot_tenants` | ObservableGauge | `{tenant}` | текущее число hot-тенантов |
+
+### Процедура снятия baseline
+
+1. Установить утилиту (однократно): `dotnet tool install --global dotnet-counters`.
+2. Запустить backend (под нагрузкой PERF-03 либо локальным прогоном цикла) и снять метрики по
+   имени Meter'ов:
+
+   ```powershell
+   dotnet-counters monitor -n MitLicenseCenter.Web --counters MitLicenseCenter.Rac,MitLicenseCenter.Reconciliation
+   ```
+
+   (или `dotnet-counters collect …` для дампа в CSV/JSON). Гистограммы рендерятся перцентилями
+   (P50/P95/P99) через `MetricsEventSource` — без внешних систем. По `-n MitLicenseCenter.Web`
+   утилита находит процесс по имени; при нескольких — указать `-p <PID>`.
+3. **Кросс-проверка спавнов.** Каждый неуспешный вызов `rac.exe` логируется на `Warning` с именем
+   команды (`rac.exe {Command} вернул exit=…`); успешные cold/hot-циклы — на `Debug`
+   (`LogColdSnapshot`/`LogHotOverlay`, поднять уровень `MitLicenseCenter.Infrastructure` до `Debug`).
+   Сумма `rac.exe.spawns` за интервал обязана совпасть с ручным подсчётом этих строк в логе.
+
+### Пример baseline
+
+Снят локально (idle-кластер: `OneC.RAS.ExePath` указывал на заглушку с ненулевым exit, чтобы
+вызвать спавны без живого RAS), окно ~104 c, `--refresh-interval 1`:
+
+```
+[MitLicenseCenter.Rac]
+    rac.exe.spawns ({spawn} / 1 sec)
+        command=cluster.list                              (см. ниже: 6 спавнов за окно)
+    rac.exe.invocation.duration (ms)
+        command=cluster.list  outcome=failed  P50/P95/P99  ≈ 63–66
+
+[MitLicenseCenter.Reconciliation]
+    reconciliation.cold.duration (ms)  P50/P95/P99         ≈ 64–65
+    reconciliation.hot_tenants ({tenant})                  0
+```
+
+Декомпозиция 6 спавнов за окно (счётчик rac.exe.spawns рендерится как rate/1s; сумма ненулевых
+отсчётов): **4 health-ping** (`RasHealthProbingService`, каждые 30 c) + **2 cold-цикла**
+(`ReconciliationJob`, ~каждые 60 c). Это совпадает с заложенной каденцией.
+
+**Кросс-проверка со логом.** Cold-спавны (через `ResolveClusterUuidAsync`) логируются на `Warning`
+(`rac.exe cluster list вернул exit=…`) и параллельно дают записи `reconciliation.cold.duration` —
+оба источника подтверждают cold-компоненту. Health-ping (`PingAsync`) **намеренно не логирует**
+неуспех, поэтому счётчик `rac.exe.spawns` — это **полный** спавн-бюджет (надмножество логов) и
+единственный надёжный источник для проверки бюджета ADR-3.3. На idle-кластере hot/kill-инструменты
+(`reconciliation.hot.duration`, `reconciliation.kills`, теги `session.list`/`session.terminate`)
+ожидаемо нулевые — они проявляются под нагрузкой с over-quota сессиями (seed-харнесс PERF-03).
+

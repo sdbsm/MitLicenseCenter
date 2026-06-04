@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using MitLicenseCenter.Application.Clusters;
+using MitLicenseCenter.Infrastructure.Diagnostics;
 
 namespace MitLicenseCenter.Infrastructure.Clusters;
 
@@ -22,12 +23,24 @@ internal sealed class SystemProcessRacRunner : IRacProcessRunner
     // в parent'е пытается декодить байты как UTF-8 и получает U+FFFD.)
     private static readonly Encoding OemEncoding = ResolveOemEncoding();
 
+    private readonly RacMetrics _metrics;
+
+    public SystemProcessRacRunner(RacMetrics metrics)
+    {
+        _metrics = metrics;
+    }
+
     public async Task<RacInvocation> RunAsync(
         string exePath,
         IReadOnlyList<string> arguments,
         TimeSpan timeout,
         CancellationToken ct)
     {
+        // MLC-037 (PERF-01): засекаем длительность спавна. GetTimestamp() — наносекундный
+        // QPC-read, всегда-on без аллокаций. Сама запись метрики — под гардом _metrics.Enabled
+        // в конце метода (тег команды не вычисляется, если слушателя нет).
+        var startTs = Stopwatch.GetTimestamp();
+
         var psi = new ProcessStartInfo
         {
             FileName = exePath,
@@ -78,31 +91,47 @@ internal sealed class SystemProcessRacRunner : IRacProcessRunner
         var stdoutTask = process.StandardOutput.BaseStream.CopyToAsync(stdoutBuf, timeoutCts.Token);
         var stderrTask = process.StandardError.BaseStream.CopyToAsync(stderrBuf, timeoutCts.Token);
 
+        RacInvocation result;
+        string outcome;
         try
         {
             await Task.WhenAll(stdoutTask, stderrTask, process.WaitForExitAsync(timeoutCts.Token))
                 .ConfigureAwait(false);
+
+            result = new RacInvocation(
+                ExitCode: process.ExitCode,
+                Stdout: OemEncoding.GetString(stdoutBuf.ToArray()),
+                Stderr: OemEncoding.GetString(stderrBuf.ToArray()));
+            outcome = process.ExitCode == 0 ? RacMetrics.OutcomeOk : RacMetrics.OutcomeFailed;
         }
         catch (OperationCanceledException)
         {
             if (ct.IsCancellationRequested)
             {
-                // Внешняя отмена — пробрасываем дальше.
+                // Внешняя отмена — пробрасываем дальше (метрику не пишем).
                 throw;
             }
             // Локальный таймаут (timeoutCts сработал, но не родительский ct) —
             // возвращаем синтетический "non-zero exit" чтобы вызывающий код прошёл
             // ту же error-ветку, что и при failure от rac (empty list / circuit-open).
-            return new RacInvocation(
+            result = new RacInvocation(
                 ExitCode: -1,
                 Stdout: OemEncoding.GetString(stdoutBuf.ToArray()),
                 Stderr: $"rac.exe не уложился в таймаут {timeout.TotalSeconds:0}s.");
+            outcome = RacMetrics.OutcomeTimeout;
         }
 
-        return new RacInvocation(
-            ExitCode: process.ExitCode,
-            Stdout: OemEncoding.GetString(stdoutBuf.ToArray()),
-            Stderr: OemEncoding.GetString(stderrBuf.ToArray()));
+        // MLC-037 (PERF-01): единственная точка записи спавн-метрики. Тег команды и
+        // запись считаются только при активном слушателе → near-zero overhead в проде.
+        if (_metrics.Enabled)
+        {
+            _metrics.Record(
+                RacCommandTag.For(arguments),
+                Stopwatch.GetElapsedTime(startTs).TotalMilliseconds,
+                outcome);
+        }
+
+        return result;
     }
 
     private static Encoding ResolveOemEncoding()

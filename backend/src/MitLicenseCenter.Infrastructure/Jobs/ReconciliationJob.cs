@@ -6,6 +6,7 @@ using MitLicenseCenter.Application.Jobs;
 using MitLicenseCenter.Application.Sessions;
 using MitLicenseCenter.Application.Settings;
 using MitLicenseCenter.Domain.Settings;
+using MitLicenseCenter.Infrastructure.Diagnostics;
 using MitLicenseCenter.Infrastructure.Persistence;
 
 namespace MitLicenseCenter.Infrastructure.Jobs;
@@ -25,6 +26,7 @@ internal sealed partial class ReconciliationJob : IReconciliationJob
     private readonly ISettingsSnapshot _settings;
     private readonly ColdThrottleState _throttle;
     private readonly TimeProvider _clock;
+    private readonly ReconciliationMetrics _metrics;
     private readonly ILogger<ReconciliationJob> _logger;
 
     public ReconciliationJob(
@@ -36,6 +38,7 @@ internal sealed partial class ReconciliationJob : IReconciliationJob
         ISettingsSnapshot settings,
         ColdThrottleState throttle,
         TimeProvider clock,
+        ReconciliationMetrics metrics,
         ILogger<ReconciliationJob> logger)
     {
         _cluster = cluster;
@@ -46,6 +49,7 @@ internal sealed partial class ReconciliationJob : IReconciliationJob
         _settings = settings;
         _throttle = throttle;
         _clock = clock;
+        _metrics = metrics;
         _logger = logger;
     }
 
@@ -129,6 +133,7 @@ internal sealed partial class ReconciliationJob : IReconciliationJob
             }
 
             sw.Stop();
+            _metrics.RecordColdCycle(sw.Elapsed.TotalMilliseconds);
             var payload = new SnapshotPayload(entries, now, (int)sw.ElapsedMilliseconds, AdapterSource);
 
             await _enforcer.EnforceAsync(payload, ct).ConfigureAwait(false);

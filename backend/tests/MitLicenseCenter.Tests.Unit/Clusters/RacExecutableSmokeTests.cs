@@ -5,6 +5,7 @@ using MitLicenseCenter.Application.Clusters;
 using MitLicenseCenter.Application.Settings;
 using MitLicenseCenter.Domain.Settings;
 using MitLicenseCenter.Infrastructure.Clusters;
+using MitLicenseCenter.Tests.Unit.Diagnostics;
 using NSubstitute;
 using Xunit;
 
@@ -103,7 +104,7 @@ public sealed class RacExecutableSmokeTests
         settings.GetString(SettingKey.OneCClusterAdminPassword).Returns(Config["Smoke:ClusterPassword"]);
 
         return new RacExecutableRasClusterClient(
-            runner: new SystemProcessRacRunner(),
+            runner: new SystemProcessRacRunner(TestMetrics.Rac()),
             settings: settings,
             logger: NullLogger<RacExecutableRasClusterClient>.Instance);
     }

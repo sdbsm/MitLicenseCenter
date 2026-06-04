@@ -13,6 +13,7 @@ using MitLicenseCenter.Application.Sessions;
 using MitLicenseCenter.Application.Settings;
 using MitLicenseCenter.Infrastructure.Audit;
 using MitLicenseCenter.Infrastructure.Clusters;
+using MitLicenseCenter.Infrastructure.Diagnostics;
 using MitLicenseCenter.Infrastructure.Discovery;
 using MitLicenseCenter.Infrastructure.Identity;
 using MitLicenseCenter.Infrastructure.Jobs;
@@ -100,6 +101,13 @@ public static class DependencyInjection
         services.AddSingleton<IActiveSessionSnapshotStore, ActiveSessionSnapshotStore>();
         services.AddSingleton<IHotTierRegistry, HotTierRegistry>();
         services.AddSingleton<ColdThrottleState>();
+
+        // MLC-037 (PERF-01): метрики горячего пути (Meter'ы спавнов rac.exe и цикла
+        // согласования). Singleton'ы — Meter живёт на весь процесс; снимаются через
+        // dotnet-counters (см. OPERATIONS.md «Наблюдаемость перфа»). IMeterFactory
+        // предоставляется хостом (AddMetrics в generic host).
+        services.AddSingleton<RacMetrics>();
+        services.AddSingleton<ReconciliationMetrics>();
 
         // Reconciliation job + kill enforcer (scoped — require DbContext + IClusterClient).
         services.AddScoped<IReconciliationJob, ReconciliationJob>();

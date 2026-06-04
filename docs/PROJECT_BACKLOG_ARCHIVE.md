@@ -1627,3 +1627,63 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 - **Прогон:** `scripts/build.ps1` зелёный целиком — backend `dotnet restore`/`build`/`test`/`format`
   (`--verify-no-changes`, без правок); frontend `lint`/`type-check`/`test` (118 passed)/`build` ОК —
   «Все шаги пройдены успешно».
+
+### MLC-037 (PERF-01) — Инструментирование горячего пути: метрики цикла + спавнов `rac.exe` — 2026-06-04
+
+- **Проблема:** перф горячего пути был неизмерим — метрик нет вовсе (ни `System.Diagnostics.Metrics`,
+  ни EventCounters), единственный замер `Stopwatch`→`SnapshotPayload.TookMs` логировался на `Debug`
+  (в проде заглушён). Счётчика спавнов `rac.exe` не было — бюджет ADR-3.3 (~26 проц/мин) нельзя
+  подтвердить/опровергнуть. Первый и фундаментный пункт перф-трека (план
+  `compressed-giggling-grove.md`, PERF-01): разблокирует измеримость остального и поставляет
+  триггер-замер для `MLC-036`.
+- **Что сделано (только наблюдение, поведение 1:1).** Введён лёгкий слой `Meter` через `IMeterFactory`
+  (идиоматичный DI .NET 10; хост уже даёт `IMeterFactory` — правок `Program.cs` не потребовалось):
+  - `Infrastructure/Diagnostics/RacMetrics.cs` — Meter **`MitLicenseCenter.Rac`**: Counter
+    `rac.exe.spawns` (`{spawn}`, тег `command`) + Histogram `rac.exe.invocation.duration` (`ms`, теги
+    `command`,`outcome`). Свойство `Enabled` — гард: при отсутствии слушателя тег команды не
+    вычисляется (near-zero overhead).
+  - `Infrastructure/Diagnostics/RacCommandTag.cs` — чистый аллокейшен-фри хелпер: из аргументов
+    `rac.exe` выводит интернированную константу `cluster.list`/`session.list`/`session.terminate`/
+    `infobase.summary.list`/`other` (endpoint-токен и `--опции` пропускаются естественно).
+  - `Infrastructure/Diagnostics/ReconciliationMetrics.cs` — Meter **`MitLicenseCenter.Reconciliation`**:
+    Histogram `reconciliation.cold.duration` + `reconciliation.hot.duration` (`ms`), Counter
+    `reconciliation.kills` (`{session}`), ObservableGauge `reconciliation.hot_tenants` (`{tenant}`,
+    читается из `IHotTierRegistry` на сборке метрики, не на горячем пути).
+- **Точки инструментирования (1:1 поведение).** `SystemProcessRacRunner.RunAsync` — единственная
+  точка спавна: `Stopwatch.GetTimestamp()` + одна точка записи под гардом `_metrics.Enabled`
+  (оба `return` сведены, `outcome` = `ok`/`failed`/`timeout`; внешняя отмена `ct` пробрасывается без
+  записи). `ReconciliationJob.RunColdAsync` / `HotTierPollingService` — `RecordColdCycle`/`RecordHotCycle`
+  на **существующих** `Stopwatch` (тот же `sw`, что и `TookMs`). `KillEnforcer` — `AddKills(totalKills)`
+  внутри существующего `if (totalKills>0)`. Регистрация двух singleton'ов в
+  `Infrastructure/DependencyInjection.cs`.
+- **Тесты.** `Tests.Unit/Diagnostics/RacCommandTagTests.cs` (7) — все четыре реальные формы команд
+  (с endpoint и без, с auth-флагами; `--cluster=` не путается с глаголом `cluster`) + `other`/пусто.
+  `Tests.Unit/Diagnostics/RacMetricsTests.cs` (2) — `MeterListener` подтверждает инкремент счётчика и
+  запись гистограммы с тегами; `Enabled=false` без слушателя. Хелпер `Tests.Unit/Diagnostics/TestMetrics.cs`.
+  Конструкторы `KillEnforcer` (5 тестов) и `SystemProcessRacRunner` (smoke) обновлены под доп-зависимость.
+  Весь backend-сьют зелёный (277 тестов), включая host-building интеграционные — `IMeterFactory`
+  резолвится из коробки.
+- **Замер «до→после» (DoD).** Локально: `OneC.RAS.ExePath` направлен на заглушку с ненулевым exit
+  (спавны без живого RAS); `dotnet-counters collect` (окно ~104 c) по обоим Meter'ам. Все инструменты
+  **видны**: `rac.exe.spawns[command=cluster.list]`, `rac.exe.invocation.duration` (P50/95/99 ≈ 63–66 ms),
+  `reconciliation.cold.duration` (≈ 64–65 ms), `reconciliation.hot_tenants=0`. Сумма спавнов за окно =
+  **6** = детерминированная каденция **4 health-ping (30 c) + 2 cold-цикла (60 c)**. Кросс-проверка с
+  логом: cold-спавны (через `ResolveClusterUuidAsync`) дают и `Warning` (`rac.exe cluster list…`), и
+  записи `reconciliation.cold.duration`; health-ping (`PingAsync`) неуспех **не логирует** — значит
+  счётчик `rac.exe.spawns` есть **полный** спавн-бюджет (надмножество логов) и единственный надёжный
+  источник для ADR-3.3. Hot/kill-инструменты на idle-кластере ожидаемо нулевые — проявятся под
+  нагрузкой seed-харнесса PERF-03.
+- **Процедура снятия задокументирована** в `docs/OPERATIONS.md` → новый подраздел «Наблюдаемость
+  перфа» (инструменты/единицы/теги, команда `dotnet-counters`, кросс-проверка, пример baseline).
+- **Locked-границы соблюдены:** `rac.exe` — единственный адаптер (ADR-16/3.3), новый адаптер не введён;
+  каденция/over-kill (ADR-6 / `[DisableConcurrentExecution]` / MLC-001) не тронуты; только встроенный
+  `System.Diagnostics.Metrics` + `dotnet-counters`, без внешних систем (ADR-15); ADR-20/single-node/
+  RU-only не затронуты.
+- **Файлы:** новые `Infrastructure/Diagnostics/{RacMetrics,RacCommandTag,ReconciliationMetrics}.cs`,
+  тесты `Tests.Unit/Diagnostics/{RacCommandTagTests,RacMetricsTests,TestMetrics}.cs`; правки
+  `Infrastructure/Clusters/SystemProcessRacRunner.cs`, `Infrastructure/Jobs/{ReconciliationJob,
+  HotTierPollingService,KillEnforcer}.cs`, `Infrastructure/DependencyInjection.cs`, `docs/OPERATIONS.md`,
+  6 тест-сайтов (5×KillEnforcer + RacExecutableSmokeTests).
+- **Прогон:** `scripts/build.ps1` зелёный целиком — backend `restore`/`build`/`test` (277)/`format`
+  (`--verify-no-changes`, без правок); frontend `lint`/`type-check`/`test` (118)/`build` ОК —
+  «Все шаги пройдены успешно».

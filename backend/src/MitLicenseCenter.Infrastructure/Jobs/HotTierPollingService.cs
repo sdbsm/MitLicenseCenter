@@ -6,6 +6,7 @@ using MitLicenseCenter.Application.Clusters;
 using MitLicenseCenter.Application.Sessions;
 using MitLicenseCenter.Application.Settings;
 using MitLicenseCenter.Domain.Settings;
+using MitLicenseCenter.Infrastructure.Diagnostics;
 
 namespace MitLicenseCenter.Infrastructure.Jobs;
 
@@ -19,6 +20,7 @@ internal sealed partial class HotTierPollingService : BackgroundService
     private readonly IHotTierRegistry _registry;
     private readonly ISettingsSnapshot _settings;
     private readonly TimeProvider _clock;
+    private readonly ReconciliationMetrics _metrics;
     private readonly ILogger<HotTierPollingService> _logger;
 
     public HotTierPollingService(
@@ -27,6 +29,7 @@ internal sealed partial class HotTierPollingService : BackgroundService
         IHotTierRegistry registry,
         ISettingsSnapshot settings,
         TimeProvider clock,
+        ReconciliationMetrics metrics,
         ILogger<HotTierPollingService> logger)
     {
         _scopeFactory = scopeFactory;
@@ -34,6 +37,7 @@ internal sealed partial class HotTierPollingService : BackgroundService
         _registry = registry;
         _settings = settings;
         _clock = clock;
+        _metrics = metrics;
         _logger = logger;
     }
 
@@ -59,6 +63,7 @@ internal sealed partial class HotTierPollingService : BackgroundService
 
                 var freshSessions = await cluster.ListActiveSessionsAsync(stoppingToken).ConfigureAwait(false);
                 sw.Stop();
+                _metrics.RecordHotCycle(sw.Elapsed.TotalMilliseconds);
 
                 var currentPayload = _store.Current();
 

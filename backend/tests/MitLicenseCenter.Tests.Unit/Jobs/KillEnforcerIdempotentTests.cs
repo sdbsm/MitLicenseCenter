@@ -5,6 +5,7 @@ using MitLicenseCenter.Application.Sessions;
 using MitLicenseCenter.Domain.Audit;
 using MitLicenseCenter.Domain.Tenants;
 using MitLicenseCenter.Infrastructure.Jobs;
+using MitLicenseCenter.Tests.Unit.Diagnostics;
 using MitLicenseCenter.Tests.Unit.Endpoints;
 using NSubstitute;
 using Xunit;
@@ -54,7 +55,7 @@ public sealed class KillEnforcerIdempotentTests
         });
         await db.SaveChangesAsync();
 
-        var enforcer = new KillEnforcer(cluster, audit, db, NullLogger<KillEnforcer>.Instance);
+        var enforcer = new KillEnforcer(cluster, audit, db, TestMetrics.Reconciliation(), NullLogger<KillEnforcer>.Instance);
 
         // Act — should not throw.
         var act = () => enforcer.EnforceAsync(payload, CancellationToken.None);

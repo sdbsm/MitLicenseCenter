@@ -5,6 +5,7 @@ using MitLicenseCenter.Application.Clusters;
 using MitLicenseCenter.Application.Jobs;
 using MitLicenseCenter.Application.Sessions;
 using MitLicenseCenter.Domain.Audit;
+using MitLicenseCenter.Infrastructure.Diagnostics;
 using MitLicenseCenter.Infrastructure.Persistence;
 
 namespace MitLicenseCenter.Infrastructure.Jobs;
@@ -16,17 +17,20 @@ internal sealed partial class KillEnforcer : IKillEnforcer
     private readonly IClusterClient _cluster;
     private readonly IAuditLogger _audit;
     private readonly AppDbContext _db;
+    private readonly ReconciliationMetrics _metrics;
     private readonly ILogger<KillEnforcer> _logger;
 
     public KillEnforcer(
         IClusterClient cluster,
         IAuditLogger audit,
         AppDbContext db,
+        ReconciliationMetrics metrics,
         ILogger<KillEnforcer> logger)
     {
         _cluster = cluster;
         _audit = audit;
         _db = db;
+        _metrics = metrics;
         _logger = logger;
     }
 
@@ -116,6 +120,7 @@ internal sealed partial class KillEnforcer : IKillEnforcer
 
         if (totalKills > 0)
         {
+            _metrics.AddKills(totalKills);
             LogKillSummary(_logger, totalKills);
         }
     }
