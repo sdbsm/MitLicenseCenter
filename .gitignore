@@ -90,3 +90,4 @@ keys/
 # Claude Code — personal/local settings (shared settings.json stays tracked)
 # ─────────────────────────────────────────────────────────────
 .claude/settings.local.json
+.claude/hooks/
