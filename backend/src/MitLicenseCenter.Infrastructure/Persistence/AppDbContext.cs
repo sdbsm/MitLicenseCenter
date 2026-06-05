@@ -112,6 +112,15 @@ public sealed class AppDbContext : IdentityDbContext<AppUser, AppRole, Guid>
             e.Property(x => x.Description).IsRequired();
             e.HasIndex(x => x.Timestamp);
             e.HasIndex(x => x.ActionType);
+            // Составной под дорогой растущий запрос /audit: фильтр по TenantId +
+            // ORDER BY Timestamp DESC, Id DESC (PERF-06/MLC-042). Ключ (TenantId ASC,
+            // Timestamp DESC, Id DESC) убирает Sort и key lookup; лидирующий TenantId
+            // покрывает FK-seek, поэтому конвенция FK не создаёт одноколоночный
+            // IX_AuditLogs_TenantId. INCLUDE не нужен: остаточный lookup ограничен
+            // размером страницы (Top N), а Description (nvarchar(max)) раздул бы индекс.
+            e.HasIndex(x => new { x.TenantId, x.Timestamp, x.Id })
+                .IsDescending(false, true, true)
+                .HasDatabaseName("IX_AuditLogs_TenantId_Timestamp_Id");
             // SetNull: tenant deletion обнуляет ссылку, но запись аудита остаётся —
             // история всегда сохраняется.
             e.HasOne<Tenant>()

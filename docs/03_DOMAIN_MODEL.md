@@ -56,6 +56,11 @@ Immutable record of all critical system and administrator actions.
 
 **Retention.** Записи удаляются daily Hangfire job'ом старше `Settings.Audit.RetentionDays` (default 365, диапазон [30, 3650]). DELETE-only — никакого archival tier'а. Job пишет один `AuditLogsPurged=500` row на каждый non-empty purge (initiator="System"). Индекс `IX_AuditLogs_Timestamp` (single-column) обслуживает DELETE без дополнительных индексов.
 
+**Индексы.** `AuditLogs` — единственная неограниченно растущая таблица, поэтому индексы выровнены под её запросы (план запроса снят на засеянных 100k/1M, см. `OPERATIONS.md`):
+- `IX_AuditLogs_TenantId_Timestamp_Id` — составной `(TenantId, Timestamp DESC, Id DESC)`: обслуживает фильтрованный список `/audit` по `TenantId` с `ORDER BY Timestamp DESC, Id DESC`. Ключ убирает Sort и ограничивает key lookup размером страницы (logical reads перестают расти с таблицей: на 1M 8244 → 165). Лидирующий `TenantId` покрывает FK-seek, поэтому отдельного одноколоночного `IX_AuditLogs_TenantId` нет. INCLUDE-колонок нет намеренно (covering раздул бы индекс из-за `Description nvarchar(max)` и удорожил бы частый INSERT аудита).
+- `IX_AuditLogs_Timestamp` — single-column: список **без фильтра** (ordered scan + `Top`) и retention `DELETE` (см. выше).
+- `IX_AuditLogs_ActionType` — single-column: фильтр по `ActionType`. Составной `(ActionType, …)` не вводится — план показал, что `ActionType`-фильтр едет по упорядоченному `IX_AuditLogs_Timestamp` с ранним `Top` (без Sort), оптимизатор индекс не просит.
+
 ## 5. ActiveSessionSnapshot (Transient State)
 *Note: This entity is NOT permanently stored in MSSQL to avoid DB bloat. It represents the in-memory state captured during the Reconciliation Loop.*
 - `SessionId` (Guid): The 1C cluster session ID.

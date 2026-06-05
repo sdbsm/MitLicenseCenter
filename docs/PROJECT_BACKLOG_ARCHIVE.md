@@ -1958,6 +1958,78 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
   `TreatWarningsAsErrors`)/`test` (**315** — +7)/`format` (без правок); frontend
   `lint`/`type-check`/`test` (118)/`build` ОК.
 
+### MLC-042 (PERF-06) — Составной индекс под фильтр+сортировку `AuditLogs` — 2026-06-05
+
+- **Проблема:** `AuditLogs` — единственная неограниченно растущая таблица (живёт до ретенции,
+  default 365 дней). Снятый план запроса (MLC-038/PERF-02) доказал: фильтрованный список `/audit`
+  по неселективному `TenantId` + `ORDER BY Timestamp DESC, Id DESC` (`AuditEndpoints.ListAsync`)
+  вынуждает **Sort + key lookup**, logical reads растут с таблицей (100k 2241 → 1M 7480), а
+  SQL-оптимизатор сам просит missing index (impact ~69%). Индексы были три одноколоночных
+  (`IX_AuditLogs_Timestamp`, `_ActionType`, `_TenantId`) + кластерный `PK_AuditLogs(Id)`; составного
+  под «фильтр + сортировка по Timestamp с tie-break по Id» не было. PERF-06 плана
+  `compressed-giggling-grove.md`.
+- **Решение:** один составной индекс `IX_AuditLogs_TenantId_Timestamp_Id`
+  `(TenantId ASC, Timestamp DESC, Id DESC)` (`AppDbContext` `HasIndex(...).IsDescending(false, true,
+  true)`, миграция `MLC042AuditLogCompositeIndex`). Ключ совпадает с порядком запроса → **Sort
+  исчезает** (хранение = порядок), фильтр по `TenantId` идёт **Index Seek**, а key lookup за
+  остальными колонками (`Reason`/`Initiator`/`Description`/`ActionType`) ограничен **размером
+  страницы** (Top 50), а не числом совпадений → logical reads перестают расти с таблицей.
+- **Развилки (решены замером, не по умолчанию).**
+  - **Сколько индексов — только `TenantId`-вариант.** `ActionType`-only список планом **не**
+    подтверждён дорогим: на 1M он едет по упорядоченному `IX_AuditLogs_Timestamp` с ранним `Top`
+    (оператор `Top`, **не** Sort; нет missing-index-подсказки; reads ~1100, на порядок ниже
+    `TenantId`-only 8244). Симметричный `(ActionType, …)` не введён — лишний индекс удорожил бы
+    **каждый** INSERT аудита без доказанной пользы (минимально достаточный набор).
+  - **Судьба одноколоночных.** `IX_AuditLogs_TenantId` (создавался конвенцией FK) — **удалён** той
+    же миграцией: составной с лидирующим `TenantId` полностью покрывает FK/equality-seek (план после:
+    TenantId-COUNT идёт Index Seek по композиту). Это держит **число индексов на запись нейтральным**
+    (4 → 4: −1 single, +1 composite). `IX_AuditLogs_Timestamp` — **оставлен** (обслуживает retention
+    `DELETE TOP (5000)` по Timestamp и список без фильтра). `IX_AuditLogs_ActionType` — **оставлен**
+    (см. выше, композит не вводился).
+  - **INCLUDE-колонки (covering) — НЕ добавлены.** Доминирующую стоимость (Sort) снимает уже сам
+    ключ; остаточный lookup ограничен страницей и не растёт. `Description` — `nvarchar(max)`;
+    включение раздуло бы индекс и ударило по частому INSERT. Covering-выигрыш не оправдан.
+- **Замер «до→после» (Perf-БД `MitLicenseCenter_Perf`, тот же seed-харнесс MLC-039; «до» снято на
+  старой схеме, «после» — после применения миграции на тех же данных; STATISTICS IO + Actual Plan):**
+
+  | Запрос (`OFFSET 0 FETCH 50`) | 100k до | 100k после | 1M до | 1M после |
+  | --- | --- | --- | --- | --- |
+  | список **`TenantId`-only** (целевой) | **2239** | **166** | **8244** | **165** |
+  | список **`ActionType`-only** | 1113 | 1113 | 1099 | 1108 |
+  | список **без фильтра** | 165 | 165 | 156 | 165 |
+  | **`COUNT(*)` `TenantId`-only** | 16 | 27 | 21 | 19 |
+
+  - **Целевой запрос:** план `до` = TopN **Sort** + Nested Loops + Index Seek `IX_AuditLogs_TenantId`
+    (21) + **Clustered Index Seek / key lookup всех совпадений (7703)** + MissingIndex impact 69.9%;
+    план `после` = **`Top`** (Sort нет) + Index Seek `IX_AuditLogs_TenantId_Timestamp_Id` (3) + key
+    lookup, ограниченный 50 строками (126) = 165. **8244 → 165 (~50×)**, и не растёт с таблицей
+    (`до` растёт 2239→8244, `после` плоско ~165).
+  - **Список без фильтра — 1:1, не регресс:** план `после` по-прежнему `Index Scan` по
+    `IX_AuditLogs_Timestamp` + `Top` (156→165 — шум key-lookup'а 50 строк, тот же план).
+  - **Удаление `IX_AuditLogs_TenantId` безопасно:** `TenantId`-COUNT после идёт Index Seek по
+    композиту (16→27 на 100k / 21→19 на 1M — оба тривиальны; композит шире на Timestamp+Id, отсюда
+    ±; COUNT — watch-item offset-пагинации, индексом не адресуется).
+  - **INSERT-стоимость осознана:** число индексов на запись не выросло (своп single↔composite), без
+    INCLUDE.
+- **Граница объёма (не трогалось):** `COUNT(*)` **без** фильтра растёт ~линейно (присуще
+  offset-пагинации, не адресуется индексом) — watch-item, покрывающих индексов ради COUNT не
+  плодили.
+- **Гоча миграции:** `dotnet ef migrations add` сгенерил `.cs` в UTF-8 BOM + CRLF; нормализованы
+  три файла (новый `_MLC042AuditLogCompositeIndex.cs`, его `.Designer.cs`,
+  `AppDbContextModelSnapshot.cs`) → UTF-8 без BOM, LF (эталон — существующие миграции);
+  `dotnet format --verify-no-changes` в `build.ps1` прошёл.
+- **Файлы:** `…/Persistence/AppDbContext.cs` (HasIndex составного),
+  `…/Persistence/Migrations/20260605004020_MLC042AuditLogCompositeIndex.cs` (+ `.Designer.cs`),
+  `…/Persistence/Migrations/AppDbContextModelSnapshot.cs`, `docs/03_DOMAIN_MODEL.md` (§4 индексы
+  AuditLog, present-tense).
+- **Жёсткие границы:** запросы `AuditEndpoints.ListAsync` 1:1 (менялась только схема индексов);
+  retention-семантика (`DELETE TOP (5000)` по Timestamp) и enum int-стабильность
+  (`AuditActionType`/`AuditReason`) не тронуты; Locked-ADR-20/16/3.3/single-node/RU-only не
+  затронуты.
+- **Прогон:** `scripts/build.ps1` зелёный целиком — backend `restore`/`build`/`test` (**316**,
+  контрактные SQLite-тесты persistence зелёные — новый индекс не ломает схему)/`format` (без правок);
+  frontend `lint`/`type-check`/`test` (**118**, 21 файл)/`build` ОК.
+
 ### MLC-043 (PERF-07) — Батч-загрузка публикаций в `DriftCheckJob` (N+1 → 1) — 2026-06-05
 
 - **Проблема:** `DriftCheckJob.RunAllAsync` грузил все `Publication.Id` одним запросом, затем
