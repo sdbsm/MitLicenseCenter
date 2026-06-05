@@ -186,6 +186,7 @@ app.MapHealthEndpoints(versionSet);
 app.MapTenantsEndpoints(versionSet);
 app.MapInfobasesEndpoints(versionSet);
 app.MapPublicationsEndpoints(versionSet);
+app.MapIisEndpoints(versionSet);
 app.MapAuditEndpoints(versionSet);
 app.MapSessionsEndpoints(versionSet);
 app.MapSettingsEndpoints(versionSet);

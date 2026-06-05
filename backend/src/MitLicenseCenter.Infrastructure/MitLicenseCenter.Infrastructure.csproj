@@ -27,6 +27,7 @@
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" />
     <PackageReference Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" />
     <PackageReference Include="Microsoft.Web.Administration" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" />
   </ItemGroup>
 
 </Project>
