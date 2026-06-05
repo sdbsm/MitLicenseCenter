@@ -9,9 +9,12 @@ namespace MitLicenseCenter.Infrastructure.Clusters;
 // Production RAS-адаптер: оборачивает rac.exe. Единственный 1С cluster-адаптер
 // после Stage 5 PR 5.1 (ADR-16) — REST primary удалён, decorator'а больше нет.
 // CLI-контракт — ADR-3.3.
-// Spawn-cadence: ≤1 process per List/Kill/Ping. Внутри List ещё один process
-// (cluster list) для UUID-резолва — итого ≤2 per ListActiveSessionsAsync,
-// что в рамках memory-правила «не спавнить rac.exe per polling tick».
+// Spawn-cadence (MLC-041): UUID кластера кэшируется между вызовами в IClusterUuidCache
+// (singleton). При тёплом кэше «cluster list» НЕ спавнится — ListActiveSessionsAsync = 1
+// process (session list), Kill = 1 (terminate). Резолв «cluster list» происходит только
+// на холодном кэше / смене endpoint / инвалидации после ошибки команды — итого ≤2 на
+// ListActiveSessionsAsync в худшем случае. В рамках memory-правила «не спавнить rac.exe
+// per polling tick».
 internal sealed partial class RacExecutableRasClusterClient : IClusterClient
 {
     // Идемпотентный маркер «session not found» — стабильное русское сообщение
@@ -25,15 +28,18 @@ internal sealed partial class RacExecutableRasClusterClient : IClusterClient
 
     private readonly IRacProcessRunner _runner;
     private readonly ISettingsSnapshot _settings;
+    private readonly IClusterUuidCache _uuidCache;
     private readonly ILogger<RacExecutableRasClusterClient> _logger;
 
     public RacExecutableRasClusterClient(
         IRacProcessRunner runner,
         ISettingsSnapshot settings,
+        IClusterUuidCache uuidCache,
         ILogger<RacExecutableRasClusterClient> logger)
     {
         _runner = runner;
         _settings = settings;
+        _uuidCache = uuidCache;
         _logger = logger;
     }
 
@@ -60,6 +66,9 @@ internal sealed partial class RacExecutableRasClusterClient : IClusterClient
         if (invocation.ExitCode != 0)
         {
             LogRacFailed(_logger, "session list", invocation.ExitCode, invocation.Stderr.Trim());
+            // Safety-net: ошибка cluster-scoped команды могла означать stale UUID —
+            // сбрасываем кэш, следующий вызов перерезолвит (MLC-041).
+            _uuidCache.Invalidate(BuildClusterKey(exePath));
             return Array.Empty<ClusterSession>();
         }
 
@@ -111,12 +120,15 @@ internal sealed partial class RacExecutableRasClusterClient : IClusterClient
 
         // Идемпотентный no-op: сеанс уже завершился между snapshot и kill.
         // Семантика совпадает с REST 404 (см. ADR-3.1/3.3, infrastructure_integration.md).
+        // Это успешный no-op, НЕ ошибка кластера → кэш UUID не инвалидируем.
         if (invocation.Stderr.Contains(SessionNotFoundMarker, StringComparison.Ordinal))
         {
             return new KillSessionResult(Killed: false, AlreadyGone: true);
         }
 
         LogRacFailed(_logger, "session terminate", invocation.ExitCode, invocation.Stderr.Trim());
+        // Safety-net: прочая ошибка terminate могла означать stale UUID (MLC-041).
+        _uuidCache.Invalidate(BuildClusterKey(exePath));
         return new KillSessionResult(Killed: false, AlreadyGone: false);
     }
 
@@ -166,6 +178,8 @@ internal sealed partial class RacExecutableRasClusterClient : IClusterClient
         if (invocation.ExitCode != 0)
         {
             LogRacFailed(_logger, "infobase summary list", invocation.ExitCode, invocation.Stderr.Trim());
+            // Safety-net: ошибка cluster-scoped команды могла означать stale UUID (MLC-041).
+            _uuidCache.Invalidate(BuildClusterKey(exePath));
             return new ClusterInfobaseDiscoveryResult(
                 Array.Empty<ClusterInfobase>(), Available: false, Error: invocation.Stderr.Trim());
         }
@@ -207,6 +221,13 @@ internal sealed partial class RacExecutableRasClusterClient : IClusterClient
 
     private async Task<string?> ResolveClusterUuidAsync(string exePath, CancellationToken ct)
     {
+        // Кэш-хит → 0 спавнов. Single-node: один кластер, UUID стабилен (MLC-041).
+        var key = BuildClusterKey(exePath);
+        if (_uuidCache.TryGet(key, out var cached))
+        {
+            return cached;
+        }
+
         var args = BuildArgs("cluster", "list");
         var invocation = await _runner.RunAsync(exePath, args, InvocationTimeout, ct)
             .ConfigureAwait(false);
@@ -223,10 +244,21 @@ internal sealed partial class RacExecutableRasClusterClient : IClusterClient
             return null;
         }
 
-        return records[0].TryGetValue("cluster", out var uuid) && !string.IsNullOrWhiteSpace(uuid)
-            ? uuid
-            : null;
+        if (records[0].TryGetValue("cluster", out var uuid) && !string.IsNullOrWhiteSpace(uuid))
+        {
+            // Кэшируем только успешный резолв — неуспех/null не кэшируется.
+            _uuidCache.Store(key, uuid);
+            return uuid;
+        }
+
+        return null;
     }
+
+    // Ключ кэша UUID: ExePath + Endpoint из TTL-снапшота настроек. Пересобирается на
+    // каждом вызове, поэтому смена endpoint/exePath (после Invalidate снапшота) даёт
+    // промах кэша и перерезолв — отдельный хук на смену настроек не нужен.
+    private ClusterUuidKey BuildClusterKey(string exePath)
+        => new(exePath, _settings.GetString(SettingKey.OneCRasEndpoint) ?? string.Empty);
 
     private bool TryGetExePath(out string exePath)
     {

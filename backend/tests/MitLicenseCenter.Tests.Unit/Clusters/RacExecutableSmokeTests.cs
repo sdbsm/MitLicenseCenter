@@ -106,6 +106,7 @@ public sealed class RacExecutableSmokeTests
         return new RacExecutableRasClusterClient(
             runner: new SystemProcessRacRunner(TestMetrics.Rac()),
             settings: settings,
+            uuidCache: new ClusterUuidCache(),
             logger: NullLogger<RacExecutableRasClusterClient>.Instance);
     }
 }

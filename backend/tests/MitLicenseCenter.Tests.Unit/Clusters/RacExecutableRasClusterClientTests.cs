@@ -37,7 +37,7 @@ public sealed class RacExecutableRasClusterClientTests
         runner.RunAsync("rac.exe", Arg.Is<IReadOnlyList<string>>(a => a.Contains("session") && a.Contains("list")), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
             .Returns(new RacInvocation(0, FakeSingleSessionStdout, string.Empty));
 
-        var client = new RacExecutableRasClusterClient(runner, settings, NullLogger<RacExecutableRasClusterClient>.Instance);
+        var client = BuildClient(runner, settings);
 
         var sessions = await client.ListActiveSessionsAsync(default);
 
@@ -66,7 +66,7 @@ public sealed class RacExecutableRasClusterClientTests
 
         var settings = BuildSettings();
         var runner = BuildRunner(clusterList: FakeClusterListStdout, sessionList: twoSessions);
-        var client = new RacExecutableRasClusterClient(runner, settings, NullLogger<RacExecutableRasClusterClient>.Instance);
+        var client = BuildClient(runner, settings);
 
         var sessions = await client.ListActiveSessionsAsync(default);
 
@@ -92,7 +92,7 @@ public sealed class RacExecutableRasClusterClientTests
         var settings = BuildSettings();
         settings.GetString(SettingKey.OneCLicenseConsumingAppIds).Returns("BackgroundJob");
         var runner = BuildRunner(clusterList: FakeClusterListStdout, sessionList: twoSessions);
-        var client = new RacExecutableRasClusterClient(runner, settings, NullLogger<RacExecutableRasClusterClient>.Instance);
+        var client = BuildClient(runner, settings);
 
         var sessions = await client.ListActiveSessionsAsync(default);
 
@@ -111,7 +111,7 @@ public sealed class RacExecutableRasClusterClientTests
                 Stdout: string.Empty,
                 Stderr: "Ошибка соединения с сервером"));
 
-        var client = new RacExecutableRasClusterClient(runner, settings, NullLogger<RacExecutableRasClusterClient>.Instance);
+        var client = BuildClient(runner, settings);
 
         var sessions = await client.ListActiveSessionsAsync(default);
 
@@ -129,7 +129,7 @@ public sealed class RacExecutableRasClusterClientTests
         settings.GetString(SettingKey.OneCRasExePath).Returns((string?)null);
 
         var runner = Substitute.For<IRacProcessRunner>();
-        var client = new RacExecutableRasClusterClient(runner, settings, NullLogger<RacExecutableRasClusterClient>.Instance);
+        var client = BuildClient(runner, settings);
 
         var sessions = await client.ListActiveSessionsAsync(default);
 
@@ -143,7 +143,7 @@ public sealed class RacExecutableRasClusterClientTests
     {
         var settings = BuildSettings();
         var runner = BuildRunner(clusterList: FakeClusterListStdout, sessionTerminateExit: 0, sessionTerminateStderr: string.Empty);
-        var client = new RacExecutableRasClusterClient(runner, settings, NullLogger<RacExecutableRasClusterClient>.Instance);
+        var client = BuildClient(runner, settings);
 
         var descriptor = new SessionDescriptor(
             ClusterInfobaseId: Guid.NewGuid(),
@@ -169,7 +169,7 @@ public sealed class RacExecutableRasClusterClientTests
             sessionTerminateExit: 255,
             sessionTerminateStderr: sessionNotFoundStderr);
 
-        var client = new RacExecutableRasClusterClient(runner, settings, NullLogger<RacExecutableRasClusterClient>.Instance);
+        var client = BuildClient(runner, settings);
 
         var result = await client.KillSessionAsync(
             new SessionDescriptor(Guid.NewGuid(), Guid.NewGuid(), "1CV8C", DateTime.UtcNow),
@@ -188,7 +188,7 @@ public sealed class RacExecutableRasClusterClientTests
             sessionTerminateExit: 255,
             sessionTerminateStderr: "Какая-то другая ошибка от rac.exe");
 
-        var client = new RacExecutableRasClusterClient(runner, settings, NullLogger<RacExecutableRasClusterClient>.Instance);
+        var client = BuildClient(runner, settings);
 
         var result = await client.KillSessionAsync(
             new SessionDescriptor(Guid.NewGuid(), Guid.NewGuid(), "1CV8C", DateTime.UtcNow),
@@ -206,7 +206,7 @@ public sealed class RacExecutableRasClusterClientTests
         runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
             .Returns(new RacInvocation(0, FakeClusterListStdout, string.Empty));
 
-        var client = new RacExecutableRasClusterClient(runner, settings, NullLogger<RacExecutableRasClusterClient>.Instance);
+        var client = BuildClient(runner, settings);
 
         var result = await client.PingAsync(default);
 
@@ -222,7 +222,7 @@ public sealed class RacExecutableRasClusterClientTests
         runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
             .Returns(new RacInvocation(255, string.Empty, "Ошибка соединения с сервером\r\n"));
 
-        var client = new RacExecutableRasClusterClient(runner, settings, NullLogger<RacExecutableRasClusterClient>.Instance);
+        var client = BuildClient(runner, settings);
 
         var result = await client.PingAsync(default);
 
@@ -239,7 +239,7 @@ public sealed class RacExecutableRasClusterClientTests
         runner.RunAsync(Arg.Any<string>(), Arg.Do<IReadOnlyList<string>>(a => captured.Add(a)), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
             .Returns(new RacInvocation(0, FakeClusterListStdout, string.Empty), new RacInvocation(0, string.Empty, string.Empty));
 
-        var client = new RacExecutableRasClusterClient(runner, settings, NullLogger<RacExecutableRasClusterClient>.Instance);
+        var client = BuildClient(runner, settings);
 
         await client.ListActiveSessionsAsync(default);
 
@@ -259,7 +259,7 @@ public sealed class RacExecutableRasClusterClientTests
         runner.RunAsync(Arg.Any<string>(), Arg.Do<IReadOnlyList<string>>(a => captured.Add(a)), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
             .Returns(new RacInvocation(0, FakeClusterListStdout, string.Empty), new RacInvocation(0, string.Empty, string.Empty));
 
-        var client = new RacExecutableRasClusterClient(runner, settings, NullLogger<RacExecutableRasClusterClient>.Instance);
+        var client = BuildClient(runner, settings);
 
         await client.ListActiveSessionsAsync(default);
 
@@ -277,14 +277,119 @@ public sealed class RacExecutableRasClusterClientTests
         runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
             .Returns<Task<RacInvocation>>(_ => Task.FromCanceled<RacInvocation>(cts.Token));
 
-        var client = new RacExecutableRasClusterClient(runner, settings, NullLogger<RacExecutableRasClusterClient>.Instance);
+        var client = BuildClient(runner, settings);
 
         var act = async () => await client.ListActiveSessionsAsync(cts.Token);
 
         await act.Should().ThrowAsync<TaskCanceledException>();
     }
 
+    // --- MLC-041: кэш резолва UUID кластера между вызовами ---
+
+    [Fact]
+    public async Task Cluster_uuid_is_cached_across_calls_no_repeat_cluster_list()
+    {
+        var settings = BuildSettings();
+        var runner = BuildRunner(clusterList: FakeClusterListStdout, sessionList: FakeSingleSessionStdout);
+        var cache = new ClusterUuidCache();
+        var client = BuildClient(runner, settings, cache);
+
+        await client.ListActiveSessionsAsync(default);
+        await client.ListActiveSessionsAsync(default);
+
+        // cluster list резолвится один раз — второй вызов берёт UUID из кэша.
+        await runner.Received(1).RunAsync(Arg.Any<string>(),
+            Arg.Is<IReadOnlyList<string>>(a => a.Contains("cluster") && a.Contains("list")),
+            Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>());
+        await runner.Received(2).RunAsync(Arg.Any<string>(),
+            Arg.Is<IReadOnlyList<string>>(a => a.Contains("session") && a.Contains("list")),
+            Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Cluster_uuid_cache_invalidates_on_endpoint_change()
+    {
+        var endpoint = "ras-a:1545";
+        var settings = Substitute.For<ISettingsSnapshot>();
+        settings.GetString(SettingKey.OneCRasExePath).Returns("rac.exe");
+        settings.GetString(SettingKey.OneCClusterAdminUser).Returns("admin");
+        settings.GetString(SettingKey.OneCClusterAdminPassword).Returns("secret");
+        settings.GetString(SettingKey.OneCRasEndpoint).Returns(_ => endpoint);
+
+        var runner = BuildRunner(clusterList: FakeClusterListStdout, sessionList: FakeSingleSessionStdout);
+        var cache = new ClusterUuidCache();
+        var client = BuildClient(runner, settings, cache);
+
+        await client.ListActiveSessionsAsync(default);
+        endpoint = "ras-b:1545"; // оператор сменил endpoint → ключ кэша больше не совпадает
+        await client.ListActiveSessionsAsync(default);
+
+        // Смена endpoint → промах кэша → повторный резолв cluster list.
+        await runner.Received(2).RunAsync(Arg.Any<string>(),
+            Arg.Is<IReadOnlyList<string>>(a => a.Contains("cluster") && a.Contains("list")),
+            Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Cluster_uuid_cache_invalidates_after_command_error()
+    {
+        var settings = BuildSettings();
+        var runner = Substitute.For<IRacProcessRunner>();
+        runner.RunAsync(Arg.Any<string>(),
+                Arg.Is<IReadOnlyList<string>>(a => a.Contains("cluster") && a.Contains("list")),
+                Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(new RacInvocation(0, FakeClusterListStdout, string.Empty));
+        runner.RunAsync(Arg.Any<string>(),
+                Arg.Is<IReadOnlyList<string>>(a => a.Contains("session") && a.Contains("list")),
+                Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(new RacInvocation(255, string.Empty, "Ошибка соединения с сервером"));
+
+        var cache = new ClusterUuidCache();
+        var client = BuildClient(runner, settings, cache);
+
+        await client.ListActiveSessionsAsync(default); // резолв OK → session list fail → Invalidate
+        await client.ListActiveSessionsAsync(default); // кэш сброшен → перерезолв
+
+        await runner.Received(2).RunAsync(Arg.Any<string>(),
+            Arg.Is<IReadOnlyList<string>>(a => a.Contains("cluster") && a.Contains("list")),
+            Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Kill_AlreadyGone_does_not_invalidate_cluster_uuid_cache()
+    {
+        // Идемпотентный no-op «Сеанс … не найден» — НЕ ошибка кластера: кэш переживает,
+        // следующий kill не перерезолвит cluster list.
+        var settings = BuildSettings();
+        var runner = BuildRunner(
+            clusterList: FakeClusterListStdout,
+            sessionTerminateExit: 255,
+            sessionTerminateStderr: "Сеанс с указанным идентификатором не найден\r\n");
+        var cache = new ClusterUuidCache();
+        var client = BuildClient(runner, settings, cache);
+        var descriptor = new SessionDescriptor(Guid.NewGuid(), Guid.NewGuid(), "1CV8C", DateTime.UtcNow);
+
+        var first = await client.KillSessionAsync(descriptor, default);
+        var second = await client.KillSessionAsync(descriptor, default);
+
+        first.AlreadyGone.Should().BeTrue();
+        second.AlreadyGone.Should().BeTrue();
+        await runner.Received(1).RunAsync(Arg.Any<string>(),
+            Arg.Is<IReadOnlyList<string>>(a => a.Contains("cluster") && a.Contains("list")),
+            Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>());
+        await runner.Received(2).RunAsync(Arg.Any<string>(),
+            Arg.Is<IReadOnlyList<string>>(a => a.Contains("session") && a.Contains("terminate")),
+            Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>());
+    }
+
     // --- helpers ---
+
+    // Каждый тест получает свежий ClusterUuidCache (если не передан общий) — поведение
+    // 1:1 с до-кэшевой версией; общий кэш передаётся явно в тестах кэша/инвалидации.
+    private static RacExecutableRasClusterClient BuildClient(
+        IRacProcessRunner runner, ISettingsSnapshot settings, IClusterUuidCache? cache = null)
+        => new(runner, settings, cache ?? new ClusterUuidCache(),
+            NullLogger<RacExecutableRasClusterClient>.Instance);
 
     private static ISettingsSnapshot BuildSettings(
         string? rasEndpoint = "localhost:1545",
@@ -374,7 +479,7 @@ public sealed class RacExecutableRasClusterClientTests
                 "infobase : 77777777-7777-7777-7777-777777777777\r\nname : База А\r\n\r\ninfobase : 88888888-8888-8888-8888-888888888888\r\nname : База Б\r\n",
                 string.Empty));
 
-        var client = new RacExecutableRasClusterClient(runner, settings, NullLogger<RacExecutableRasClusterClient>.Instance);
+        var client = BuildClient(runner, settings);
 
         var result = await client.ListInfobasesAsync(default);
 
@@ -390,7 +495,7 @@ public sealed class RacExecutableRasClusterClientTests
         var settings = Substitute.For<ISettingsSnapshot>();
         settings.GetString(SettingKey.OneCRasExePath).Returns((string?)null);
         var runner = Substitute.For<IRacProcessRunner>();
-        var client = new RacExecutableRasClusterClient(runner, settings, NullLogger<RacExecutableRasClusterClient>.Instance);
+        var client = BuildClient(runner, settings);
 
         var result = await client.ListInfobasesAsync(default);
 
@@ -409,7 +514,7 @@ public sealed class RacExecutableRasClusterClientTests
         runner.RunAsync(Arg.Any<string>(), Arg.Is<IReadOnlyList<string>>(a => a.Contains("infobase") && a.Contains("summary")), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
             .Returns(new RacInvocation(1, string.Empty, "ошибка авторизации администратора кластера"));
 
-        var client = new RacExecutableRasClusterClient(runner, settings, NullLogger<RacExecutableRasClusterClient>.Instance);
+        var client = BuildClient(runner, settings);
 
         var result = await client.ListInfobasesAsync(default);
 

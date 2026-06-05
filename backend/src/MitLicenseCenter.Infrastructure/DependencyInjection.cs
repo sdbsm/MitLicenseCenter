@@ -99,6 +99,9 @@ public static class DependencyInjection
         // они хеджировали primary, эмпирически отсутствующий на default-деплоях 1С 8.5.
         // CLI-контракт зафиксирован в ADR-3.3.
         services.AddSingleton<IRacProcessRunner, SystemProcessRacRunner>();
+        // Кросс-вызовный кэш UUID кластера (MLC-041): singleton, переживает scope'ы
+        // hot/cold-джобов — снимает лишний «cluster list» перед каждой командой.
+        services.AddSingleton<IClusterUuidCache, ClusterUuidCache>();
         services.AddScoped<IClusterClient, RacExecutableRasClusterClient>();
 
         // RAS health probing: независимый 30s ping-loop публикует IRasHealthReader

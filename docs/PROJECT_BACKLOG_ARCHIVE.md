@@ -1876,3 +1876,84 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 - **Прогон:** `scripts/build.ps1` зелёный целиком — backend `restore`/`build` (0 warnings,
   `TreatWarningsAsErrors`)/`test` (**308** — +13 readiness)/`format` (без правок); frontend
   `lint`/`type-check`/`test` (118)/`build` ОК.
+
+### MLC-041 (PERF-05) — Кросс-вызовный кэш резолва UUID кластера — 2026-06-05
+
+- **Проблема:** `RacExecutableRasClusterClient.ResolveClusterUuidAsync` спавнил отдельный
+  `rac.exe cluster list` **перед каждым** `session list` / `session terminate` /
+  `infobase summary list` — кросс-вызовного кэша UUID не было. Клиент `Scoped`, а
+  `HotTierPollingService`/`ReconciliationJob` создают новый scope на каждый тик → field-кэш не пережил
+  бы тик. Итог: kill-путь 2 спавна вместо 1; hot-поллинг удваивал спавны (`cluster list` + `session list`
+  каждый тик). Найдено через замерную базу Phase 1 (метрики MLC-037, харнесс MLC-039: спавн-бюджет
+  каденционно-ограничен → срез спавнов на вызов = прямой выигрыш). PERF-05 плана
+  `compressed-giggling-grove.md`.
+- **Опора:** single-node (Locked) → ровно один кластер (`records[0]` из `cluster list`), UUID стабилен
+  между вызовами → кэш тривиально безопасен.
+- **Развилки (решены).**
+  - **Где жить кэшу — singleton, не scoped-поле.** Чтобы убрать `cluster list` на hot-поллинге *между
+    тиками* (каждый тик = новый scope), кэш обязан пережить scope → новый singleton `IClusterUuidCache`
+    (как `IRacProcessRunner`), инжектится в scoped-адаптер.
+  - **Ключ = `(ExePath, Endpoint)` без creds.** `cluster list` идёт через `BuildArgs` (без auth),
+    идентичность кластера от creds не зависит → creds в ключ не входят (минимизация инвалидации).
+  - **Инвалидация stale-UUID — на non-zero exit, не на матч строки.** Локализованный текст rac.exe
+    («unknown cluster») хрупок; non-zero exit cluster-scoped команды — наблюдаемый сигнал и так, а
+    `Invalidate` безопасна (в худшем случае один лишний `cluster list` на следующем вызове, самоисцеление).
+  - **`AlreadyGone` НЕ инвалидирует.** Маркер «Сеанс … не найден» — успешный идемпотентный no-op, не
+    ошибка кластера → кэш переживает (иначе каждый kick уже-ушедшего сеанса ронял бы кэш).
+- **Что сделано.**
+  - Новый `IClusterUuidCache` (+ `readonly record struct ClusterUuidKey(ExePath, Endpoint)`) в
+    `Application/Clusters/`; реализация `ClusterUuidCache` (Infrastructure, **singleton**) — один слот под
+    `lock`, БЕЗ удержания лока через `await` (спавн `cluster list` вне лока; редкий двойной резолв на
+    cold-старте допустим и самоисцеляется). Метод публикации назван `Store` (не `Set` — CA1716).
+  - `ResolveClusterUuidAsync`: сначала `TryGet(key)` (хит → 0 спавнов), иначе резолв + `Store`
+    **только на успехе** (неуспех/пустой список/пустой `cluster` не кэшируются). `BuildClusterKey`
+    пересобирает ключ из TTL-снапшота настроек на каждом вызове.
+  - Safety-net `Invalidate(BuildClusterKey(exePath))` в трёх ветках `ExitCode != 0`
+    (`session list` / `session terminate` финальный fail / `infobase summary list`); в `AlreadyGone`
+    инвалидации нет.
+  - Смена `OneC.RAS.Endpoint`/`ExePath` инвалидирует автоматически: `SettingsStore.SetAsync` →
+    `Invalidate()` снапшота → новый `GetString` → пересобранный ключ не совпадает → промах → перерезолв.
+    Отдельного хука на событие смены настроек не нужно.
+  - DI: `services.AddSingleton<IClusterUuidCache, ClusterUuidCache>()` рядом с `IRacProcessRunner`.
+- **Замер «до→после» (DoD).** Детерминированный воспроизводимый харнесс сценария MLC-039
+  (`ClusterUuidCacheSpawnMeasurementTests`): реальный адаптер + counting-`IRacProcessRunner`,
+  классификация спавнов тем же `RacCommandTag`, что и метрика `rac.exe.spawns` (MLC-037). «До»
+  воспроизведено тем же бинарём адаптера с `NullClusterUuidCache` (`TryGet`→false на каждый вызов =
+  доформенное поведение байт-в-байт). Сценарий hot=15 тиков (свежий scoped-адаптер на тик, общий кэш) +
+  cold-цикл (2 list: snapshot+re-fetch) + 5 kills (sustained over-limit):
+
+  | tag | before | after |
+  |---|---|---|
+  | `cluster.list` | 22 | **1** |
+  | `session.list` | 17 | 17 |
+  | `session.terminate` | 5 | 5 |
+  | **TOTAL spawns** | **44** | **23** |
+  | spawns / kill | 2.0 | **1.0** |
+  | spawns / hot-tick | 2.0 | **1.0** |
+
+  `cluster.list`-спавны рухнули 22→1; kill-путь 2→1/kill; hot-поллинг 2→1/тик (×2). `session list`/
+  `terminate` 1:1 — кэш режет только `cluster list`.
+- **Жёсткие границы.** Идемпотентный kill 1:1 — `KillEnforcer` re-fetch + сверка дескриптора
+  (`ClusterInfobaseId`/`AppId`/`StartedAt`) не тронут; кэш влияет только на аргумент `--cluster=`,
+  не на сверку; маркер «Сеанс … не найден» → `AlreadyGone`, без инвалидации (покрыто тестом). Новый
+  адаптер/транспорт НЕ введён (ADR-16/3.3; `ClusterUuidCache` — внутренний кэш того же `rac.exe`-адаптера,
+  не RAS Strategy B = MLC-036). Поведение при недоступном RAS 1:1 (`cluster list` падает → null до кэша,
+  ничего не кэшируется). Потокобезопасность — singleton под `lock`, дёргается из cold-джоба и hot-сервиса.
+  ADR-21/20/single-node/RU-only не затронуты.
+- **Тесты (+7).** `RacExecutableRasClusterClientTests` (+4): кэш-хит не спавнит повторный `cluster list`;
+  инвалидация при смене endpoint; инвалидация при ошибке последующей команды; `AlreadyGone` не
+  инвалидирует. `ClusterUuidCacheSpawnMeasurementTests` (+3): таблица до→после (регресс-гард на
+  `cluster.list`/TOTAL), kill-путь 2→1, hot-тик 2→1. Существующие 18 адаптерных + smoke — без регрессий
+  (конструктор получил 4-й параметр; в тестах — фабричный helper `BuildClient`).
+- **Канон (present-tense).** `DECISIONS.md` ADR-3.3 (строка `ListActiveSessionsAsync` + «Spawn cadence»),
+  `04_INFRASTRUCTURE.md` §1 (get-sessions + спавн-бюджет), шапка-комментарий
+  `RacExecutableRasClusterClient.cs` — отражают кросс-вызовный кэш и ×2-срез спавн-каденции.
+- **Файлы:** новые `backend/src/MitLicenseCenter.Application/Clusters/IClusterUuidCache.cs`,
+  `…/Infrastructure/Clusters/ClusterUuidCache.cs`,
+  `backend/tests/…/Clusters/ClusterUuidCacheSpawnMeasurementTests.cs`; правки
+  `…/Infrastructure/Clusters/RacExecutableRasClusterClient.cs`, `…/Infrastructure/DependencyInjection.cs`,
+  `…/tests/…/Clusters/RacExecutableRasClusterClientTests.cs`, `…/Clusters/RacExecutableSmokeTests.cs`,
+  `docs/DECISIONS.md`, `docs/04_INFRASTRUCTURE.md`.
+- **Прогон:** `scripts/build.ps1` зелёный целиком — backend `restore`/`build` (0 warnings,
+  `TreatWarningsAsErrors`)/`test` (**315** — +7)/`format` (без правок); frontend
+  `lint`/`type-check`/`test` (118)/`build` ОК.
