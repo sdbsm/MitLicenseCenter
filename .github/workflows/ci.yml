@@ -73,10 +73,10 @@ jobs:
         with:
           package_json_file: frontend/package.json
 
-      - name: Set up Node 22
+      - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "22.13"
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
 
