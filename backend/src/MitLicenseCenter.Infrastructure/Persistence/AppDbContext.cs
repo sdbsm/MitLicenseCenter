@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using MitLicenseCenter.Domain.Infobases;
 using MitLicenseCenter.Domain.Publications;
 using MitLicenseCenter.Domain.Settings;
@@ -142,5 +143,28 @@ public sealed class AppDbContext : IdentityDbContext<AppUser, AppRole, Guid>
             e.Property(x => x.UpdatedAt).IsRequired();
             e.Property(x => x.UpdatedBy).IsRequired().HasMaxLength(256);
         });
+    }
+
+    // UTC на проводе: колонки datetime2 не несут зоны, поэтому при чтении EF отдаёт
+    // DateTime с Kind=Unspecified, а System.Text.Json сериализует такое значение БЕЗ
+    // суффикса `Z`. Браузерный new Date() трактует строку без `Z` как локальное время
+    // → метка уезжает на величину часового пояса. В БД всё пишется в UTC
+    // (GetUtcNow().UtcDateTime), поэтому помечаем все DateTime/DateTime? как Utc при
+    // материализации — JSON получает `Z`, фронт парсит корректно. Конвертер read-only
+    // (запись identity), тип колонки не меняется → миграция не нужна.
+    protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
+    {
+        base.ConfigureConventions(configurationBuilder);
+        configurationBuilder.Properties<DateTime>().HaveConversion<UtcDateTimeConverter>();
+    }
+
+    private sealed class UtcDateTimeConverter : ValueConverter<DateTime, DateTime>
+    {
+        public UtcDateTimeConverter()
+            : base(
+                v => v,
+                v => DateTime.SpecifyKind(v, DateTimeKind.Utc))
+        {
+        }
     }
 }
