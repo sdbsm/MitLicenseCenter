@@ -26,7 +26,16 @@ export type AuditActionType =
   | "ClusterAdapterCircuitOpened"
   | "ClusterAdapterCircuitClosed"
   | "SettingChanged"
-  | "AuditLogsPurged";
+  | "AuditLogsPurged"
+  | "IisApplicationPoolRecycled"
+  | "IisApplicationPoolStarted"
+  | "IisApplicationPoolStopped"
+  | "IisSiteStarted"
+  | "IisSiteStopped"
+  | "IisSiteRestarted"
+  | "IisReset"
+  | "IisStopped"
+  | "IisStarted";
 
 // Активно пишущиеся действия для фильтра. Исключены legacy/frozen
 // (drift/reconcile-цикл и circuit-breaker — новые строки с ними не пишутся);
@@ -51,6 +60,15 @@ export const AUDIT_ACTION_TYPES: readonly AuditActionType[] = [
   "LimitChanged",
   "SettingChanged",
   "AuditLogsPurged",
+  "IisApplicationPoolRecycled",
+  "IisApplicationPoolStarted",
+  "IisApplicationPoolStopped",
+  "IisSiteStarted",
+  "IisSiteStopped",
+  "IisSiteRestarted",
+  "IisReset",
+  "IisStopped",
+  "IisStarted",
 ] as const;
 
 export type AuditReason = "LimitExceeded" | "ManualByAdmin";

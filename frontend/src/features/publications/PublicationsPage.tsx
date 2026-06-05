@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { BulkChangePlatformDialog } from "./BulkChangePlatformDialog";
 import { BulkPublishDialog } from "./BulkPublishDialog";
 import { ChangePlatformDialog } from "./ChangePlatformDialog";
+import { IisManagementCard } from "./iis/IisManagementCard";
 import { PublicationsBulkBar } from "./PublicationsBulkBar";
 import { PublicationsFiltersBar } from "./PublicationsFiltersBar";
 import { PublicationsTable } from "./PublicationsTable";
@@ -64,6 +65,8 @@ export function PublicationsPage() {
             </Button>
           </div>
         )}
+
+        <IisManagementCard isAdmin={isAdmin} />
 
         <PublicationsFiltersBar
           tenants={tenants}
