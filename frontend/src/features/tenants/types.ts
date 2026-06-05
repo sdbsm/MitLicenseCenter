@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { pagedResponseSchema } from "@/lib/apiSchema";
+import { omittable, pagedResponseSchema } from "@/lib/apiSchema";
 
 export const tenantSchema = z.object({
   id: z.string(),
@@ -7,7 +7,7 @@ export const tenantSchema = z.object({
   maxConcurrentLicenses: z.number(),
   isActive: z.boolean(),
   createdAt: z.string(),
-  updatedAt: z.string().nullable(),
+  updatedAt: omittable(z.string()),
   infobaseCount: z.number(),
 });
 

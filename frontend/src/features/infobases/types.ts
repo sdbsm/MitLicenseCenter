@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { pagedResponseSchema } from "@/lib/apiSchema";
+import { omittable, pagedResponseSchema } from "@/lib/apiSchema";
 
 export const infobaseStatusSchema = z.enum(["Active", "Maintenance", "Suspended"]);
 export type InfobaseStatus = z.infer<typeof infobaseStatusSchema>;
@@ -12,10 +12,10 @@ export const publicationSchema = z.object({
   platformVersion: z.string(),
   enableOData: z.boolean(),
   enableHttpServices: z.boolean(),
-  vrdCustomXml: z.string().nullable(),
-  physicalPathOverride: z.string().nullable(),
+  vrdCustomXml: omittable(z.string()),
+  physicalPathOverride: omittable(z.string()),
   createdAt: z.string(),
-  updatedAt: z.string().nullable(),
+  updatedAt: omittable(z.string()),
 });
 
 export const infobaseSchema = z.object({
@@ -27,7 +27,7 @@ export const infobaseSchema = z.object({
   databaseName: z.string(),
   status: infobaseStatusSchema,
   createdAt: z.string(),
-  updatedAt: z.string().nullable(),
+  updatedAt: omittable(z.string()),
 });
 
 export const infobaseListItemSchema = infobaseSchema.extend({
