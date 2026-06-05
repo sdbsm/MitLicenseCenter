@@ -14,12 +14,13 @@ The application is a working control plane for single-node multi-tenant 1C hosti
 - **Audit** — immutable log with server-side paging/filtering and a daily retention purge.
 - **Frontend** — React + TS SPA on shadcn/ui, Russian-only locale, Vitest test foundation.
 - **CI** — GitHub Actions (build + test + lint), no CD (manual deploy).
+- **Observability** — hot-path metrics via `System.Diagnostics.Metrics` (`rac.exe` spawns, cold/hot cycle latency, kills), opt-in EF query profiling, and a dependency `readiness` probe (`/api/v1/health/ready`) alongside the cheap liveness `/api/v1/health`. Snapshot read with `dotnet-counters` (no external systems — ADR-15).
 
 Operator concerns (backup, network-edge auth) are documented in `OPERATIONS.md`.
 
 ## Backlog / deferred
 
-- **RAS Strategy B** — replace `rac.exe`-per-cycle with a long-lived TCP socket on 1545, dropping the ~26 procs/min worst case. Gated on real-world latency measurement.
+- **RAS Strategy B** — replace `rac.exe`-per-cycle with a long-lived TCP socket on 1545. The cross-call cluster-UUID cache (MLC-041) already roughly halved the steady-state spawn rate (the kill path and hot polling now cost ~1 spawn each), so the ≤26 procs/min budget has comfortable headroom; this further optimization stays gated on real-world latency measurement.
 - **Multi-cluster / multi-node topology** — every adapter currently assumes single-node; opening this up requires re-reviewing each adapter and the single-node operational constraint.
 
 ## Permanently out of scope (ADR-15)
