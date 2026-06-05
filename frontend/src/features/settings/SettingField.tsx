@@ -33,7 +33,22 @@ export function SettingField({
   const { t } = useTranslation();
   const update = useUpdateSetting();
 
-  const [draft, setDraft] = useState(setting.value ?? "");
+  const serverValue = setting.value ?? "";
+  const [draft, setDraft] = useState(serverValue);
+  // Серверное значение может смениться ИЗВНЕ этого поля: для OneC.RAS.ExePath
+  // соседний RacPathDetect сохраняет путь своей мутацией, после чего список
+  // настроек рефетчится и сюда приходит новый `setting.value`. useState
+  // инициализирует draft лишь однажды, поэтому без ресинхронизации поле осталось
+  // бы со старым (обычно пустым) draft при активной кнопке Save — клик слал бы
+  // этот пустой draft поверх свежего пути и затирал его в null. Паттерн «храним
+  // предыдущий проп»: ресинхронизируем draft РОВНО когда серверное значение
+  // реально изменилось (см. react.dev/learn/you-might-not-need-an-effect —
+  // adjusting state during render, без useEffect и лишнего ререндера-кадра).
+  const [syncedValue, setSyncedValue] = useState(serverValue);
+  if (serverValue !== syncedValue) {
+    setSyncedValue(serverValue);
+    setDraft(serverValue);
+  }
   const [editingSecret, setEditingSecret] = useState(false);
   const [secretDraft, setSecretDraft] = useState("");
   const [serverError, setServerError] = useState<string | null>(null);
@@ -132,7 +147,7 @@ export function SettingField({
     );
   }
 
-  const isDirty = (setting.value ?? "") !== draft;
+  const isDirty = serverValue !== draft;
   return (
     <div className="grid gap-2">
       <Label htmlFor={`setting-${setting.key}`} className="text-sm">
@@ -162,7 +177,7 @@ export function SettingField({
             size="sm"
             variant="ghost"
             onClick={() => {
-              setDraft(setting.value ?? "");
+              setDraft(serverValue);
               setServerError(null);
             }}
             disabled={update.isPending}
