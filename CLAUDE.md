@@ -48,6 +48,11 @@ lint-staged + `dotnet format` на staged-файлах.
 - **Валидация в двух местах с parity-тестами:** backend
   `Endpoints/Shared/InfobaseValidationRules.cs` ↔ frontend
   `features/infobases/validation.ts` — меняешь правило, меняешь обе стороны.
+  **Гоча:** DataAnnotations на request-контрактах (`[Required]`/`[StringLength]`)
+  в minimal API **не прогоняются в runtime** (фильтра-валидатора нет) — они только
+  для Swagger. Реальную проверку делают ручные хелперы (`AppendPublicationFieldErrors`),
+  и они **не режут max-длины** — длину ловит только `nvarchar` БД. Нужна проверка
+  длины на API — добавляй её в хелпер явно.
 - Настройки — только из whitelist `SettingDefinitions` (`Application/`); новый ключ = запись в каталоге + сидер.
 
 ## Гочи (Windows / 1С)
@@ -59,6 +64,7 @@ lint-staged + `dotnet format` на staged-файлах.
 - `build.ps1`/`db-reset.ps1` временно глушат `$ErrorActionPreference=Stop` вокруг нативных вызовов — это обход stderr-спама PowerShell 5.1, не баг.
 - **DPAPI key ring + БД — единый бэкап-юнит:** key ring в `%ProgramData%\MitLicenseCenter\keys` (prod), purpose `mlc.settings.v1`. Потеря одного из двух → секретные настройки не расшифровать.
 - **После `dotnet ef migrations add` нормализуй сгенерированные файлы** (`*_*.cs`, `*.Designer.cs`, `AppDbContextModelSnapshot.cs`): EF пишет их в UTF-8 **с BOM + CRLF**, а пре-коммит требует **без BOM + LF** — иначе коммит падает с `ENDOFLINE`/`CHARSET`. Эталон — существующие миграции (UTF-8 без BOM, LF).
+- **Backend, обслуживающий IIS, требует прав администратора:** `ServerManager` читает `%windir%\system32\inetsrv\config\redirection.config` (ACL — только Administrators/SYSTEM); неэлевированный процесс → все публикации в статусе `Error` («Ошибка проверки»). Dev — `dev.ps1` поднимает backend с UAC (флаг `-NoElevate` отключает); prod — service account в локальных Administrators или явный read на `inetsrv\config`. Детали — `docs/OPERATIONS.md` «IIS publishing — required permissions».
 - **`PlatformVersion` regex = `^\d+\.\d+\.\d+\.\d+$`** — ровно 4 числовых сегмента, длины **не** фиксировать: у ранних сборок 1С 8.5 одноцифровой build (`8.5.1.1302`), жёсткий `\d{2}\.\d{4}` их отрезает. Менять — синхронно в `Endpoints/Shared/InfobaseValidationRules.cs` и `features/infobases/validation.ts`.
 
 ## Проверка изменений

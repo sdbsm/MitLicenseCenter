@@ -12,6 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { PublicationDriftStatus, PublicationListItem } from "./types";
 
 const DRIFT_VARIANT: Record<PublicationDriftStatus, StatusBadgeVariant> = {
@@ -148,9 +149,24 @@ function PublicationRow({
         </StatusBadge>
       </TableCell>
       <TableCell>
-        <StatusBadge variant={DRIFT_VARIANT[row.lastDriftStatus]}>
-          {t(`publications.driftStatus.${row.lastDriftStatus.toLowerCase()}`)}
-        </StatusBadge>
+        {row.lastDriftDetails ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="cursor-help">
+                <StatusBadge variant={DRIFT_VARIANT[row.lastDriftStatus]}>
+                  {t(`publications.driftStatus.${row.lastDriftStatus.toLowerCase()}`)}
+                </StatusBadge>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-sm whitespace-pre-line">
+              {row.lastDriftDetails}
+            </TooltipContent>
+          </Tooltip>
+        ) : (
+          <StatusBadge variant={DRIFT_VARIANT[row.lastDriftStatus]}>
+            {t(`publications.driftStatus.${row.lastDriftStatus.toLowerCase()}`)}
+          </StatusBadge>
+        )}
       </TableCell>
       <TableCell>
         {row.lastDriftCheckAt ? (

@@ -96,6 +96,17 @@ The 1C cluster is administered exclusively through RAS via `rac.exe` ([ADR-16](D
 4. In the «Параметры» admin UI set `OneC.RAS.ExePath` to the version-specific `rac.exe` path (no seeded default), verify `OneC.RAS.Endpoint` (`localhost:1545`), and set `OneC.Cluster.AdminUser` / `OneC.Cluster.AdminPassword` (leave both empty for a cluster with no registered administrators — `rac.exe` runs anonymously).
 5. On the Dashboard the RAS health card should flip to `OK` within 30s. If it stays `Сбой`, open "детали ошибки" for the `rac.exe` stderr — usually a wrong `OneC.RAS.ExePath`, `ras.exe` not running, or missing ACLs. The Sessions Monitor resumes from the next reconciliation cycle (≤ 30s).
 
+## IIS publishing — required permissions
+
+The panel reads and writes IIS state through `Microsoft.Web.Administration` (`ServerManager`) and the per-publication `default.vrd` files — for the periodic drift check (Hangfire cron `*/5 * * * *`) and for the on-demand «Согласовать состояние» (reconcile).
+
+`new ServerManager()` reads `%windir%\system32\inetsrv\config\applicationHost.config` and `redirection.config`, both ACL'd to `Administrators` / `SYSTEM`. The panel's process identity therefore **must** be privileged:
+
+- **Development** — run the backend from an **elevated** PowerShell. `scripts/dev.ps1` now launches the backend window with a UAC prompt by default (pass `-NoElevate` to skip when you are not touching IIS).
+- **Production** — the service account / IIS app-pool identity hosting the panel must be a member of local `Administrators`, **or** be granted explicit Read on `%windir%\system32\inetsrv\config\` (plus Read/Write on the publication folders holding `default.vrd`, required for reconcile).
+
+**Symptom of insufficient permissions:** every publication shows drift status «Ошибка проверки» (`Error`), and `dbo.Publications.LastDriftDetails` (visible on hover over the status badge on the «Публикации» page) reads `Ошибка чтения IIS/VRD: … redirection.config … отсутствия необходимых разрешений`.
+
 ## Проверки готовности — liveness vs readiness (`MLC-040` / PERF-04)
 
 Два анонимных эндпоинта с разной семантикой и ценой:
