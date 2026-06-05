@@ -1,3 +1,5 @@
+import { format } from "date-fns";
+import { ru } from "date-fns/locale";
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 
@@ -39,5 +41,13 @@ export function RelativeTime({
       ? "text-amber-600 dark:text-amber-400"
       : "text-muted-foreground";
 
-  return <span className={cn(colorClass, className)}>{formatRelative(diffSec)}</span>;
+  // Канон 06_UI_DESIGN.md §8: индикатор свежести показывает точную метку времени
+  // в тултипе при наведении.
+  const title = format(date, "dd.MM.yyyy HH:mm:ss", { locale: ru });
+
+  return (
+    <span title={title} className={cn(colorClass, className)}>
+      {formatRelative(diffSec)}
+    </span>
+  );
 }

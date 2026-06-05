@@ -96,6 +96,8 @@ The 1C cluster is administered exclusively through RAS via `rac.exe` ([ADR-16](D
 4. In the «Параметры» admin UI set `OneC.RAS.ExePath` to the version-specific `rac.exe` path (no seeded default), verify `OneC.RAS.Endpoint` (`localhost:1545`), and set `OneC.Cluster.AdminUser` / `OneC.Cluster.AdminPassword` (leave both empty for a cluster with no registered administrators — `rac.exe` runs anonymously).
 5. On the Dashboard the RAS health card should flip to `OK` within 30s. If it stays `Сбой`, open "детали ошибки" for the `rac.exe` stderr — usually a wrong `OneC.RAS.ExePath`, `ras.exe` not running, or missing ACLs. The Sessions Monitor resumes from the next reconciliation cycle (≤ 30s).
 
+> **Session time zone.** `rac.exe` reports `started-at` in the **server's local time** (no offset). The backend interprets it in the host's local time zone and converts to UTC, so session durations are correct only when the backend and the 1C/RAS cluster share one time zone — the v1 single-Windows-Server assumption. A backend host in a different zone than the cluster would skew durations by the offset.
+
 ## IIS publishing — required permissions
 
 The panel reads and writes IIS state through `Microsoft.Web.Administration` (`ServerManager`) and the per-publication `default.vrd` files — for the periodic drift check (Hangfire cron `*/5 * * * *`) and for the on-demand «Согласовать состояние» (reconcile).

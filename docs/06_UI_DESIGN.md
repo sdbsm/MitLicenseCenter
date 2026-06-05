@@ -99,7 +99,7 @@ Anything that kills a session, reconciles a publication, disables an admin, or d
 
 The Sessions Monitor and Dashboard poll. The UI must communicate freshness honestly:
 
-- **Per-view "last updated" indicator:** small muted text top-right of the content area — "Обновлено 3 сек назад" via a `<RelativeTime>` component that re-renders on a 1-second tick. Tooltip shows the exact timestamp.
+- **Per-view "last updated" indicator:** small muted text top-right of the content area — "Данные обновлены 3 сек назад" via a `<RelativeTime>` component that re-renders on a 1-second tick. Tooltip shows the exact timestamp.
 - **Refetch spinner** integrated into the indicator, not a giant page overlay. Polling refetches must never flash the entire screen.
 - **Stale state:** if React Query reports `isStale` and the last successful fetch is > 60 seconds old, the indicator goes amber ("Данные устарели") and a subtle banner appears with a retry button.
 - **Error state:** if N consecutive polls fail, the indicator goes red ("Не удалось получить данные") with the last successful timestamp still visible. The previously fetched data stays on screen — never blank the table on a transient backend hiccup.
@@ -191,7 +191,7 @@ Use these exact phrasings throughout the UI for consistency. **Do not invent syn
 | RAS Probing | Проверка… |
 
 ### Frequent phrases
-- "Обновлено N сек назад" — freshness indicator.
+- "Данные обновлены N сек назад" — freshness indicator.
 - "Данные устарели" — stale state.
 - "Не удалось получить данные" — fetch error.
 - "Нет данных" — empty table generic.

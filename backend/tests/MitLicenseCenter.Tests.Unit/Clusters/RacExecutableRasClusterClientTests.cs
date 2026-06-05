@@ -50,6 +50,11 @@ public sealed class RacExecutableRasClusterClientTests
         s.Host.Should().Be("workstation01");
         s.ConsumesLicense.Should().BeTrue("1CV8C ∈ LicenseConsumingAppIds");
         s.StartedAtUtc.Kind.Should().Be(DateTimeKind.Utc);
+        // started-at от rac.exe — локальное время сервера → конвертируется в UTC.
+        // Детерминированно на любой машине (на UTC-CI local==UTC).
+        var expectedUtc = DateTime.SpecifyKind(
+            new DateTime(2026, 5, 21, 3, 39, 49), DateTimeKind.Local).ToUniversalTime();
+        s.StartedAtUtc.Should().Be(expectedUtc);
     }
 
     [Fact]

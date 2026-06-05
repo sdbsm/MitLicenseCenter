@@ -343,8 +343,14 @@ internal sealed partial class RacExecutableRasClusterClient : IClusterClient
         {
             return DateTime.UtcNow;
         }
+        // rac.exe отдаёт started-at в ЛОКАЛЬНОМ времени сервера (без offset).
+        // Backend спавнит rac.exe на том же хосте (ADR-3.3) → TimeZoneInfo.Local
+        // корректно конвертирует в UTC. Раньше стоял AssumeUniversal — строка без
+        // offset трактовалась как UTC, и на сервере UTC+3 длительность сеанса
+        // занижалась на 3 ч (новые сеансы уходили в минус). Если в строке всё же
+        // есть offset (на будущее) — AssumeLocal его не переопределяет.
         if (DateTime.TryParse(raw, CultureInfo.InvariantCulture,
-                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                DateTimeStyles.AssumeLocal | DateTimeStyles.AdjustToUniversal,
                 out var parsed))
         {
             return DateTime.SpecifyKind(parsed, DateTimeKind.Utc);
