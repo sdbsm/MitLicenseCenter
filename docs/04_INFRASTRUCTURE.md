@@ -17,12 +17,13 @@ The 1C cluster adapter is exclusively `rac.exe` driven against a local `ras.exe`
 
 ### Idempotent kill protocol
 Before issuing a kill, the adapter pipeline (`KillEnforcer` → `IClusterClient.KillSessionAsync`):
+0. Skips any candidate younger than the kill grace period (`Enforcement.KillGraceSeconds`, default 15 s) — 1C fills `user-name` only after authentication, so this avoids terminating a just-connected session before its user is known. Newest-first ordering means the youngest is first, so a within-grace candidate stops the tenant's cycle (wait), not a fall-through to an older session. See DECISIONS.md "Kill grace period".
 1. Re-fetches the target session by `SessionId` from the cluster snapshot.
 2. Verifies that `(InfobaseId, AppID, StartedAt)` match the snapshot that triggered the decision.
 3. Issues the kill only on match. A mismatch causes the kill to be skipped — the next reconciliation cycle will re-evaluate.
 4. Treats `rac.exe` stderr `«Сеанс с указанным идентификатором не найден»` as a successful (idempotent) kill — the session is no longer there, which is the desired end state.
 
-Every kill is recorded in `AuditLog` with reason (`LimitExceeded` or `ManualByAdmin`) and snapshot context.
+Every kill is recorded in `AuditLog` with reason (`LimitExceeded` or `ManualByAdmin`) and snapshot context. A blank `user-name` renders as «без пользователя» in the audit description (`SessionDisplay`).
 
 ### RAS health probe (ADR-16)
 
@@ -98,6 +99,7 @@ Runtime configuration lives in `dbo.Settings`. The catalog is the single source 
 | `Polling.HotIntervalSeconds` | no | Number | `4` | [2, 60] | `HotTierPollingService` |
 | `Polling.ColdIntervalSeconds` | no | Number | `25` | [10, 300] | cold `ReconciliationJob` throttle |
 | `Polling.HotThresholdPercent` | no | Number | `90` | [50, 100] | `HotTierRegistry` |
+| `Enforcement.KillGraceSeconds` | no | Number | `15` | [5, 120] | `KillEnforcer` (grace before limit-kill — lets 1C resolve `user-name`) |
 | `Drift.IntervalMinutes` | no | Number | `5` | [1, 60] | `PublicationStatusRefreshJob` throttle |
 | `OneC.Cluster.Server` | no | Text | — | — | cluster address for webinst `-connstr` (host or host:port; falls back to `OneC.RAS.Endpoint` host) |
 | `Audit.RetentionDays` | no | Number | `365` | [30, 3650] | `AuditRetentionJob` (daily 03:00 UTC) |

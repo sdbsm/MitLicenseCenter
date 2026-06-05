@@ -108,7 +108,7 @@ public static class SessionsEndpoints
         await audit.LogAsync(
             AuditActionType.SessionKilled,
             initiator,
-            $"Сеанс {session.SessionId:N} ({session.AppId}, пользователь {session.UserName}) завершён оператором.{reason}",
+            $"Сеанс {session.SessionId:N} ({session.AppId}, пользователь {SessionDisplay.UserNameOrFallback(session.UserName)}) завершён оператором.{reason}",
             session.TenantId,
             AuditReason.ManualByAdmin,
             ct).ConfigureAwait(false);

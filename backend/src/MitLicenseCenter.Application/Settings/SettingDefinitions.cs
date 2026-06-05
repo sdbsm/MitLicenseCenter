@@ -133,6 +133,15 @@ public static class SettingDefinitions
                 Min: 1,
                 Max: 60),
 
+            [SettingKey.EnforcementKillGraceSeconds] = new(
+                SettingKey.EnforcementKillGraceSeconds,
+                IsSecret: false,
+                Description: "Отсрочка перед завершением только что подключившегося сеанса при превышении лимита, секунды. Пауза даёт 1С определить имя пользователя (иначе в журнале аудита оно пустое) и не завершать сеанс в момент входа.",
+                Kind: SettingValueKind.Number,
+                DefaultValue: "15",
+                Min: 5,
+                Max: 120),
+
             [SettingKey.AuditRetentionDays] = new(
                 SettingKey.AuditRetentionDays,
                 IsSecret: false,

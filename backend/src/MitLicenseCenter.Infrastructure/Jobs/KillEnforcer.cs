@@ -4,7 +4,9 @@ using MitLicenseCenter.Application.Auditing;
 using MitLicenseCenter.Application.Clusters;
 using MitLicenseCenter.Application.Jobs;
 using MitLicenseCenter.Application.Sessions;
+using MitLicenseCenter.Application.Settings;
 using MitLicenseCenter.Domain.Audit;
+using MitLicenseCenter.Domain.Settings;
 using MitLicenseCenter.Infrastructure.Diagnostics;
 using MitLicenseCenter.Infrastructure.Persistence;
 
@@ -14,9 +16,20 @@ internal sealed partial class KillEnforcer : IKillEnforcer
 {
     private const int MaxKillsPerCycle = 20;
 
+    // Сеансы моложе grace-порога не завершаются: в 1С `user-name` проставляется
+    // только после аутентификации, а newest-first целится ровно в свежий сеанс —
+    // без grace мы systematically попадаем в окно «подключился, лицензию занял,
+    // но ещё не вошёл» и пишем в аудит пустого пользователя. Пауза даёт 1С
+    // проставить имя; через ~hot-тик сеанс дорастает и убивается уже с именем.
+    // Порог настраивается (Enforcement.KillGraceSeconds); дефолт — на случай
+    // несидированной/пустой настройки.
+    private const int DefaultKillGraceSeconds = 15;
+
     private readonly IClusterClient _cluster;
     private readonly IAuditLogger _audit;
     private readonly AppDbContext _db;
+    private readonly ISettingsSnapshot _settings;
+    private readonly TimeProvider _clock;
     private readonly ReconciliationMetrics _metrics;
     private readonly ILogger<KillEnforcer> _logger;
 
@@ -24,12 +37,16 @@ internal sealed partial class KillEnforcer : IKillEnforcer
         IClusterClient cluster,
         IAuditLogger audit,
         AppDbContext db,
+        ISettingsSnapshot settings,
+        TimeProvider clock,
         ReconciliationMetrics metrics,
         ILogger<KillEnforcer> logger)
     {
         _cluster = cluster;
         _audit = audit;
         _db = db;
+        _settings = settings;
+        _clock = clock;
         _metrics = metrics;
         _logger = logger;
     }
@@ -61,6 +78,9 @@ internal sealed partial class KillEnforcer : IKillEnforcer
         foreach (var s in freshList)
             freshBySessionId.TryAdd(s.SessionId, s);
 
+        var nowUtc = _clock.GetUtcNow().UtcDateTime;
+        var killGracePeriod = TimeSpan.FromSeconds(
+            _settings.GetInt(SettingKey.EnforcementKillGraceSeconds) ?? DefaultKillGraceSeconds);
         var totalKills = 0;
 
         foreach (var (tenantId, consumed, limit) in overLimitTenants)
@@ -78,6 +98,16 @@ internal sealed partial class KillEnforcer : IKillEnforcer
                 if (currentConsumed <= limit)
                     break;
                 if (totalKills >= MaxKillsPerCycle)
+                    break;
+
+                // Grace-период. Кандидаты отсортированы newest-first, поэтому первый
+                // не доросший до порога сеанс — самый молодой среди оставшихся: всё,
+                // что ниже по списку, старше и уже было бы убито раньше. Убивать тех,
+                // более старых, вместо молодого новичка — значит рвать устоявшийся
+                // рабочий сеанс ради того, кто перешагнул лимит; это противоречит
+                // newest-first. Поэтому ждём (break), а не пропускаем (continue) —
+                // на следующем тике молодой состарится и будет убит уже с именем.
+                if (nowUtc - candidate.StartedAtUtc < killGracePeriod)
                     break;
 
                 // Verify candidate against fresh data.
@@ -109,7 +139,7 @@ internal sealed partial class KillEnforcer : IKillEnforcer
                     await _audit.LogAsync(
                         AuditActionType.SessionKilled,
                         "System",
-                        $"Сеанс {candidate.SessionId:N} ({candidate.AppId}, пользователь {candidate.UserName}) завершён: превышен лимит {candidate.TenantName}.",
+                        $"Сеанс {candidate.SessionId:N} ({candidate.AppId}, пользователь {SessionDisplay.UserNameOrFallback(candidate.UserName)}) завершён: превышен лимит {candidate.TenantName}.",
                         tenantId,
                         AuditReason.LimitExceeded,
                         ct).ConfigureAwait(false);

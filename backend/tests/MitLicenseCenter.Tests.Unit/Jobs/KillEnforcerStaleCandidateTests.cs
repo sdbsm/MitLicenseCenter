@@ -2,6 +2,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using MitLicenseCenter.Application.Clusters;
 using MitLicenseCenter.Application.Sessions;
+using MitLicenseCenter.Application.Settings;
 using MitLicenseCenter.Domain.Tenants;
 using MitLicenseCenter.Infrastructure.Jobs;
 using MitLicenseCenter.Tests.Unit.Diagnostics;
@@ -53,7 +54,7 @@ public sealed class KillEnforcerStaleCandidateTests
         });
         await db.SaveChangesAsync();
 
-        var enforcer = new KillEnforcer(cluster, audit, db, TestMetrics.Reconciliation(), NullLogger<KillEnforcer>.Instance);
+        var enforcer = new KillEnforcer(cluster, audit, db, Substitute.For<ISettingsSnapshot>(), TestHelpers.FixedClock(now.AddMinutes(10)), TestMetrics.Reconciliation(), NullLogger<KillEnforcer>.Instance);
 
         // Act
         await enforcer.EnforceAsync(payload, freshSessions: null, CancellationToken.None);
