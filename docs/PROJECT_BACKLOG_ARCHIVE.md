@@ -2098,3 +2098,86 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 - **Прогон:** `scripts/build.ps1` зелёный целиком — backend `restore`/`build` (0 warnings,
   `TreatWarningsAsErrors`)/`test` (**316** — +1)/`format` (без правок); frontend
   `lint`/`type-check`/`test` (118)/`build` ОК — «Все шаги пройдены успешно».
+
+### MLC-044 — Hot-тир тоже enforce'ит (near-realtime kill ≤5с) + быстрый экран — 2026-06-05
+
+- **Проблема.** Kill превышающих сессий выполнял **только** cold-цикл: `ReconciliationJob.RunColdAsync`
+  в конце звал `IKillEnforcer.EnforceAsync` (троттлинг `Polling.ColdIntervalSeconds`, дефолт 25с).
+  Быстрый hot-цикл (`HotTierPollingService`, `Polling.HotIntervalSeconds`, дефолт 4с) только обновлял
+  in-memory снимок для UI — **не enforce'ил**. Следствия: (1) реакция на превышение у клиента, уже
+  находящегося в hot-тире (at-risk, ≥90%), = до ~25с вместо ≤5с; (2) внутреннее противоречие канона —
+  ADR-6 и `02_ARCHITECTURE_REQUIREMENTS.md` обещали «enforcement window ≤ 5s для at-risk», а ADR-6.1
+  и код говорили «kill только на cold-цикле, hot не убивает». Постановка куратора перф-этапа
+  (`compressed-giggling-grove.md`); вне PERF-каталога.
+- **Часть A — hot тоже enforce'ит.** `HotTierPollingService`: тело одного тика вынесено в
+  `internal RunCycleOnceAsync(cluster, enforcer, ct)` (детерминированный seam для теста, `ExecuteAsync`
+  резолвит `IClusterClient` + `IKillEnforcer` из scope и зовёт его в while-loop). После единственного
+  `ListActiveSessionsAsync` тик строит overlay (UI, как раньше) и затем вызывает
+  `EnforceAsync(hotPayload, freshSessions, ct)` строго по hot-тенантам (базис = `freshEntries`, чисто
+  свежие денорм. строки hot-тенантов; over-limit `Consumed>Limit` ⊆ hot `≥90%`, поэтому non-hot строки
+  kills не дают). Кадр kill теперь = hot-каденция (~4с) для уже-горячих, реализуя обещанное ADR-6 окно.
+- **Переиспользование fresh-списка (спавн-бюджет, ADR-3.3).** `IKillEnforcer.EnforceAsync` получил
+  параметр `IReadOnlyList<ClusterSession>? freshSessions`: `null` → enforcer делает свой re-fetch
+  (cold-путь, профиль спавнов 1:1); hot передаёт **уже полученный тиком список** → второго
+  `ListActiveSessionsAsync` нет. Семантика kill (re-fetch+сверка `(ClusterInfobaseId,AppId,StartedAt)`,
+  аудит только на `Killed||AlreadyGone`, newest-first, `MaxKillsPerCycle=20`, ранний выход при
+  `overLimitTenants.Count==0`) — **1:1**, переиспользована as-is.
+- **Защита от over-kill (MLC-001) — общий замок.** До MLC-044 одновременность enforcement держал
+  Hangfire-атрибут `[DisableConcurrentExecution]` на cold-джобе. Hot — `BackgroundService`, атрибут на
+  него не действует → два пути enforcement (cold Hangfire + hot BackgroundService) могли пойти
+  одновременно и дважды убить превышение. Введён singleton `IEnforcementGate`/`EnforcementGate`
+  (`SemaphoreSlim(1,1)`, `AcquireAsync`→`IDisposable`-scope, идемпотентный double-dispose). **Оба пути
+  берут замок** (caller-held): cold — вокруг `EnforceAsync(payload, null)`; hot — **до** fetch'а, на всё
+  «fetch+overlay+enforce». Замок берётся до hot-фетча намеренно: единственный список тика читается под
+  замком, и cold не может вклиниться между fetch и kill (иначе переиспользуемый список устарел бы →
+  over-kill). Single-node, один процесс → in-process замка достаточно (распределённый Hangfire-лок
+  покрывает лишь cold-vs-cold).
+- **Часть B — быстрый экран.** FE: `useSessionsSnapshot` и `useDashboardSummary` — `refetchInterval`
+  15с→**5с** (согласовано с hot-каденцией ~4с). Снимок дешёвый (in-memory, 0 EF, 0 спавнов `rac.exe`);
+  dashboard-summary — несколько COUNT + in-memory RAS-health. Рост вызовов ×3 на двух дешёвых
+  эндпоинтах при 5–20 пользователях пренебрежим. Прочие интервалы (publications 60с, drift 2/30с) не тронуты.
+- **Замер «до→после» (DoD).** Детерминированный харнесс в духе MLC-041
+  (`HotEnforcementMeasurementTests`, печатает таблицу), реальный путь `RunCycleOnceAsync`+`EnforceAsync`,
+  прокси спавнов `rac.exe` = вызовы `IClusterClient` (тёплый UUID-кэш MLC-041: 1 спавн на `ListActive…`
+  = `session.list`, 1 на `KillSession…` = `session.terminate`):
+
+  | метрика | before | after |
+  |---|---|---|
+  | kill latency (at-risk) | ≈ `ColdIntervalSeconds` (≈25с) | ≤ `HotIntervalSeconds` (≈4с) |
+  | `session.list` / hot-тик | 1 | **1** (переиспользован, НЕ 2) |
+  | `session.terminate` / hot-тик при `Consumed==Limit` | 0 | **0** (ранний выход) |
+  | hot steady-state спавны | — | ~15/мин ≤ ~26/мин (ADR-3.3) |
+
+  `session.terminate` транзиентен: при sustained over-limit идёт N/тик, но в проде RAS убирает убитые
+  → `Consumed==Limit` → 0 (подтверждено early-return-кейсом).
+- **Тест отсутствия over-kill (ключевой).** `HotColdEnforcementOverKillTests`: stateful fake-кластер
+  (потокобезопасный список; `KillSessionAsync` реально удаляет / иначе `AlreadyGone`; считает реальные
+  удаления и terminate-вызовы), tenant limit=5 over на 4, заранее promote'нут в hot, общий
+  `EnforcementGate`/snapshot-store/registry/потокобезопасный аудит, отдельные изолированные InMemory-БД
+  для cold/hot-путей (read-only лимиты). `await Task.WhenAll(cold.RunColdAsync, hot.RunCycleOnceAsync)`
+  → убито **ровно 4** (не 8), осталось 5 живых, terminate-вызовов **4** (второй вошедший видит
+  `Consumed==Limit` и не вызывает terminate), аудит **4** записи (`SessionKilled`/`LimitExceeded`/`System`,
+  без двойного аудита). Плюс `EnforcementGateTests` (взаимоисключение: ≤1 в секции; второй ждёт релиза;
+  double-dispose идемпотентен).
+- **Жёсткие границы.** Идемпотентный kill-протокол 1:1 (переиспользован, не изменён). Manual-kill
+  `POST /sessions/{id}/kill` замок не берёт — убивает одну явно выбранную сессию (не считает over-limit),
+  при гонке → `AlreadyGone`, не «enforcement loop». Новый кластерный адаптер **не введён** (ADR-16/3.3;
+  не RAS Strategy B = MLC-036). Аудит-семантика (`SessionKilled`/`LimitExceeded`/initiator `System`,
+  без двойного аудита) без изменений. ADR-20 vertical-slice, single-node, RU-only — соблюдены. EF-миграции
+  нет (замок и enforce — чистый код, схема не меняется). Stub MLC-039 не модифицирован.
+- **Канон (present-tense, расхождение ADR-6 ↔ ADR-6.1 закрыто).** `DECISIONS.md` ADR-6.1 переписан
+  (hot живёт в BackgroundService **и enforce'ит**; общий `IEnforcementGate`; переиспользование fetch;
+  убрана фраза «does not kill»), ADR-6 дополнен ссылкой на двутирный enforcement. `02_ARCHITECTURE_REQUIREMENTS.md`:
+  Reconciliation Loop п.3 (Act) + «Concurrency Control» (замок общий для Hangfire cold-джоба и hot-BackgroundService).
+  `04_INFRASTRUCTURE.md` §5: enforcement на обоих тирах под общим замком; hot переиспользует fetch (нет
+  extra `session list`-спавна; terminate транзиентен); spawn-бюджет ADR-3.3 не изменился.
+- **Файлы.** Новые: `Application/Jobs/IEnforcementGate.cs`, `Infrastructure/Jobs/EnforcementGate.cs`,
+  тесты `Jobs/EnforcementGateTests.cs`, `Jobs/HotColdEnforcementOverKillTests.cs`,
+  `Jobs/HotEnforcementMeasurementTests.cs`. Правки: `Application/Jobs/IKillEnforcer.cs`,
+  `Infrastructure/Jobs/{KillEnforcer,ReconciliationJob,HotTierPollingService}.cs`,
+  `Infrastructure/DependencyInjection.cs`, 5 существующих `Jobs/KillEnforcer*Tests.cs` (call-site `,null,`),
+  FE `features/sessions/useSessionsSnapshot.ts`, `features/dashboard/useDashboardSummary.ts`, канон
+  (DECISIONS/02/04), `PROJECT_BACKLOG.md`.
+- **Прогон.** `scripts/build.ps1` зелёный целиком — backend `restore`/`build` (0 warnings,
+  `TreatWarningsAsErrors`)/`test` (**322** — +6)/`format` (без правок); frontend
+  `lint`/`type-check`/`test` (**119**)/`build` ОК — «Все шаги пройдены успешно».

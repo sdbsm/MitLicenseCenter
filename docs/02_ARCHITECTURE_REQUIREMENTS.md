@@ -34,14 +34,14 @@ To avoid overloading the 1C Cluster, the system uses a Background Worker pattern
    - **Cold loop** — full snapshot of every tenant's sessions across the cluster, every **20–30 seconds**.
    - **Hot loop** — focused snapshot for tenants at or near their limit (≥ 90% consumption), every **3–5 seconds**. A tenant returns to cold tier after two consecutive cold cycles below the threshold.
 2. **Analyze (Diff):** The Session Enforcer groups active sessions by Client. It counts only sessions that consume a license (ignoring specific background jobs if they don't consume licenses). It compares the count to the Client's Limit.
-3. **Act (Reconcile):** If a Client exceeds the limit, the system selects sessions ordered by `StartedAt DESC` (newest first) and sends "Kill" commands to the 1C cluster (RAS via `rac.exe`) until `Consumed == Limit`. Before each kill the adapter re-fetches the target session and verifies `(InfobaseId, AppID, StartedAt)` match the snapshot — a mismatch causes the kill to be skipped. A `404 / session not found` response is treated as a successful (idempotent) kill. Every kill writes an immutable `AuditLog` entry with reason and snapshot context.
+3. **Act (Reconcile):** If a Client exceeds the limit, the system selects sessions ordered by `StartedAt DESC` (newest first) and sends "Kill" commands to the 1C cluster (RAS via `rac.exe`) until `Consumed == Limit`. Before each kill the adapter re-fetches the target session and verifies `(InfobaseId, AppID, StartedAt)` match the snapshot — a mismatch causes the kill to be skipped. A `404 / session not found` response is treated as a successful (idempotent) kill. Every kill writes an immutable `AuditLog` entry with reason and snapshot context. **Enforcement runs on both tiers:** kill executes on each cold cycle and on every hot tick for hot-tier tenants, so an already-hot tenant that exceeds quota is reconciled within one hot interval rather than waiting for the next cold cycle (ADR-6.1).
 
 The hot/cold split keeps the enforcement window ≤ 5 seconds for tenants who are actually trying to exceed quota, while keeping baseline cluster load low.
 
 # Concurrency & Background Processing
 
 - **Task Queues:** Operations that take time (e.g., parsing/updating IIS configurations across 50 bases after a platform update) must be queued and processed asynchronously.
-- **Concurrency Control:** Background workers monitoring sessions must use distributed locks (or database locks) to ensure only one enforcement loop runs at a time to prevent race conditions (e.g., killing too many sessions at once).
+- **Concurrency Control:** Only one enforcement loop runs at a time to prevent race conditions (e.g., killing too many sessions at once). Two paths now issue kills — the Hangfire cold job and the hot-tier `BackgroundService` — so they share a single in-process mutual-exclusion lock (`IEnforcementGate`, a singleton `SemaphoreSlim(1, 1)`) held for the whole "fetch fresh session list + kill" window. Hangfire's `[DisableConcurrentExecution]` still guards cold-vs-cold overlap, but the cross-path guarantee comes from the shared gate; single-node (one process) makes an in-process lock sufficient (ADR-6.1, MLC-001).
 
 # Data & State Management
 

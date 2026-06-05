@@ -60,7 +60,7 @@ public sealed class KillEnforcerEarlyExitTests
         var enforcer = new KillEnforcer(cluster, audit, db, TestMetrics.Reconciliation(), NullLogger<KillEnforcer>.Instance);
 
         // Act
-        await enforcer.EnforceAsync(payload, CancellationToken.None);
+        await enforcer.EnforceAsync(payload, freshSessions: null, CancellationToken.None);
 
         // Assert: exactly 1 kill (consumed goes 5→4 == limit → stop).
         await cluster.Received(1).KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>());

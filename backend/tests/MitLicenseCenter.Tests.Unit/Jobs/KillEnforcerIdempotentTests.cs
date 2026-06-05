@@ -58,7 +58,7 @@ public sealed class KillEnforcerIdempotentTests
         var enforcer = new KillEnforcer(cluster, audit, db, TestMetrics.Reconciliation(), NullLogger<KillEnforcer>.Instance);
 
         // Act — should not throw.
-        var act = () => enforcer.EnforceAsync(payload, CancellationToken.None);
+        var act = () => enforcer.EnforceAsync(payload, freshSessions: null, CancellationToken.None);
         await act.Should().NotThrowAsync();
 
         // Assert: 1 kill attempted, AlreadyGone treated as success, 1 audit row.

@@ -23,6 +23,7 @@ internal sealed partial class ReconciliationJob : IReconciliationJob
     private readonly IActiveSessionSnapshotStore _store;
     private readonly IHotTierRegistry _hotTier;
     private readonly IKillEnforcer _enforcer;
+    private readonly IEnforcementGate _gate;
     private readonly ISettingsSnapshot _settings;
     private readonly ColdThrottleState _throttle;
     private readonly TimeProvider _clock;
@@ -35,6 +36,7 @@ internal sealed partial class ReconciliationJob : IReconciliationJob
         IActiveSessionSnapshotStore store,
         IHotTierRegistry hotTier,
         IKillEnforcer enforcer,
+        IEnforcementGate gate,
         ISettingsSnapshot settings,
         ColdThrottleState throttle,
         TimeProvider clock,
@@ -46,6 +48,7 @@ internal sealed partial class ReconciliationJob : IReconciliationJob
         _store = store;
         _hotTier = hotTier;
         _enforcer = enforcer;
+        _gate = gate;
         _settings = settings;
         _throttle = throttle;
         _clock = clock;
@@ -136,7 +139,13 @@ internal sealed partial class ReconciliationJob : IReconciliationJob
             _metrics.RecordColdCycle(sw.Elapsed.TotalMilliseconds);
             var payload = new SnapshotPayload(entries, now, (int)sw.ElapsedMilliseconds, AdapterSource);
 
-            await _enforcer.EnforceAsync(payload, ct).ConfigureAwait(false);
+            // MLC-044: enforce под общим замком. freshSessions=null → enforcer делает свой
+            // re-fetch ВНУТРИ замка (cold-профиль спавнов 1:1: snapshot-list + enforce-refetch).
+            // Замок сериализует cold с hot-циклом → over-kill невозможен (MLC-001).
+            using (await _gate.AcquireAsync(ct).ConfigureAwait(false))
+            {
+                await _enforcer.EnforceAsync(payload, freshSessions: null, ct).ConfigureAwait(false);
+            }
 
             _store.Replace(payload);
 

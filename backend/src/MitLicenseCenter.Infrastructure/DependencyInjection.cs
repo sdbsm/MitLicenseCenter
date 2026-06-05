@@ -135,6 +135,11 @@ public static class DependencyInjection
         services.AddSingleton<RacMetrics>();
         services.AddSingleton<ReconciliationMetrics>();
 
+        // MLC-044: общий enforcement-замок. Singleton — берут оба пути enforcement
+        // (cold Hangfire-джоб и hot BackgroundService), чтобы kill исполнял ровно один
+        // путь за раз (защита от over-kill, MLC-001; Hangfire-фильтр hot не покрывает).
+        services.AddSingleton<IEnforcementGate, EnforcementGate>();
+
         // Reconciliation job + kill enforcer (scoped — require DbContext + IClusterClient).
         services.AddScoped<IReconciliationJob, ReconciliationJob>();
         services.AddScoped<IKillEnforcer, KillEnforcer>();

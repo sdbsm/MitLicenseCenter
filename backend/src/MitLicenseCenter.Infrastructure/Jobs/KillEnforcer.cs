@@ -34,7 +34,10 @@ internal sealed partial class KillEnforcer : IKillEnforcer
         _logger = logger;
     }
 
-    public async Task EnforceAsync(SnapshotPayload snapshot, CancellationToken ct)
+    public async Task EnforceAsync(
+        SnapshotPayload snapshot,
+        IReadOnlyList<ClusterSession>? freshSessions,
+        CancellationToken ct)
     {
         var tenantLimits = await _db.Tenants
             .AsNoTracking()
@@ -49,10 +52,13 @@ internal sealed partial class KillEnforcer : IKillEnforcer
         if (overLimitTenants.Count == 0)
             return;
 
-        // One re-fetch call for the entire enforcement cycle.
-        var freshSessions = await _cluster.ListActiveSessionsAsync(ct).ConfigureAwait(false);
-        var freshBySessionId = new Dictionary<Guid, ClusterSession>(freshSessions.Count);
-        foreach (var s in freshSessions)
+        // One re-fetch for the entire enforcement cycle. Hot-путь передаёт уже полученный
+        // тиком свежий список (MLC-044) — повторного спавна rac.exe нет; cold передаёт
+        // null и делает свой fetch. В обоих случаях вызывающий держит IEnforcementGate,
+        // поэтому список отражает kills параллельного пути (идемпотентность, anti-over-kill).
+        var freshList = freshSessions ?? await _cluster.ListActiveSessionsAsync(ct).ConfigureAwait(false);
+        var freshBySessionId = new Dictionary<Guid, ClusterSession>(freshList.Count);
+        foreach (var s in freshList)
             freshBySessionId.TryAdd(s.SessionId, s);
 
         var totalKills = 0;

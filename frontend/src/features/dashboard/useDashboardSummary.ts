@@ -8,7 +8,9 @@ export function useDashboardSummary() {
   return useQuery({
     queryKey: dashboardSummaryQueryKey,
     queryFn: () => api<DashboardSummaryResponse>("/api/v1/dashboard/summary"),
-    refetchInterval: 15_000,
+    // MLC-044: 5с согласовано с hot-каденцией (~4с). Сводка дешёвая (несколько COUNT +
+    // in-memory RAS-health); рост вызовов 15→5с пренебрежим при 5–20 пользователях.
+    refetchInterval: 5_000,
     refetchOnWindowFocus: true,
     placeholderData: (prev) => prev,
   });

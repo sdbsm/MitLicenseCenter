@@ -60,7 +60,7 @@ public sealed class KillEnforcerCapTests
         var enforcer = new KillEnforcer(cluster, audit, db, TestMetrics.Reconciliation(), NullLogger<KillEnforcer>.Instance);
 
         // Act
-        await enforcer.EnforceAsync(payload, CancellationToken.None);
+        await enforcer.EnforceAsync(payload, freshSessions: null, CancellationToken.None);
 
         // Assert: exactly 20 kills (cap), not 30.
         await cluster.Received(20).KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>());
