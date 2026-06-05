@@ -123,6 +123,9 @@ builder.Services.AddHangfire(cfg => cfg
     .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
     .UseSimpleAssemblyNameTypeSerializer()
     .UseRecommendedSerializerSettings()
+    // Детерминированный срок хранения завершённых джоб (см. JobRetentionStateFilter):
+    // cold-snapshot раз в минуту иначе копит историю в схеме hangfire по неявному дефолту.
+    .UseFilter(new JobRetentionStateFilter())
     .UseSqlServerStorage(hangfireConnectionString, new SqlServerStorageOptions
     {
         SchemaName = "hangfire",

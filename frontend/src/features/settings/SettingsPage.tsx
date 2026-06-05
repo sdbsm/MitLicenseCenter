@@ -10,7 +10,8 @@ import { useSettings } from "./useSettings";
 // вместо 4. OneC.Cluster.AdminUser/AdminPassword остаются в секции «cluster» —
 // rac.exe RAS-адаптер использует их для --cluster-user / --cluster-pwd
 // (см. ADR-3.3). Секция «defaults» (ADR-17) добавляет 3 form-prefill ключа;
-// informational IIS.ServiceAccount.UserName удалён (не читался) → 13 ключей.
+// informational IIS.ServiceAccount.UserName удалён (не читался). Секция «audit»
+// (1 ключ) даёт оператору окно хранения журнала аудита → 14 ключей.
 const SECTIONS: { titleKey: string; keys: string[] }[] = [
   {
     titleKey: "settings.sections.cluster",
@@ -39,6 +40,10 @@ const SECTIONS: { titleKey: string; keys: string[] }[] = [
       "Drift.IntervalMinutes",
     ],
   },
+  {
+    titleKey: "settings.sections.audit",
+    keys: ["Audit.RetentionDays"],
+  },
 ];
 
 // Тип ввода + диапазон диктуем со страницы — backend всё равно валидирует
@@ -63,6 +68,7 @@ const FIELD_META: Record<
   "Polling.ColdIntervalSeconds": { type: "number", min: 10, max: 300 },
   "Polling.HotThresholdPercent": { type: "number", min: 50, max: 100 },
   "Drift.IntervalMinutes": { type: "number", min: 1, max: 60 },
+  "Audit.RetentionDays": { type: "number", min: 30, max: 3650 },
 };
 
 export function SettingsPage() {
