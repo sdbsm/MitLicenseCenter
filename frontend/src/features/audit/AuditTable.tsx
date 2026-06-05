@@ -104,10 +104,10 @@ function AuditRow({ entry, tenantName }: AuditRowProps) {
       <TableCell className="text-muted-foreground tabular-nums">
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="cursor-help">{relative}</span>
+            <span className="cursor-help tabular-nums">{exact}</span>
           </TooltipTrigger>
           <TooltipContent>
-            <span className="tabular-nums">{exact}</span>
+            <span>{relative}</span>
           </TooltipContent>
         </Tooltip>
       </TableCell>
