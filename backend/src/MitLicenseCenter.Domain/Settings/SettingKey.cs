@@ -49,6 +49,11 @@ public static class SettingKey
     // Drift detection cadence (используется в PR 3.5).
     public const string DriftIntervalMinutes = "Drift.IntervalMinutes";
 
+    // Enforcement (kill) tuning. Отсрочка перед авто-завершением только что
+    // подключившегося over-limit сеанса: даёт 1С проставить user-name и не бьёт
+    // в окне входа. См. KillEnforcer + DECISIONS.md «Kill grace period».
+    public const string EnforcementKillGraceSeconds = "Enforcement.KillGraceSeconds";
+
     // Audit retention (PR 4.3).
     public const string AuditRetentionDays = "Audit.RetentionDays";
 }

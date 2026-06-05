@@ -76,8 +76,8 @@ public sealed class HotColdEnforcementOverKillTests
         var seededEntries = sessions.Select(s => Entry(s, tenantId, tenantName, infobaseName)).ToList();
         store.Replace(new SnapshotPayload(seededEntries, baseTime, 0, "Ras"));
 
-        var coldEnforcer = new KillEnforcer(cluster, audit, coldDb, metrics, NullLogger<KillEnforcer>.Instance);
-        var hotEnforcer = new KillEnforcer(cluster, audit, hotDb, metrics, NullLogger<KillEnforcer>.Instance);
+        var coldEnforcer = new KillEnforcer(cluster, audit, coldDb, settings, clock, metrics, NullLogger<KillEnforcer>.Instance);
+        var hotEnforcer = new KillEnforcer(cluster, audit, hotDb, settings, clock, metrics, NullLogger<KillEnforcer>.Instance);
 
         var cold = new ReconciliationJob(
             cluster, coldDb, store, registry, coldEnforcer, gate, settings,

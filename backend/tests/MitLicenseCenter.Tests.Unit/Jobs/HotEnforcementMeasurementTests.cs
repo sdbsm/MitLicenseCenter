@@ -108,7 +108,7 @@ public sealed class HotEnforcementMeasurementTests
             s.AppId, s.UserName, s.Host, s.ConsumesLicense, s.StartedAtUtc)).ToList();
         store.Replace(new SnapshotPayload(seeded, baseTime, 0, "Ras"));
 
-        var enforcer = new KillEnforcer(cluster, new NoopAuditLogger(), db, metrics, NullLogger<KillEnforcer>.Instance);
+        var enforcer = new KillEnforcer(cluster, new NoopAuditLogger(), db, settings, clock, metrics, NullLogger<KillEnforcer>.Instance);
         var hot = new HotTierPollingService(
             Substitute.For<IServiceScopeFactory>(), store, registry, gate, settings,
             clock, metrics, NullLogger<HotTierPollingService>.Instance);

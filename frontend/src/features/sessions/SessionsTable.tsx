@@ -122,7 +122,13 @@ function SessionRow({ row, isAdmin, onKill }: SessionRowProps) {
         </Tooltip>
       </TableCell>
       <TableCell className="font-mono text-xs">{row.appId}</TableCell>
-      <TableCell>{row.userName}</TableCell>
+      <TableCell>
+        {row.userName.trim() ? (
+          row.userName
+        ) : (
+          <span className="text-muted-foreground italic">{t("sessions.noUser")}</span>
+        )}
+      </TableCell>
       <TableCell className="text-sm tabular-nums">{startedAtFormatted}</TableCell>
       <TableCell className="text-sm tabular-nums">{formatDuration(row.durationSeconds)}</TableCell>
       <TableCell>
