@@ -421,6 +421,8 @@
       "PublicationDeleted": "Публикация удалена",
       "PublicationDriftDetected": "Расхождение публикации обнаружено",
       "PublicationReconciled": "Публикация согласована",
+      "PublicationPublished": "Публикация через webinst",
+      "PublicationPlatformChanged": "Версия платформы изменена",
       "AdminLoggedIn": "Вход администратора",
       "AdminLoggedOut": "Выход администратора",
       "AdminPasswordChanged": "Смена пароля",
