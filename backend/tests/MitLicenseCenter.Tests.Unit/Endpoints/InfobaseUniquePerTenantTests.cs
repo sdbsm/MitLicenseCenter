@@ -24,9 +24,6 @@ public sealed class InfobaseUniquePerTenantTests
                 SiteName: "Default Web Site",
                 VirtualPath: "/ib",
                 PlatformVersion: "8.3.23.1865",
-                EnableOData: false,
-                EnableHttpServices: false,
-                VrdCustomXml: null,
                 PhysicalPathOverride: null));
 
     private static Tenant SeedTenant(string name) => new()
@@ -188,9 +185,6 @@ public sealed class InfobaseUniquePerTenantTests
                     SiteName: "Default Web Site",
                     VirtualPath: "/ib",
                     PlatformVersion: "8.3.23.1865",
-                    EnableOData: false,
-                    EnableHttpServices: false,
-                    VrdCustomXml: null,
                     PhysicalPathOverride: null)),
             db,
             audit,

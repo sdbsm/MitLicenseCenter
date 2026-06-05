@@ -47,9 +47,6 @@ public sealed class DbUpdateExceptionBackstopTests
                 SiteName: "Default Web Site",
                 VirtualPath: "/ib",
                 PlatformVersion: "8.3.23.1865",
-                EnableOData: false,
-                EnableHttpServices: false,
-                VrdCustomXml: null,
                 PhysicalPathOverride: null));
 
     private static UpdateInfobaseRequest UpdateInfobase(string name, Guid clusterId) =>
@@ -63,9 +60,6 @@ public sealed class DbUpdateExceptionBackstopTests
                 SiteName: "Default Web Site",
                 VirtualPath: "/ib",
                 PlatformVersion: "8.3.23.1865",
-                EnableOData: false,
-                EnableHttpServices: false,
-                VrdCustomXml: null,
                 PhysicalPathOverride: null));
 
     // ── DbUniqueViolation.Identify: имя индекса → enum ─────────────────────────────

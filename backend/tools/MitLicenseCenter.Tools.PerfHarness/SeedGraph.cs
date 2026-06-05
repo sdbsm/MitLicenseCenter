@@ -96,9 +96,8 @@ internal static class SeedDataGenerator
                 SiteName = "Default Web Site",
                 VirtualPath = $"perf{j:D6}",
                 PlatformVersion = "8.3.24.1234",
-                EnableOData = false,
-                EnableHttpServices = false,
-                LastDriftStatus = PublicationDriftStatus.InSync,
+                Source = PublicationSource.Unknown,
+                LastCheckStatus = PublicationPublishStatus.Unknown,
                 CreatedAt = nowUtc,
             });
         }

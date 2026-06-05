@@ -13,13 +13,19 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { PublicationDriftStatus, PublicationListItem } from "./types";
+import type { PublicationListItem, PublicationPublishStatus, PublicationSource } from "./types";
 
-const DRIFT_VARIANT: Record<PublicationDriftStatus, StatusBadgeVariant> = {
-  InSync: "success",
-  Drift: "danger",
-  Missing: "info",
+const STATUS_VARIANT: Record<PublicationPublishStatus, StatusBadgeVariant> = {
+  Published: "success",
+  NotPublished: "info",
   Error: "danger",
+  Unknown: "neutral",
+};
+
+const SOURCE_VARIANT: Record<PublicationSource, StatusBadgeVariant> = {
+  Webinst: "success",
+  Configurator: "info",
+  Unknown: "neutral",
 };
 
 interface PublicationsTableProps {
@@ -28,9 +34,10 @@ interface PublicationsTableProps {
   isError: boolean;
   isAdmin: boolean;
   hasAnyPublications: boolean;
-  pollingId: string | null;
-  onCheckDrift: (publication: PublicationListItem) => void;
-  onReconcile: (publication: PublicationListItem) => void;
+  checkingId: string | null;
+  onCheck: (publication: PublicationListItem) => void;
+  onPublish: (publication: PublicationListItem) => void;
+  onChangePlatform: (publication: PublicationListItem) => void;
 }
 
 /** Таблица публикаций: шапка, скелет загрузки, пустое состояние и строки. */
@@ -40,12 +47,13 @@ export function PublicationsTable({
   isError,
   isAdmin,
   hasAnyPublications,
-  pollingId,
-  onCheckDrift,
-  onReconcile,
+  checkingId,
+  onCheck,
+  onPublish,
+  onChangePlatform,
 }: PublicationsTableProps) {
   const { t } = useTranslation();
-  const columnCount = isAdmin ? 10 : 9;
+  const columnCount = isAdmin ? 9 : 8;
 
   return (
     <div className="rounded-md border">
@@ -59,12 +67,11 @@ export function PublicationsTable({
             <TableHead className="w-32">
               {t("publications.table.headers.platformVersion")}
             </TableHead>
-            <TableHead className="w-28">{t("publications.table.headers.oData")}</TableHead>
-            <TableHead className="w-28">{t("publications.table.headers.httpServices")}</TableHead>
-            <TableHead className="w-36">{t("publications.table.headers.drift")}</TableHead>
+            <TableHead className="w-32">{t("publications.table.headers.source")}</TableHead>
+            <TableHead className="w-36">{t("publications.table.headers.status")}</TableHead>
             <TableHead className="w-36">{t("publications.table.headers.lastChecked")}</TableHead>
             {isAdmin && (
-              <TableHead className="w-56 text-right">
+              <TableHead className="w-72 text-right">
                 {t("publications.table.headers.actions")}
               </TableHead>
             )}
@@ -101,9 +108,10 @@ export function PublicationsTable({
                     key={row.id}
                     row={row}
                     isAdmin={isAdmin}
-                    isPolling={pollingId === row.id}
-                    onCheckDrift={onCheckDrift}
-                    onReconcile={onReconcile}
+                    isChecking={checkingId === row.id}
+                    onCheck={onCheck}
+                    onPublish={onPublish}
+                    onChangePlatform={onChangePlatform}
                   />
                 ))}
         </TableBody>
@@ -115,17 +123,19 @@ export function PublicationsTable({
 interface PublicationRowProps {
   row: PublicationListItem;
   isAdmin: boolean;
-  isPolling: boolean;
-  onCheckDrift: (publication: PublicationListItem) => void;
-  onReconcile: (publication: PublicationListItem) => void;
+  isChecking: boolean;
+  onCheck: (publication: PublicationListItem) => void;
+  onPublish: (publication: PublicationListItem) => void;
+  onChangePlatform: (publication: PublicationListItem) => void;
 }
 
 function PublicationRow({
   row,
   isAdmin,
-  isPolling,
-  onCheckDrift,
-  onReconcile,
+  isChecking,
+  onCheck,
+  onPublish,
+  onChangePlatform,
 }: PublicationRowProps) {
   const { t } = useTranslation();
 
@@ -137,61 +147,52 @@ function PublicationRow({
       <TableCell className="font-mono text-xs">{row.virtualPath}</TableCell>
       <TableCell className="font-mono text-xs">{row.platformVersion}</TableCell>
       <TableCell>
-        <StatusBadge variant={row.enableOData ? "success" : "neutral"}>
-          {row.enableOData ? t("publications.badges.enabled") : t("publications.badges.disabled")}
+        <StatusBadge variant={SOURCE_VARIANT[row.source]}>
+          {t(`publications.source.${row.source.toLowerCase()}`)}
         </StatusBadge>
       </TableCell>
       <TableCell>
-        <StatusBadge variant={row.enableHttpServices ? "success" : "neutral"}>
-          {row.enableHttpServices
-            ? t("publications.badges.enabled")
-            : t("publications.badges.disabled")}
-        </StatusBadge>
-      </TableCell>
-      <TableCell>
-        {row.lastDriftDetails ? (
+        {row.lastCheckDetails ? (
           <Tooltip>
             <TooltipTrigger asChild>
               <span className="cursor-help">
-                <StatusBadge variant={DRIFT_VARIANT[row.lastDriftStatus]}>
-                  {t(`publications.driftStatus.${row.lastDriftStatus.toLowerCase()}`)}
+                <StatusBadge variant={STATUS_VARIANT[row.lastCheckStatus]}>
+                  {t(`publications.status.${row.lastCheckStatus.toLowerCase()}`)}
                 </StatusBadge>
               </span>
             </TooltipTrigger>
             <TooltipContent className="max-w-sm whitespace-pre-line">
-              {row.lastDriftDetails}
+              {row.lastCheckDetails}
             </TooltipContent>
           </Tooltip>
         ) : (
-          <StatusBadge variant={DRIFT_VARIANT[row.lastDriftStatus]}>
-            {t(`publications.driftStatus.${row.lastDriftStatus.toLowerCase()}`)}
+          <StatusBadge variant={STATUS_VARIANT[row.lastCheckStatus]}>
+            {t(`publications.status.${row.lastCheckStatus.toLowerCase()}`)}
           </StatusBadge>
         )}
       </TableCell>
       <TableCell>
-        {row.lastDriftCheckAt ? (
-          <RelativeTime value={row.lastDriftCheckAt} />
+        {row.lastCheckAt ? (
+          <RelativeTime value={row.lastCheckAt} />
         ) : (
-          <span className="text-muted-foreground">{t("publications.driftStatus.unknown")}</span>
+          <span className="text-muted-foreground">{t("publications.status.unknown")}</span>
         )}
       </TableCell>
       {isAdmin && (
         <TableCell className="text-right">
           <div className="flex justify-end gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={isPolling}
-              onClick={() => onCheckDrift(row)}
-            >
-              {isPolling ? (
+            <Button size="sm" variant="outline" disabled={isChecking} onClick={() => onCheck(row)}>
+              {isChecking ? (
                 <Loader2Icon className="size-4 animate-spin" />
               ) : (
-                t("publications.actions.checkDrift")
+                t("publications.actions.check")
               )}
             </Button>
-            <Button size="sm" variant="outline" onClick={() => onReconcile(row)}>
-              {t("publications.actions.reconcile")}
+            <Button size="sm" variant="outline" onClick={() => onPublish(row)}>
+              {t("publications.actions.publish")}
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => onChangePlatform(row)}>
+              {t("publications.actions.changePlatform")}
             </Button>
           </div>
         </TableCell>

@@ -54,11 +54,17 @@ public sealed class AuditDescriptionsTests
     }
 
     [Fact]
-    public void Reconcile_uses_operator_wording_without_guillemets()
+    public void Published_mentions_webinst()
     {
-        // Reconcile исторически без « » вокруг метки и со словом «оператором».
-        AuditDescriptions.PublicationReconciled(
-                "Default Web Site/ib", PublicationDriftStatus.Drift, PublicationDriftStatus.InSync, "admin")
-            .Should().Be("Публикация Default Web Site/ib согласована оператором admin: статус Drift → InSync.");
+        AuditDescriptions.PublicationPublished("Default Web Site/ib", "admin")
+            .Should().Be("Публикация «Default Web Site/ib» опубликована через webinst администратором admin.");
+    }
+
+    [Fact]
+    public void PlatformChanged_mentions_both_versions()
+    {
+        AuditDescriptions.PublicationPlatformChanged(
+                "Default Web Site/ib", "8.3.23.1865", "8.3.24.1234", "admin")
+            .Should().Be("Платформа публикации «Default Web Site/ib» изменена с 8.3.23.1865 на 8.3.24.1234 администратором admin.");
     }
 }

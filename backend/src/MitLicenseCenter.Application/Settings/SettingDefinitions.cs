@@ -68,6 +68,12 @@ public static class SettingDefinitions
                 Kind: SettingValueKind.Path,
                 DefaultValue: @"C:\inetpub\wwwroot"),
 
+            [SettingKey.OneCClusterServer] = new(
+                SettingKey.OneCClusterServer,
+                IsSecret: false,
+                Description: "Адрес 1С-кластера для публикации через webinst (строка соединения Srvr=…;Ref=…). Формат host или host:port. Пусто → берётся host из OneC.RAS.Endpoint.",
+                Kind: SettingValueKind.Text),
+
             // Дефолты формы добавления инфобазы — подставляются как значения по
             // умолчанию в новую базу, чтобы не вводить одинаковое каждый раз.
             // На бекенде не используются (форма-only), но живут в общем каталоге
@@ -121,7 +127,7 @@ public static class SettingDefinitions
             [SettingKey.DriftIntervalMinutes] = new(
                 SettingKey.DriftIntervalMinutes,
                 IsSecret: false,
-                Description: "Интервал проверки дрейфа публикаций в IIS, минуты.",
+                Description: "Интервал фонового обновления статуса публикаций в IIS, минуты.",
                 Kind: SettingValueKind.Number,
                 DefaultValue: "5",
                 Min: 1,

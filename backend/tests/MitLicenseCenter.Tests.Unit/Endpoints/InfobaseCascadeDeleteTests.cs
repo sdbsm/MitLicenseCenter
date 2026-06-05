@@ -44,8 +44,6 @@ public sealed class InfobaseCascadeDeleteTests
             SiteName = "Default Web Site",
             VirtualPath = "/acme-bp",
             PlatformVersion = "8.3.23.1865",
-            EnableOData = false,
-            EnableHttpServices = false,
             CreatedAt = DateTime.UtcNow,
         };
         db.Tenants.Add(tenant);

@@ -15,7 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ApiError } from "@/lib/api";
 import type { PublicationListItem } from "./types";
-import { useReconcile } from "./usePublications";
+import { usePublish } from "./usePublications";
 
 interface ConflictBody {
   code?: string;
@@ -23,21 +23,24 @@ interface ConflictBody {
   title?: string;
 }
 
-interface ReconcilePublicationDialogProps {
+interface PublishPublicationDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   publication: PublicationListItem | null;
 }
 
-export function ReconcilePublicationDialog({
+// Диалог публикации через webinst (MLC-045). Подтверждение токеном (имя сайта + путь).
+// Если публикация сделана не панелью (source ≠ Webinst) — показываем предупреждение о
+// перезаписи ручной конфигурации; confirm=true отправляется всегда (явное действие).
+export function PublishPublicationDialog({
   open,
   onOpenChange,
   publication,
-}: ReconcilePublicationDialogProps) {
+}: PublishPublicationDialogProps) {
   const { t } = useTranslation();
   const cancelRef = useRef<HTMLButtonElement>(null);
   const [confirmation, setConfirmation] = useState("");
-  const reconcile = useReconcile();
+  const publish = usePublish();
 
   if (!publication) {
     return null;
@@ -45,16 +48,17 @@ export function ReconcilePublicationDialog({
 
   const token = `${publication.siteName}${publication.virtualPath}`;
   const matched = confirmation.trim() === token;
+  const isOverwrite = publication.source !== "Webinst";
 
   const handleConfirm = async () => {
     try {
-      await reconcile.mutateAsync(publication.id);
-      toast.success(t("publications.toasts.reconciled"));
+      await publish.mutateAsync({ id: publication.id, confirm: true });
+      toast.success(t("publications.toasts.published"));
       onOpenChange(false);
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
         const body = error.body as ConflictBody | null;
-        const detail = body?.detail ?? body?.title ?? t("publications.toasts.reconcileFailed");
+        const detail = body?.detail ?? body?.title ?? t("publications.toasts.publishFailed");
         toast.error(detail);
         return;
       }
@@ -66,21 +70,26 @@ export function ReconcilePublicationDialog({
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>{t("publications.reconcile.title")}</AlertDialogTitle>
+          <AlertDialogTitle>{t("publications.publish.title")}</AlertDialogTitle>
           <AlertDialogDescription>
-            {t("publications.reconcile.body", {
-              siteName: publication.siteName,
-              virtualPath: publication.virtualPath,
-            })}
+            {isOverwrite
+              ? t("publications.publish.bodyOverwrite", {
+                  siteName: publication.siteName,
+                  virtualPath: publication.virtualPath,
+                })
+              : t("publications.publish.body", {
+                  siteName: publication.siteName,
+                  virtualPath: publication.virtualPath,
+                })}
           </AlertDialogDescription>
         </AlertDialogHeader>
 
         <div className="grid gap-2">
-          <Label htmlFor="confirm-reconcile-token" className="text-sm">
-            {t("publications.reconcile.confirmLabel", { token })}
+          <Label htmlFor="confirm-publish-token" className="text-sm">
+            {t("publications.publish.confirmLabel", { token })}
           </Label>
           <Input
-            id="confirm-reconcile-token"
+            id="confirm-publish-token"
             autoComplete="off"
             value={confirmation}
             onChange={(e) => setConfirmation(e.target.value)}
@@ -89,18 +98,17 @@ export function ReconcilePublicationDialog({
         </div>
 
         <AlertDialogFooter>
-          <AlertDialogCancel ref={cancelRef} disabled={reconcile.isPending}>
-            {t("publications.reconcile.cancel")}
+          <AlertDialogCancel ref={cancelRef} disabled={publish.isPending}>
+            {t("publications.publish.cancel")}
           </AlertDialogCancel>
           <AlertDialogAction
-            disabled={!matched || reconcile.isPending}
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:ring-destructive/20"
+            disabled={!matched || publish.isPending}
             onClick={(e) => {
               e.preventDefault();
               void handleConfirm();
             }}
           >
-            {reconcile.isPending ? t("common.loading") : t("publications.reconcile.confirm")}
+            {publish.isPending ? t("common.loading") : t("publications.publish.confirm")}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

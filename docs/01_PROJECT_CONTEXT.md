@@ -80,12 +80,10 @@ The system integrates with the 1C cluster administration interface via RAS (`ras
 
 # IIS Publication Management
 
-Initial publication creation may use Designer publication or `webinst`.
-**Crucial requirement for updates:** Existing publications must NOT be fully recreated during routine maintenance or platform updates.
-When the 1C platform version is updated:
-- The system must parse the `default.vrd` XML file.
-- Only necessary IIS/web.config/vrd related updates (like the path to the new `wsisapi.dll` platform version) should be applied.
-- Existing custom publication configurations (OData, HTTP services, OpenID, etc.) must be strictly preserved.
+The panel (re)publishes infobases via the `webinst` CLI and tracks publication status read-only; it does not enforce a desired `default.vrd` state (ADR-4).
+- **Publish / re-publish:** runs `webinst -publish -iis` for the publication's platform version. This overwrites `default.vrd` and `web.config`, so OData / HTTP-services / OpenID and other fine-tuning are configured outside the panel (Designer, or a `-descriptor` template). A `Source` flag records provenance and gates overwriting publications the panel did not create.
+- **Platform-version update:** rewrites **only** the `wsisapi.dll` version segment in `web.config` (the modern location of the ISAPI handler), leaving `default.vrd` untouched. No full re-publication is needed for a version bump.
+- **Status:** the panel reports whether each publication is live (`Published` / `NotPublished` / `Error`); it never auto-corrects.
 
 # Monitoring Model & Background Processing
 

@@ -7,21 +7,21 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { Tenant } from "@/features/tenants/types";
-import type { PublicationDriftStatus } from "./types";
-import { DRIFT_STATUSES, type UrlFilters } from "./urlState";
+import type { PublicationPublishStatus } from "./types";
+import { PUBLISH_STATUSES, type UrlFilters } from "./urlState";
 
 interface PublicationsFiltersBarProps {
   tenants: Tenant[];
   tenantId: string;
-  driftStatus: string;
+  status: string;
   onChange: (next: Partial<UrlFilters>) => void;
 }
 
-/** Панель фильтров публикаций: выбор клиента + статуса дрейфа. */
+/** Панель фильтров публикаций: выбор клиента + статуса публикации. */
 export function PublicationsFiltersBar({
   tenants,
   tenantId,
-  driftStatus,
+  status,
   onChange,
 }: PublicationsFiltersBarProps) {
   const { t } = useTranslation();
@@ -44,19 +44,19 @@ export function PublicationsFiltersBar({
         </SelectContent>
       </Select>
       <Select
-        value={driftStatus || "_all"}
+        value={status || "_all"}
         onValueChange={(v) =>
-          onChange({ driftStatus: v === "_all" ? "" : (v as PublicationDriftStatus) })
+          onChange({ status: v === "_all" ? "" : (v as PublicationPublishStatus) })
         }
       >
         <SelectTrigger className="w-52">
-          <SelectValue placeholder={t("publications.filters.driftStatus")} />
+          <SelectValue placeholder={t("publications.filters.status")} />
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="_all">{t("publications.filters.all")}</SelectItem>
-          {DRIFT_STATUSES.map((status) => (
-            <SelectItem key={status} value={status}>
-              {t(`publications.driftStatus.${status.toLowerCase()}`)}
+          {PUBLISH_STATUSES.map((s) => (
+            <SelectItem key={s} value={s}>
+              {t(`publications.status.${s.toLowerCase()}`)}
             </SelectItem>
           ))}
         </SelectContent>

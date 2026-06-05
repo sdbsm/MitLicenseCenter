@@ -10,12 +10,13 @@ export const publicationSchema = z.object({
   siteName: z.string(),
   virtualPath: z.string(),
   platformVersion: z.string(),
-  enableOData: z.boolean(),
-  enableHttpServices: z.boolean(),
-  vrdCustomXml: omittable(z.string()),
+  source: z.enum(["Unknown", "Webinst", "Configurator"]),
   physicalPathOverride: omittable(z.string()),
   createdAt: z.string(),
   updatedAt: omittable(z.string()),
+  lastCheckStatus: z.enum(["Unknown", "Published", "NotPublished", "Error"]),
+  lastCheckAt: omittable(z.string()),
+  lastCheckDetails: omittable(z.string()),
 });
 
 export const infobaseSchema = z.object({
@@ -62,9 +63,6 @@ export interface PublicationInput {
   siteName: string;
   virtualPath: string;
   platformVersion: string;
-  enableOData: boolean;
-  enableHttpServices: boolean;
-  vrdCustomXml: string | null;
   physicalPathOverride: string | null;
 }
 

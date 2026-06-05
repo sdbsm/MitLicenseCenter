@@ -218,13 +218,14 @@ RecurringJob.AddOrUpdate<IReconciliationJob>(
     j => j.RunColdAsync(CancellationToken.None),
     "* * * * *"); // Every minute; internal throttle enforces ColdIntervalSeconds.
 
-// Drift check (PR 3.5): тикаем каждые 5 мин, внутри throttle до
-// Settings.Drift.IntervalMinutes — оператор может уменьшить cadence до 1 мин
-// или увеличить до 60, и Hangfire-расписание сюда менять не придётся.
-RecurringJob.AddOrUpdate<IDriftCheckJob>(
-    "drift-check",
-    j => j.RunAllAsync(CancellationToken.None),
+// Publication status refresh (MLC-045): тикаем каждые 5 мин, внутри throttle до
+// Settings.Drift.IntervalMinutes. Read-only — читает факт публикаций в IIS и пишет
+// LastCheck*; ничего не меняет и не пишет аудит (enforcement удалён).
+RecurringJob.AddOrUpdate<IPublicationStatusJob>(
+    "publication-status-refresh",
+    j => j.RefreshAllAsync(CancellationToken.None),
     "*/5 * * * *");
+RecurringJob.RemoveIfExists("drift-check");
 
 // Audit retention (PR 4.3): ежедневно в 03:00 UTC. CRON фиксирован — retention
 // window настраивается через Settings.Audit.RetentionDays, cadence — нет

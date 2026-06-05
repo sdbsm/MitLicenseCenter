@@ -8,18 +8,15 @@ using MitLicenseCenter.Domain.Settings;
 
 namespace MitLicenseCenter.Infrastructure.Publishing;
 
-// Реальный IIS-адаптер (PR 3.5): читает desired-state из Publication,
-// сравнивает с фактическим состоянием IIS-сайта + default.vrd, применяет
-// surgical XML-patch. Никогда не запускает webinst, никогда не overwrite'ит
-// файл целиком — см. memory/infrastructure_integration.md и ADR-4.1.
+// Реальный IIS-адаптер (MLC-045). Делает две вещи:
+//   1) ReadActualStateAsync — read-only: читает факт публикации (сайт/vdir/web.config,
+//      версия платформы из пути к wsisapi.dll). Ничего не меняет.
+//   2) ChangePlatformAsync — правит ТОЛЬКО version-сегмент пути к wsisapi.dll в
+//      web.config (fallback — default.vrd). Содержательно default.vrd не трогается.
+// Создание/перезапись публикаций — НЕ здесь, а через webinst (OneCWebinstPublisher).
 //
-// VRD-path layout (ADR-4.1 + PR 4.1): если у Publication задан PhysicalPathOverride —
-// используется он (папка IIS-приложения). Иначе convention-fallback:
-// {IIS.DefaultVrdRoot}/{siteName}/{trimmedVirtualPath}/default.vrd.
-// Resolver вынесен в VrdPathResolver (pure static, unit-testable без IIS).
-//
-// Windows-only: ServerManager доступен только на Windows. Тесты, не зависящие
-// от IIS, идут через VrdPatcher/PublicationDriftDetector напрямую (pure helpers).
+// Windows-only: ServerManager доступен только на Windows. Тесты, не зависящие от
+// IIS, идут через WsisapiVersionRewriter/PublicationStatusEvaluator (pure helpers).
 [SupportedOSPlatform("windows")]
 internal sealed partial class OneCIisPublishingService : IIisPublishingService
 {
@@ -38,18 +35,18 @@ internal sealed partial class OneCIisPublishingService : IIisPublishingService
         return Task.FromResult(ReadActualState(publication));
     }
 
-    public Task ApplyDesiredStateAsync(Publication publication, CancellationToken ct)
+    public Task ChangePlatformAsync(Publication publication, string newVersion, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(publication);
-        ApplyDesiredState(publication);
+        ArgumentException.ThrowIfNullOrWhiteSpace(newVersion);
+        ChangePlatform(publication, newVersion);
         return Task.CompletedTask;
     }
 
     public Task<IReadOnlyList<IisSiteInfo>> ListSitesAsync(CancellationToken ct)
     {
         // Исключения (нет доступа к Metabase, COM) пробрасываются — discovery-эндпоинт
-        // их ловит и помечает результат недоступным. Здесь не swallow'им, чтобы
-        // отличить «нет сайтов» от «не смогли прочитать».
+        // их ловит и помечает результат недоступным.
         using var sm = new ServerManager();
         var sites = sm.Sites
             .Select(site => new IisSiteInfo(site.Name))
@@ -68,35 +65,34 @@ internal sealed partial class OneCIisPublishingService : IIisPublishingService
                 return new PublicationActualState(
                     SiteExists: false,
                     VirtualPathExists: false,
+                    WebConfigExists: false,
                     PlatformVersion: null,
-                    EnableOData: false,
-                    EnableHttpServices: false,
-                    VrdContent: null,
                     Error: null);
             }
 
             var virtualPathExists = SiteHasVirtualPath(site, publication.VirtualPath);
-            var vrdPath = ResolveVrdPath(publication);
-            string? vrdContent = null;
-            string? platformVersion = null;
-            var enableOData = false;
-            var enableHttpServices = false;
 
-            if (File.Exists(vrdPath))
+            var webConfigPath = ResolveWebConfigPath(publication);
+            var vrdPath = ResolveVrdPath(publication);
+            var webConfigExists = File.Exists(webConfigPath);
+
+            // Версию платформы ищем сначала в web.config (современные сборки держат
+            // ISAPI-handler там), затем — в default.vrd (старые сборки).
+            string? platformVersion = null;
+            if (webConfigExists)
             {
-                vrdContent = File.ReadAllText(vrdPath);
-                platformVersion = VrdPatcher.TryReadPlatformVersion(vrdContent);
-                VrdPatcher.TryReadODataEnabled(vrdContent, out enableOData);
-                VrdPatcher.TryReadHttpServicesEnabled(vrdContent, out enableHttpServices);
+                platformVersion = WsisapiVersionRewriter.TryReadVersion(File.ReadAllText(webConfigPath));
+            }
+            if (platformVersion is null && File.Exists(vrdPath))
+            {
+                platformVersion = WsisapiVersionRewriter.TryReadVersion(File.ReadAllText(vrdPath));
             }
 
             return new PublicationActualState(
                 SiteExists: true,
                 VirtualPathExists: virtualPathExists,
+                WebConfigExists: webConfigExists,
                 PlatformVersion: platformVersion,
-                EnableOData: enableOData,
-                EnableHttpServices: enableHttpServices,
-                VrdContent: vrdContent,
                 Error: null);
         }
         catch (UnauthorizedAccessException ex)
@@ -106,8 +102,6 @@ internal sealed partial class OneCIisPublishingService : IIisPublishingService
         }
         catch (System.Runtime.InteropServices.COMException ex)
         {
-            // IIS Metabase / ServerManager сообщает COM-исключение, если у нас
-            // нет прав или host недоступен. Не считаем это «дрейфом» — это Error.
             LogIisMetabaseFailure(_logger, ex);
             return ErrorState(ex.Message);
         }
@@ -118,46 +112,76 @@ internal sealed partial class OneCIisPublishingService : IIisPublishingService
         }
     }
 
-    private void ApplyDesiredState(Publication publication)
+    private void ChangePlatform(Publication publication, string newVersion)
     {
+        var webConfigPath = ResolveWebConfigPath(publication);
         var vrdPath = ResolveVrdPath(publication);
-        if (!File.Exists(vrdPath))
+
+        if (!File.Exists(webConfigPath) && !File.Exists(vrdPath))
         {
             throw new FileNotFoundException(
-                $"default.vrd не найден по пути «{vrdPath}». Создание новых публикаций через webinst запрещено — публикация должна быть создана вручную.",
-                vrdPath);
+                $"Файлы публикации «{publication.SiteName}{publication.VirtualPath}» не найдены " +
+                $"(web.config / default.vrd). Сначала опубликуйте инфобазу.",
+                webConfigPath);
         }
 
-        var original = File.ReadAllText(vrdPath);
-        var patched = VrdPatcher.Patch(original, publication);
+        // Современные сборки держат путь к wsisapi.dll в web.config; старые — в
+        // default.vrd. Патчим оба, что нашлись и содержат путь. Хотя бы один должен
+        // содержать version-сегмент, иначе менять нечего.
+        var patchedAny = PatchWsisapiVersion(webConfigPath, newVersion)
+                         | PatchWsisapiVersion(vrdPath, newVersion);
+        if (!patchedAny)
+        {
+            throw new InvalidOperationException(
+                "В web.config/default.vrd не найден путь к wsisapi.dll — версию платформы изменить не удалось.");
+        }
+    }
+
+    // Перезаписывает version-сегмент пути к wsisapi.dll в файле, если он есть.
+    // Возвращает true, если файл существует и содержит такой путь (даже если версия
+    // уже совпадала — атомарно перезаписываем только при реальном изменении).
+    private bool PatchWsisapiVersion(string path, string newVersion)
+    {
+        if (!File.Exists(path))
+            return false;
+
+        var original = File.ReadAllText(path);
+        if (WsisapiVersionRewriter.TryReadVersion(original) is null)
+            return false;
+
+        var patched = WsisapiVersionRewriter.Rewrite(original, newVersion);
         if (string.Equals(original, patched, StringComparison.Ordinal))
         {
-            // Idempotent: ничего не изменилось — не трогаем файл, чтобы не
-            // обновлять mtime и не сбивать оператору диагностику.
-            LogVrdUpToDate(_logger, vrdPath);
-            return;
+            LogPlatformUpToDate(_logger, path);
+            return true;
         }
 
-        // Защитное сохранение: пишем во временный файл рядом и атомарно
-        // подменяем — даже при сбое после write мы не оставим VRD пустым.
-        var tmp = vrdPath + ".mlc.tmp";
+        var tmp = path + ".mlc.tmp";
         File.WriteAllText(tmp, patched);
-        File.Replace(tmp, vrdPath, destinationBackupFileName: null);
-        LogVrdPatched(_logger, vrdPath);
+        File.Replace(tmp, path, destinationBackupFileName: null);
+        LogPlatformPatched(_logger, path, newVersion);
+        return true;
     }
 
     private string ResolveVrdPath(Publication publication) =>
         VrdPathResolver.Resolve(
             publication.PhysicalPathOverride,
-            _settings.GetString(SettingKey.IisDefaultVrdRoot) ?? @"C:\inetpub\wwwroot",
+            DefaultVrdRoot(),
             publication.SiteName,
             publication.VirtualPath);
 
+    private string ResolveWebConfigPath(Publication publication) =>
+        VrdPathResolver.ResolveWebConfig(
+            publication.PhysicalPathOverride,
+            DefaultVrdRoot(),
+            publication.SiteName,
+            publication.VirtualPath);
+
+    private string DefaultVrdRoot() =>
+        _settings.GetString(SettingKey.IisDefaultVrdRoot) ?? @"C:\inetpub\wwwroot";
+
     private static bool SiteHasVirtualPath(Site site, string virtualPath)
     {
-        // IIS-приложение определяется path'ом вида "/MyPub". Если оператор
-        // зашёл в default web site и публикация — это просто виртуальный
-        // каталог под root application'ом, проверяем через `VirtualDirectories`.
         var normalized = virtualPath.StartsWith('/') ? virtualPath : "/" + virtualPath;
 
         foreach (var app in site.Applications)
@@ -176,24 +200,22 @@ internal sealed partial class OneCIisPublishingService : IIisPublishingService
     private static PublicationActualState ErrorState(string error) => new(
         SiteExists: false,
         VirtualPathExists: false,
+        WebConfigExists: false,
         PlatformVersion: null,
-        EnableOData: false,
-        EnableHttpServices: false,
-        VrdContent: null,
         Error: error);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "IIS: нет доступа к Metabase/файлу default.vrd")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "IIS: нет доступа к Metabase/файлу публикации")]
     private static partial void LogIisAccessDenied(ILogger logger, Exception ex);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "IIS: ошибка ServerManager (COM)")]
     private static partial void LogIisMetabaseFailure(ILogger logger, Exception ex);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "default.vrd: не удалось прочитать файл")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Файл публикации: не удалось прочитать")]
     private static partial void LogVrdReadFailure(ILogger logger, Exception ex);
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "default.vrd up-to-date: {Path}")]
-    private static partial void LogVrdUpToDate(ILogger logger, string path);
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Путь к wsisapi.dll уже актуален: {Path}")]
+    private static partial void LogPlatformUpToDate(ILogger logger, string path);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "default.vrd согласован: {Path}")]
-    private static partial void LogVrdPatched(ILogger logger, string path);
+    [LoggerMessage(Level = LogLevel.Information, Message = "Версия платформы в {Path} изменена на {Version}")]
+    private static partial void LogPlatformPatched(ILogger logger, string path, string version);
 }

@@ -2181,3 +2181,106 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 - **Прогон.** `scripts/build.ps1` зелёный целиком — backend `restore`/`build` (0 warnings,
   `TreatWarningsAsErrors`)/`test` (**322** — +6)/`format` (без правок); frontend
   `lint`/`type-check`/`test` (**119**)/`build` ОК — «Все шаги пройдены успешно».
+
+---
+
+### MLC-045 — Публикации: webinst + смена платформы через web.config, отказ от drift-enforcement — 2026-06-05
+
+- **Постановка (пользователь).** Текущая модель публикаций (PR 3.5 / ADR-4.1) — «эталон в БД →
+  surgical-patch `default.vrd` → 5-мин drift-job → ручной reconcile» — не совпала с реальным процессом
+  эксплуатации. Нужно: (1) новые ещё не опубликованные базы быстро публиковать через `webinst` (тонкую
+  донастройку оператор при необходимости делает в конфигураторе), с **пометкой происхождения**; (2)
+  смену версии платформы делать правкой **только** `web.config` (путь к `wsisapi.dll`), не перезаписывая
+  `default.vrd`; (3) enforcement-reconcile и сравнение с эталоном — убрать. Согласовано в режиме
+  планирования (`.claude/plans/typed-bubbling-beacon.md`): drift → **read-only статус**;
+  OData/HTTP/VrdCustomXml — **убрать из панели** (webinst их не включает ключами, только через
+  `-descriptor` vrd-шаблон); connstr для webinst — **авто** из настройки кластера + имя ИБ.
+- **Факты, проверенные на стенде.** `webinst.exe` 8.5.1.1302 (`-?` справка): умеет только
+  `-publish`/`-delete`, `-iis`/`-apache2x`, `-wsdir`/`-dir`/`-connstr`/`-descriptor`/`-confPath`/`-osauth`
+  — **отдельных флагов OData/HTTP нет** (только через `-descriptor`). Вывод webinst — **UTF-16LE** (не
+  CP866 как rac.exe). Путь к exe версионно-зависим (`…\1cv8\<версия>\bin\webinst.exe`). Версия платформы
+  в современных сборках лежит в `web.config`, не в `default.vrd` (что и подтверждал комментарий старого
+  `VrdPatcher`: для них vrd-патч был no-op).
+- **Адаптер webinst (ADR-20).** `Application/Publishing/IWebinstPublisher.cs` +
+  `Infrastructure/Publishing/OneCWebinstPublisher.cs`: путь к exe из `PlatformVersion` через
+  `WebinstExeResolver`/`OneCInstallRoots` (тот же скан, что версии платформы — отдельная настройка пути
+  не нужна); запуск процесса по образцу `SystemProcessRacRunner` (`ArgumentList`, таймаут 60с,
+  `Kill(entireProcessTree)`), декод вывода **UTF-16LE**; аргументы (`WebinstArgs`, pure)
+  `-publish -iis -wsdir <vdir> -dir <физ.путь> -connstr "Srvr=<кластер>;Ref=<имя ИБ>;"`; адрес кластера
+  из новой настройки `OneC.Cluster.Server` (fallback — host из `OneC.RAS.Endpoint`). При ненулевом
+  exit — сырой вывод в лог, наружу санитизированный detail (MLC-009).
+- **Смена платформы (web.config, без webinst).** `IIisPublishingService.ChangePlatformAsync` в
+  `OneCIisPublishingService`: правит **только** version-сегмент пути к `wsisapi.dll` в `web.config`
+  (fallback — `default.vrd` для старых сборок), атомарно (temp + `File.Replace`); regex переиспользован
+  из удалённого `VrdPatcher` → вынесен в pure-хелпер `WsisapiVersionRewriter`. `default.vrd`
+  содержательно не трогается.
+- **Read-only статус.** `PublicationActualState` переопределён (site/vdir/web.config exists + версия из
+  wsisapi-пути, без OData/HTTP/VrdContent); pure-хелпер `PublicationStatusEvaluator` маппит факт в
+  `Unknown/Published/NotPublished/Error`. `DriftCheckJob`→**`PublicationStatusRefreshJob`** (read-only,
+  без сравнения с эталоном и **без аудита**); `DriftThrottleState`→`StatusRefreshThrottleState`. Удалены
+  `PublicationDriftDetector`, `VrdPatcher`, `IDriftCheckJob`, `PublicationDriftStatus`. Рекуррент-джоб
+  переименован `drift-check`→`publication-status-refresh` (cron из `Drift.IntervalMinutes`,
+  `RemoveIfExists("drift-check")` при старте).
+- **Эндпоинты.** `check-drift`/`drift-status`/`reconcile` удалены; добавлены
+  `POST /publications/{id}/check` (синхронно читает факт, пишет `LastCheck*`),
+  `POST /publications/{id}/publish` (webinst; **гейт**: не-`Webinst` и уже опубликованная → 409
+  `PUBLISH_CONFIRM_REQUIRED` без `Confirm=true`; успех → `Source=Webinst`, аудит `PublicationPublished=212`;
+  webinst-сбой → 409 `PUBLISH_FAILED`), `POST /publications/{id}/change-platform` (валидирует regex +
+  установленность версии через `IPlatformVersionDiscovery`; IIS-сбой → 409 `IIS_RECONCILE_FAILED`/
+  `IIS_ACCESS_DENIED`; успех → `PlatformVersion` обновлён, аудит `PublicationPlatformChanged=213`).
+  `GET`/`PUT /{id}` сохранены (минус удалённые поля).
+- **Домен/БД.** `Publication`: убраны `EnableOData`/`EnableHttpServices`/`VrdCustomXml`; добавлен
+  `Source` (`PublicationSource` Unknown/Webinst/Configurator); drift-поля →
+  `LastCheckStatus`(`PublicationPublishStatus`)/`LastCheckAt`/`LastCheckDetails`. Аудит-enum:
+  `PublicationPublished=212`/`PublicationPlatformChanged=213` (210/211 — historical, frozen-int, не
+  пишутся). Миграция `MLC045WebinstPublishing`: drop `EnableOData`/`EnableHttpServices`/`VrdCustomXml`/
+  `LastDriftDetails`, rename `LastDriftStatus`→`LastCheckStatus`/`LastDriftCheckAt`→`LastCheckAt`, add
+  `Source`/`LastCheckDetails`, `UPDATE … SET LastCheckStatus=0, LastCheckAt=NULL` (сброс в Unknown — смена
+  семантики enum). EF-эвристика смапила переименования неверно (drift-статус→Source, VrdCustomXml→
+  LastCheckDetails) — `Up`/`Down` переписаны вручную; файлы нормализованы (без BOM, LF — гоча).
+  Настройка `OneC.Cluster.Server` (whitelist + сидер).
+- **Frontend.** Таблица: убраны колонки OData/HTTP, добавлена «Источник» (бейдж webinst/Конфигуратор/—),
+  «Состояние»→статус публикации; действия «Проверить сейчас» (read-only, без поллинга — `check`
+  синхронный) / «Опубликовать» (`PublishPublicationDialog`, подтверждение токеном + предупреждение при
+  `source!=Webinst`) / «Сменить платформу» (новый `ChangePlatformDialog`, select версий из
+  `usePlatformVersions`). `usePublications`: `useCheckStatus`/`usePublish`/`useChangePlatform` вместо
+  `useCheckDrift`/`useReconcile`. Форма инфобазы: убраны поля OData/HTTP из `validation.ts`/`types.ts`/
+  `PublicationFieldset`/`useInfobaseForm` (parity с backend). i18n `publications.*` переписан
+  (status/source/publish/changePlatform). URL-фильтр `driftStatus`→`status`.
+- **Открытый риск (зафиксирован).** connstr-аутентификация: если серверная ИБ требует админа ИБ/кластера,
+  webinst может потребовать `Usr=;Pwd=`. MVP публикует без auth — добавить вторым шагом (переиспользовав
+  `OneC.Cluster.AdminUser/Password`) при появлении триггера.
+- **Жёсткие границы.** `webinst.exe`/`Microsoft.Web.Administration` — только в Infrastructure за
+  интерфейсами (ADR-20; NetArchTest зелёный). Enum int-стабильность соблюдена (210/211 сохранены как
+  historical). Single-node/RU-only не затронуты.
+- **Канон (present-tense).** `DECISIONS.md`: ADR-4 переписан (webinst + web.config + read-only статус),
+  **ADR-4.1 → [REVOKED]**, locked-constraint про drift заменён на «publication status». `04_INFRASTRUCTURE.md`
+  §2 переписан (webinst/web.config/status, +настройка `OneC.Cluster.Server`, +execute на webinst.exe в
+  правах), джоб-описание. `03_DOMAIN_MODEL.md` Publication + enum-слоты. `05_UI_REQUIREMENTS.md` §3.3 (три
+  действия). `01_PROJECT_CONTEXT.md`, `ROADMAP.md`, `00_INDEX.md`, `OPERATIONS.md` IIS-раздел.
+- **Файлы.** Новые: `Domain/Publications/{PublicationSource,PublicationPublishStatus}.cs`,
+  `Application/Publishing/IWebinstPublisher.cs`, `Application/Jobs/IPublicationStatusJob.cs`,
+  `Infrastructure/Publishing/{OneCWebinstPublisher,WebinstArgs,WebinstExeResolver,WsisapiVersionRewriter,
+  PublicationStatusEvaluator}.cs`, `Infrastructure/Jobs/{PublicationStatusRefreshJob,StatusRefreshThrottleState}.cs`,
+  миграция `…_MLC045WebinstPublishing.cs`, тесты `Publishing/{WsisapiVersionRewriter,PublicationStatusEvaluator,
+  WebinstArgs,WebinstExeResolver}Tests.cs`, `Endpoints/PublicationsOperationsTests.cs`. Удалены:
+  `VrdPatcher.cs`, `PublicationDriftDetector.cs`, `DriftCheckJob.cs`, `DriftThrottleState.cs`,
+  `IDriftCheckJob.cs`, `PublicationDriftStatus.cs`, тесты `VrdPatcherTests`/`PublicationDriftDetectorTests`/
+  `PublicationsReconcileTests`/`DriftCheckTransitionAuditTests`/`DriftCheckBatchQueryTests`,
+  FE `ReconcilePublicationDialog.tsx`. Правки: домен/EF/DI/Program/endpoints/contracts/audit/problems
+  (backend), вся фича `features/publications/*` + `features/infobases/{validation,types,PublicationFieldset,
+  useInfobaseForm}` + `i18n/ru.json` (frontend), tool `PerfHarness/SeedGraph.cs`, канон.
+- **Прогон.** `scripts/build.ps1` зелёный целиком — backend `build` (0 warnings, `TreatWarningsAsErrors`)/
+  `test` (**326** — +4 нетто: +33 новых, −29 удалённых)/`format` (без правок на дефолтной severity);
+  frontend `lint`/`type-check`/`test` (**119**)/`build` ОК — «Все шаги пройдены успешно».
+- **Живая проверка (стенд: backend элевированно + реальный IIS + 1С 8.5.1.1302).** Миграция применилась
+  против реального MSSQL (схема `Publications` ровно новая); маршруты `check`/`publish`/`change-platform`
+  → 401, удалённые `reconcile`/`check-drift`/`drift-status` → 404. Read-only статус-job против реального
+  IIS определил 3 публикации как `Published`, версию `8.5.1.1302` прочитал **из web.config** (подтверждает
+  посылку «версия в web.config»). UI: колонки «Источник»/«Статус» + 3 кнопки. End-to-end под Admin:
+  «Проверить сейчас» → 200; «Сменить платформу» → 200 + аудит 213 (web.config-only, `default.vrd` не
+  тронут); «Опубликовать» → реальный webinst переписал `default.vrd`+`web.config`, `Source`→`Webinst`,
+  аудит 212, гейт-токен подтверждения и предупреждение о перезаписи работают. **Найден и исправлен баг
+  фронта**: `usePublish`/`useChangePlatform` передавали в `api()` уже `JSON.stringify(body)`, а хелпер сам
+  сериализует и ставит `Content-Type` → двойная сериализация → `[FromBody]` не биндился → 500. Исправлено
+  на передачу объекта; перепрогон FE `type-check`/`lint`/`test` (119) зелёный, UI-операции подтверждены 200.

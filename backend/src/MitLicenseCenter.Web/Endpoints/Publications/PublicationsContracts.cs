@@ -9,39 +9,38 @@ public sealed record PublicationResponse(
     string SiteName,
     string VirtualPath,
     string PlatformVersion,
-    bool EnableOData,
-    bool EnableHttpServices,
-    string? VrdCustomXml,
+    PublicationSource Source,
     DateTime CreatedAt,
     DateTime? UpdatedAt,
-    PublicationDriftStatus LastDriftStatus,
-    DateTime? LastDriftCheckAt,
-    string? LastDriftDetails,
+    PublicationPublishStatus LastCheckStatus,
+    DateTime? LastCheckAt,
+    string? LastCheckDetails,
     string? PhysicalPathOverride);
 
-public sealed record CheckDriftAcceptedResponse(string CorrelationId, Guid PublicationId);
-
-public sealed record DriftStatusResponse(
-    PublicationDriftStatus Status,
+// Ответ проверки/смены платформы — текущий read-only статус публикации.
+public sealed record PublicationStatusResponse(
+    PublicationPublishStatus Status,
     DateTime? CheckedAt,
     string? Details);
+
+// Запрос публикации через webinst. Confirm=true снимает гейт на перезапись
+// публикации, происхождение которой не Webinst (перезатрёт ручную конфигурацию).
+public sealed record PublishPublicationRequest(bool Confirm);
+
+// Запрос смены платформы — правит путь к wsisapi.dll в web.config под новую версию.
+public sealed record ChangePlatformRequest(
+    [property: Required, StringLength(InfobaseValidationRules.PlatformVersionMaxLength, MinimumLength = 1)] string PlatformVersion);
 
 public sealed record CreatePublicationRequest(
     [property: Required, StringLength(InfobaseValidationRules.SiteNameMaxLength, MinimumLength = 1)] string SiteName,
     [property: Required, StringLength(InfobaseValidationRules.VirtualPathMaxLength, MinimumLength = 1)] string VirtualPath,
     [property: Required, StringLength(InfobaseValidationRules.PlatformVersionMaxLength, MinimumLength = 1)] string PlatformVersion,
-    bool EnableOData,
-    bool EnableHttpServices,
-    [property: StringLength(InfobaseValidationRules.VrdCustomXmlMaxLength)] string? VrdCustomXml,
     [property: StringLength(InfobaseValidationRules.PhysicalPathMaxLength)] string? PhysicalPathOverride);
 
 public sealed record UpdatePublicationRequest(
     [property: Required, StringLength(InfobaseValidationRules.SiteNameMaxLength, MinimumLength = 1)] string SiteName,
     [property: Required, StringLength(InfobaseValidationRules.VirtualPathMaxLength, MinimumLength = 1)] string VirtualPath,
     [property: Required, StringLength(InfobaseValidationRules.PlatformVersionMaxLength, MinimumLength = 1)] string PlatformVersion,
-    bool EnableOData,
-    bool EnableHttpServices,
-    [property: StringLength(InfobaseValidationRules.VrdCustomXmlMaxLength)] string? VrdCustomXml,
     [property: StringLength(InfobaseValidationRules.PhysicalPathMaxLength)] string? PhysicalPathOverride);
 
 internal static class PublicationMappings
@@ -53,13 +52,11 @@ internal static class PublicationMappings
             x.SiteName,
             x.VirtualPath,
             x.PlatformVersion,
-            x.EnableOData,
-            x.EnableHttpServices,
-            x.VrdCustomXml,
+            x.Source,
             x.CreatedAt,
             x.UpdatedAt,
-            x.LastDriftStatus,
-            x.LastDriftCheckAt,
-            x.LastDriftDetails,
+            x.LastCheckStatus,
+            x.LastCheckAt,
+            x.LastCheckDetails,
             x.PhysicalPathOverride);
 }

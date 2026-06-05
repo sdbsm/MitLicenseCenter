@@ -1,4 +1,5 @@
-export type PublicationDriftStatus = "InSync" | "Drift" | "Missing" | "Error";
+export type PublicationPublishStatus = "Unknown" | "Published" | "NotPublished" | "Error";
+export type PublicationSource = "Unknown" | "Webinst" | "Configurator";
 
 export interface PublicationListItem {
   id: string;
@@ -9,22 +10,16 @@ export interface PublicationListItem {
   siteName: string;
   virtualPath: string;
   platformVersion: string;
-  enableOData: boolean;
-  enableHttpServices: boolean;
-  lastDriftStatus: PublicationDriftStatus;
-  lastDriftCheckAt: string | null;
-  lastDriftDetails: string | null;
+  source: PublicationSource;
+  lastCheckStatus: PublicationPublishStatus;
+  lastCheckAt: string | null;
+  lastCheckDetails: string | null;
 }
 
-export interface DriftStatusResponse {
-  status: PublicationDriftStatus;
+export interface PublicationStatusResponse {
+  status: PublicationPublishStatus;
   checkedAt: string | null;
   details: string | null;
-}
-
-export interface CheckDriftAcceptedResponse {
-  correlationId: string;
-  publicationId: string;
 }
 
 export interface PublicationsBackendListItem {
@@ -38,15 +33,13 @@ export interface PublicationsBackendListItem {
     siteName: string;
     virtualPath: string;
     platformVersion: string;
-    enableOData: boolean;
-    enableHttpServices: boolean;
-    vrdCustomXml: string | null;
+    source: PublicationSource;
     physicalPathOverride: string | null;
     createdAt: string;
     updatedAt: string | null;
-    lastDriftStatus: PublicationDriftStatus;
-    lastDriftCheckAt: string | null;
-    lastDriftDetails: string | null;
+    lastCheckStatus: PublicationPublishStatus;
+    lastCheckAt: string | null;
+    lastCheckDetails: string | null;
   };
 }
 

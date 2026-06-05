@@ -18,7 +18,6 @@ public static partial class InfobaseValidationRules
     public const int VirtualPathMaxLength = 200;
     public const int PlatformVersionMaxLength = 50;
     public const int PhysicalPathMaxLength = 260;
-    public const int VrdCustomXmlMaxLength = 8000;
 
     // Версия платформы 1С — 4 числовых сегмента «Major.Minor.Build.Revision».
     // Длины сегментов не фиксируем: реальные сборки бывают и «8.3.23.1865», и «8.5.1.1302».

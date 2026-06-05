@@ -1,26 +1,26 @@
 using Asp.Versioning;
 using Asp.Versioning.Builder;
-using Hangfire;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MitLicenseCenter.Application.Auditing;
+using MitLicenseCenter.Application.Discovery;
 using MitLicenseCenter.Application.Jobs;
 using MitLicenseCenter.Application.Publishing;
 using MitLicenseCenter.Domain.Audit;
+using MitLicenseCenter.Domain.Publications;
 using MitLicenseCenter.Infrastructure.Identity;
 using MitLicenseCenter.Infrastructure.Persistence;
 
 namespace MitLicenseCenter.Web.Endpoints;
 
 // Publications в Stage 2 управляются в составе aggregate'а Infobase (см.
-// InfobasesEndpoints). Этот модуль оставляем для прямого редактирования полей
-// IIS-публикации — например, чтобы сменить PlatformVersion без открытия формы
-// инфобазы; full create/delete намеренно отсутствуют (это домен Infobase).
-//
-// PR 3.5 добавляет drift-операции: проверка дрейфа default.vrd, чтение
-// последнего drift-статуса, согласование (reconcile) — surgical XML-patch.
+// InfobasesEndpoints). Этот модуль — прямое редактирование полей публикации плюс
+// операции MLC-045:
+//   POST /{id}/check           — read-only проверка факта публикации в IIS.
+//   POST /{id}/publish         — (пере)публикация через webinst.exe.
+//   POST /{id}/change-platform — правка пути к wsisapi.dll в web.config под новую версию.
 public static partial class PublicationsEndpoints
 {
     public static void MapPublicationsEndpoints(this IEndpointRouteBuilder endpoints, ApiVersionSet versionSet)
@@ -34,10 +34,10 @@ public static partial class PublicationsEndpoints
         group.MapGet("/{id:guid}", GetAsync).RequireAuthorization(Roles.Viewer);
         group.MapPut("/{id:guid}", UpdateAsync).RequireAuthorization(Roles.Admin);
 
-        // PR 3.5: drift-операции.
-        group.MapPost("/{id:guid}/check-drift", CheckDriftAsync).RequireAuthorization(Roles.Admin);
-        group.MapGet("/{id:guid}/drift-status", DriftStatusAsync).RequireAuthorization(Roles.Viewer);
-        group.MapPost("/{id:guid}/reconcile", ReconcileAsync).RequireAuthorization(Roles.Admin);
+        // MLC-045: операции публикации.
+        group.MapPost("/{id:guid}/check", CheckAsync).RequireAuthorization(Roles.Admin);
+        group.MapPost("/{id:guid}/publish", PublishAsync).RequireAuthorization(Roles.Admin);
+        group.MapPost("/{id:guid}/change-platform", ChangePlatformAsync).RequireAuthorization(Roles.Admin);
     }
 
     private static async Task<Results<Ok<PublicationResponse>, NotFound>> GetAsync(
@@ -70,9 +70,6 @@ public static partial class PublicationsEndpoints
         var virtualPath = (request.VirtualPath ?? string.Empty).Trim();
         var platformVersion = (request.PlatformVersion ?? string.Empty).Trim();
 
-        // MLC-022 — публикационная валидация централизована в InfobaseValidationRules
-        // (тот же набор правил, что и для вложенной публикации инфобазы). Пустой префикс
-        // сохраняет плоские ключи полей PUT /publications/{id}.
         var errors = new Dictionary<string, string[]>(StringComparer.Ordinal);
         InfobaseValidationRules.AppendPublicationFieldErrors(
             errors, string.Empty, siteName, virtualPath, platformVersion, request.PhysicalPathOverride);
@@ -86,9 +83,6 @@ public static partial class PublicationsEndpoints
         publication.SiteName = siteName;
         publication.VirtualPath = virtualPath;
         publication.PlatformVersion = platformVersion;
-        publication.EnableOData = request.EnableOData;
-        publication.EnableHttpServices = request.EnableHttpServices;
-        publication.VrdCustomXml = string.IsNullOrWhiteSpace(request.VrdCustomXml) ? null : request.VrdCustomXml;
         publication.PhysicalPathOverride = string.IsNullOrWhiteSpace(request.PhysicalPathOverride)
             ? null
             : request.PhysicalPathOverride.Trim().TrimEnd('\\', '/');
@@ -104,10 +98,12 @@ public static partial class PublicationsEndpoints
         return TypedResults.Ok(publication.ToResponse());
     }
 
-    internal static async Task<Results<Accepted<CheckDriftAcceptedResponse>, NotFound>> CheckDriftAsync(
+    // Read-only проверка факта публикации в IIS (MLC-045). Синхронно читает состояние
+    // и обновляет LastCheck*. Ничего не меняет в IIS, аудит не пишет.
+    internal static async Task<Results<Ok<PublicationStatusResponse>, NotFound>> CheckAsync(
         Guid id,
         AppDbContext db,
-        IBackgroundJobClient jobs,
+        IPublicationStatusJob statusJob,
         CancellationToken ct)
     {
         var exists = await db.Publications.AsNoTracking().AnyAsync(x => x.Id == id, ct).ConfigureAwait(false);
@@ -116,127 +112,184 @@ public static partial class PublicationsEndpoints
             return TypedResults.NotFound();
         }
 
-        // Off-thread: запускаем Hangfire-job, не дожидаемся завершения. UI
-        // polls /drift-status каждые 2s (план PR 3.6). 202 + correlationId,
-        // чтобы оператор мог найти job в Hangfire dashboard при разборе.
-        var jobId = jobs.Enqueue<IDriftCheckJob>(j => j.CheckOneAsync(id, CancellationToken.None));
-        return TypedResults.Accepted(
-            uri: $"/api/v1/publications/{id}/drift-status",
-            value: new CheckDriftAcceptedResponse(jobId, id));
-    }
+        await statusJob.RefreshOneAsync(id, ct).ConfigureAwait(false);
 
-    internal static async Task<Results<Ok<DriftStatusResponse>, NotFound>> DriftStatusAsync(
-        Guid id,
-        AppDbContext db,
-        CancellationToken ct)
-    {
-        var publication = await db.Publications
+        var status = await db.Publications
             .AsNoTracking()
             .Where(x => x.Id == id)
-            .Select(x => new DriftStatusResponse(x.LastDriftStatus, x.LastDriftCheckAt, x.LastDriftDetails))
-            .FirstOrDefaultAsync(ct)
+            .Select(x => new PublicationStatusResponse(x.LastCheckStatus, x.LastCheckAt, x.LastCheckDetails))
+            .FirstAsync(ct)
             .ConfigureAwait(false);
-        return publication is null ? TypedResults.NotFound() : TypedResults.Ok(publication);
+        return TypedResults.Ok(status);
     }
 
-    internal static async Task<Results<Ok<DriftStatusResponse>, NotFound, Conflict<ProblemDetails>>> ReconcileAsync(
+    // (Пере)публикация инфобазы через webinst.exe (MLC-045). Гейт: если публикация
+    // сделана не панелью (Source ≠ Webinst) и сейчас опубликована — требуем Confirm,
+    // т.к. webinst перезатрёт ручную конфигурацию.
+    internal static async Task<Results<Ok<PublicationStatusResponse>, NotFound, Conflict<ProblemDetails>>> PublishAsync(
         Guid id,
+        [FromBody] PublishPublicationRequest request,
         AppDbContext db,
-        IIisPublishingService iis,
-        IDriftCheckJob driftJob,
+        IWebinstPublisher webinst,
+        IPublicationStatusJob statusJob,
         IAuditLogger audit,
         HttpContext httpContext,
-        ILoggerFactory loggerFactory,
+        TimeProvider clock,
         CancellationToken ct)
     {
-        var publication = await db.Publications.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct).ConfigureAwait(false);
+        var publication = await db.Publications.FirstOrDefaultAsync(x => x.Id == id, ct).ConfigureAwait(false);
         if (publication is null)
         {
             return TypedResults.NotFound();
         }
 
-        var previousStatus = publication.LastDriftStatus;
+        var infobase = await db.Infobases.AsNoTracking().FirstOrDefaultAsync(x => x.Id == publication.InfobaseId, ct).ConfigureAwait(false);
+        if (infobase is null)
+        {
+            return TypedResults.NotFound();
+        }
 
-        // ApplyDesiredStateAsync — surgical XML-patch. При IIS-исключении
-        // короткое замыкание на 409: НЕ обновляем drift-статус и НЕ пишем
-        // аудит (план PR 3.5: «не записывать audit при отказе»).
-        // MLC-009: коды IIS_ACCESS_DENIED / IIS_RECONCILE_FAILED сохранены, но
-        // detail санитизирован — текст COM/IO-исключения (пути, имена сайтов)
-        // больше не уходит клиенту; полное исключение логируется, оператор
-        // находит его в журнале по correlationId.
+        // Гейт перезатирания: чужая (не webinst) и уже опубликованная публикация —
+        // только с явным подтверждением оператора.
+        if (publication.Source != PublicationSource.Webinst
+            && publication.LastCheckStatus == PublicationPublishStatus.Published
+            && !request.Confirm)
+        {
+            return TypedResults.Conflict(Problems.PublishConfirmRequired());
+        }
+
+        var result = await webinst.PublishAsync(publication, infobase, ct).ConfigureAwait(false);
+        if (!result.Success)
+        {
+            // Адаптер уже залогировал сырой вывод webinst; detail санитизирован.
+            return TypedResults.Conflict(Problems.PublishFailed(
+                result.ErrorDetail ?? "Не удалось опубликовать инфобазу.", httpContext.TraceIdentifier));
+        }
+
+        publication.Source = PublicationSource.Webinst;
+        publication.UpdatedAt = clock.GetUtcNow().UtcDateTime;
+        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+
+        // Обновляем фактический статус (в том же scope сущность трекается → мутируется).
+        await statusJob.RefreshOneAsync(id, ct).ConfigureAwait(false);
+
+        await httpContext.AuditAsync(audit, AuditActionType.PublicationPublished,
+            init => AuditDescriptions.PublicationPublished(
+                $"{publication.SiteName}{publication.VirtualPath}", init),
+            infobase.TenantId, ct).ConfigureAwait(false);
+
+        var status = await db.Publications
+            .AsNoTracking()
+            .Where(x => x.Id == id)
+            .Select(x => new PublicationStatusResponse(x.LastCheckStatus, x.LastCheckAt, x.LastCheckDetails))
+            .FirstAsync(ct)
+            .ConfigureAwait(false);
+        return TypedResults.Ok(status);
+    }
+
+    // Смена платформы (MLC-045): правит путь к wsisapi.dll в web.config под новую
+    // версию. default.vrd не трогается. При IIS-исключении — 409, аудит не пишется.
+    internal static async Task<Results<Ok<PublicationStatusResponse>, NotFound, ValidationProblem, Conflict<ProblemDetails>>> ChangePlatformAsync(
+        Guid id,
+        [FromBody] ChangePlatformRequest request,
+        AppDbContext db,
+        IIisPublishingService iis,
+        IPlatformVersionDiscovery platforms,
+        IPublicationStatusJob statusJob,
+        IAuditLogger audit,
+        HttpContext httpContext,
+        TimeProvider clock,
+        ILoggerFactory loggerFactory,
+        CancellationToken ct)
+    {
+        var publication = await db.Publications.FirstOrDefaultAsync(x => x.Id == id, ct).ConfigureAwait(false);
+        if (publication is null)
+        {
+            return TypedResults.NotFound();
+        }
+
+        var newVersion = (request.PlatformVersion ?? string.Empty).Trim();
+        var errors = new Dictionary<string, string[]>(StringComparer.Ordinal);
+        if (!InfobaseValidationRules.IsValidPlatformVersion(newVersion))
+        {
+            errors["PlatformVersion"] = ["Версия должна состоять из четырёх числовых сегментов, например «8.3.23.1865» или «8.5.1.1302»."];
+        }
+        else
+        {
+            // Если можем просканировать установленные версии — целевая должна быть среди них
+            // (иначе путь к wsisapi.dll новой версии не будет существовать и приложение сломается).
+            var installed = platforms.FindPlatformVersions();
+            if (installed.Count > 0 && !installed.Any(v => string.Equals(v.Version, newVersion, StringComparison.Ordinal)))
+            {
+                errors["PlatformVersion"] = [$"Версия платформы {newVersion} не установлена на сервере."];
+            }
+        }
+        if (errors.Count > 0)
+        {
+            return TypedResults.ValidationProblem(errors);
+        }
+
+        var previousVersion = publication.PlatformVersion;
         var correlationId = httpContext.TraceIdentifier;
         try
         {
-            await iis.ApplyDesiredStateAsync(publication, ct).ConfigureAwait(false);
+            await iis.ChangePlatformAsync(publication, newVersion, ct).ConfigureAwait(false);
         }
         catch (UnauthorizedAccessException ex)
         {
-            LogReconcileAccessDenied(loggerFactory.CreateLogger(typeof(PublicationsEndpoints).FullName!), id, correlationId, ex);
+            LogPlatformAccessDenied(loggerFactory.CreateLogger(typeof(PublicationsEndpoints).FullName!), id, correlationId, ex);
             return TypedResults.Conflict(Problems.IisAccessDenied(correlationId));
         }
         catch (System.Runtime.InteropServices.COMException ex)
         {
-            LogReconcileFailed(loggerFactory.CreateLogger(typeof(PublicationsEndpoints).FullName!), id, correlationId, ex);
+            LogPlatformChangeFailed(loggerFactory.CreateLogger(typeof(PublicationsEndpoints).FullName!), id, correlationId, ex);
             return TypedResults.Conflict(Problems.IisReconcileFailed(correlationId));
         }
         catch (IOException ex)
         {
-            LogReconcileFailed(loggerFactory.CreateLogger(typeof(PublicationsEndpoints).FullName!), id, correlationId, ex);
+            LogPlatformChangeFailed(loggerFactory.CreateLogger(typeof(PublicationsEndpoints).FullName!), id, correlationId, ex);
             return TypedResults.Conflict(Problems.IisReconcileFailed(correlationId));
         }
         catch (InvalidOperationException ex)
         {
-            // Невалидный VrdCustomXml, отсутствие default.vrd, и другие
-            // прикладные сбои согласования — все пакуем под единый код 409.
-            LogReconcileFailed(loggerFactory.CreateLogger(typeof(PublicationsEndpoints).FullName!), id, correlationId, ex);
+            LogPlatformChangeFailed(loggerFactory.CreateLogger(typeof(PublicationsEndpoints).FullName!), id, correlationId, ex);
             return TypedResults.Conflict(Problems.IisReconcileFailed(correlationId));
         }
 
-        // Повторно прогоняем drift-check, чтобы вернуть оператору актуальный
-        // статус после patch'а — и чтобы LastDriftStatus/At/Details обновились
-        // synchronously. DriftCheckJob не пишет 210 при transition в InSync, так
-        // что мы не получим лишнюю audit-строку.
-        await driftJob.CheckOneAsync(id, ct).ConfigureAwait(false);
+        publication.PlatformVersion = newVersion;
+        publication.UpdatedAt = clock.GetUtcNow().UtcDateTime;
+        await db.SaveChangesAsync(ct).ConfigureAwait(false);
 
-        var updated = await db.Publications
-            .AsNoTracking()
-            .Where(x => x.Id == id)
-            .Select(x => new
-            {
-                Status = x.LastDriftStatus,
-                CheckedAt = x.LastDriftCheckAt,
-                Details = x.LastDriftDetails,
-                x.SiteName,
-                x.VirtualPath,
-                x.InfobaseId,
-            })
-            .FirstAsync(ct)
-            .ConfigureAwait(false);
+        await statusJob.RefreshOneAsync(id, ct).ConfigureAwait(false);
 
         var tenantId = await db.Infobases
             .AsNoTracking()
-            .Where(i => i.Id == updated.InfobaseId)
+            .Where(i => i.Id == publication.InfobaseId)
             .Select(i => (Guid?)i.TenantId)
             .FirstOrDefaultAsync(ct)
             .ConfigureAwait(false);
 
-        await httpContext.AuditAsync(audit, AuditActionType.PublicationReconciled,
-            init => AuditDescriptions.PublicationReconciled(
-                $"{updated.SiteName}{updated.VirtualPath}", previousStatus, updated.Status, init),
+        await httpContext.AuditAsync(audit, AuditActionType.PublicationPlatformChanged,
+            init => AuditDescriptions.PublicationPlatformChanged(
+                $"{publication.SiteName}{publication.VirtualPath}", previousVersion, newVersion, init),
             tenantId, ct).ConfigureAwait(false);
 
-        return TypedResults.Ok(new DriftStatusResponse(updated.Status, updated.CheckedAt, updated.Details));
+        var status = await db.Publications
+            .AsNoTracking()
+            .Where(x => x.Id == id)
+            .Select(x => new PublicationStatusResponse(x.LastCheckStatus, x.LastCheckAt, x.LastCheckDetails))
+            .FirstAsync(ct)
+            .ConfigureAwait(false);
+        return TypedResults.Ok(status);
     }
 
-    // MLC-009: полное инфраструктурное исключение reconcile пишем в журнал сервера;
-    // наружу (409) уходит только санитизированный русский detail + correlationId.
     [LoggerMessage(
         Level = LogLevel.Warning,
-        Message = "Reconcile {PublicationId}: нет доступа к IIS/default.vrd (correlationId={CorrelationId}).")]
-    private static partial void LogReconcileAccessDenied(ILogger logger, Guid publicationId, string correlationId, Exception ex);
+        Message = "Change-platform {PublicationId}: нет доступа к IIS/файлам публикации (correlationId={CorrelationId}).")]
+    private static partial void LogPlatformAccessDenied(ILogger logger, Guid publicationId, string correlationId, Exception ex);
 
     [LoggerMessage(
         Level = LogLevel.Warning,
-        Message = "Reconcile {PublicationId}: согласование публикации IIS не удалось (correlationId={CorrelationId}).")]
-    private static partial void LogReconcileFailed(ILogger logger, Guid publicationId, string correlationId, Exception ex);
+        Message = "Change-platform {PublicationId}: смена версии платформы не удалась (correlationId={CorrelationId}).")]
+    private static partial void LogPlatformChangeFailed(ILogger logger, Guid publicationId, string correlationId, Exception ex);
 }

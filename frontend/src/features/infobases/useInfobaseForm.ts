@@ -81,9 +81,6 @@ export function useInfobaseForm({
             siteName: infobase.publication.siteName,
             virtualPath: infobase.publication.virtualPath,
             platformVersion: infobase.publication.platformVersion,
-            enableOData: infobase.publication.enableOData,
-            enableHttpServices: infobase.publication.enableHttpServices,
-            vrdCustomXml: infobase.publication.vrdCustomXml ?? "",
             physicalPathOverride: infobase.publication.physicalPathOverride ?? "",
           },
         }
@@ -98,9 +95,6 @@ export function useInfobaseForm({
             siteName: defaultSiteName,
             virtualPath: "",
             platformVersion: defaultPlatformVersion,
-            enableOData: false,
-            enableHttpServices: false,
-            vrdCustomXml: "",
             physicalPathOverride: "",
           },
         },
@@ -239,11 +233,6 @@ export function useInfobaseForm({
         siteName: values.publication.siteName.trim(),
         virtualPath: values.publication.virtualPath.trim(),
         platformVersion: values.publication.platformVersion.trim(),
-        enableOData: values.publication.enableOData,
-        enableHttpServices: values.publication.enableHttpServices,
-        vrdCustomXml: values.publication.vrdCustomXml?.trim()
-          ? values.publication.vrdCustomXml.trim()
-          : null,
         physicalPathOverride: values.publication.physicalPathOverride?.trim() || null,
       };
 

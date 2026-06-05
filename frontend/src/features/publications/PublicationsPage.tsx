@@ -1,9 +1,10 @@
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { ChangePlatformDialog } from "./ChangePlatformDialog";
 import { PublicationsFiltersBar } from "./PublicationsFiltersBar";
 import { PublicationsTable } from "./PublicationsTable";
-import { ReconcilePublicationDialog } from "./ReconcilePublicationDialog";
+import { PublishPublicationDialog } from "./PublishPublicationDialog";
 import { usePublicationsPage } from "./usePublicationsPage";
 
 export function PublicationsPage() {
@@ -15,16 +16,16 @@ export function PublicationsPage() {
     isAdmin,
     tenants,
     tenantId,
-    driftStatus,
+    status,
     setFilter,
     filtered,
     hasAnyPublications,
-    pollingId,
-    handleCheckDrift,
-    selectedPublication,
-    reconcileOpen,
-    handleReconcileClick,
-    handleReconcileOpenChange,
+    checkingId,
+    handleCheck,
+    publishTarget,
+    openPublish,
+    platformTarget,
+    openPlatform,
   } = usePublicationsPage();
 
   return (
@@ -54,7 +55,7 @@ export function PublicationsPage() {
         <PublicationsFiltersBar
           tenants={tenants}
           tenantId={tenantId}
-          driftStatus={driftStatus}
+          status={status}
           onChange={setFilter}
         />
 
@@ -64,16 +65,28 @@ export function PublicationsPage() {
           isError={isError}
           isAdmin={isAdmin}
           hasAnyPublications={hasAnyPublications}
-          pollingId={pollingId}
-          onCheckDrift={handleCheckDrift}
-          onReconcile={handleReconcileClick}
+          checkingId={checkingId}
+          onCheck={handleCheck}
+          onPublish={openPublish}
+          onChangePlatform={openPlatform}
         />
 
-        <ReconcilePublicationDialog
-          key={selectedPublication?.id ?? "new"}
-          open={reconcileOpen}
-          onOpenChange={handleReconcileOpenChange}
-          publication={selectedPublication}
+        <PublishPublicationDialog
+          key={`publish-${publishTarget?.id ?? "new"}`}
+          open={publishTarget !== null}
+          onOpenChange={(open) => {
+            if (!open) openPublish(null);
+          }}
+          publication={publishTarget}
+        />
+
+        <ChangePlatformDialog
+          key={`platform-${platformTarget?.id ?? "new"}`}
+          open={platformTarget !== null}
+          onOpenChange={(open) => {
+            if (!open) openPlatform(null);
+          }}
+          publication={platformTarget}
         />
       </div>
     </TooltipProvider>

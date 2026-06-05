@@ -20,12 +20,13 @@ function ib(id: string, tenantId: string, tenantName: string, name: string): Inf
       siteName: "Default Web Site",
       virtualPath: `/${name}`,
       platformVersion: "8.3.23.1865",
-      enableOData: false,
-      enableHttpServices: false,
-      vrdCustomXml: null,
+      source: "Unknown",
       physicalPathOverride: null,
       createdAt: "2026-01-01T00:00:00Z",
       updatedAt: null,
+      lastCheckStatus: "Unknown",
+      lastCheckAt: null,
+      lastCheckDetails: null,
     },
   };
 }

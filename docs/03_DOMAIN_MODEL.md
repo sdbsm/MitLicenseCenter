@@ -25,20 +25,18 @@ Represents a specific 1C database assigned to a Tenant.
 - **Relationships:** Belongs to `Tenant`. Has One required `Publication`. Создание/удаление инфобазы оперирует aggregate'ом — публикация создаётся в том же POST и каскадно удаляется при DELETE.
 
 ## 3. Publication (IIS Configuration)
-Stores the *Desired State* of the IIS publication for a specific Infobase.
+Stores the IIS publication parameters for a specific Infobase plus its last observed live status (MLC-045 — no desired-state enforcement).
 - `Id` (Guid, PK)
 - `InfobaseId` (Guid, FK, **unique**) — `ON DELETE CASCADE`. 1-to-1 required: каждая инфобаза имеет ровно одну публикацию, удаление инфобазы каскадом сносит публикацию в БД.
 - `SiteName` (String, ≤200): IIS Site (e.g., "Default Web Site").
 - `VirtualPath` (String, ≤200): The URL path (e.g., "/tenant-base1"). Валидация: должен начинаться с `/`, не содержит пробелов.
-- `PlatformVersion` (String, ≤50): e.g., "8.3.23.1865" или "8.5.1.1302". Used to locate `wsisapi.dll`. Валидация: regex `^\d+\.\d+\.\d+\.\d+$` — четыре числовых сегмента, длины не фиксируем (1С 8.5 ранние сборки имеют одноцифровой build).
-- `EnableOData` (Boolean): Flag to manage standard OData interface.
-- `EnableHttpServices` (Boolean).
-- `VrdCustomXml` (`nvarchar(max)`, Nullable): Stores any custom XML fragments for `default.vrd` to ensure idempotency and prevent overwrite of custom configurations. Пустая строка / whitespace нормализуется в `NULL` при записи.
+- `PlatformVersion` (String, ≤50): e.g., "8.3.23.1865" или "8.5.1.1302". Determines the `webinst.exe` used to publish and the `wsisapi.dll` version in `web.config`. Валидация: regex `^\d+\.\d+\.\d+\.\d+$` — четыре числовых сегмента, длины не фиксируем (1С 8.5 ранние сборки имеют одноцифровой build).
+- `Source` (Enum): `Unknown`, `Webinst`, `Configurator`. Provenance — `Webinst` is set when the panel publishes via `webinst`; gates re-publication of non-`Webinst` publications (confirmation required). Default `Unknown`.
 - `CreatedAt` (DateTimeUtc).
 - `UpdatedAt` (DateTimeUtc, Nullable).
-- `LastDriftStatus` (Enum): `InSync`, `Drift`, `Missing`, `Error`. Updated by the drift-detection job.
-- `LastDriftCheckAt` (DateTimeUtc, Nullable).
-- `LastDriftDetails` (String, Nullable).
+- `LastCheckStatus` (Enum): `Unknown`, `Published`, `NotPublished`, `Error`. Read-only live status, updated by the status-refresh job and the on-demand check. Default `Unknown`.
+- `LastCheckAt` (DateTimeUtc, Nullable).
+- `LastCheckDetails` (String, Nullable).
 - `PhysicalPathOverride` (`NVARCHAR(260)`, Nullable): override физической папки IIS-приложения. Если задан — `VrdPathResolver` использует `{PhysicalPathOverride}\default.vrd` вместо convention `{IIS.DefaultVrdRoot}/{siteName}/{virtualPath}/default.vrd`. NULL/empty → fallback на convention. Принимается только абсолютный путь (local `C:\...` или UNC `\\server\share\...`); relative paths отклоняются с 400.
 - **Relationships:** Belongs to `Infobase`.
 
@@ -48,7 +46,7 @@ Stores the *Desired State* of the IIS publication for a specific Infobase.
 Immutable record of all critical system and administrator actions.
 - `Id` (Guid, PK)
 - `TenantId` (Guid, FK, Nullable): If the action relates to a specific tenant.
-- `ActionType` (Enum): e.g., LimitChanged, PublicationUpdated, PublicationDriftDetected, PublicationReconciled, SessionKilled, InfobaseCreated, InfobaseReassigned (`=13`, пишется reassign-endpoint'ом с `tenantId` целевого клиента), AdminLoggedIn. _Reserved historical:_ `ClusterAdapterCircuitOpened=300`, `ClusterAdapterCircuitClosed=301` — enum values stay so old AuditLog rows render; new rows with these values are not written (the circuit breaker was removed, see ADR-16).
+- `ActionType` (Enum): e.g., LimitChanged, PublicationUpdated, PublicationPublished (`=212`), PublicationPlatformChanged (`=213`), SessionKilled, InfobaseCreated, InfobaseReassigned (`=13`, пишется reassign-endpoint'ом с `tenantId` целевого клиента), AdminLoggedIn. _Reserved historical:_ `PublicationDriftDetected=210`, `PublicationReconciled=211` (drift/reconcile removed in MLC-045 — never written, old rows still render), `ClusterAdapterCircuitOpened=300`, `ClusterAdapterCircuitClosed=301` — enum values stay so old AuditLog rows render; new rows with these values are not written.
 - `Reason` (Enum, Nullable): For `SessionKilled` only — `LimitExceeded` (automatic enforcer) or `ManualByAdmin` (operator via the kill endpoint). A `SessionKilled` row is written **only** when the kill actually succeeded — `KillSessionResult.Killed` or `.AlreadyGone` (idempotent "already terminated"). A failed kill (RAS down) writes **nothing**: the immutable log never records a kill that did not happen (see the binding "Manual session kill" contract below and `DECISIONS.md` «Idempotent kill protocol»).
 - `Description` (String): Human-readable details, including snapshot context for kills.
 - `Timestamp` (DateTimeUtc)
@@ -96,13 +94,13 @@ Holds runtime configuration values that may include secrets. Values are encrypte
 1. **License Calculation:** `Total Consumed Licenses for Tenant X` = Count of `ActiveSessionSnapshot` where `TenantId == X` AND `ConsumesLicense == true`.
 2. **Kill Priority:** when `Consumed > Limit`, sessions are selected for termination ordered by `StartedAt DESC` (newest first) until `Consumed == Limit`. Locked by ADR-6 / operational constraints.
 3. **Deletion Restrictions:** A `Tenant` cannot be deleted if they have active `Infobases`. An `Infobase` cannot be deleted from the system without first unpublishing it from IIS and detaching it from the 1C Cluster.
-4. **Drift is observed, not auto-fixed:** the drift-detection job updates `Publication.LastDriftStatus` but never modifies IIS. Reconciliation is an explicit admin action.
+4. **Status is observed, not enforced:** the status-refresh job updates `Publication.LastCheckStatus` but never modifies IIS. (Re)publication via `webinst` and platform change via `web.config` are explicit admin actions.
 
 ## Persistence & API Contracts (binding)
 
 These contracts are stable and must be preserved across changes.
 
-- **Enum int-stability (frozen).** Numeric values of `AuditActionType` / `AuditReason` are part of the DB contract (`HasConversion<int>`) and are **frozen** — re-using a number for a different action would corrupt historical AuditLog rows. Reserved slots: `13` (`InfobaseReassigned`, in the 10–12 infobase group), `200` (`SessionKilled`), `201` (`LimitChanged`), `210` (`PublicationDriftDetected`), `211` (`PublicationReconciled`), `300/301` (`ClusterAdapterCircuit{Opened,Closed}` — reserved historical, never written), `400` (`SettingChanged`), `500` (`AuditLogsPurged`). On the wire enums serialise as **strings** via the globally-registered `JsonStringEnumConverter`; the int values are never exposed.
+- **Enum int-stability (frozen).** Numeric values of `AuditActionType` / `AuditReason` are part of the DB contract (`HasConversion<int>`) and are **frozen** — re-using a number for a different action would corrupt historical AuditLog rows. Reserved slots: `13` (`InfobaseReassigned`, in the 10–12 infobase group), `200` (`SessionKilled`), `201` (`LimitChanged`), `210` (`PublicationDriftDetected`) / `211` (`PublicationReconciled`) — reserved historical, never written (MLC-045), `212` (`PublicationPublished`), `213` (`PublicationPlatformChanged`), `300/301` (`ClusterAdapterCircuit{Opened,Closed}` — reserved historical, never written), `400` (`SettingChanged`), `500` (`AuditLogsPurged`). On the wire enums serialise as **strings** via the globally-registered `JsonStringEnumConverter`; the int values are never exposed.
 - **409 Conflict contract.** Conflict responses are `ProblemDetails` JSON with an extra machine-readable **`code`** field (`NAME_DUPLICATE`, `TENANT_HAS_INFOBASES`, `NAME_DUPLICATE_IN_TENANT`, `INFOBASE_ALREADY_ASSIGNED`, `INFOBASE_NAME_TAKEN_IN_TARGET`, `SETTING_UNKNOWN_KEY`, `SETTING_INVALID_VALUE`, `IIS_RECONCILE_FAILED`, `IIS_ACCESS_DENIED`, `SESSION_STALE`, …). The same `code` machinery also carries non-409 problems (`CLUSTER_UNAVAILABLE` is a `502`). Codes are the single source of truth in `MitLicenseCenter.Web/Endpoints/Shared/Problems.cs::ProblemCodes`; the human-readable `detail` is always Russian. A new conflict situation MUST add a new `ProblemCodes.*` constant — the frontend cannot disambiguate by `detail` string.
 - **Global error envelope + uniqueness backstop.** The pipeline registers `AddProblemDetails()` and `UseExceptionHandler()` as the outermost middleware: every otherwise-unhandled exception leaves as an RFC 7807 `ProblemDetails` (never a bodiless 500), with a `traceId` extension; 5xx responses carry a neutral Russian title/detail and **never** leak the exception message or stack trace (the full exception is logged server-side, and Development still gets the developer exception page). On top of the happy-path `AnyAsync` checks, create/update/reassign `Infobase` and create/update `Tenant` wrap `SaveChanges` in a **uniqueness backstop**: a concurrent insert that races past the pre-check trips the unique index (`IX_Infobases_ClusterInfobaseId`, `IX_Infobases_TenantId_Name`, `IX_Tenants_Name`) and the resulting `DbUpdateException` is mapped to the *same* documented 409 as the pre-check (`INFOBASE_ALREADY_ASSIGNED`, `NAME_DUPLICATE_IN_TENANT` — or `INFOBASE_NAME_TAKEN_IN_TARGET` on the reassign path, same index, context-specific code — and `NAME_DUPLICATE`). The violated index is identified by its **name** (stable schema identifier present verbatim in the `SqlException`, gated by `SqlException.Number ∈ {2601, 2627}`), never by parsing localized text. Any other `DbUpdateException` propagates to the global handler as a 500.
 - **Manual session kill.** `POST /api/v1/sessions/{id}/kill` (Admin) follows the idempotent kill protocol of `KillEnforcer`: `404` if the session is absent from the current snapshot; otherwise re-fetch from the cluster and verify `(ClusterInfobaseId, AppID, StartedAt)` against the live session — a mismatch (same `SessionId`, different descriptor) is `409 SESSION_STALE` (refresh and retry), no kill. The kill itself audits (`SessionKilled` / `ManualByAdmin`) and returns `204` **only** on `Killed` or `AlreadyGone`; an unreachable cluster (`rac.exe` failure, both flags `false`) returns `502 CLUSTER_UNAVAILABLE` and writes **no** audit row.

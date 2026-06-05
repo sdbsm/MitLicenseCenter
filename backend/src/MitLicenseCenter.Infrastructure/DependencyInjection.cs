@@ -118,6 +118,10 @@ public static class DependencyInjection
         services.AddScoped<IIisPublishingService, OneCIisPublishingService>();
 #pragma warning restore CA1416
 
+        // Публикация через webinst.exe (MLC-045, ADR-20). Scoped — читает ISettingsSnapshot;
+        // запускает процесс webinst версии платформы из публикации.
+        services.AddScoped<IWebinstPublisher, OneCWebinstPublisher>();
+
         // Discovery (интерактивная настройка форм): SQL-перечисление БД и скан rac.exe.
         services.AddScoped<ISqlDatabaseDiscovery, SqlDatabaseDiscovery>();
         services.AddSingleton<IRacPathDiscovery, RacPathDiscovery>();
@@ -144,10 +148,11 @@ public static class DependencyInjection
         services.AddScoped<IReconciliationJob, ReconciliationJob>();
         services.AddScoped<IKillEnforcer, KillEnforcer>();
 
-        // Drift check job (PR 3.5): scoped (зависит от DbContext + IAuditLogger),
+        // Publication status refresh job (MLC-045): read-only обновление статуса
+        // публикаций в IIS (без enforcement/аудита). Scoped (зависит от DbContext),
         // плюс singleton throttle-state по аналогии с ColdThrottleState.
-        services.AddSingleton<DriftThrottleState>();
-        services.AddScoped<IDriftCheckJob, DriftCheckJob>();
+        services.AddSingleton<StatusRefreshThrottleState>();
+        services.AddScoped<IPublicationStatusJob, PublicationStatusRefreshJob>();
 
         // Audit retention (PR 4.3): scoped (DbContext + IAuditLogger), без
         // throttle-state — CRON фиксирован 03:00 daily, не tuneable оператором.

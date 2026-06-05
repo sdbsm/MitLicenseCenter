@@ -9,7 +9,7 @@ The application is a working control plane for single-node multi-tenant 1C hosti
 - **Tenants / Infobases / Publications** CRUD with the FK and uniqueness contracts in `03_DOMAIN_MODEL.md`. Tenant→Infobase distribution is visible both ways: a «Базы: N» count + per-client detail lens (`/tenants/:id`) and a «По клиенту» grouped view of the bases list. Bases move between clients via an explicit `POST /infobases/{id}/reassign` (audited, name-collision-guarded).
 - **Session & license enforcement** — two-tier reconciliation loop (hot 3–5s / cold 20–30s), newest-first idempotent kill, manual kill from the Sessions Monitor.
 - **1C cluster adapter** — RAS via `rac.exe` only (ADR-16 / ADR-3.3), with a 30s RAS health probe surfaced on the Dashboard.
-- **IIS publications** — surgical `default.vrd` XML patching + 5-minute drift detection + explicit admin reconcile (ADR-4.1).
+- **IIS publications** — (re)publish via `webinst` + platform change via `web.config` rewrite + read-only status (ADR-4; ADR-4.1 surgical-patch/drift model revoked).
 - **Settings** — encrypted `dbo.Settings` (DPAPI) with the 14-key catalog in `04_INFRASTRUCTURE.md`.
 - **Audit** — immutable log with server-side paging/filtering and a daily retention purge.
 - **Frontend** — React + TS SPA on shadcn/ui, Russian-only locale, Vitest test foundation.

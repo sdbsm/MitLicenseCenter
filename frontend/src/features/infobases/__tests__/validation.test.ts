@@ -57,8 +57,6 @@ describe("validation — правила virtualPath (фиксация)", () => {
   const validPublication = {
     siteName: "Default Web Site",
     platformVersion: "8.3.23.1865",
-    enableOData: false,
-    enableHttpServices: false,
   };
   const base = {
     tenantId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",

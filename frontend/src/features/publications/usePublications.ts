@@ -1,10 +1,9 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useInvalidatingMutation } from "@/lib/useInvalidatingMutation";
 import type {
-  CheckDriftAcceptedResponse,
-  DriftStatusResponse,
   PublicationListItem,
+  PublicationStatusResponse,
   PublicationsBackendListResponse,
 } from "./types";
 
@@ -20,11 +19,10 @@ function flatten(response: PublicationsBackendListResponse): PublicationListItem
     siteName: item.publication.siteName,
     virtualPath: item.publication.virtualPath,
     platformVersion: item.publication.platformVersion,
-    enableOData: item.publication.enableOData,
-    enableHttpServices: item.publication.enableHttpServices,
-    lastDriftStatus: item.publication.lastDriftStatus,
-    lastDriftCheckAt: item.publication.lastDriftCheckAt,
-    lastDriftDetails: item.publication.lastDriftDetails,
+    source: item.publication.source,
+    lastCheckStatus: item.publication.lastCheckStatus,
+    lastCheckAt: item.publication.lastCheckAt,
+    lastCheckDetails: item.publication.lastCheckDetails,
   }));
 }
 
@@ -39,30 +37,39 @@ export function usePublications() {
   });
 }
 
-export function driftStatusQueryKey(publicationId: string) {
-  return ["publication", publicationId, "drift-status"] as const;
-}
-
-export function fetchDriftStatus(publicationId: string): Promise<DriftStatusResponse> {
-  return api<DriftStatusResponse>(`/api/v1/publications/${publicationId}/drift-status`);
-}
-
-export function useCheckDrift() {
-  return useMutation({
+// Read-only проверка факта публикации в IIS. Возвращает свежий статус и
+// инвалидирует список (статус уже записан на сервере).
+export function useCheckStatus() {
+  return useInvalidatingMutation({
     mutationFn: (publicationId: string) =>
-      api<CheckDriftAcceptedResponse>(`/api/v1/publications/${publicationId}/check-drift`, {
+      api<PublicationStatusResponse>(`/api/v1/publications/${publicationId}/check`, {
         method: "POST",
       }),
+    invalidate: () => [publicationsQueryKey],
   });
 }
 
-export function useReconcile() {
+// (Пере)публикация через webinst. confirm=true снимает гейт перезатирания
+// чужой (не webinst) публикации.
+export function usePublish() {
   return useInvalidatingMutation({
-    mutationFn: (publicationId: string) =>
-      api<DriftStatusResponse>(`/api/v1/publications/${publicationId}/reconcile`, {
+    mutationFn: (vars: { id: string; confirm: boolean }) =>
+      api<PublicationStatusResponse>(`/api/v1/publications/${vars.id}/publish`, {
         method: "POST",
+        body: { confirm: vars.confirm },
       }),
-    // Ключ drift-статуса зависит от id публикации — резолвим его из переменных мутации.
-    invalidate: (publicationId) => [publicationsQueryKey, driftStatusQueryKey(publicationId)],
+    invalidate: () => [publicationsQueryKey],
+  });
+}
+
+// Смена платформы — правка пути к wsisapi.dll в web.config под новую версию.
+export function useChangePlatform() {
+  return useInvalidatingMutation({
+    mutationFn: (vars: { id: string; platformVersion: string }) =>
+      api<PublicationStatusResponse>(`/api/v1/publications/${vars.id}/change-platform`, {
+        method: "POST",
+        body: { platformVersion: vars.platformVersion },
+      }),
+    invalidate: () => [publicationsQueryKey],
   });
 }

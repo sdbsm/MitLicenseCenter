@@ -33,9 +33,9 @@
 | Ключи настроек (14 шт., дефолты, диапазоны) | 04 §«Runtime Settings Catalog» |
 | Числовые значения enum (`SessionKilled=200`, …) | 03 §«Enum int-stability» |
 | Коды 409-конфликтов | 03 §«409 Conflict contract» → `Endpoints/Shared/Problems.cs` |
-| Cron фоновых джоб (cold/hot/drift/retention) | 04 §«Background Job Execution» + `Program.cs` |
+| Cron фоновых джоб (cold/hot/status-refresh/retention) | 04 §«Background Job Execution» + `Program.cs` |
 | Контракт `rac.exe` CLI, CP866, spawn-бюджет | 04 §1 + DECISIONS ADR-3.3 |
-| Правила VRD-патча `default.vrd` | 04 §2 + DECISIONS ADR-4.1 |
+| Публикация (webinst) + смена платформы (web.config) | 04 §2 + DECISIONS ADR-4 (ADR-4.1 revoked) |
 | Деплой / бэкап / hardening | OPERATIONS |
 | Почему RAS, а не REST/COM | DECISIONS ADR-16 |
 | Health/readiness-эндпоинты, диаг-флаги | OPERATIONS §«Проверки готовности» / «Профиль EF» |

@@ -25,11 +25,17 @@ public enum AuditActionType
     SessionKilled = 200,
     LimitChanged = 201,
 
-    // Publication drift (PR 3.5). Detected — пишется drift-job'ом ТОЛЬКО на transition
-    // (статус изменился AND новый ∈ {Drift, Missing, Error}). Reconciled — пишется
-    // synchronously reconcile-endpoint'ом после успешного ApplyDesiredStateAsync.
+    // Publication drift (PR 3.5). Stage MLC-045 (ADR-4 переписан, ADR-4.1 revoked):
+    // drift-enforcement удалён — новые строки с этими значениями НЕ пишутся. Enum-записи
+    // сохранены для рендера исторических AuditLog rows (frozen-int rule).
     PublicationDriftDetected = 210,
     PublicationReconciled = 211,
+
+    // Публикация через webinst и смена платформы (MLC-045). Published — успешная
+    // (пере)публикация через webinst.exe. PlatformChanged — правка пути к wsisapi.dll
+    // в web.config под новую версию платформы (default.vrd не трогается).
+    PublicationPublished = 212,
+    PublicationPlatformChanged = 213,
 
     // 1С Cluster adapter circuit-breaker transitions (PR 3.2).
     // Stage 5 PR 5.1 (ADR-16): circuit breaker удалён — новые строки с этими

@@ -4,17 +4,17 @@ import { parseParams } from "../urlState";
 describe("parseParams", () => {
   it("returns empty filters when URLSearchParams is empty", () => {
     const result = parseParams(new URLSearchParams());
-    expect(result).toEqual({ tenantId: "", driftStatus: "" });
+    expect(result).toEqual({ tenantId: "", status: "" });
   });
 
-  it("preserves a valid driftStatus value", () => {
-    const result = parseParams(new URLSearchParams("driftStatus=Drift"));
-    expect(result.driftStatus).toBe("Drift");
+  it("preserves a valid status value", () => {
+    const result = parseParams(new URLSearchParams("status=Published"));
+    expect(result.status).toBe("Published");
   });
 
-  it("returns empty driftStatus for unknown values", () => {
-    const result = parseParams(new URLSearchParams("driftStatus=XYZ"));
-    expect(result.driftStatus).toBe("");
+  it("returns empty status for unknown values", () => {
+    const result = parseParams(new URLSearchParams("status=XYZ"));
+    expect(result.status).toBe("");
   });
 
   it("preserves an arbitrary tenantId UUID passthrough", () => {
@@ -24,7 +24,7 @@ describe("parseParams", () => {
   });
 
   it("preserves both filters when both are valid", () => {
-    const params = new URLSearchParams("tenantId=tnt-1&driftStatus=Missing");
-    expect(parseParams(params)).toEqual({ tenantId: "tnt-1", driftStatus: "Missing" });
+    const params = new URLSearchParams("tenantId=tnt-1&status=NotPublished");
+    expect(parseParams(params)).toEqual({ tenantId: "tnt-1", status: "NotPublished" });
   });
 });

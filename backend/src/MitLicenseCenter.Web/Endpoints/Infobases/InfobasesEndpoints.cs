@@ -84,14 +84,12 @@ public static partial class InfobasesEndpoints
                         pub.SiteName,
                         pub.VirtualPath,
                         pub.PlatformVersion,
-                        pub.EnableOData,
-                        pub.EnableHttpServices,
-                        pub.VrdCustomXml,
+                        pub.Source,
                         pub.CreatedAt,
                         pub.UpdatedAt,
-                        pub.LastDriftStatus,
-                        pub.LastDriftCheckAt,
-                        pub.LastDriftDetails,
+                        pub.LastCheckStatus,
+                        pub.LastCheckAt,
+                        pub.LastCheckDetails,
                         pub.PhysicalPathOverride)))
             .ToListAsync(ct).ConfigureAwait(false);
 
@@ -465,26 +463,20 @@ public static partial class InfobasesEndpoints
     }
 
     // MLC-029 — единый маппинг полей публикации request→entity для Create и Update.
-    // Закрывает только 7 общих полей (с тем же trim + null-нормализацией VrdCustomXml/
-    // PhysicalPathOverride); Id/InfobaseId/CreatedAt (Create) и UpdatedAt (Update) остаются
-    // за вызывающим. Create/UpdatePublicationRequest — разные типы, поэтому, как и у
+    // Закрывает общие поля (с тем же trim + null-нормализацией PhysicalPathOverride);
+    // Id/InfobaseId/CreatedAt (Create) и UpdatedAt (Update) остаются за вызывающим.
+    // Create/UpdatePublicationRequest — разные типы, поэтому, как и у
     // AppendPublicationErrors, две тонкие перегрузки-адаптера над общим ядром.
     private static void ApplyPublicationFields(
         Publication target,
         string siteName,
         string virtualPath,
         string platformVersion,
-        bool enableOData,
-        bool enableHttpServices,
-        string? vrdCustomXml,
         string? physicalPathOverride)
     {
         target.SiteName = siteName.Trim();
         target.VirtualPath = virtualPath.Trim();
         target.PlatformVersion = platformVersion.Trim();
-        target.EnableOData = enableOData;
-        target.EnableHttpServices = enableHttpServices;
-        target.VrdCustomXml = string.IsNullOrWhiteSpace(vrdCustomXml) ? null : vrdCustomXml;
         target.PhysicalPathOverride = string.IsNullOrWhiteSpace(physicalPathOverride)
             ? null
             : physicalPathOverride.Trim().TrimEnd('\\', '/');
@@ -492,9 +484,9 @@ public static partial class InfobasesEndpoints
 
     private static void ApplyPublicationFields(Publication target, CreatePublicationRequest request) =>
         ApplyPublicationFields(target, request.SiteName, request.VirtualPath, request.PlatformVersion,
-            request.EnableOData, request.EnableHttpServices, request.VrdCustomXml, request.PhysicalPathOverride);
+            request.PhysicalPathOverride);
 
     private static void ApplyPublicationFields(Publication target, UpdatePublicationRequest request) =>
         ApplyPublicationFields(target, request.SiteName, request.VirtualPath, request.PlatformVersion,
-            request.EnableOData, request.EnableHttpServices, request.VrdCustomXml, request.PhysicalPathOverride);
+            request.PhysicalPathOverride);
 }

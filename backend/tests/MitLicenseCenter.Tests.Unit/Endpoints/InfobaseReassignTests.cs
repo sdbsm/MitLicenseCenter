@@ -102,8 +102,6 @@ public sealed class InfobaseReassignTests
         SiteName = "Default Web Site",
         VirtualPath = "/db",
         PlatformVersion = "8.3.23.1865",
-        EnableOData = false,
-        EnableHttpServices = false,
         CreatedAt = Now,
     };
 }

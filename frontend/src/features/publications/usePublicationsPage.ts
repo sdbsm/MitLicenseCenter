@@ -1,128 +1,63 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router";
 import { toast } from "sonner";
-import { useQueryClient } from "@tanstack/react-query";
 import { useMe } from "@/features/auth/useAuth";
 import { useTenants } from "@/features/tenants/useTenants";
 import type { PublicationListItem } from "./types";
 import { parseParams, type UrlFilters } from "./urlState";
-import {
-  driftStatusQueryKey,
-  fetchDriftStatus,
-  publicationsQueryKey,
-  useCheckDrift,
-  usePublications,
-} from "./usePublications";
-
-const POLL_TIMEOUT_MS = 30_000;
-const POLL_INTERVAL_MS = 2_000;
+import { useCheckStatus, usePublications } from "./usePublications";
 
 /**
- * Оркестрация страницы публикаций: загрузка списка/клиентов, URL-фильтры (клиент + drift-статус),
- * polling проверки дрейфа (single-flight через ref на interval) и состояние диалога reconcile.
- * Презентация (таблица, фильтры) вынесена в отдельные компоненты — поведение 1:1 с прежней
- * монолитной страницей (MLC-032).
+ * Оркестрация страницы публикаций (MLC-045): загрузка списка/клиентов, URL-фильтры
+ * (клиент + статус публикации), read-only проверка «Проверить сейчас» и состояние
+ * диалогов «Опубликовать (webinst)» и «Сменить платформу». Презентация — в отдельных
+ * компонентах (контейнер/хук/части, MLC-032).
  */
 export function usePublicationsPage() {
   const { t } = useTranslation();
-  const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { tenantId, driftStatus } = useMemo(() => parseParams(searchParams), [searchParams]);
+  const { tenantId, status } = useMemo(() => parseParams(searchParams), [searchParams]);
 
   const { data: publications, isLoading, isError, refetch } = usePublications();
   const { data: tenantsData } = useTenants();
   const { data: me } = useMe();
   const isAdmin = me?.roles.includes("Admin") ?? false;
 
-  const [pollingId, setPollingId] = useState<string | null>(null);
-  const pollIntervalRef = useRef<number | null>(null);
-  const [selectedPublication, setSelectedPublication] = useState<PublicationListItem | null>(null);
-  const [reconcileOpen, setReconcileOpen] = useState(false);
+  const [checkingId, setCheckingId] = useState<string | null>(null);
+  const [publishTarget, setPublishTarget] = useState<PublicationListItem | null>(null);
+  const [platformTarget, setPlatformTarget] = useState<PublicationListItem | null>(null);
 
-  const checkDrift = useCheckDrift();
-
-  useEffect(() => {
-    return () => {
-      if (pollIntervalRef.current !== null) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
-      }
-    };
-  }, []);
+  const checkStatus = useCheckStatus();
 
   const filtered = useMemo(() => {
     const rows = publications ?? [];
     return rows.filter((p) => {
       if (tenantId && p.tenantId !== tenantId) return false;
-      if (driftStatus && p.lastDriftStatus !== driftStatus) return false;
+      if (status && p.lastCheckStatus !== status) return false;
       return true;
     });
-  }, [publications, tenantId, driftStatus]);
+  }, [publications, tenantId, status]);
 
   const setFilter = (next: Partial<UrlFilters>) => {
     const params = new URLSearchParams();
     const newTenantId = next.tenantId !== undefined ? next.tenantId : tenantId;
-    const newDriftStatus = next.driftStatus !== undefined ? next.driftStatus : driftStatus;
+    const newStatus = next.status !== undefined ? next.status : status;
     if (newTenantId) params.set("tenantId", newTenantId);
-    if (newDriftStatus) params.set("driftStatus", newDriftStatus);
+    if (newStatus) params.set("status", newStatus);
     setSearchParams(params, { replace: true });
   };
 
-  const stopPolling = () => {
-    if (pollIntervalRef.current !== null) {
-      clearInterval(pollIntervalRef.current);
-      pollIntervalRef.current = null;
-    }
-    setPollingId(null);
-  };
-
-  const handleCheckDrift = async (publication: PublicationListItem) => {
-    if (pollIntervalRef.current !== null) {
-      clearInterval(pollIntervalRef.current);
-      pollIntervalRef.current = null;
-    }
+  const handleCheck = async (publication: PublicationListItem) => {
+    setCheckingId(publication.id);
     try {
-      await checkDrift.mutateAsync(publication.id);
+      await checkStatus.mutateAsync(publication.id);
+      toast.success(t("publications.toasts.checkCompleted"));
     } catch {
       toast.error(t("errors.generic"));
-      return;
+    } finally {
+      setCheckingId(null);
     }
-    toast.info(t("publications.toasts.checkStarted"));
-    setPollingId(publication.id);
-
-    const startedAt = Date.now();
-    const initialCheckedAt = publication.lastDriftCheckAt;
-
-    pollIntervalRef.current = window.setInterval(async () => {
-      try {
-        const status = await fetchDriftStatus(publication.id);
-        queryClient.setQueryData(driftStatusQueryKey(publication.id), status);
-        if (status.checkedAt && status.checkedAt !== initialCheckedAt) {
-          stopPolling();
-          void queryClient.invalidateQueries({ queryKey: publicationsQueryKey });
-          toast.success(t("publications.toasts.checkCompleted"));
-          return;
-        }
-        if (Date.now() - startedAt > POLL_TIMEOUT_MS) {
-          stopPolling();
-          toast.warning(t("publications.toasts.checkTimeout"));
-        }
-      } catch {
-        stopPolling();
-        toast.error(t("errors.generic"));
-      }
-    }, POLL_INTERVAL_MS);
-  };
-
-  const handleReconcileClick = (publication: PublicationListItem) => {
-    setSelectedPublication(publication);
-    setReconcileOpen(true);
-  };
-
-  const handleReconcileOpenChange = (open: boolean) => {
-    setReconcileOpen(open);
-    if (!open) setSelectedPublication(null);
   };
 
   return {
@@ -132,15 +67,15 @@ export function usePublicationsPage() {
     isAdmin,
     tenants: tenantsData?.items ?? [],
     tenantId,
-    driftStatus,
+    status,
     setFilter,
     filtered,
     hasAnyPublications: (publications ?? []).length > 0,
-    pollingId,
-    handleCheckDrift,
-    selectedPublication,
-    reconcileOpen,
-    handleReconcileClick,
-    handleReconcileOpenChange,
+    checkingId,
+    handleCheck,
+    publishTarget,
+    openPublish: setPublishTarget,
+    platformTarget,
+    openPlatform: setPlatformTarget,
   };
 }

@@ -68,9 +68,6 @@ export function buildInfobaseFormSchema(t: (k: string) => string) {
         .trim()
         .min(1, t("publications.errors.platformVersionRequired"))
         .regex(PLATFORM_VERSION_PATTERN, t("publications.errors.platformVersionFormat")),
-      enableOData: z.boolean(),
-      enableHttpServices: z.boolean(),
-      vrdCustomXml: z.string().optional(),
       physicalPathOverride: z
         .string()
         .max(PHYSICAL_PATH_MAX_LENGTH, t("publications.errors.physicalPathOverrideTooLong"))

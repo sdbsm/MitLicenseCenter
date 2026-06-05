@@ -1,25 +1,25 @@
-import type { PublicationDriftStatus } from "./types";
+import type { PublicationPublishStatus } from "./types";
 
-export const DRIFT_STATUSES: readonly PublicationDriftStatus[] = [
-  "InSync",
-  "Drift",
-  "Missing",
+export const PUBLISH_STATUSES: readonly PublicationPublishStatus[] = [
+  "Published",
+  "NotPublished",
   "Error",
+  "Unknown",
 ];
 
 export interface UrlFilters {
   tenantId: string;
-  driftStatus: PublicationDriftStatus | "";
+  status: PublicationPublishStatus | "";
 }
 
-export function isDriftStatus(value: string): value is PublicationDriftStatus {
-  return (DRIFT_STATUSES as readonly string[]).includes(value);
+export function isPublishStatus(value: string): value is PublicationPublishStatus {
+  return (PUBLISH_STATUSES as readonly string[]).includes(value);
 }
 
 export function parseParams(params: URLSearchParams): UrlFilters {
-  const ds = params.get("driftStatus") ?? "";
+  const s = params.get("status") ?? "";
   return {
     tenantId: params.get("tenantId") ?? "",
-    driftStatus: isDriftStatus(ds) ? ds : "",
+    status: isPublishStatus(s) ? s : "",
   };
 }

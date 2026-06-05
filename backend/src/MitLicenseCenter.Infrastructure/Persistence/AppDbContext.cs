@@ -80,16 +80,15 @@ public sealed class AppDbContext : IdentityDbContext<AppUser, AppRole, Guid>
             e.Property(x => x.SiteName).IsRequired().HasMaxLength(200);
             e.Property(x => x.VirtualPath).IsRequired().HasMaxLength(200);
             e.Property(x => x.PlatformVersion).IsRequired().HasMaxLength(50);
-            e.Property(x => x.EnableOData).IsRequired();
-            e.Property(x => x.EnableHttpServices).IsRequired();
-            e.Property(x => x.VrdCustomXml);
             e.Property(x => x.CreatedAt).IsRequired();
             e.Property(x => x.UpdatedAt);
-            // Drift-поля (PR 3.5). LastDriftStatus = int с дефолтом InSync=0
-            // (миграция Stage3PublicationDrift ставит DEFAULT 0 на уровне БД).
-            e.Property(x => x.LastDriftStatus).HasConversion<int>().IsRequired();
-            e.Property(x => x.LastDriftCheckAt);
-            e.Property(x => x.LastDriftDetails);
+            // Происхождение (MLC-045): int с дефолтом Unknown=0.
+            e.Property(x => x.Source).HasConversion<int>().IsRequired();
+            // Read-only статус (MLC-045): int с дефолтом Unknown=0 (миграция ставит
+            // DEFAULT 0 на уровне БД). Заполняется проверкой/refresh-job'ом.
+            e.Property(x => x.LastCheckStatus).HasConversion<int>().IsRequired();
+            e.Property(x => x.LastCheckAt);
+            e.Property(x => x.LastCheckDetails);
             // Physical-path override (PR 4.1): nullable, max 260 (MAX_PATH).
             e.Property(x => x.PhysicalPathOverride).HasMaxLength(260);
             // 1-to-1 required: Publication — часть aggregate Infobase'а; удаление

@@ -33,38 +33,27 @@ Replacing `rac.exe`-per-cycle with a long-lived socket on 1545 is a backlog item
 
 ## 2. IIS & Publication Management
 
-### The `default.vrd` Lifecycle (Crucial)
-A standard 1C web publication is defined by a `default.vrd` XML file (usually located in `C:\inetpub\wwwroot\{VirtualPath}`).
-- **The Problem:** The standard 1C `webinst` command-line utility completely overwrites this file, destroying custom settings for HTTP Services, standard OData, and OpenID.
-- **The Solution:** The platform's IIS Adapter must manipulate `default.vrd` using XML parsing (`XDocument` or `XmlDocument` in C#).
+The panel performs three publication operations (ADR-4); it never enforces a desired `default.vrd` state.
 
-When a 1C Platform Update occurs, the system must ONLY:
-1. Locate the `default.vrd` file.
-2. Find the attribute defining the path to the ISAPI module (e.g., `C:\Program Files\1cv8\8.3.xx.xxxx\bin\wsisapi.dll`).
-3. Replace the version segment in the path with the new platform version.
-4. Save the XML file, leaving all other nodes (`<httpServices>`, `<standardOdata>`, etc.) entirely intact.
+### Publishing via `webinst`
+`POST /api/v1/publications/{id}/publish` (re)creates a standard 1C web publication by running the `webinst` CLI through `IWebinstPublisher` (`OneCWebinstPublisher`, ADR-20):
+- **Executable** = `…\1cv8\<PlatformVersion>\bin\webinst.exe`, resolved from the publication's `PlatformVersion` via the same install-root scan as platform discovery (`WebinstExeResolver` + `OneCInstallRoots`). The version determines which `webinst.exe` runs, and therefore the `wsisapi.dll` version baked into the generated `web.config`.
+- **Arguments** (`WebinstArgs`): `-publish -iis -wsdir <virtualPath-without-slash> -dir <physical folder> -connstr "Srvr=<cluster>;Ref=<infobase name>;"`. The cluster address comes from `Settings.OneC.Cluster.Server` (falling back to the host of `OneC.RAS.Endpoint`); the infobase name is `Infobase.Name`.
+- **webinst overwrites `default.vrd` and `web.config` wholesale.** OData / HTTP-services / OpenID are therefore not panel-managed (ADR-4); set them in Designer or a hand-prepared `-descriptor` template afterwards. The publication's `Source` flag is set to `Webinst` on success; re-publishing a non-`Webinst`, currently-published publication requires explicit operator confirmation (`Confirm=true`), audited as `PublicationPublished = 212`.
+- **Encoding:** `webinst` writes its output as **UTF-16LE** (unlike `rac.exe`'s OEM/CP866). The adapter decodes accordingly. On non-zero exit the raw output is logged server-side and `409 PUBLISH_FAILED` is returned with a sanitized Russian `Detail`.
+
+### Changing platform via `web.config`
+`POST /api/v1/publications/{id}/change-platform` rewrites **only** the `wsisapi.dll` version segment in `web.config` (fallback: `default.vrd`, for older builds that keep the ISAPI handler there) to the requested version (`WsisapiVersionRewriter`, atomic temp-then-`File.Replace`). `default.vrd` content is otherwise untouched. The target version must be installed (validated against platform discovery). Audited as `PublicationPlatformChanged = 213`. `IIS`/IO failures map to `409 IIS_RECONCILE_FAILED` / `IIS_ACCESS_DENIED` with a sanitized `Detail` + `correlationId`.
+
+### Read-only status
+`OneCIisPublishingService.ReadActualStateAsync` reads the live IIS facts (site exists, virtual path exists, `web.config` exists, platform version from the `wsisapi.dll` path) via `Microsoft.Web.Administration.ServerManager` + filesystem; `PublicationStatusEvaluator` maps them to `Published / NotPublished / Error / Unknown`. It never mutates IIS. The status is refreshed by a 5-minute Hangfire job (`PublicationStatusRefreshJob`, throttled to `Settings.Drift.IntervalMinutes`) and on demand by `POST /api/v1/publications/{id}/check`; results land in `Publication.LastCheckStatus` / `LastCheckAt` / `LastCheckDetails`. No audit is written for a status read.
+
+### Path resolution
+`VrdPathResolver` resolves the publication's physical folder (and the `default.vrd` / `web.config` paths under it): **override-first** (`PhysicalPathOverride`, prefilled by the add/edit form as `{Settings.IIS.DefaultVrdRoot}\{databaseName}`, editable), else **convention** `{Settings.IIS.DefaultVrdRoot}/{siteName}/{trimmedVirtualPath}`. If the path is wrong, status reads `NotPublished` even for a healthy publication — set `PhysicalPathOverride` to the exact physical folder shown in IIS Manager.
 
 ### IIS Administration
-- The backend interacts with IIS using the `Microsoft.Web.Administration` library.
-- It can manage Application Pools (recycle, start, stop) and Sites.
-- Desired State: Ensure the IIS Virtual Directory points to the correct physical path containing the `default.vrd`.
-
-### Operational note (path resolution)
-- `OneCIisPublishingService` reads and patches `default.vrd` via `XDocument` + `Microsoft.Web.Administration.ServerManager`. Path resolution (via `VrdPathResolver.Resolve`):
-  - **Override-first**: if the Publication has `PhysicalPathOverride` set, the resolver uses `{PhysicalPathOverride}\default.vrd`. The add/edit form prefills it as `{Settings.IIS.DefaultVrdRoot}\{databaseName}` (editable), so new publications normally take this branch; it is the physical folder of the IIS application, exactly as shown in IIS Manager.
-  - **Convention fallback**: `{Settings.IIS.DefaultVrdRoot}/{siteName}/{trimmedVirtualPath}/default.vrd` — operator-configurable from the Settings page.
-- Service-account requirements specific to drift/reconcile (these add to the generic permissions in §3 below):
-  - **R/W** on every physical folder containing a managed `default.vrd` file. Reconcile writes to `default.vrd.mlc.tmp` and atomically swaps via `File.Replace`, so the account also needs delete-on-rename permission in that folder.
-  - **IIS Metabase read** at minimum (`ServerManager.OpenRemote(null)` / `new ServerManager()`). Sites enumeration is read-only — drift detection does not mutate IIS configuration; only `default.vrd` is mutated.
-  - On permission failure (`UnauthorizedAccessException` / `COMException`) the adapter returns `Error` status. `POST /reconcile` translates the same exceptions (plus `IOException` / `InvalidOperationException`) into `409 ProblemDetails` with `code: IIS_RECONCILE_FAILED` (or `IIS_ACCESS_DENIED`) — see ADR-4.1 for the full mutation-and-merge contract. **The full exception is logged server-side; the response `Detail` is a sanitized Russian message (no paths, server/site names, or COM/IO text) carrying a `correlationId` extension so the operator can locate the log entry.**
-- **Discovery error contract (`GET /discovery/databases`, `/discovery/iis-sites`).** On any infrastructure failure the endpoint returns `200 OK` with `DiscoveryResponse { Available: false, Error: <short Russian message> }` so the form falls back to manual entry. The raw `ex.Message` (SQL/COM/IO text — may contain server names or paths) is **never** placed in `Error`; the full exception is logged via a source-generated logger. `OperationCanceledException` (request abort) is **not** caught as a discovery error — it propagates.
-
-### Operational note (IIS physical-path alignment)
-The drift detector resolves the on-disk VRD path as described above. **If the path is wrong, drift detection reports `Missing` even for a healthy publication.** Two resolution strategies:
-1. **Per-publication override (prefilled for every new publication)**: the add/edit form sets `PhysicalPathOverride` to `{IIS.DefaultVrdRoot}\{databaseName}` (e.g., `C:\inetpub\wwwroot\acme_bp`); edit it to the exact physical folder shown in IIS Manager if the layout differs. Drift detection will use this path immediately.
-2. **Convention alignment** (fallback when the override is cleared): ensure IIS physical path matches `{IIS.DefaultVrdRoot}/{siteName}/{trimmedVirtualPath}`. Service account also needs:
-   - **IIS-admin rights**: read `applicationHost.config` and `redirection.config`, run `ServerManager` against the local IIS. `Network Service` is sufficient on a stock single-node install; custom accounts need `IIS_IUSRS` membership.
-   - **R/W access** to the physical folder path (the one referenced by the resolved VRD path).
+- The backend interacts with IIS using the `Microsoft.Web.Administration` library (`ServerManager`) — read-only for status; `webinst` and the `web.config` edit are the only mutations.
+- **Discovery error contract (`GET /discovery/databases`, `/discovery/iis-sites`, `/discovery/platform-versions`).** On any infrastructure failure the endpoint returns `200 OK` with `DiscoveryResponse { Available: false, Error: <short Russian message> }` so the form falls back to manual entry. The raw `ex.Message` is **never** placed in `Error`; the full exception is logged. `OperationCanceledException` (request abort) propagates.
 
 ## 3. Windows Server & Security Context
 
@@ -74,10 +63,10 @@ All components run on the same Windows Server host: the .NET backend service, th
 ### Service Account & Permissions
 - **Service Account:** The backend .NET service runs under a specific Windows Service Account (e.g., `NT AUTHORITY\NETWORK SERVICE` or a custom local/AD account).
 - **Permissions:** This account requires:
-  - Read/Write access to the physical folders where `default.vrd` files are stored.
+  - Read/Write access to the physical folders where publication files (`default.vrd`, `web.config`) are stored (the platform-change edit writes there).
   - Permissions to interact with the IIS Metabase.
   - Network access to the 1C Cluster API/RAS ports (default 1545, etc.).
-  - **Execute** permission on the resolved `Settings.OneC.RAS.ExePath` (typically `C:\Program Files\1cv8\<version>\bin\rac.exe`) and **read** access to the rest of `1cv8\<version>\bin\` so co-located DLLs load. Default ACLs grant this to `Users` on stock 1C installs; locked-down custom service accounts may need explicit Read+Execute grant.
+  - **Execute** permission on the resolved `Settings.OneC.RAS.ExePath` (typically `C:\Program Files\1cv8\<version>\bin\rac.exe`) **and** on `…\1cv8\<version>\bin\webinst.exe` for every platform version published from the panel, plus **read** access to the rest of `1cv8\<version>\bin\` so co-located DLLs load. Default ACLs grant this to `Users` on stock 1C installs; locked-down custom service accounts may need explicit Read+Execute grant.
   - Read/Write access to `%ProgramData%\MitLicenseCenter\keys\` (Data Protection key ring — see ADR-8).
 
 ### Secrets Storage
@@ -108,7 +97,8 @@ Runtime configuration lives in `dbo.Settings`. The catalog is the single source 
 | `Polling.HotIntervalSeconds` | no | Number | `4` | [2, 60] | `HotTierPollingService` |
 | `Polling.ColdIntervalSeconds` | no | Number | `25` | [10, 300] | cold `ReconciliationJob` throttle |
 | `Polling.HotThresholdPercent` | no | Number | `90` | [50, 100] | `HotTierRegistry` |
-| `Drift.IntervalMinutes` | no | Number | `5` | [1, 60] | `DriftCheckJob` throttle |
+| `Drift.IntervalMinutes` | no | Number | `5` | [1, 60] | `PublicationStatusRefreshJob` throttle |
+| `OneC.Cluster.Server` | no | Text | — | — | cluster address for webinst `-connstr` (host or host:port; falls back to `OneC.RAS.Endpoint` host) |
 | `Audit.RetentionDays` | no | Number | `365` | [30, 3650] | `AuditRetentionJob` (daily 03:00 UTC) |
 
 `SettingValueKind ∈ {Text, Number, Url, HostPort, Path}`. A `null`/whitespace payload clears the value (`IsSet=false`); for a secret that means "remove the password". Validation: `Number` = `int.TryParse` + range; `HostPort` = `^[^\s:]+:\d+$` + port in [1024, 65535]; `Path`/`Text` have no format check — any value is accepted, and a blank one simply clears the setting (it is not rejected). The whitelist takes priority over DB rows — a key not in the catalog is never surfaced.
@@ -121,7 +111,7 @@ Infrastructure operations (especially mass IIS updates or 1C cluster scans) can 
 - The Reconciliation Loop (Session Monitor) runs asynchronously and on a two-tier cadence (hot 3–5s for at-risk tenants, cold 20–30s for everyone). Enforcement (session kill) runs on **both** tiers under a shared in-process lock (`IEnforcementGate`, singleton `SemaphoreSlim(1, 1)`) so exactly one enforcement path kills at a time (cold Hangfire job + hot `BackgroundService`; over-kill protection, MLC-001). The hot tier reuses its single `session list` fetch for both the UI overlay and the enforcement fresh-check, so it adds **no** extra `rac.exe` spawn; `session terminate` is spawned only when there are real kills and is transient (it stops once `Consumed == Limit`). The ADR-3.3 spawn budget (≤ 26 procs/min) is unchanged. See ADR-6 / ADR-6.1.
 - Direct calls to the 1C Cluster Adapter MUST have strict timeouts to prevent the background worker from hanging if rac.exe / ras.exe become unresponsive. `RacExecutableRasClusterClient` uses a 30s per-invocation deadline (ADR-3.3).
 - **`RasHealthProbingService`** (ADR-16) runs as a `BackgroundService` with a 30s `IClusterClient.PingAsync` cadence. Publishes `IRasHealthReader` snapshot for the Dashboard RAS health card. Audit-neutral. This snapshot is the **only** RAS source the readiness probe reads — the `GET /api/v1/health/ready` endpoint (MLC-040) reuses it and never spawns its own `rac.exe`, so health requests stay inside the spawn budget ([ADR-3.3](DECISIONS.md#33-rac-cli-spawn-contract)). Liveness `GET /api/v1/health` is unchanged (cheap, dependency-free). See `OPERATIONS.md` «Проверки готовности».
-- A separate **drift-detection job** runs every 5 minutes (throttled to `Settings.Drift.IntervalMinutes`), comparing each `Publication`'s desired state against the actual `default.vrd` + IIS state. Results are written to `Publication.LastDriftStatus` / `LastDriftCheckAt` / `LastDriftDetails`. Drift is reported, never auto-corrected — reconcile is an explicit admin action.
+- A separate **publication status-refresh job** (`PublicationStatusRefreshJob`) runs every 5 minutes (throttled to `Settings.Drift.IntervalMinutes`), reading each `Publication`'s live IIS state (read-only) and writing `Publication.LastCheckStatus` / `LastCheckAt` / `LastCheckDetails`. It never mutates IIS and writes no audit; (re)publication and platform change are explicit admin actions.
 - An **audit retention job** runs daily at 03:00 UTC and deletes rows from `dbo.AuditLogs` older than `Settings.Audit.RetentionDays` (default 365, range [30, 3650]). Implementation: batched `DELETE TOP (5000)` with commit-per-batch via `ExecuteSqlInterpolatedAsync` against `[Timestamp]`. Audit row `AuditLogsPurged=500` is written only when the total delete count is non-zero. CRON is fixed in code — retention window is operator-tunable, cadence is not.
 
 ## 6. Backups are operator responsibility

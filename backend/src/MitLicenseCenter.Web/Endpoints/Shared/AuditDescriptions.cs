@@ -1,5 +1,3 @@
-using MitLicenseCenter.Domain.Publications;
-
 namespace MitLicenseCenter.Web.Endpoints;
 
 // MLC-021 — единый каталог русских формулировок аудита для мутирующих эндпоинтов.
@@ -48,11 +46,14 @@ internal static class AuditDescriptions
     public static string PublicationUpdated(string label, string initiator) =>
         $"Публикация «{label}» обновлена администратором {initiator}.";
 
-    // Reconcile исторически без « » вокруг метки и со словом «оператором» — сохраняем буквально.
-    public static string PublicationReconciled(
+    // ── webinst-публикация и смена платформы (MLC-045) ─────────────────────────────
+    public static string PublicationPublished(string label, string initiator) =>
+        $"Публикация «{label}» опубликована через webinst администратором {initiator}.";
+
+    public static string PublicationPlatformChanged(
         string label,
-        PublicationDriftStatus previousStatus,
-        PublicationDriftStatus newStatus,
+        string previousVersion,
+        string newVersion,
         string initiator) =>
-        $"Публикация {label} согласована оператором {initiator}: статус {previousStatus} → {newStatus}.";
+        $"Платформа публикации «{label}» изменена с {previousVersion} на {newVersion} администратором {initiator}.";
 }

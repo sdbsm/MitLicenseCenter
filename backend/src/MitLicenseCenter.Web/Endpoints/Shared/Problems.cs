@@ -16,9 +16,14 @@ public static class ProblemCodes
     public const string SettingUnknownKey = "SETTING_UNKNOWN_KEY";
     public const string SettingInvalidValue = "SETTING_INVALID_VALUE";
 
-    // PR 3.5 — IIS XML-patch reconciliation failures.
+    // PR 3.5 — IIS XML-patch reconciliation failures (исторический код, ещё
+    // используется для сбоя смены платформы — правки web.config).
     public const string IisReconcileFailed = "IIS_RECONCILE_FAILED";
     public const string IisAccessDenied = "IIS_ACCESS_DENIED";
+
+    // MLC-045 — публикация через webinst и смена платформы.
+    public const string PublishFailed = "PUBLISH_FAILED";
+    public const string PublishConfirmRequired = "PUBLISH_CONFIRM_REQUIRED";
 
     // MLC-002 — ручной kill сеанса.
     public const string SessionStale = "SESSION_STALE";
@@ -91,10 +96,25 @@ public static class Problems
     public static ProblemDetails IisAccessDenied(string? correlationId = null) =>
         Conflict(
             ProblemCodes.IisAccessDenied,
-            "Нет доступа к IIS / default.vrd",
-            "Недостаточно прав для изменения публикации IIS или файла default.vrd. "
+            "Нет доступа к IIS / файлам публикации",
+            "Недостаточно прав для изменения публикации IIS или её файлов (web.config / default.vrd). "
                 + "Технические подробности записаны в журнал сервера.",
             correlationId);
+
+    // MLC-045 — публикация через webinst не удалась. detail приходит из адаптера
+    // уже санитизированным (без путей/имён ИБ); сырой вывод webinst — в журнале.
+    public static ProblemDetails PublishFailed(string detail, string? correlationId = null) =>
+        Conflict(ProblemCodes.PublishFailed, "Публикация не удалась", detail, correlationId);
+
+    // MLC-045 — повторная публикация перезатрёт ручную конфигурацию (Source ≠ Webinst).
+    // Требуется явное подтверждение оператора (Confirm=true).
+    public static ProblemDetails PublishConfirmRequired() =>
+        Conflict(
+            ProblemCodes.PublishConfirmRequired,
+            "Требуется подтверждение",
+            "Эта публикация создана не через панель (возможно, вручную в конфигураторе). "
+                + "Повторная публикация через webinst перезапишет default.vrd и web.config, "
+                + "удалив ручные настройки. Подтвердите, чтобы продолжить.");
 
     // MLC-002 — снапшот устарел: сеанс с тем же SessionId сменил дескриптор
     // (InfobaseId/AppID/StartedAt). 409 — оператору нужно обновить список.

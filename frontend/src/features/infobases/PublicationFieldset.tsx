@@ -9,7 +9,6 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -251,51 +250,6 @@ export function PublicationFieldset({
           </FormItem>
         )}
       />
-
-      <div className="grid gap-3 sm:grid-cols-2">
-        <FormField
-          control={control}
-          name="publication.enableOData"
-          render={({ field }) => (
-            <FormItem>
-              <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
-                <Label htmlFor="publication-oData" className="font-medium">
-                  {t("publications.fields.enableOData")}
-                </Label>
-                <input
-                  id="publication-oData"
-                  type="checkbox"
-                  className="size-4 cursor-pointer"
-                  checked={field.value}
-                  onChange={(e) => field.onChange(e.target.checked)}
-                />
-              </div>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={control}
-          name="publication.enableHttpServices"
-          render={({ field }) => (
-            <FormItem>
-              <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
-                <Label htmlFor="publication-http" className="font-medium">
-                  {t("publications.fields.enableHttpServices")}
-                </Label>
-                <input
-                  id="publication-http"
-                  type="checkbox"
-                  className="size-4 cursor-pointer"
-                  checked={field.value}
-                  onChange={(e) => field.onChange(e.target.checked)}
-                />
-              </div>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-      </div>
     </div>
   );
 }

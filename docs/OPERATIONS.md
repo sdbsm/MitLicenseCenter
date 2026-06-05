@@ -100,14 +100,14 @@ The 1C cluster is administered exclusively through RAS via `rac.exe` ([ADR-16](D
 
 ## IIS publishing — required permissions
 
-The panel reads and writes IIS state through `Microsoft.Web.Administration` (`ServerManager`) and the per-publication `default.vrd` files — for the periodic drift check (Hangfire cron `*/5 * * * *`) and for the on-demand «Согласовать состояние» (reconcile).
+The panel reads IIS state through `Microsoft.Web.Administration` (`ServerManager`) for the read-only status refresh (Hangfire cron `*/5 * * * *`) and the on-demand «Проверить сейчас». It also **writes** publication files for two explicit actions: «Опубликовать» runs `webinst.exe` (per platform version), and «Сменить платформу» rewrites `web.config`.
 
 `new ServerManager()` reads `%windir%\system32\inetsrv\config\applicationHost.config` and `redirection.config`, both ACL'd to `Administrators` / `SYSTEM`. The panel's process identity therefore **must** be privileged:
 
 - **Development** — run the backend from an **elevated** PowerShell. `scripts/dev.ps1` now launches the backend window with a UAC prompt by default (pass `-NoElevate` to skip when you are not touching IIS).
-- **Production** — the service account / IIS app-pool identity hosting the panel must be a member of local `Administrators`, **or** be granted explicit Read on `%windir%\system32\inetsrv\config\` (plus Read/Write on the publication folders holding `default.vrd`, required for reconcile).
+- **Production** — the service account / IIS app-pool identity hosting the panel must be a member of local `Administrators`, **or** be granted explicit Read on `%windir%\system32\inetsrv\config\`, plus Read/Write on the publication folders (holding `default.vrd` / `web.config`, required for platform change) and **Execute** on `…\1cv8\<version>\bin\webinst.exe` for every published platform version. Set the cluster address for `webinst -connstr` via `Settings.OneC.Cluster.Server` (falls back to the `OneC.RAS.Endpoint` host).
 
-**Symptom of insufficient permissions:** every publication shows drift status «Ошибка проверки» (`Error`), and `dbo.Publications.LastDriftDetails` (visible on hover over the status badge on the «Публикации» page) reads `Ошибка чтения IIS/VRD: … redirection.config … отсутствия необходимых разрешений`.
+**Symptom of insufficient permissions:** every publication shows status «Ошибка проверки» (`Error`), and `dbo.Publications.LastCheckDetails` (visible on hover over the status badge on the «Публикации» page) reads `Не удалось проверить публикацию: … redirection.config … отсутствия необходимых разрешений`.
 
 ## Проверки готовности — liveness vs readiness (`MLC-040` / PERF-04)
 

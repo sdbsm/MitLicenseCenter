@@ -181,22 +181,16 @@ namespace MitLicenseCenter.Infrastructure.Persistence.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<bool>("EnableHttpServices")
-                        .HasColumnType("bit");
-
-                    b.Property<bool>("EnableOData")
-                        .HasColumnType("bit");
-
                     b.Property<Guid>("InfobaseId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<DateTime?>("LastDriftCheckAt")
+                    b.Property<DateTime?>("LastCheckAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<string>("LastDriftDetails")
+                    b.Property<string>("LastCheckDetails")
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<int>("LastDriftStatus")
+                    b.Property<int>("LastCheckStatus")
                         .HasColumnType("int");
 
                     b.Property<string>("PhysicalPathOverride")
@@ -213,6 +207,9 @@ namespace MitLicenseCenter.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<int>("Source")
+                        .HasColumnType("int");
+
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
 
@@ -220,9 +217,6 @@ namespace MitLicenseCenter.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
-
-                    b.Property<string>("VrdCustomXml")
-                        .HasColumnType("nvarchar(max)");
 
                     b.HasKey("Id");
 
