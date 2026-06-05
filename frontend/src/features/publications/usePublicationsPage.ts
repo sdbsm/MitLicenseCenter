@@ -28,6 +28,13 @@ export function usePublicationsPage() {
   const [publishTarget, setPublishTarget] = useState<PublicationListItem | null>(null);
   const [platformTarget, setPlatformTarget] = useState<PublicationListItem | null>(null);
 
+  // MLC-046: множественный выбор для массовых операций. Храним id; выбор переживает
+  // смену фильтра (бар показывает общий счётчик). Объекты для операции берём из полного
+  // списка, чтобы спрятанные фильтром строки тоже корректно обрабатывались.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkPublishOpen, setBulkPublishOpen] = useState(false);
+  const [bulkPlatformOpen, setBulkPlatformOpen] = useState(false);
+
   const checkStatus = useCheckStatus();
 
   const filtered = useMemo(() => {
@@ -38,6 +45,40 @@ export function usePublicationsPage() {
       return true;
     });
   }, [publications, tenantId, status]);
+
+  const selectedPublications = useMemo(
+    () => (publications ?? []).filter((p) => selectedIds.has(p.id)),
+    [publications, selectedIds]
+  );
+
+  const toggleSelect = (id: string, checked: boolean) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+
+  // «Выбрать все» оперирует текущими отфильтрованными строками.
+  const toggleAll = (checked: boolean) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const p of filtered) {
+        if (checked) next.add(p.id);
+        else next.delete(p.id);
+      }
+      return next;
+    });
+
+  const clearSelection = () => setSelectedIds(new Set());
+
+  // После прогона снимаем успешные из выделения — упавшие/пропущенные остаются для повтора.
+  const deselectSucceeded = (states: { id: string; status: string }[]) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const s of states) if (s.status === "ok") next.delete(s.id);
+      return next;
+    });
 
   const setFilter = (next: Partial<UrlFilters>) => {
     const params = new URLSearchParams();
@@ -77,5 +118,16 @@ export function usePublicationsPage() {
     openPublish: setPublishTarget,
     platformTarget,
     openPlatform: setPlatformTarget,
+    // MLC-046: выбор + массовые операции.
+    selectedIds,
+    toggleSelect,
+    toggleAll,
+    clearSelection,
+    deselectSucceeded,
+    selectedPublications,
+    bulkPublishOpen,
+    setBulkPublishOpen,
+    bulkPlatformOpen,
+    setBulkPlatformOpen,
   };
 }

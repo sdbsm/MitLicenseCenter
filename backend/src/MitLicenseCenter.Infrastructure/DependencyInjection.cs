@@ -122,6 +122,11 @@ public static class DependencyInjection
         // запускает процесс webinst версии платформы из публикации.
         services.AddScoped<IWebinstPublisher, OneCWebinstPublisher>();
 
+        // MLC-046: ограничитель одновременных спавнов webinst (массовая публикация = N
+        // одиночных вызовов). Singleton — кэп общий на весь процесс (single-node), защита
+        // спавн-бюджета независимо от клиента (семья ADR-3.3).
+        services.AddSingleton<IWebinstConcurrencyGate, WebinstConcurrencyGate>();
+
         // Discovery (интерактивная настройка форм): SQL-перечисление БД и скан rac.exe.
         services.AddScoped<ISqlDatabaseDiscovery, SqlDatabaseDiscovery>();
         services.AddSingleton<IRacPathDiscovery, RacPathDiscovery>();

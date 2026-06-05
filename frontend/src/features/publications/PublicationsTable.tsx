@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { RelativeTime } from "@/components/ui/RelativeTime";
 import { StatusBadge, type StatusBadgeVariant } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -35,6 +36,9 @@ interface PublicationsTableProps {
   isAdmin: boolean;
   hasAnyPublications: boolean;
   checkingId: string | null;
+  selectedIds: Set<string>;
+  onToggleSelect: (id: string, checked: boolean) => void;
+  onToggleAll: (checked: boolean) => void;
   onCheck: (publication: PublicationListItem) => void;
   onPublish: (publication: PublicationListItem) => void;
   onChangePlatform: (publication: PublicationListItem) => void;
@@ -48,18 +52,41 @@ export function PublicationsTable({
   isAdmin,
   hasAnyPublications,
   checkingId,
+  selectedIds,
+  onToggleSelect,
+  onToggleAll,
   onCheck,
   onPublish,
   onChangePlatform,
 }: PublicationsTableProps) {
   const { t } = useTranslation();
-  const columnCount = isAdmin ? 9 : 8;
+  // База 8 колонок; для admin +чекбокс (лидирующая) +действия.
+  const columnCount = isAdmin ? 10 : 8;
+
+  // Состояние «выбрать все» — по текущим отфильтрованным строкам.
+  const allSelected = rows.length > 0 && rows.every((r) => selectedIds.has(r.id));
+  const someSelected = rows.some((r) => selectedIds.has(r.id));
+  const headerChecked: boolean | "indeterminate" = allSelected
+    ? true
+    : someSelected
+      ? "indeterminate"
+      : false;
 
   return (
     <div className="rounded-md border">
       <Table>
         <TableHeader>
           <TableRow>
+            {isAdmin && (
+              <TableHead className="w-10">
+                <Checkbox
+                  checked={headerChecked}
+                  onCheckedChange={(v) => onToggleAll(v === true)}
+                  disabled={rows.length === 0}
+                  aria-label={t("publications.bulk.selectAll")}
+                />
+              </TableHead>
+            )}
             <TableHead>{t("publications.table.headers.tenant")}</TableHead>
             <TableHead>{t("publications.table.headers.infobase")}</TableHead>
             <TableHead>{t("publications.table.headers.siteName")}</TableHead>
@@ -109,6 +136,8 @@ export function PublicationsTable({
                     row={row}
                     isAdmin={isAdmin}
                     isChecking={checkingId === row.id}
+                    isSelected={selectedIds.has(row.id)}
+                    onToggleSelect={onToggleSelect}
                     onCheck={onCheck}
                     onPublish={onPublish}
                     onChangePlatform={onChangePlatform}
@@ -124,6 +153,8 @@ interface PublicationRowProps {
   row: PublicationListItem;
   isAdmin: boolean;
   isChecking: boolean;
+  isSelected: boolean;
+  onToggleSelect: (id: string, checked: boolean) => void;
   onCheck: (publication: PublicationListItem) => void;
   onPublish: (publication: PublicationListItem) => void;
   onChangePlatform: (publication: PublicationListItem) => void;
@@ -133,6 +164,8 @@ function PublicationRow({
   row,
   isAdmin,
   isChecking,
+  isSelected,
+  onToggleSelect,
   onCheck,
   onPublish,
   onChangePlatform,
@@ -140,7 +173,16 @@ function PublicationRow({
   const { t } = useTranslation();
 
   return (
-    <TableRow>
+    <TableRow data-state={isSelected ? "selected" : undefined}>
+      {isAdmin && (
+        <TableCell className="w-10">
+          <Checkbox
+            checked={isSelected}
+            onCheckedChange={(v) => onToggleSelect(row.id, v === true)}
+            aria-label={t("publications.bulk.selectRow")}
+          />
+        </TableCell>
+      )}
       <TableCell className="font-medium">{row.tenantName}</TableCell>
       <TableCell>{row.infobaseName}</TableCell>
       <TableCell>{row.siteName}</TableCell>
