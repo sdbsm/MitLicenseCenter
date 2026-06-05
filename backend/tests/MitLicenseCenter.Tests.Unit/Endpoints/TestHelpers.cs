@@ -47,14 +47,18 @@ internal static class TestHelpers
             _options = options;
         }
 
-        public static SqliteTestDb Create()
+        public static SqliteTestDb Create(params IInterceptor[] interceptors)
         {
             var connection = new SqliteConnection("DataSource=:memory:;Foreign Keys=True");
             connection.Open();
-            var options = new DbContextOptionsBuilder<AppDbContext>()
+            var builder = new DbContextOptionsBuilder<AppDbContext>()
                 .UseSqlite(connection)
-                .ReplaceService<IModelCustomizer, SqliteModelCustomizer>()
-                .Options;
+                .ReplaceService<IModelCustomizer, SqliteModelCustomizer>();
+            if (interceptors.Length > 0)
+            {
+                builder.AddInterceptors(interceptors);
+            }
+            var options = builder.Options;
             using (var ctx = new AppDbContext(options))
             {
                 ctx.Database.EnsureCreated();

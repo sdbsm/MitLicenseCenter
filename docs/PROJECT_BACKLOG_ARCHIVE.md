@@ -1957,3 +1957,72 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 - **Прогон:** `scripts/build.ps1` зелёный целиком — backend `restore`/`build` (0 warnings,
   `TreatWarningsAsErrors`)/`test` (**315** — +7)/`format` (без правок); frontend
   `lint`/`type-check`/`test` (118)/`build` ОК.
+
+### MLC-043 (PERF-07) — Батч-загрузка публикаций в `DriftCheckJob` (N+1 → 1) — 2026-06-05
+
+- **Проблема:** `DriftCheckJob.RunAllAsync` грузил все `Publication.Id` одним запросом, затем
+  `foreach (id) → CheckOneCoreAsync(id)` делал **отдельный** `FirstOrDefault`-запрос на каждую
+  публикацию — N+1 round-trips на проход джоба (раз в 5 мин, через ту же scoped-БД). Снимается
+  замерной базой Phase 1 (EF-профиль MLC-038, харнесс MLC-039). PERF-07 плана
+  `compressed-giggling-grove.md`.
+- **Опора:** проверка дрейфа читает публикацию по фиксированному набору полей (Site/VirtualPath/
+  PhysicalPathOverride для `ReadActualState`; PlatformVersion/OData/Http для `Compare`; InfobaseId
+  для tenant-строки аудита; предыдущие `LastDriftStatus`/`Details` для перехода) — всё проецируемо
+  одним запросом; тяжёлый `VrdCustomXml` (nvarchar(max)) проверке не нужен.
+- **Развилки (решены).**
+  - **Форма загрузки — проекция в лёгкий `record`, не entity.** EF не проецирует в tracked
+    entity-тип; `AsNoTracking().Select(p => new DriftSnapshot(...))` грузит **все** публикации одним
+    запросом строго нужных колонок (без `VrdCustomXml`, без tracking-снимков на весь объём).
+  - **Запись результата 1:1, провайдер-независимо.** `ExecuteUpdate` отпал — EF InMemory-провайдер
+    (на нём крутятся drift/reconcile unit-тесты) его не транслирует. Выбран targeted-UPDATE по `Id`
+    через change-tracker: если сущность уже трекается в текущем scope (reconcile-endpoint в том же
+    `DbContext`) — мутируем её; иначе `Attach` транзиентного `desired` и помечаем `Modified` **только
+    три** drift-колонки. На relational это `UPDATE … SET LastDrift{Status,CheckAt,Details} WHERE Id=@id`
+    — байт-в-байт прежний эффект `SaveChanges`; на проде (MSSQL) — корректный частичный апдейт.
+  - **`Local`-проверка перед `Attach`.** Защищает от конфликта identity, когда строка уже трекается
+    (тест-сид `Add`+`SaveChanges`; reconcile читает `AsNoTracking`, поэтому в проде attach-ветка).
+- **Что сделано.**
+  - `RunAllAsync`: `LoadSnapshotsAsync(p => true)` → один проекционный `AsNoTracking`-запрос →
+    `foreach` по материализованному списку → `ProcessOneAsync(snapshot)`. Внешний `try/catch`
+    (rethrow `OperationCanceledException`, generic → `LogDriftRunFailed`) и `throttle` — без изменений.
+  - `CheckOneAsync` (on-demand путь reconcile/check-drift) переведён на тот же снимок для **одной**
+    публикации (`LoadSnapshotsAsync(p => p.Id == id)`), затем `ProcessOneAsync` — единая логика, без
+    дублирования.
+  - `ProcessOneAsync`: строит транзиентный `desired` для `ReadActualState`/`Compare` (те же входные
+    поля, что читал tracked-entity), пишет результат targeted-UPDATE'ом (`Local`-аware mutate/attach),
+    tenant-lookup и audit-строка — **только** при `IsAuditableTransition` (как раньше). Порядок:
+    capture prev → compare → write 3 поля → решить аудит → `SaveChanges` → аудит. 1:1 с прежним.
+  - `per-publication ct.ThrowIfCancellationRequested()` сохранён; устойчивость к ошибке отдельной
+    публикации **1:1** — сверено с текущим поведением: внешний `try/catch` обёрнут вокруг всего
+    `foreach`, одна сбойная публикация и раньше обрывала проход (новый per-item `try/catch` не
+    добавлялся, чтобы не менять семантику).
+- **Замер «до→после» (DoD).** Реальные SQL round-trip'ы посчитаны `DbCommandInterceptor` на
+  relational-провайдере (SQLite — та же EF-трансляция, что у MSSQL; число запросов
+  провайдер-независимо), на засеянном объёме N=25 публикаций. «До» воспроизведено in-line на тех же
+  данных (старая форма `Select(Id).ToList` + `foreach FirstOrDefault`):
+
+  | загрузочных SELECT/проход | before | after |
+  |---|---|---|
+  | публикации | **26** (= N+1) | **1** |
+
+  Запись (N targeted-UPDATE) и tenant/audit-запросы (только на переходах) — вне дельты, не менялись.
+- **Идентичность результатов дрейфа.** 20 существующих drift+reconcile unit-тестов
+  (`DriftCheckTransitionAuditTests`, `PublicationsReconcileTests`) зелёные без правок: статусы
+  (InSync/Drift/Missing/Error), `LastDriftDetails`, аудит-переходы (210 только на смене статуса в
+  не-InSync; Drift→Drift same-details = 0 строк; Drift→InSync джобом не аудитится; tenantId на Missing)
+  — все 1:1 (ADR-4.1).
+- **Жёсткие границы.** `VrdPathResolver`/`PublicationDriftDetector`/`IsAuditableTransition` и семантика
+  записи `LastDrift*` не тронуты — менялась только форма загрузки и запись. ADR-4.1 drift-контракт 1:1.
+  ADR-20 (vertical-slice, без use-case-слоя), ADR-16/3.3, single-node, RU-only не затронуты. Smoke
+  не сломан (`DriftCheckJob` — Windows-IIS-зависимый адаптер не трогался; джоб-логика провайдер-агностична).
+- **Тесты (+1).** `DriftCheckBatchQueryTests` — регресс-гард: один проход `RunAllAsync` грузит публикации
+  ровно **1** запросом (N+1→1), echo-stub IIS даёт InSync (изолирует загрузку+запись от аудита).
+  Хелпер `TestHelpers.SqliteTestDb.Create` расширен опц. `params IInterceptor[]` (для counting-перехватчика).
+- **Канон (present-tense).** `docs/OPERATIONS.md` «Наблюдаемость перфа» — пункт PERF-07 переведён в
+  закрытое состояние с результатом 26→1.
+- **Файлы:** правки `backend/src/MitLicenseCenter.Infrastructure/Jobs/DriftCheckJob.cs`,
+  `backend/tests/MitLicenseCenter.Tests.Unit/Endpoints/TestHelpers.cs`, `docs/OPERATIONS.md`; новый
+  `backend/tests/MitLicenseCenter.Tests.Unit/Jobs/DriftCheckBatchQueryTests.cs`.
+- **Прогон:** `scripts/build.ps1` зелёный целиком — backend `restore`/`build` (0 warnings,
+  `TreatWarningsAsErrors`)/`test` (**316** — +1)/`format` (без правок); frontend
+  `lint`/`type-check`/`test` (118)/`build` ОК — «Все шаги пройдены успешно».

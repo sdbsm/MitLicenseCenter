@@ -65,16 +65,17 @@ internal sealed partial class DriftCheckJob : IDriftCheckJob
 
         try
         {
-            var ids = await _db.Publications
-                .AsNoTracking()
-                .Select(p => p.Id)
-                .ToListAsync(ct)
-                .ConfigureAwait(false);
+            // PERF-07 (MLC-043): один проекционный запрос нужных полей всех публикаций
+            // вместо «грузим Id → FirstOrDefault на каждую» (N+1 round-trips на проход).
+            // AsNoTracking + только поля, которые читает проверка дрейфа (без тяжёлого
+            // VrdCustomXml и без tracking-снимков на весь объём). Запись результата
+            // дрейфа — отдельным targeted-UPDATE по Id в ProcessOneAsync, поведение 1:1.
+            var snapshots = await LoadSnapshotsAsync(p => true, ct).ConfigureAwait(false);
 
-            foreach (var id in ids)
+            foreach (var snapshot in snapshots)
             {
                 ct.ThrowIfCancellationRequested();
-                await CheckOneCoreAsync(id, ct).ConfigureAwait(false);
+                await ProcessOneAsync(snapshot, ct).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException)
@@ -87,26 +88,78 @@ internal sealed partial class DriftCheckJob : IDriftCheckJob
         }
     }
 
-    public Task CheckOneAsync(Guid publicationId, CancellationToken ct) =>
-        CheckOneCoreAsync(publicationId, ct);
-
-    private async Task CheckOneCoreAsync(Guid publicationId, CancellationToken ct)
+    public async Task CheckOneAsync(Guid publicationId, CancellationToken ct)
     {
-        var publication = await _db.Publications
-            .FirstOrDefaultAsync(p => p.Id == publicationId, ct)
-            .ConfigureAwait(false);
-        if (publication is null)
+        // On-demand путь (reconcile / check-drift endpoint): тот же проекционный
+        // снимок, но для одной публикации. ProcessOneAsync обрабатывает запись 1:1.
+        var snapshots = await LoadSnapshotsAsync(p => p.Id == publicationId, ct).ConfigureAwait(false);
+        var snapshot = snapshots.Count > 0 ? snapshots[0] : null;
+        if (snapshot is null)
             return;
 
-        var actual = await _iis.ReadActualStateAsync(publication, ct).ConfigureAwait(false);
-        var (newStatus, newDetails) = PublicationDriftDetector.Compare(publication, actual);
+        await ProcessOneAsync(snapshot, ct).ConfigureAwait(false);
+    }
 
-        var previousStatus = publication.LastDriftStatus;
-        var previousDetails = publication.LastDriftDetails;
+    // Проекция строго того, что нужно проверке дрейфа: поля для ReadActualState/Compare
+    // (desired), InfobaseId (для tenant audit-строки) и предыдущие LastDriftStatus/Details
+    // (для определения audit-перехода). AsNoTracking — снимок не трекается; VrdCustomXml
+    // и прочие тяжёлые/ненужные колонки не тянутся.
+    private async Task<List<DriftSnapshot>> LoadSnapshotsAsync(
+        System.Linq.Expressions.Expression<Func<Publication, bool>> filter,
+        CancellationToken ct) =>
+        await _db.Publications
+            .AsNoTracking()
+            .Where(filter)
+            .Select(p => new DriftSnapshot(
+                p.Id,
+                p.InfobaseId,
+                p.SiteName,
+                p.VirtualPath,
+                p.PlatformVersion,
+                p.EnableOData,
+                p.EnableHttpServices,
+                p.PhysicalPathOverride,
+                p.LastDriftStatus,
+                p.LastDriftDetails))
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
 
-        publication.LastDriftStatus = newStatus;
-        publication.LastDriftCheckAt = _clock.GetUtcNow().UtcDateTime;
-        publication.LastDriftDetails = string.IsNullOrEmpty(newDetails) ? null : newDetails;
+    private async Task ProcessOneAsync(DriftSnapshot snapshot, CancellationToken ct)
+    {
+        // Транзиентный desired для ReadActualState/Compare — те же входные поля,
+        // что читал tracked-entity раньше (Site/VirtualPath/PhysicalPathOverride +
+        // PlatformVersion/OData/Http). 1:1 по сравнению.
+        var desired = new Publication
+        {
+            Id = snapshot.Id,
+            InfobaseId = snapshot.InfobaseId,
+            SiteName = snapshot.SiteName,
+            VirtualPath = snapshot.VirtualPath,
+            PlatformVersion = snapshot.PlatformVersion,
+            EnableOData = snapshot.EnableOData,
+            EnableHttpServices = snapshot.EnableHttpServices,
+            PhysicalPathOverride = snapshot.PhysicalPathOverride,
+        };
+
+        var actual = await _iis.ReadActualStateAsync(desired, ct).ConfigureAwait(false);
+        var (newStatus, newDetails) = PublicationDriftDetector.Compare(desired, actual);
+
+        var previousStatus = snapshot.PreviousStatus;
+        var previousDetails = snapshot.PreviousDetails;
+        var newDetailsOrNull = string.IsNullOrEmpty(newDetails) ? null : newDetails;
+
+        // Targeted-апдейт только трёх drift-колонок по Id — поведение записи 1:1
+        // с прежним «mutate tracked + SaveChanges». Если сущность уже трекается в
+        // текущем scope (напр. reconcile-endpoint в том же DbContext) — мутируем её,
+        // иначе attach'им транзиентный desired и помечаем Modified только 3 поля.
+        var tracked = _db.Publications.Local.FirstOrDefault(p => p.Id == snapshot.Id);
+        var target = tracked ?? desired;
+        if (tracked is null)
+            _db.Attach(desired);
+
+        target.LastDriftStatus = newStatus;
+        target.LastDriftCheckAt = _clock.GetUtcNow().UtcDateTime;
+        target.LastDriftDetails = newDetailsOrNull;
 
         // tenantId нужен для audit-строки (через Infobase → Tenant). Подтягиваем
         // только если планируем писать аудит — иначе экономим один запрос.
@@ -115,7 +168,7 @@ internal sealed partial class DriftCheckJob : IDriftCheckJob
         if (shouldAudit)
         {
             tenantId = await _db.Infobases
-                .Where(i => i.Id == publication.InfobaseId)
+                .Where(i => i.Id == snapshot.InfobaseId)
                 .Select(i => (Guid?)i.TenantId)
                 .FirstOrDefaultAsync(ct)
                 .ConfigureAwait(false);
@@ -126,7 +179,7 @@ internal sealed partial class DriftCheckJob : IDriftCheckJob
         if (!shouldAudit)
             return;
 
-        var siteAndPath = $"{publication.SiteName}{publication.VirtualPath}";
+        var siteAndPath = $"{snapshot.SiteName}{snapshot.VirtualPath}";
         var detailsSnippet = newDetails.Length <= AuditDetailsSnippetLength
             ? newDetails
             : string.Concat(newDetails.AsSpan(0, AuditDetailsSnippetLength - 1), "…");
@@ -139,6 +192,21 @@ internal sealed partial class DriftCheckJob : IDriftCheckJob
             tenantId: tenantId,
             ct: ct).ConfigureAwait(false);
     }
+
+    // Лёгкий проекционный снимок публикации для одного прохода проверки дрейфа.
+    // PreviousStatus/PreviousDetails — значения LastDrift* ДО проверки (вход для
+    // IsAuditableTransition). Остальные поля — desired-состояние для Compare/IIS.
+    private sealed record DriftSnapshot(
+        Guid Id,
+        Guid InfobaseId,
+        string SiteName,
+        string VirtualPath,
+        string PlatformVersion,
+        bool EnableOData,
+        bool EnableHttpServices,
+        string? PhysicalPathOverride,
+        PublicationDriftStatus PreviousStatus,
+        string? PreviousDetails);
 
     // План PR 3.5: пишем 210 ТОЛЬКО когда (status изменился) AND (новый ∈
     // {Drift, Missing, Error}). Дополнительно: Drift→Drift с теми же details
