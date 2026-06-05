@@ -8,8 +8,8 @@ The UI is strictly separated from the infrastructure logic and communicates ONLY
 The Control Panel is delivered in **Russian** as the only shipping locale of v1 (target audience — Russian-speaking 1C hosting administrators; see `01_PROJECT_CONTEXT.md`).
 
 - All visible strings — labels, buttons, table headers, tooltips, validation, toasts, dialogs, empty states, error pages — are in Russian.
-- Strings are stored in a single `src/i18n/ru.json` and accessed via `react-i18next` (or equivalent). **No string is hardcoded in JSX**, even though only one locale ships in v1 — this lets a future locale slot in without component edits.
-- Locale: `ru-RU`. Use the browser `Intl` API (`Intl.DateTimeFormat('ru-RU')`, `Intl.NumberFormat('ru-RU')`) for formatting; do not roll a custom formatter.
+- Strings are stored in a single `src/i18n/ru.json` and accessed via `react-i18next`. User-facing copy is routed through i18n rather than hardcoded in JSX, so a future locale can slot in without component edits. (One deliberate exception: the product name "MitLicense Center" is a literal in the topbar, not a translation key.)
+- Locale: `ru-RU`. Absolute dates/times are formatted with **`date-fns`** + `date-fns/locale/ru` (see the stack table in `06_UI_DESIGN.md`); relative "N сек назад" freshness uses `Intl.RelativeTimeFormat('ru')`. Use these existing helpers — do not roll a custom formatter.
 - Date input controls accept and display `ДД.ММ.ГГГГ`; under the hood always serialize as ISO-8601 UTC.
 - The backend's user-facing error payloads are already in Russian (per `01_PROJECT_CONTEXT.md`) — the SPA does not translate them, just displays them.
 
@@ -61,7 +61,8 @@ The Control Panel is delivered in **Russian** as the only shipping locale of v1 
 - Shows who (or what background job) killed a session, updated a publication, or changed a limit.
 - Filters: by `ActionType`, `Initiator`, `TenantId`, date range. For `SessionKilled` rows, the `Reason` column distinguishes `LimitExceeded` from `ManualByAdmin`.
 
-### 3.6. Administrators
+### 3.6. Administrators — **planned, not implemented in v1**
+There is **no administrator-management screen, route, or sidebar entry in v1.** Account handling today: a single `Admin` user is seeded at startup (`IdentitySeeder`, password logged once), every user changes their own password via the Profile page (`/profile`), and the `Admin`/`Viewer` roles are assigned in the database directly. The design below is the intended future shape, to be promoted via its own backlog item before it is built:
 - List of admin accounts (`Admin` and `Viewer` roles), last login timestamp, lockout status.
 - Create / disable / reset-password actions (the latter generates a temporary password printed to the audit log; user must change it on next login).
-- All administrator-management actions are written to `AuditLog`.
+- All administrator-management actions written to `AuditLog`.

@@ -19,10 +19,10 @@ The component library is locked to **shadcn/ui** (see ADR-11). This document fil
 | Component primitives | **shadcn/ui** (copy-paste, owned in repo) on top of **Radix UI** |
 | Styling | **Tailwind CSS** |
 | Icons | **lucide-react** (shadcn default) |
-| Data tables | **@tanstack/react-table** (headless) styled with shadcn `Table` |
+| Data tables | shadcn `Table` rendered directly (hand-rolled `.map()` + a shared `PaginationBar`). `@tanstack/react-table` is a declared dependency but **not used in v1** — there is no headless sort/filter/visibility state yet. |
 | Forms | **react-hook-form** + **zod** for validation |
 | Toasts / notifications | **sonner** (shadcn default) |
-| Charts | **recharts** via shadcn `Chart` components (for Dashboard metrics) |
+| Charts | `recharts` is a declared dependency but **not wired in v1** — the Dashboard renders metrics with `Card` + `Progress`, no chart components yet. |
 | Date formatting | **date-fns** + `date-fns/locale/ru` |
 | i18n | **react-i18next**, single `ru.json` (see `01_PROJECT_CONTEXT.md`) |
 
@@ -30,7 +30,7 @@ No additional component libraries (no MUI, Ant, etc. mixed in). If shadcn doesn'
 
 ## 3. Color & Semantics
 
-We use shadcn's CSS-variable theme system unchanged for **structural** colors (`background`, `foreground`, `border`, `muted`, `accent`, etc.) and define a small **semantic palette** for status. Both light and dark themes ship from day one (admins working night shifts will demand it).
+We use shadcn's CSS-variable theme system unchanged for **structural** colors (`background`, `foreground`, `border`, `muted`, `accent`, etc.) and define a small **semantic palette** for status. The dark-mode CSS variables are defined, but **v1 ships no theme switcher** — there is no `ThemeProvider` or toggle, and the app follows the system preference only (`next-themes` is pulled in transitively by the sonner toaster, never driven by a UI control). A user-facing light/dark toggle is a future addition, not a v1 feature.
 
 Semantic colors map 1:1 to states across the entire app. **Same status, same color, every screen.**
 
@@ -42,7 +42,7 @@ Semantic colors map 1:1 to states across the entire app. **Same status, same col
 | `info` | `sky-600` / dark `sky-500` | `Missing`, `Unknown`, informational badges |
 | `neutral` | `zinc-500` | `Viewer` role chip, disabled, "no data" |
 
-**Status badge component** (`<StatusBadge variant="...">`) is the single way to render any status anywhere — never inline `<span className="bg-green...">`. This is enforced by ESLint rule via a custom restriction (to be configured during implementation).
+**Status badge component** (`<StatusBadge variant="...">`) is the single way to render any status anywhere — never inline `<span className="bg-green...">`. This is a convention upheld by review; there is **no ESLint rule enforcing it** in v1.
 
 ## 4. Typography
 
@@ -55,7 +55,7 @@ Semantic colors map 1:1 to states across the entire app. **Same status, same col
 
 ```
 ┌────────────────────────────────────────────────────┐
-│ Topbar: product name • env tag • user • theme tog │
+│ Topbar: product name • env tag • user menu          │
 ├──────────────┬─────────────────────────────────────┤
 │              │                                     │
 │  Sidebar     │           Content area              │
@@ -66,19 +66,19 @@ Semantic colors map 1:1 to states across the entire app. **Same status, same col
 └──────────────┴─────────────────────────────────────┘
 ```
 
-- **Sidebar:** shadcn `Sidebar` component, collapsible to icons. Sections grouped by domain — `Operations` (Dashboard, Sessions, Publications), `Configuration` (Tenants, Infobases, Administrators), `System` (Audit).
+- **Sidebar:** shadcn `Sidebar` component, collapsible to icons. Sections grouped by domain — `Operations` (Dashboard, Sessions, Publications), `Configuration` (Tenants, Infobases), `System` (Audit). There is **no Administrators entry in v1** (see §3.6 of `05_UI_REQUIREMENTS.md` — admin self-management is not built; the single seeded admin manages everything).
 - **Content area uses full available width.** Admin tables benefit from horizontal real estate; do not centre-cap to `max-w-7xl` like marketing sites do.
 - **Page header** in every content view: title (h1), subtitle/description (muted), and primary action button(s) top-right.
 - **No breadcrumbs in v1.** Two-level nav (sidebar group → page) is shallow enough.
 
 ## 6. Tables (the dominant pattern)
 
-Sessions, Audit, Infobases, Publications, Admins — all tables. Single canonical pattern:
+Sessions, Audit, Infobases, Publications — all tables (and the future Administrators screen will follow the same pattern). Single canonical pattern:
 
-- **Built on:** shadcn `Table` + `@tanstack/react-table` for sort/filter/pagination state.
-- **Density:** compact by default (`text-sm`, `py-2` rows). User-toggleable to "comfortable" via a density button stored in localStorage.
-- **Filter bar above the table:** free-text search left, segmented status filter centre, date-range right. Filters serialize to URL query params so admins can share links.
-- **Column visibility menu** top-right of every table.
+- **Built on:** shadcn `Table` rendered directly. Sort/filter/pagination are hand-managed in component state; `@tanstack/react-table` is **not used in v1**.
+- **Density:** compact (`text-sm`, `py-2` rows), fixed. There is **no density toggle** in v1 (no localStorage preference).
+- **Filter bar above the table:** free-text search left, segmented status filter centre, date-range right. Filter state lives in component state only — it is **not serialized to URL query params** in v1, so filtered views are not shareable by link.
+- **Column visibility:** columns are fixed; there is **no column-visibility menu** in v1.
 - **Pagination:** server-side for every list backed by a paged endpoint — Audit, Clients, Infobases (and the per-client infobase list on the tenant drill-down). Each fetches one page via `?page=&pageSize=` and renders the `{ items, total, page, pageSize }` envelope; a shared `PaginationBar` (range summary `«from–to из total»` + page-number links) shows only when `total > pageSize`, and a previous page stays on screen while the next loads (no skeleton flash). Audit offers a `25 / 50 / 100` page-size selector; the Clients/Infobases lists use a fixed page size of 25. The «По клиенту» grouping toggle groups the **current page** of infobases.
 - **Sticky header** when scrolling.
 - **Row hover** highlights the row; click does NOT navigate (avoids accidents). Navigation is via an explicit `<ChevronRight>` icon column or an action menu.
