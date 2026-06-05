@@ -85,3 +85,8 @@ $RECYCLE.BIN/
 
 # Data Protection key ring (just in case it leaks into the repo)
 keys/
+
+# ─────────────────────────────────────────────────────────────
+# Claude Code — personal/local settings (shared settings.json stays tracked)
+# ─────────────────────────────────────────────────────────────
+.claude/settings.local.json
