@@ -1,6 +1,8 @@
 // AuditActionType / AuditReason приходят как строковые имена (см. backend
-// JsonStringEnumConverter). Список значений зеркалит Domain/Audit/AuditActionType
-// и должен обновляться, если в Stage 3 enum пополнится.
+// JsonStringEnumConverter). Union-тип — ПОЛНОЕ зеркало Domain/Audit/AuditActionType
+// (включая legacy/frozen действия), чтобы исторические строки рендерились в колонке.
+// Обновляется при пополнении enum. AUDIT_ACTION_TYPES ниже — подмножество только
+// активно пишущихся действий (опции фильтра + валидация URL).
 export type AuditActionType =
   | "TenantCreated"
   | "TenantUpdated"
@@ -8,17 +10,27 @@ export type AuditActionType =
   | "InfobaseCreated"
   | "InfobaseUpdated"
   | "InfobaseDeleted"
+  | "InfobaseReassigned"
   | "PublicationCreated"
   | "PublicationUpdated"
   | "PublicationDeleted"
-  | "PublicationDriftDetected"
-  | "PublicationReconciled"
   | "AdminLoggedIn"
   | "AdminLoggedOut"
   | "AdminPasswordChanged"
+  | "SessionKilled"
+  | "LimitChanged"
+  | "PublicationDriftDetected"
+  | "PublicationReconciled"
+  | "PublicationPublished"
+  | "PublicationPlatformChanged"
+  | "ClusterAdapterCircuitOpened"
+  | "ClusterAdapterCircuitClosed"
   | "SettingChanged"
   | "AuditLogsPurged";
 
+// Активно пишущиеся действия для фильтра. Исключены legacy/frozen
+// (drift/reconcile-цикл и circuit-breaker — новые строки с ними не пишутся);
+// их переводы в i18n сохранены только для рендера исторических строк в колонке.
 export const AUDIT_ACTION_TYPES: readonly AuditActionType[] = [
   "TenantCreated",
   "TenantUpdated",
@@ -26,14 +38,17 @@ export const AUDIT_ACTION_TYPES: readonly AuditActionType[] = [
   "InfobaseCreated",
   "InfobaseUpdated",
   "InfobaseDeleted",
+  "InfobaseReassigned",
   "PublicationCreated",
   "PublicationUpdated",
   "PublicationDeleted",
-  "PublicationDriftDetected",
-  "PublicationReconciled",
+  "PublicationPublished",
+  "PublicationPlatformChanged",
   "AdminLoggedIn",
   "AdminLoggedOut",
   "AdminPasswordChanged",
+  "SessionKilled",
+  "LimitChanged",
   "SettingChanged",
   "AuditLogsPurged",
 ] as const;
