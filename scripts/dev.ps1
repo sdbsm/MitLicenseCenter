@@ -30,7 +30,7 @@ Write-Host "SPA:     http://localhost:5173"
 Write-Host ""
 
 Start-Process -FilePath 'powershell' `
-    -ArgumentList '-NoExit','-Command',"Set-Location '$BackendProject'; dotnet watch run --no-launch-profile --urls http://localhost:5080" `
+    -ArgumentList '-NoExit','-Command',"Set-Location '$BackendProject'; `$env:ASPNETCORE_ENVIRONMENT='Development'; dotnet watch run --no-launch-profile --urls http://localhost:5080" `
     -WindowStyle Normal | Out-Null
 
 Start-Process -FilePath 'powershell' `
