@@ -116,7 +116,15 @@ public static class DependencyInjection
         // не регистрируется — реальный OneCIisPublishingService требует Windows.
 #pragma warning disable CA1416 // Validate platform compatibility — single-node deployment is Windows-only by design (memory/infrastructure_integration.md).
         services.AddScoped<IIisPublishingService, OneCIisPublishingService>();
+
+        // IIS lifecycle (MLC-047, ADR-24): recycle/start/stop пула, start/stop/restart
+        // сайта, iisreset. ServerManager + спавн iisreset.exe — тоже Windows-only.
+        services.AddScoped<IIisLifecycleService, OneCIisLifecycleService>();
 #pragma warning restore CA1416
+
+        // MLC-047: сериализатор разрушительных IIS-операций (N=1). Singleton — кэп общий
+        // на весь процесс (single-node): два recycle/iisreset одновременно недопустимы.
+        services.AddSingleton<IIisResetConcurrencyGate, IisResetConcurrencyGate>();
 
         // Публикация через webinst.exe (MLC-045, ADR-20). Scoped — читает ISettingsSnapshot;
         // запускает процесс webinst версии платформы из публикации.

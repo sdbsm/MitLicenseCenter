@@ -56,4 +56,32 @@ internal static class AuditDescriptions
         string newVersion,
         string initiator) =>
         $"Платформа публикации «{label}» изменена с {previousVersion} на {newVersion} администратором {initiator}.";
+
+    // ── Управление жизненным циклом IIS (MLC-047) ──────────────────────────────────
+    public static string IisApplicationPoolRecycled(string pool, string initiator) =>
+        $"Пул приложений «{pool}» переработан (recycle) администратором {initiator}.";
+
+    public static string IisApplicationPoolStarted(string pool, string initiator) =>
+        $"Пул приложений «{pool}» запущен администратором {initiator}.";
+
+    public static string IisApplicationPoolStopped(string pool, string initiator) =>
+        $"Пул приложений «{pool}» остановлен администратором {initiator}.";
+
+    public static string IisSiteStarted(string site, string initiator) =>
+        $"Сайт IIS «{site}» запущен администратором {initiator}.";
+
+    public static string IisSiteStopped(string site, string initiator) =>
+        $"Сайт IIS «{site}» остановлен администратором {initiator}.";
+
+    public static string IisSiteRestarted(string site, string initiator) =>
+        $"Сайт IIS «{site}» перезапущен администратором {initiator}.";
+
+    public static string IisReset(string initiator) =>
+        $"Выполнен полный перезапуск IIS (iisreset) администратором {initiator}.";
+
+    public static string IisStopped(string initiator) =>
+        $"Выполнена полная остановка IIS (iisreset /stop) администратором {initiator}.";
+
+    public static string IisStarted(string initiator) =>
+        $"Выполнен полный запуск IIS (iisreset /start) администратором {initiator}.";
 }

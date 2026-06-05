@@ -37,6 +37,18 @@ public enum AuditActionType
     PublicationPublished = 212,
     PublicationPlatformChanged = 213,
 
+    // Управление жизненным циклом IIS (MLC-047, ADR-24). Server-scope операции из
+    // веб-панели (TenantId не пишется). 227 — резерв под будущие IIS-действия.
+    IisApplicationPoolRecycled = 220,
+    IisApplicationPoolStarted = 221,
+    IisApplicationPoolStopped = 222,
+    IisSiteStarted = 223,
+    IisSiteStopped = 224,
+    IisSiteRestarted = 225,
+    IisReset = 226,
+    IisStopped = 227,
+    IisStarted = 228,
+
     // 1С Cluster adapter circuit-breaker transitions (PR 3.2).
     // Stage 5 PR 5.1 (ADR-16): circuit breaker удалён — новые строки с этими
     // значениями НЕ пишутся. Enum-записи сохранены для рендера исторических

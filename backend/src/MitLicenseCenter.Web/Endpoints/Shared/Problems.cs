@@ -25,6 +25,11 @@ public static class ProblemCodes
     public const string PublishFailed = "PUBLISH_FAILED";
     public const string PublishConfirmRequired = "PUBLISH_CONFIRM_REQUIRED";
 
+    // MLC-047 — операция управления жизненным циклом IIS (recycle/start/stop/iisreset)
+    // не удалась (COM/таймаут/ненулевой exit). IisAccessDenied переиспользуется для прав.
+    public const string IisOperationFailed = "IIS_OPERATION_FAILED";
+    public const string IisConfirmRequired = "IIS_CONFIRM_REQUIRED";
+
     // MLC-002 — ручной kill сеанса.
     public const string SessionStale = "SESSION_STALE";
     public const string ClusterUnavailable = "CLUSTER_UNAVAILABLE";
@@ -115,6 +120,25 @@ public static class Problems
             "Эта публикация создана не через панель (возможно, вручную в конфигураторе). "
                 + "Повторная публикация через webinst перезапишет default.vrd и web.config, "
                 + "удалив ручные настройки. Подтвердите, чтобы продолжить.");
+
+    // MLC-047 — операция управления IIS не удалась. Наружу — санитизированный русский
+    // текст без COM/путей; технические детали в журнале по correlationId.
+    public static ProblemDetails IisOperationFailed(string? correlationId = null) =>
+        Conflict(
+            ProblemCodes.IisOperationFailed,
+            "Операция IIS не удалась",
+            "Не удалось выполнить операцию управления IIS. Технические подробности записаны в журнал сервера.",
+            correlationId);
+
+    // MLC-047 — разрушительная операция IIS (recycle пула / iisreset / остановка)
+    // требует явного подтверждения оператора (Confirm=true). Защита от случайного клика
+    // помимо токена-подтверждения в UI.
+    public static ProblemDetails IisConfirmRequired() =>
+        Conflict(
+            ProblemCodes.IisConfirmRequired,
+            "Требуется подтверждение",
+            "Эта операция перезапустит IIS или пул приложений и временно прервёт работу "
+                + "опубликованных баз. Подтвердите, чтобы продолжить.");
 
     // MLC-002 — снапшот устарел: сеанс с тем же SessionId сменил дескриптор
     // (InfobaseId/AppID/StartedAt). 409 — оператору нужно обновить список.
