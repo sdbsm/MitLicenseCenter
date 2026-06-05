@@ -109,6 +109,14 @@ The panel reads IIS state through `Microsoft.Web.Administration` (`ServerManager
 
 **Symptom of insufficient permissions:** every publication shows status «Ошибка проверки» (`Error`), and `dbo.Publications.LastCheckDetails` (visible on hover over the status badge on the «Публикации» page) reads `Не удалось проверить публикацию: … redirection.config … отсутствия необходимых разрешений`.
 
+### IIS lifecycle management — additional permissions (MLC-047)
+
+The «Управление IIS» block (recycle/start/stop a pool, start/stop/restart a site, full `iisreset`) needs more than read access to the metabase:
+
+- **Pool / site commands** (`ServerManager.ApplicationPool.Recycle/Start/Stop`, `Site.Start/Stop`) require the same IIS-admin rights as the metabase reads above (local `Administrators`, or the equivalent IIS configuration write rights) — the local `Administrators` membership already covers them.
+- **`iisreset`** (restart / `/stop` / `/start`) runs `…\System32\iisreset.exe`, which **stops and starts the `W3SVC` and `WAS` Windows services** — this requires service-control rights on those services. Local `Administrators` has them; a narrowly-scoped service account may not, in which case grant start/stop on `W3SVC`/`WAS` explicitly.
+- **Blast radius.** `iisreset` (and stopping a shared site/pool) interrupts **every** site on the server, not just 1C publications. If the panel itself is hosted on the same IIS, an `iisreset` will briefly take the panel offline too — the confirmation dialog warns about this. Operations are serialized server-side (one at a time).
+
 ### Bulk publish / change-platform (MLC-046)
 
 The «Публикации» page lets an admin select several publications and publish or change-platform them as a batch. Operationally:

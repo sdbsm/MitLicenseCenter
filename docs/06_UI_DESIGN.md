@@ -87,13 +87,14 @@ Sessions, Audit, Infobases, Publications — all tables (and the future Administ
 
 ## 7. Destructive Actions
 
-Anything that kills a session, reconciles a publication, disables an admin, or deletes a record:
+Anything that kills a session, recycles an IIS pool, restarts a site, runs `iisreset`, disables an admin, or deletes a record:
 
 - **Always** triggers a shadcn `AlertDialog` (not `Dialog` — the variant is important — focus traps and the destructive default).
 - **Default focused button is "Отмена".** Never the destructive option. This is the one rule that prevents the "I hit Enter by reflex and killed prod" class of incident.
 - **The destructive button uses `variant="destructive"`** (red), labelled with the verb in imperative ("Завершить сеанс", "Согласовать", "Отключить администратора"). Never just "ОК".
 - **Modal copy is concrete, not generic.** Bad: "Вы уверены?". Good: "Сеанс пользователя ИВАНОВ И.И. в базе УТ-Демо будет немедленно завершён. Несохранённые данные пользователя будут потеряны."
-- **For high-impact actions** (Reconcile that recycles an app pool, Delete Tenant) — require typing a confirmation token (the object's name) before the destructive button enables. shadcn doesn't ship this; we build it as a small wrapper around `AlertDialog`.
+- **For high-impact actions** (Delete Tenant, webinst (re)publish) — require typing a confirmation token (the object's name) before the destructive button enables. shadcn doesn't ship this; we build it as a small wrapper around `AlertDialog` (`PublishPublicationDialog`).
+- **IIS lifecycle operations** (recycle / stop a pool, stop / restart a site, `iisreset` restart/stop — MLC-047) use a plain `AlertDialog` confirm (`IisConfirmDialog`) **without** a typed token — frequent operational actions where typing a token each time is friction; the server-side `Confirm=true` gate (recycle / reset / stop) is the backstop against an accidental call. `start` (pool/site/server) is one-click recovery, no dialog.
 
 ## 8. Live Data & Freshness
 

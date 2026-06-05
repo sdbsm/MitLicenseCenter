@@ -2167,6 +2167,46 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 
 ---
 
+### MLC-047 — Управление жизненным циклом IIS из веб-панели (recycle/start/stop пула, start/stop/restart сайта, iisreset) — 2026-06-06
+
+- **Постановка (пользователь).** На странице «Публикации» — массовый (не per-row) блок управления IIS:
+  кнопки перезапуска IIS и пула. В plan mode уточнены развилки: цель пула — **список пулов** (discovery),
+  объём — **полный набор** (recycle/start/stop пула, start/stop/restart сайта, `iisreset`). Согласовано
+  (`.claude/plans/polymorphic-percolating-waffle.md`).
+- **Выбранный подход.** Новый Application-порт `IIisLifecycleService` (а не расширение
+  `IIisPublishingService` — другая ось: хостинг vs публикация, server-scope vs per-publication; ADR-4
+  read-only не размывается). Реализация `OneCIisLifecycleService` (Infrastructure, `[SupportedOSPlatform]`):
+  пул/сайт через `ServerManager` (runtime-команды, без `CommitChanges`; idempotent start/stop по состоянию;
+  объект не найден → `KeyNotFoundException`), `iisreset` (restart/`/stop`/`/start`) — спавн
+  `…\System32\iisreset.exe` по образцу `OneCWebinstPublisher` (OEM/CP866-декод как `rac.exe`, 90s, kill-tree). Разрушительные операции
+  сериализованы новым `IIisResetConcurrencyGate` (singleton `SemaphoreSlim(1,1)`). ADR-24 (+ уточнение
+  ADR-4). Anti-corruption граница ADR-20 без изменений — `LayerBoundaryTests` уже покрывает новый адаптер.
+- **Backend.** `Application/Publishing/{IIisLifecycleService,IIisResetConcurrencyGate}.cs`;
+  `Infrastructure/Publishing/{OneCIisLifecycleService,IisResetConcurrencyGate}.cs` +
+  `Testing/StubIisLifecycleService.cs`; DI-регистрация (scoped адаптер под `CA1416`, singleton замок);
+  `Web/Endpoints/Iis/{IisEndpoints,IisContracts}.cs` (группа `/api/v1/iis/*`, discovery `Viewer`, мутации
+  `Admin`, имя цели `[FromBody]`, union-результаты с маппингом 404/409, аудит на успехе, `tenantId=null`,
+  серверный `Confirm`-гейт на `recycle`/`reset`/`stop`); `Program.cs` (`MapIisEndpoints`); аудит
+  `AuditActionType` `220..228` + формулировки в `AuditDescriptions`; `Problems`/`ProblemCodes`
+  (`IIS_OPERATION_FAILED`, `IIS_CONFIRM_REQUIRED`; `IIS_ACCESS_DENIED` переиспользован). Миграций нет
+  (enum `HasConversion<int>` новых значений не требует).
+- **Frontend.** `features/publications/iis/`: `iisTypes.ts`, `useIisManagement.ts` (queries
+  `["iis","pools"]`/`["iis","sites"]` + 7 мутаций через `useInvalidatingMutation`), `IisConfirmDialog.tsx`
+  (токен-подтверждение по образцу `PublishPublicationDialog`), `IisStateBadge.tsx`,
+  `IisAppPoolsList.tsx`/`IisSitesList.tsx`, `IisManagementCard.tsx` (карточка **над списком публикаций**:
+  бейдж статуса IIS (W3SVC) + `iisreset` restart + кнопка-переключатель stop/start (стоп — красный, старт —
+  зелёный, как у пулов/сайтов) + списки пулов/сайтов; разрушительные → обычный confirm-диалог
+  (`IisConfirmDialog`, без ввода токена; серверный `Confirm`-гейт — бэкстоп), start — сразу);
+  статус сервера через новый порт-метод `GetServerStateAsync` (`ServiceController("W3SVC")`,
+  пакет `System.ServiceProcess.ServiceController`), эндпоинт `GET /api/v1/iis/server`;
+  подключение в `PublicationsPage.tsx`; i18n
+  `publications.iis.*` + `audit.actions.Iis*`; `features/audit/types.ts` (union + `AUDIT_ACTION_TYPES`).
+- **Прогон.** Backend `dotnet test` — **362** зелёных (+23 `IisEndpointsTests`). Frontend
+  `type-check`/`lint`/`test` (**134**) ОК. Блок проверен в браузере (preview): карточка над таблицей,
+  статус IIS + переключатель restart/stop/start, списки пулов/сайтов с состоянием, без ошибок в консоли.
+
+---
+
 ### MLC-046 — Публикации: массовые операции (bulk publish + bulk change-platform) — 2026-06-05
 
 - **Постановка (пользователь).** Поверх одиночных операций MLC-045 — массовый режим на странице
