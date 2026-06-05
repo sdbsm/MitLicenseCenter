@@ -109,6 +109,15 @@ The panel reads IIS state through `Microsoft.Web.Administration` (`ServerManager
 
 **Symptom of insufficient permissions:** every publication shows status «Ошибка проверки» (`Error`), and `dbo.Publications.LastCheckDetails` (visible on hover over the status badge on the «Публикации» page) reads `Не удалось проверить публикацию: … redirection.config … отсутствия необходимых разрешений`.
 
+### Bulk publish / change-platform (MLC-046)
+
+The «Публикации» page lets an admin select several publications and publish or change-platform them as a batch. Operationally:
+
+- **It is the same single operations, repeated.** A batch fires N idempotent calls to the per-publication endpoints; there is no separate bulk path. Audit, the overwrite gate, and status refresh behave exactly as for a single action.
+- **Throughput.** `webinst` spawns are capped at 3 concurrent server-side (`IWebinstConcurrencyGate`), and the UI runs the batch through a matching small pool. A batch of ~100 publications therefore takes on the order of tens of minutes (≈ 60s per `webinst`, three at a time); change-platform is far faster (a `web.config` edit). The progress dialog shows live per-publication status and a final «успешно / с ошибкой / пропущено» summary.
+- **The run is bound to the open browser tab** (like watching a deploy). Closing the tab or losing the network stops scheduling new items; the server keeps finishing any in-flight `webinst`. Because re-publish is idempotent and a now-`Webinst` publication no longer trips the overwrite gate, a partial run is safely finished by re-selecting the still-failed/unprocessed rows and running again — the dialog leaves successful items deselected for exactly this.
+- **Unattended / scheduled mass-publish is not supported** by design (would need the deferred Hangfire-job model, ADR-4). For now, run bulk operations interactively.
+
 ## Проверки готовности — liveness vs readiness (`MLC-040` / PERF-04)
 
 Два анонимных эндпоинта с разной семантикой и ценой:

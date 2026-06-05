@@ -2184,6 +2184,62 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 
 ---
 
+### MLC-046 — Публикации: массовые операции (bulk publish + bulk change-platform) — 2026-06-05
+
+- **Постановка (пользователь).** Поверх одиночных операций MLC-045 — массовый режим на странице
+  «Публикации»: выбрать несколько публикаций чекбоксами и (1) опубликовать пачкой через `webinst`,
+  (2) сменить им платформу пачкой (правка `web.config`, `default.vrd` не трогается). В проде ожидается
+  ~100 публикаций, главный критерий — качество и надёжность. Согласовано в plan mode
+  (`.claude/plans/lazy-puzzling-dusk.md`): развилки — где жить логике пачки, степень параллелизма,
+  гейт перезатирания — закрыты ответами пользователя (надёжность важнее, параллелизм 2–3, единое
+  подтверждение со списком).
+- **Выбранный подход.** Фронт оркеструет **существующие** одиночные эндпоинты
+  `POST /publications/{id}/publish|change-platform` пулом с малым параллелизмом (3): пачка = N
+  идемпотентных одиночных вызовов. Надёжность = переиспользование протестированного пути MLC-045
+  (гейт, аудит 212/213, refresh статуса, обработка ошибок) — без новой серверной orchestration-логики.
+  Отвергнуты: один синхронный bulk-эндпоинт (~100×60с не влезает в HTTP-запрос, прогресс не виден до
+  конца, новые контракты/тесты) и Hangfire-джоб (лишняя сложность без потребности — зафиксирован как
+  **отложенная опция** в ADR-4, триггер — unattended/плановый mass-publish). Новых эндпоинтов,
+  контрактов, миграций, enum-значений, правил валидации — **нет**.
+- **Backend.** Единственное изменение — замок параллелизма спавнов webinst:
+  `Application/Publishing/IWebinstConcurrencyGate.cs` + `Infrastructure/Publishing/WebinstConcurrencyGate.cs`
+  (singleton `SemaphoreSlim(3,3)`, идемпотентный `Releaser` по образцу `EnforcementGate`). Инжектится в
+  `OneCWebinstPublisher`, берётся `using (await gate.AcquireAsync(ct))` **вокруг `RunAsync`** (только
+  спавна). На одиночный publish поведение 1:1 (свободный слот берётся мгновенно). Цель — кэп
+  одновременных webinst независимо от вызывающего (два оператора / будущие потребители), реальная
+  граница спавн-бюджета (семья ADR-3.3), а не клиентский лимит. Change-platform (лёгкая правка
+  `web.config`) **не** гейтится. Регистрация singleton в DI рядом с `IWebinstPublisher`. Тест
+  `WebinstConcurrencyGateTests` (3): кэп ≤ MaxConcurrency и полная утилизация под нагрузкой, блокировка
+  сверх вместимости, идемпотентность double-dispose.
+- **Frontend** (`features/publications/*` + shadcn `checkbox`). Generic пул-хук `useBulkOperation.ts`:
+  пул заданного параллелизма, на каждый item — `runItem(id)`, статусы `pending/running/ok/error/skipped`,
+  отмена (прекращает запуск новых; in-flight доезжают, остаток → `skipped`), `onComplete(states)` с
+  итоговым снимком (без side-effect внутри setState — локальная мапа результатов). Пул-вызовы — прямой
+  `api()` (тело — объект). `bulkErrors.ts` — маппинг `ApiError`→короткая RU-строка (409 detail /
+  404 / 422-400). `bulkGating.ts` — pure `publicationsNeedingOverwriteConfirm` (Source≠Webinst &&
+  Published). `BulkProgressView.tsx` — прогресс-бар (`components/ui/progress`) + сводка + построчный
+  статус с деталью ошибки. `BulkPublishDialog.tsx` (единое подтверждение перезатирания со списком
+  gated; все идут `confirm:true`) / `BulkChangePlatformDialog.tsx` (одна целевая версия из
+  `usePlatformVersions` на всю выборку). `PublicationsBulkBar.tsx` — бар действий (виден при ≥1
+  выбранном, admin-only). Таблица: лидирующая колонка-чекбокс (admin), header = выбрать все
+  отфильтрованные (indeterminate), `data-state=selected`. `usePublicationsPage`: `selectedIds`
+  (Set по id, переживает смену фильтра), `selectedPublications` из полного списка, toggle/all/clear,
+  `deselectSucceeded` (снимает успешные — упавшие остаются для повтора). Диалоги во время прогона не
+  закрываются; по завершении инвалидируют `publicationsQueryKey`. i18n — секция `publications.bulk`
+  (RU-only). Тесты: `useBulkOperation` (5: все ОК, частичный успех, кэп параллелизма, отмена→skipped,
+  onComplete-снимок), `bulkGating` (3), `bulkErrors` (5).
+- **Аудит.** Без изменений: каждая публикация пишет свою запись `PublicationPublished=212` /
+  `PublicationPlatformChanged=213` (пачка = N одиночных вызовов). Enum int-значения не трогались.
+- **Известный компромисс (в каноне).** Прогон привязан к открытой вкладке (наблюдаемый деплой);
+  прерывание безопасно (идемпотентность + снятие успешных из выделения → перевыбрать упавшие и
+  повторить). На ~100 публикациях ≈ десятки минут (60с/webinst, 3 одновременно). Зафиксировано в
+  ADR-4 / `04_INFRASTRUCTURE` / `05_UI_REQUIREMENTS` / `OPERATIONS`.
+- **Проверка.** `scripts/build.ps1` (Release) зелёный целиком: **BE 329** (+3 теста замка),
+  `dotnet format --verify-no-changes` чисто, **FE 132** (+13: пул-хук/gating/ошибки), lint/type-check/
+  build — ОК. Канон present-tense: DECISIONS ADR-4 (+пакетный режим, отвергнут синхронный bulk),
+  04 (concurrency cap webinst), 05 (bulk operations UI), OPERATIONS (поведение/throughput/tab-caveat).
+  ADR-20/16/3.3/single-node/RU-only не затронуты. Миграций нет.
+
 ### MLC-045 — Публикации: webinst + смена платформы через web.config, отказ от drift-enforcement — 2026-06-05
 
 - **Постановка (пользователь).** Текущая модель публикаций (PR 3.5 / ADR-4.1) — «эталон в БД →

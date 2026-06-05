@@ -24,11 +24,16 @@ internal sealed partial class OneCWebinstPublisher : IWebinstPublisher
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(60);
 
     private readonly ISettingsSnapshot _settings;
+    private readonly IWebinstConcurrencyGate _gate;
     private readonly ILogger<OneCWebinstPublisher> _logger;
 
-    public OneCWebinstPublisher(ISettingsSnapshot settings, ILogger<OneCWebinstPublisher> logger)
+    public OneCWebinstPublisher(
+        ISettingsSnapshot settings,
+        IWebinstConcurrencyGate gate,
+        ILogger<OneCWebinstPublisher> logger)
     {
         _settings = settings;
+        _gate = gate;
         _logger = logger;
     }
 
@@ -66,7 +71,17 @@ internal sealed partial class OneCWebinstPublisher : IWebinstPublisher
 
         var args = WebinstArgs.BuildPublish(publication, physicalDir, connStr);
 
-        var (exitCode, stdout, stderr) = await RunAsync(exePath, args, ct).ConfigureAwait(false);
+        // MLC-046: кэп одновременных спавнов webinst (массовая публикация = N таких
+        // вызовов). Замок берётся вокруг самого процесса; на одиночный publish — слот
+        // свободен, берётся мгновенно, поведение 1:1.
+        int exitCode;
+        string stdout;
+        string stderr;
+        using (await _gate.AcquireAsync(ct).ConfigureAwait(false))
+        {
+            (exitCode, stdout, stderr) = await RunAsync(exePath, args, ct).ConfigureAwait(false);
+        }
+
         if (exitCode == 0)
         {
             return WebinstResult.Ok();
