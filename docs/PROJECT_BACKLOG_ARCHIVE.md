@@ -2423,3 +2423,50 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
   говорили 14). Индекс «Закрыто» дополнен пропущенным `MLC-047`.
 - **Зависимости.** Разблокирует `MLC-049` (Reports API) и `MLC-050` (UI). ADR-20/16/3.3/single-node/RU-only
   не затронуты.
+
+### MLC-049 — Reports API (license-usage сводка + drill-down) — 2026-06-06
+
+- **Постановка (куратор, трек «Отчёты»).** Read-only API поверх собранной `MLC-048` таблицы
+  `dbo.LicenseUsageSnapshots`, питающий будущий UI (`MLC-050`). Вторая задача цепочки 048→049→050.
+  Полная спека — `.claude/plans/concurrent-purring-kahn.md` (раздел MLC-049); план реализации —
+  `.claude/plans/plan-immutable-castle.md`. Согласовано в plan-режиме: форма контракта + логика
+  агрегации сводки + обработка nullable `TenantId`.
+- **Папка-фича.** `Web/Endpoints/Reports/` (`ReportsEndpoints` + `ReportsContracts`, плоский namespace
+  `MitLicenseCenter.Web.Endpoints` как у прочих после MLC-035). `MapGroup("/api/v{version:apiVersion}/reports")`,
+  `.HasApiVersion(1,0)`, `.WithTags("Reports")`, оба эндпоинта `RequireAuthorization(Roles.Viewer)`;
+  регистрация `app.MapReportsEndpoints(versionSet)` в `Program.cs` рядом с `MapDashboardEndpoints`.
+  Прямая инъекция `AppDbContext` (vertical slice ADR-20) + `TimeProvider` (для дефолта `to=now`; уже в DI,
+  инжектится в `ReconciliationJob`/`TenantsEndpoints`). Везде `AsNoTracking`, фильтр `BucketStartUtc ∈
+  [from,to]`, сортировка по `BucketStartUtc` ASC.
+- **Контракт (единый на оба эндпоинта).** `LicenseUsageSeriesResponse { IReadOnlyList<LicenseUsageBucketPoint>
+  Buckets, DateTime FromUtc, DateTime ToUtc, int PeakConsumed, int PeakLimit, DateTime? PeakAtUtc,
+  double AverageConsumed }`; `LicenseUsageBucketPoint { DateTime BucketStartUtc, double ConsumedAvg,
+  int ConsumedMax, int Limit }`. Одна форма → FE рисует тем же компонентом. `FromUtc`/`ToUtc` — эффективный
+  диапазон после дефолта/клампа.
+- **`GET /reports/license-usage` (сводка по всем).** DB-side `GroupBy(x => x.BucketStartUtc)` → на бакет
+  `ConsumedMax`/`ConsumedAvg`/`Limit` = Σ по тенантам бакета. Период-сводка (`PeakConsumed` = max по бакетам
+  от суммарного `ConsumedMax`; `PeakAtUtc`/`PeakLimit` — самый ранний бакет пика через `MaxBy`;
+  `AverageConsumed` = avg по бакетам) считается из готового ряда в памяти.
+- **Решение А (согласовано): осиротевшие записи `TenantId=null` ВКЛЮЧАЮТСЯ в сводку.** Фильтра по `TenantId`
+  нет вовсе — история платформы не «усыхает» при удалении тенанта (`SetNull` MLC-048 выбран именно ради
+  этого; прецедент `AuditLog`). Сумма по бакету — обзорная цифра, не истинный одновременный пик платформы
+  (тенанты пикуют в разные суб-бакетные моменты) — задокументировано в каноне.
+- **`GET /reports/license-usage/{tenantId:guid}` (drill-down).** `Where(TenantId == tenantId)` + диапазон,
+  хранимые значения 1:1 в `LicenseUsageBucketPoint`. Null-тенант строки не достаются (guid ≠ null);
+  несуществующий tenantId → пустой ряд (не 404).
+- **Диапазон `from`/`to` (хелпер `ResolveRange`, решение согласовано).** Дефолт (оба опущены): `to=now`,
+  `from=now-7д`. Кламп ширины: `> 31д` двигает `from` вперёд к `to-31д` (молча, эффективный диапазон в
+  ответе). `to < from` → `ValidationProblem` (ключ `to`, как `AuditEndpoints`). Пустой ряд = `200` с
+  `Buckets:[]` (не ошибка — под empty-state FE).
+- **Тесты (9 новых).** `LicenseUsageReportsTests` (образец `DashboardSummaryTests`, статические методы
+  напрямую + `TestHelpers.NewInMemoryDb`/`FixedClock`): пустая БД → пустой ряд + дефолтный диапазон;
+  суммирование тенантов на бакет + пик по бакетам; осиротевшие строки входят в сводку; drill-down фильтрует
+  по `{tenantId}` (значения как есть); чужой/несущ. tenant → пусто; порядок бакетов ASC; фильтр диапазона
+  отсекает строки вне окна; `to<from` → `ValidationProblem`; кламп ширины двигает `from`. Полный CI
+  (`build.ps1`) зелёный.
+- **Канон present-tense.** `03_DOMAIN_MODEL.md` §«Persistence & API Contracts (binding)» — контракт
+  reports-API (форма, сумма по тенантам, осиротевшие записи в сводке, дефолт/кламп диапазона, пустой ряд =
+  не ошибка); `OPERATIONS.md` §«Сбор истории…» — отсылка к read-API. **ADR не трогали** — read-API в рамках
+  принятого ADR-25.
+- **Зависимости.** Разблокирует `MLC-050` (Frontend, раздел «Отчёты»). ADR-25/20/16/3.3/single-node/RU-only
+  не затронуты.

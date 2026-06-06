@@ -146,6 +146,10 @@ The «Публикации» page lets an admin select several publications and 
   настраивается оператором на странице «Параметры». Ночная джоба `license-usage-retention`
   (03:30 UTC, фиксировано) удаляет замеры старше окна батчами; в аудит не пишет
   (housekeeping). Смещена от `audit-retention` (03:00), чтобы ночные чистки не пересекались.
+- **Чтение** — собранный ряд отдаётся read-API `GET /api/v1/reports/license-usage[/{tenantId}]`
+  (Viewer): сводка по всем клиентам (сумма по тенантам на бакет, осиротевшие замеры
+  включены) и drill-down одного клиента. Диапазон `from`/`to` дефолтит на последние 7 дней,
+  кламп ширины — 31 день. Контракт — `03_DOMAIN_MODEL.md` §«Persistence & API Contracts».
 
 ## Проверки готовности — liveness vs readiness (`MLC-040` / PERF-04)
 

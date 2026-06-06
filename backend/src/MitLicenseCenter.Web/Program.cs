@@ -191,6 +191,7 @@ app.MapAuditEndpoints(versionSet);
 app.MapSessionsEndpoints(versionSet);
 app.MapSettingsEndpoints(versionSet);
 app.MapDashboardEndpoints(versionSet);
+app.MapReportsEndpoints(versionSet);
 app.MapDiscoveryEndpoints(versionSet);
 
 // MLC-012 — Swagger UI (/api/docs) раскрывает всю карту API. В Development отдаётся
