@@ -239,6 +239,14 @@ RecurringJob.AddOrUpdate<IAuditRetentionJob>(
     j => j.RunAsync(CancellationToken.None),
     "0 3 * * *");
 
+// License usage retention (MLC-048): ежедневно в 03:30 UTC, смещён от audit-retention
+// (03:00), чтобы ночные housekeeping-джобы не пересекались. Retention window —
+// Settings.LicenseUsage.RetentionDays; cadence фиксирован.
+RecurringJob.AddOrUpdate<ILicenseUsageRetentionJob>(
+    "license-usage-retention",
+    j => j.RunAsync(CancellationToken.None),
+    "30 3 * * *");
+
 // Fail-fast bootstrap. Миграции и сидинг выполняются СИНХРОННО до открытия приёма
 // трафика (до app.RunAsync()), каждый в собственном DI-scope внутри сидера. Порядок
 // сохранён: миграции + admin/role'ы (IdentitySeeder) → SettingsSeeder (таблица

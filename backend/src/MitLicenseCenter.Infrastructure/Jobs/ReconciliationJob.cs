@@ -3,11 +3,13 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MitLicenseCenter.Application.Clusters;
 using MitLicenseCenter.Application.Jobs;
+using MitLicenseCenter.Application.Reporting;
 using MitLicenseCenter.Application.Sessions;
 using MitLicenseCenter.Application.Settings;
 using MitLicenseCenter.Domain.Settings;
 using MitLicenseCenter.Infrastructure.Diagnostics;
 using MitLicenseCenter.Infrastructure.Persistence;
+using MitLicenseCenter.Infrastructure.Reporting;
 
 namespace MitLicenseCenter.Infrastructure.Jobs;
 
@@ -26,6 +28,7 @@ internal sealed partial class ReconciliationJob : IReconciliationJob
     private readonly IEnforcementGate _gate;
     private readonly ISettingsSnapshot _settings;
     private readonly ColdThrottleState _throttle;
+    private readonly ILicenseUsageAccumulator _usage;
     private readonly TimeProvider _clock;
     private readonly ReconciliationMetrics _metrics;
     private readonly ILogger<ReconciliationJob> _logger;
@@ -39,6 +42,7 @@ internal sealed partial class ReconciliationJob : IReconciliationJob
         IEnforcementGate gate,
         ISettingsSnapshot settings,
         ColdThrottleState throttle,
+        ILicenseUsageAccumulator usage,
         TimeProvider clock,
         ReconciliationMetrics metrics,
         ILogger<ReconciliationJob> logger)
@@ -51,6 +55,7 @@ internal sealed partial class ReconciliationJob : IReconciliationJob
         _gate = gate;
         _settings = settings;
         _throttle = throttle;
+        _usage = usage;
         _clock = clock;
         _metrics = metrics;
         _logger = logger;
@@ -135,6 +140,20 @@ internal sealed partial class ReconciliationJob : IReconciliationJob
                     _hotTier.Demote(hotTenantId);
             }
 
+            // MLC-048 (ADR-25): семпл потребления по всем активным тенантам цикла (идлы=0,
+            // чтобы min/avg были честными). Переиспользуем consumptionByTenant/infobaseMap —
+            // нового спавна rac.exe не вводим (ADR-3.3/16). distinct по тенанту: у клиента
+            // может быть >1 инфобазы. Аккумулятор вернёт строки только на границе бакета.
+            var usageSamples = infobaseMap.Values
+                .Where(m => m.IsActive)
+                .GroupBy(m => m.Id)
+                .Select(g => new LicenseUsageSample(
+                    g.Key,
+                    consumptionByTenant.GetValueOrDefault(g.Key, 0),
+                    g.First().MaxConcurrentLicenses))
+                .ToList();
+            var usageBuckets = _usage.RecordSample(now, usageSamples);
+
             sw.Stop();
             _metrics.RecordColdCycle(sw.Elapsed.TotalMilliseconds);
             var payload = new SnapshotPayload(entries, now, (int)sw.ElapsedMilliseconds, AdapterSource);
@@ -148,6 +167,23 @@ internal sealed partial class ReconciliationJob : IReconciliationJob
             }
 
             _store.Replace(payload);
+
+            // MLC-048: персист телеметрии — вне enforcement-замка (не блокирует kill-путь).
+            // Пишем только на границе бакета, когда аккумулятор вернул готовые строки.
+            if (usageBuckets.Count > 0)
+            {
+                _db.LicenseUsageSnapshots.AddRange(usageBuckets.Select(b => new LicenseUsageSnapshot
+                {
+                    Id = Guid.NewGuid(),
+                    TenantId = b.TenantId,
+                    BucketStartUtc = b.BucketStartUtc,
+                    ConsumedMin = b.ConsumedMin,
+                    ConsumedMax = b.ConsumedMax,
+                    ConsumedAvg = b.ConsumedAvg,
+                    Limit = b.Limit,
+                }));
+                await _db.SaveChangesAsync(ct).ConfigureAwait(false);
+            }
 
             LogColdSnapshot(_logger, entries.Count, (int)sw.ElapsedMilliseconds, AdapterSource);
         }

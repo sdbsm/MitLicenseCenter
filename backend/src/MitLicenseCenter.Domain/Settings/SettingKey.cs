@@ -56,4 +56,7 @@ public static class SettingKey
 
     // Audit retention (PR 4.3).
     public const string AuditRetentionDays = "Audit.RetentionDays";
+
+    // License usage time-series retention (MLC-048, ADR-25).
+    public const string LicenseUsageRetentionDays = "LicenseUsage.RetentionDays";
 }

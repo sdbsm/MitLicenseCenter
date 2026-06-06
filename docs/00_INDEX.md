@@ -14,7 +14,7 @@
 | 01 | [01_PROJECT_CONTEXT](01_PROJECT_CONTEXT.md) | Цель, границы, что НЕ делаем, глоссарий | первым — понять, зачем всё |
 | 02 | [02_ARCHITECTURE_REQUIREMENTS](02_ARCHITECTURE_REQUIREMENTS.md) | Модульный монолит, границы модулей, two-tier reconciliation loop | прежде чем менять архитектуру |
 | 03 | [03_DOMAIN_MODEL](03_DOMAIN_MODEL.md) | Сущности, заморож. enum-значения, индексы, 409-коды, контракты | работа с доменом / БД / API-контрактами |
-| 04 | [04_INFRASTRUCTURE](04_INFRASTRUCTURE.md) | rac.exe/RAS, IIS/VRD, DPAPI, **каталог 14 настроек**, джобы и их cron | интеграции, настройки, фоновые джобы |
+| 04 | [04_INFRASTRUCTURE](04_INFRASTRUCTURE.md) | rac.exe/RAS, IIS/VRD, DPAPI, **каталог 17 настроек**, джобы и их cron | интеграции, настройки, фоновые джобы |
 | 05 | [05_UI_REQUIREMENTS](05_UI_REQUIREMENTS.md) | Стек фронта, страницы/роуты, что в v1 есть и чего нет | функциональность SPA |
 | 06 | [06_UI_DESIGN](06_UI_DESIGN.md) | Визуальный язык, таблицы, деструктивные действия, рус. микрокопирайт | вёрстка / UX |
 | — | [DECISIONS](DECISIONS.md) | ADR-журнал (монолит): почему так; отозванные решения | вопрос «почему так, а не иначе» |
@@ -30,7 +30,7 @@
 
 | Нужно | Где |
 |-------|-----|
-| Ключи настроек (14 шт., дефолты, диапазоны) | 04 §«Runtime Settings Catalog» |
+| Ключи настроек (17 шт., дефолты, диапазоны) | 04 §«Runtime Settings Catalog» |
 | Числовые значения enum (`SessionKilled=200`, …) | 03 §«Enum int-stability» |
 | Коды 409-конфликтов | 03 §«409 Conflict contract» → `Endpoints/Shared/Problems.cs` |
 | Cron фоновых джоб (cold/hot/status-refresh/retention) | 04 §«Background Job Execution» + `Program.cs` |

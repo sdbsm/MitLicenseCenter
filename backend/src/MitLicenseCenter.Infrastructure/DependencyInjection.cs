@@ -11,6 +11,7 @@ using MitLicenseCenter.Application.Clusters;
 using MitLicenseCenter.Application.Discovery;
 using MitLicenseCenter.Application.Jobs;
 using MitLicenseCenter.Application.Publishing;
+using MitLicenseCenter.Application.Reporting;
 using MitLicenseCenter.Application.Sessions;
 using MitLicenseCenter.Application.Settings;
 using MitLicenseCenter.Infrastructure.Audit;
@@ -21,6 +22,7 @@ using MitLicenseCenter.Infrastructure.Identity;
 using MitLicenseCenter.Infrastructure.Jobs;
 using MitLicenseCenter.Infrastructure.Persistence;
 using MitLicenseCenter.Infrastructure.Publishing;
+using MitLicenseCenter.Infrastructure.Reporting;
 using MitLicenseCenter.Infrastructure.Settings;
 
 namespace MitLicenseCenter.Infrastructure;
@@ -145,6 +147,10 @@ public static class DependencyInjection
         services.AddSingleton<IHotTierRegistry, HotTierRegistry>();
         services.AddSingleton<ColdThrottleState>();
 
+        // License usage accumulator (MLC-048, ADR-25): singleton — состояние текущего
+        // 15-мин бакета переживает scoped-инвокации cold-джобы (как ColdThrottleState).
+        services.AddSingleton<ILicenseUsageAccumulator, LicenseUsageAccumulator>();
+
         // MLC-037 (PERF-01): метрики горячего пути (Meter'ы спавнов rac.exe и цикла
         // согласования). Singleton'ы — Meter живёт на весь процесс; снимаются через
         // dotnet-counters (см. OPERATIONS.md «Наблюдаемость перфа»). IMeterFactory
@@ -170,6 +176,9 @@ public static class DependencyInjection
         // Audit retention (PR 4.3): scoped (DbContext + IAuditLogger), без
         // throttle-state — CRON фиксирован 03:00 daily, не tuneable оператором.
         services.AddScoped<IAuditRetentionJob, AuditRetentionJob>();
+
+        // License usage retention (MLC-048): scoped (DbContext), CRON фиксирован 03:30 daily.
+        services.AddScoped<ILicenseUsageRetentionJob, LicenseUsageRetentionJob>();
 
         // Hot-tier polling: BackgroundService для sub-minute hot-poll (Hangfire
         // CRON minimum = 1 мин, а нам нужно 3–5s). См. ADR-6.1.

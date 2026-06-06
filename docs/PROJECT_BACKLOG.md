@@ -102,31 +102,40 @@ REF-10→MLC-027, REF-11→MLC-011(a), REF-13→MLC-028). Phase 1–2 (MLC-029..
 **Phase 1–2 рефакторинг-трека закрыт полностью** (MLC-029..035). Phase 3–4
 (`MLC-025/026/027/011(a)/028` + `MLC-036` RAS Strategy B) — gated на триггеры, см. ниже.
 
+### Трек «Отчёты — использование лицензий» (открыт 2026-06-06)
+
+Постановка пользователя; нарезан куратором. Новый раздел «Отчёты»; первый отчёт —
+использование лицензий (concurrent-сеансов) во времени: график + текстовые пояснения,
+сводка по всем клиентам + drill-down. **Истории потребления нет** (снимок только в памяти,
+`ActiveSessionSnapshotStore`) → time-series вводится с нуля, на UI empty-state «данные
+накапливаются». Полная спека (Цель/Объём/Файлы/Под-решения/Проверка) — в план-файле
+`C:\Users\andre\.claude\plans\concurrent-purring-kahn.md`. Берём строго по порядку,
+по одной за сессию:
+
+1. ~~`MLC-048`~~ — **Done** (2026-06-06): Backend, сбор time-series (фундамент): ADR-25 +
+   таблица `LicenseUsageSnapshots` (телеметрия в Infrastructure) + миграция +
+   singleton-аккумулятор (бакеты 15 мин, min/max/avg) с врезкой в cold `ReconciliationJob`
+   + настройка `LicenseUsageRetentionDays` + ретеншен-джоба (см. архив).
+2. `MLC-049` — Backend, API: `GET /reports/license-usage?from&to` (сводка по всем) +
+   `/{tenantId}` (drill-down), контракты, тесты (образец `DashboardEndpoints`).
+   Зависит от `MLC-048`.
+3. `MLC-050` — Frontend, раздел: роут `/reports` + пункт меню «Операции» + i18n (ru) +
+   фича `features/reports/` + график на recharts (первое применение) + фильтр периода +
+   drill-down + empty-state. Зависит от `MLC-049`.
+
 ---
 
 ## NEXT TASK
 
-> **Нет активных задач.** Рефакторинг-трек Phase 1–2 (MLC-029..035 / REF-01..07) закрыт полностью —
-> последним выполнен `MLC-035` (REF-07, группировка `Web/Endpoints` по фиче; см. архив). **Перф-трек
-> Phase 1 (PERF-01..04 = MLC-037/039/038/040) закрыт полностью; из Phase 2 закрыты `MLC-041`, `MLC-042` и `MLC-043`**
-> (PERF-05 кросс-вызовный кэш UUID кластера — спавны ×2 вниз; PERF-06 составной индекс `AuditLogs` —
-> Sort+lookup убраны, фильтр-список по `TenantId` 8244→165 reads на 1M; PERF-07 батч-загрузка публикаций в
-> `DriftCheckJob` — N+1→1 на проход; см. архив). Phase 2 закрыт полностью; остальные пункты перф-плана
-> (`compressed-giggling-grove.md`, PERF-08+) — gated. **Дополнительно закрыт `MLC-044`** (вне PERF-каталога,
-> постановка куратора): hot-тир теперь enforce'ит — kill ≤5с для at-risk вместо ≈25с; общий
-> enforcement-замок `IEnforcementGate` против over-kill; расхождение ADR-6 ↔ ADR-6.1 закрыто (см. архив).
-> **Также закрыты `MLC-045`** (публикации: webinst + смена платформы через web.config + read-only статус,
-> ADR-4 переписан) **и `MLC-046`** (массовые операции публикаций поверх MLC-045: bulk publish/change-platform
-> как N идемпотентных одиночных вызовов пулом + замок `IWebinstConcurrencyGate`; см. архив) — обе по
-> постановке куратора/пользователя. **Также закрыт `MLC-047`** (по постановке пользователя):
-> управление жизненным циклом IIS из веб-панели — recycle/start/stop пула, start/stop/restart сайта,
-> iisreset (restart/stop/start); новый порт `IIisLifecycleService`, группа `/api/v1/iis/*`, discovery из
-> живого IIS, аудит `220..228`, ADR-24 (+ уточнение ADR-4); см. архив.
-> Остаются только **отложенные опции**
-> (`MLC-025/026/027/028/011(a)`, ниже) и **Phase 3–4** рефакторинг-трека
-> (`REF-08..13` = `MLC-025/026/027/011(a)/028` + `MLC-036` RAS Strategy B) — все **gated на триггеры**,
-> не берутся по умолчанию. Новую `NEXT TASK` не ставить, пока не сработает триггер одной из отложенных
-> опций или не появится новая постановка от куратора.
+> **Нет активной задачи.** Трек «Отчёты»: `MLC-048` (фундамент сбора time-series) **закрыт**
+> 2026-06-06 — отчёт в `PROJECT_BACKLOG_ARCHIVE.md`, см. индекс «Закрыто» ниже.
+>
+> Следующая в цепочке — `MLC-049` (Reports API), зависит от закрытого `MLC-048`; постановку
+> `NEXT TASK` выставляет внешний чат-куратор (исполнитель сам не выбирает).
+>
+> Ранее закрытые треки (рефакторинг MLC-029..035, перф MLC-037..043, плюс MLC-044..048) — в индексе
+> «Закрыто» ниже и в архиве. **Отложенные опции** (`MLC-025/026/027/028/011(a)` + Phase 3–4
+> рефакторинг-трека / `MLC-036` RAS Strategy B) остаются gated на триггеры, по умолчанию не берутся.
 
 ---
 
@@ -144,7 +153,7 @@ REF-10→MLC-027, REF-11→MLC-011(a), REF-13→MLC-028). Phase 1–2 (MLC-029..
   частые расхождения FE↔BE. Даёт инфраструктуру для `MLC-026`. Объём M.
 - `MLC-026` — **генерация FE-полей настроек из `SettingDefinitions`**. Сейчас новый ключ касается
   enum + каталога + захардкоженного FE-рендера (`SettingsPage.tsx` `SECTIONS`/`FIELD_META`) + i18n
-  (подтверждено на MLC-024). Зависит от `MLC-025`. Триггер: каталог > ~25–30 ключей (сейчас 14).
+  (подтверждено на MLC-024). Зависит от `MLC-025`. Триггер: каталог > ~25–30 ключей (сейчас 17).
   Объём S.
 - `MLC-027` — **разбить `i18n/ru.json` по фичам** (namespaces i18next). Сейчас один плоский файл,
   RU-only (locked). Триггер: файл > ~1000 строк или появление 2-го локаля. Объём S.
@@ -157,7 +166,7 @@ REF-10→MLC-027, REF-11→MLC-011(a), REF-13→MLC-028). Phase 1–2 (MLC-029..
 
 ---
 
-## Закрыто (MLC-001..024, 029, 030, 031, 032, 033, 034, 035, 037, 038, 039, 040, 041, 042, 043, 044, 045, 046) — индекс
+## Закрыто (MLC-001..024, 029, 030, 031, 032, 033, 034, 035, 037, 038, 039, 040, 041, 042, 043, 044, 045, 046, 047, 048) — индекс
 
 Полные постановки и отчёты: **`docs/PROJECT_BACKLOG_ARCHIVE.md`**.
 
@@ -201,4 +210,5 @@ REF-10→MLC-027, REF-11→MLC-011(a), REF-13→MLC-028). Phase 1–2 (MLC-029..
 - `MLC-043` (PERF-07) — Батч-загрузка публикаций в `DriftCheckJob` (N+1 → 1): `RunAllAsync` раньше грузил все `Publication.Id`, затем `foreach (id) → FirstOrDefault` на каждую (N+1 round-trips/проход). Теперь — один проекционный `AsNoTracking`-запрос лёгкого `record DriftSnapshot` строго нужных проверке полей (без тяжёлого `VrdCustomXml`/tracking), обход материализованного списка. `CheckOneAsync` (on-demand reconcile/check-drift) переведён на тот же снимок для одной публикации — единая `ProcessOneAsync`, без дублирования. Запись результата — targeted-UPDATE по `Id` (`Local`-аware: mutate уже-трекаемой иначе `Attach` транзиента + `Modified` только 3 drift-колонки; `ExecuteUpdate` отпал — InMemory его не транслирует), эффект `SaveChanges` 1:1. `ct`/устойчивость к ошибке отдельной публикации (внешний `try/catch` вокруг `foreach`) — 1:1. Замер «до→после» реальными SQL round-trip'ами (`DbCommandInterceptor`, SQLite = та же EF-трансляция): на N=25 загрузочных SELECT/проход **26 → 1**. 20 drift+reconcile тестов 1:1 (ADR-4.1: 210 только на переходе в не-InSync), +1 регресс-гард `DriftCheckBatchQueryTests`. BE 316 / FE 118 зелёные. `OPERATIONS.md` PERF-07 present-tense. ADR-4.1/20/16/3.3/single-node/RU-only не затронуты, smoke не сломан. — Done (2026-06-05)
 - `MLC-044` — Hot-тир теперь enforce'ит (near-realtime kill ≤5с) + быстрый экран: до этого kill шёл только на cold-цикле (≈25с), hot-цикл лишь обновлял снимок — расхождение с ADR-6 («окно ≤5с»). Теперь `HotTierPollingService.RunCycleOnceAsync` после fetch/overlay вызывает `IKillEnforcer.EnforceAsync` строго по hot-тенантам, **переиспользуя единственный список тика** как fresh-проверку (без второго спавна `rac.exe`; `EnforceAsync` принял `freshSessions?`). Защита от over-kill (MLC-001): оба пути (cold Hangfire-джоб + hot BackgroundService, на который `[DisableConcurrentExecution]` не действует) берут общий in-process замок `IEnforcementGate` (singleton `SemaphoreSlim(1,1)`); hot берёт его **до** fetch'а, поэтому cold не вклинится между fetch и kill. Идемпотентный протокол (re-fetch + сверка дескриптора, аудит на `Killed||AlreadyGone`, newest-first, cap 20) — 1:1. FE-опрос `/sessions/snapshot` и `/dashboard/summary` 15с→5с. Замер «до→после» (детерминированный харнесс, реальный путь `RunCycleOnceAsync`+`EnforceAsync`, прокси спавнов = вызовы `IClusterClient`): kill latency **≈25с→≤4с**; `session.list`/hot-тик **1** (переиспользован, не 2) → ~15/мин ≤26/мин (ADR-3.3); `session.terminate` 0 на `Consumed==Limit`. Тест отсутствия over-kill: конкурентные cold+hot убивают ровно `Consumed-Limit` (не `2×`), без двойного аудита (`HotColdEnforcementOverKillTests`) + `EnforcementGateTests` (взаимоисключение) + `HotEnforcementMeasurementTests`. BE 322 / FE 119 зелёные. Канон present-tense: ADR-6/6.1 (расхождение закрыто), 02 Concurrency Control, 04 §5. Новый адаптер не введён (ADR-16/3.3; не RAS Strategy B = MLC-036). ADR-20/single-node/RU-only не затронуты. — Done (2026-06-05)
 - `MLC-046` — Публикации: **массовые операции** (bulk publish через webinst + bulk change-platform через web.config) поверх одиночных MLC-045. Постановка пользователя. Фронт оркеструет существующие одиночные эндпоинты пулом (параллелизм 3) — пачка = N идемпотентных вызовов (надёжность = переиспользование протестированного пути; без bulk-эндпоинта/контрактов/миграций/enum). Backend: единственное — замок `IWebinstConcurrencyGate` (singleton `SemaphoreSlim(3)`) вокруг спавна webinst (кэп независимо от клиента, семья ADR-3.3). Frontend: shadcn `checkbox` + мультиселект (header=выбрать отфильтрованные), bulk-бар, единое подтверждение перезатирания со списком gated (Source≠Webinst&&Published), bulk-смена платформы (одна версия из установленных), generic пул-хук `useBulkOperation` + прогресс-диалог (частичный успех, отмена, снятие успешных для повтора). Аудит 212/213 — по-публикационно (без изменений). Tab-bound прогон; tab-independent (Hangfire) — отложенная опция ADR-4. BE 329 / FE 132 (+`dotnet format`/lint/type-check/build) зелёные. Канон present-tense: ADR-4, 04/05/OPERATIONS. — Done (2026-06-05)
-- `MLC-045` — Публикации: переход с surgical-vrd-patch + drift/reconcile на **webinst (пере)публикацию + смену платформы через web.config + read-only статус** (ADR-4 переписан, ADR-4.1 revoked). Постановка пользователя: новые базы быстро публикуются через `webinst`, версия платформы меняется правкой только `wsisapi.dll` в `web.config` (default.vrd не трогается), enforcement-reconcile не нужен. Бэкенд: новый адаптер `IWebinstPublisher`/`OneCWebinstPublisher` (ADR-20, путь к exe из версии через `WebinstExeResolver`/`OneCInstallRoots`, UTF-16LE-декод вывода, connstr из `OneC.Cluster.Server`+имя ИБ); `IIisPublishingService.ChangePlatformAsync` (хелпер `WsisapiVersionRewriter` — переиспользованный regex из удалённого `VrdPatcher`); `PublicationStatusEvaluator` + `PublicationStatusRefreshJob` (read-only, без аудита) вместо `PublicationDriftDetector`/`DriftCheckJob`; эндпоинты `POST /publications/{id}/check|publish|change-platform` (publish гейтит перезатирание не-`Webinst` публикаций по `Confirm`); аудит `PublicationPublished=212`/`PublicationPlatformChanged=213` (210/211 — historical, не пишутся). Домен: убраны `EnableOData`/`EnableHttpServices`/`VrdCustomXml`, добавлен `Source` (Unknown/Webinst/Configurator), drift-поля → `LastCheckStatus`/`LastCheckAt`/`LastCheckDetails`; миграция `MLC045WebinstPublishing` (drop + rename + сброс статуса в Unknown). Настройка `OneC.Cluster.Server`. Фронт: колонки «Источник»/«Статус», действия «Проверить сейчас»/«Опубликовать»/«Сменить платформу» (+ `PublishPublicationDialog`/`ChangePlatformDialog`), убраны OData/HTTP-поля формы и parity-правила. BE 326 / FE 119 (+type-check/lint) зелёные. Канон present-tense: DECISIONS ADR-4 (+ADR-4.1 revoked), 01/03/04/05/ROADMAP/00_INDEX/OPERATIONS. Открытый риск: connstr-auth (если ИБ требует Usr/Pwd — добавить вторым шагом). ADR-20/16/3.3/single-node/RU-only не затронуты. — Done (2026-06-05)
+- `MLC-047` — Управление жизненным циклом IIS из веб-панели: новый Application-порт `IIisLifecycleService`/`OneCIisLifecycleService` (recycle/start/stop пула, start/stop/restart сайта, server-wide `iisreset`) + блок «Управление IIS» над списком публикаций; discovery из live IIS (`ServerManager`/`ServiceController` W3SVC), мутации сериализованы `IIisResetConcurrencyGate`, аудит `IisApplicationPoolRecycled=220..IisStarted=228`, подтверждение деструктивных операций. ADR-24 (+ уточнение ADR-4 read-only); ADR-20 граница без изменений. — Done (2026-06-06)
+- `MLC-048` — Сбор time-series использования лицензий (фундамент трека «Отчёты»): ADR-25 + таблица-телеметрия `dbo.LicenseUsageSnapshots` (`Infrastructure/Reporting`, FK SetNull, индекс `(TenantId, BucketStartUtc)`) + миграция `MLC048LicenseUsageSnapshots` (нормализована); singleton `ILicenseUsageAccumulator`/`LicenseUsageAccumulator` (бакеты 15 мин, running min/max/avg, флаш на границе) с врезкой в cold `ReconciliationJob.RunColdAsync` (семпл по активным тенантам, идл=0, вне enforcement-замка, **без нового спавна `rac.exe`**); настройка `LicenseUsage.RetentionDays` + `LicenseUsageRetentionJob` (cron `30 3`, batched portable `ExecuteDelete`, без аудита). Слой-граница: Application видит нейтральные `LicenseUsageSample`/`LicenseUsageBucket`, не entity. 15 новых тестов; BE 377 зелёные. Канон present-tense: ADR-25, 04/OPERATIONS/ROADMAP/00_INDEX. — Done (2026-06-06) Постановка пользователя: новые базы быстро публикуются через `webinst`, версия платформы меняется правкой только `wsisapi.dll` в `web.config` (default.vrd не трогается), enforcement-reconcile не нужен. Бэкенд: новый адаптер `IWebinstPublisher`/`OneCWebinstPublisher` (ADR-20, путь к exe из версии через `WebinstExeResolver`/`OneCInstallRoots`, UTF-16LE-декод вывода, connstr из `OneC.Cluster.Server`+имя ИБ); `IIisPublishingService.ChangePlatformAsync` (хелпер `WsisapiVersionRewriter` — переиспользованный regex из удалённого `VrdPatcher`); `PublicationStatusEvaluator` + `PublicationStatusRefreshJob` (read-only, без аудита) вместо `PublicationDriftDetector`/`DriftCheckJob`; эндпоинты `POST /publications/{id}/check|publish|change-platform` (publish гейтит перезатирание не-`Webinst` публикаций по `Confirm`); аудит `PublicationPublished=212`/`PublicationPlatformChanged=213` (210/211 — historical, не пишутся). Домен: убраны `EnableOData`/`EnableHttpServices`/`VrdCustomXml`, добавлен `Source` (Unknown/Webinst/Configurator), drift-поля → `LastCheckStatus`/`LastCheckAt`/`LastCheckDetails`; миграция `MLC045WebinstPublishing` (drop + rename + сброс статуса в Unknown). Настройка `OneC.Cluster.Server`. Фронт: колонки «Источник»/«Статус», действия «Проверить сейчас»/«Опубликовать»/«Сменить платформу» (+ `PublishPublicationDialog`/`ChangePlatformDialog`), убраны OData/HTTP-поля формы и parity-правила. BE 326 / FE 119 (+type-check/lint) зелёные. Канон present-tense: DECISIONS ADR-4 (+ADR-4.1 revoked), 01/03/04/05/ROADMAP/00_INDEX/OPERATIONS. Открытый риск: connstr-auth (если ИБ требует Usr/Pwd — добавить вторым шагом). ADR-20/16/3.3/single-node/RU-only не затронуты. — Done (2026-06-05)

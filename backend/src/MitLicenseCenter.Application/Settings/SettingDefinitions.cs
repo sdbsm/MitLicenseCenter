@@ -150,5 +150,14 @@ public static class SettingDefinitions
                 DefaultValue: "365",
                 Min: 30,
                 Max: 3650),
+
+            [SettingKey.LicenseUsageRetentionDays] = new(
+                SettingKey.LicenseUsageRetentionDays,
+                IsSecret: false,
+                Description: "Срок хранения истории использования лицензий (для отчётов) в днях. Старые замеры удаляются автоматически по ночам.",
+                Kind: SettingValueKind.Number,
+                DefaultValue: "365",
+                Min: 30,
+                Max: 3650),
         };
 }
