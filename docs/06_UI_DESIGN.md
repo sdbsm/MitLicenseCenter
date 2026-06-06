@@ -22,7 +22,7 @@ The component library is locked to **shadcn/ui** (see ADR-11). This document fil
 | Data tables | shadcn `Table` rendered directly (hand-rolled `.map()` + a shared `PaginationBar`). `@tanstack/react-table` is a declared dependency but **not used in v1** — there is no headless sort/filter/visibility state yet. |
 | Forms | **react-hook-form** + **zod** for validation |
 | Toasts / notifications | **sonner** (shadcn default) |
-| Charts | `recharts` is a declared dependency but **not wired in v1** — the Dashboard renders metrics with `Card` + `Progress`, no chart components yet. |
+| Charts | `recharts` is wired on the License-Usage Reports page (`/reports`, `features/reports/`) — a time-series `ComposedChart` (filled-area peak + average/limit lines) in a `ResponsiveContainer`. Isolated into its own vendor chunk (`charts`, see `vite.config.ts`) so it (and its d3/redux load) stays out of the shared `vendor` chunk and keeps every chunk under the 500 kB budget. The Dashboard still renders metrics with `Card` + `Progress` (no chart there). |
 | Date formatting | **date-fns** + `date-fns/locale/ru` |
 | i18n | **react-i18next**, single `ru.json` (see `01_PROJECT_CONTEXT.md`) |
 
@@ -66,7 +66,7 @@ Semantic colors map 1:1 to states across the entire app. **Same status, same col
 └──────────────┴─────────────────────────────────────┘
 ```
 
-- **Sidebar:** shadcn `Sidebar` component, collapsible to icons. Sections grouped by domain — `Operations` (Dashboard, Sessions, Publications), `Configuration` (Tenants, Infobases), `System` (Audit). There is **no Administrators entry in v1** (see §3.6 of `05_UI_REQUIREMENTS.md` — admin self-management is not built; the single seeded admin manages everything).
+- **Sidebar:** shadcn `Sidebar` component, collapsible to icons. Sections grouped by domain — `Operations` (Dashboard, Sessions, Publications, Reports), `Configuration` (Tenants, Infobases), `System` (Audit). There is **no Administrators entry in v1** (see §3.7 of `05_UI_REQUIREMENTS.md` — admin self-management is not built; the single seeded admin manages everything).
 - **Content area uses full available width.** Admin tables benefit from horizontal real estate; do not centre-cap to `max-w-7xl` like marketing sites do.
 - **Page header** in every content view: title (h1), subtitle/description (muted), and primary action button(s) top-right.
 - **No breadcrumbs in v1.** Two-level nav (sidebar group → page) is shallow enough.

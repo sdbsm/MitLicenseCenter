@@ -1,0 +1,36 @@
+import { format } from "date-fns";
+import { ru } from "date-fns/locale";
+import { useTranslation } from "react-i18next";
+import type { LicenseUsageSeriesResponse } from "./types";
+
+/** Текстовые пояснения к ряду: пик (с долей от лимита и моментом) и среднее.
+ *  Используется и в сводке, и в детализации (контракт одинаков). */
+export function ReportsStats({ data }: { data: LicenseUsageSeriesResponse }) {
+  const { t } = useTranslation();
+
+  const percent = data.peakLimit > 0 ? Math.round((data.peakConsumed / data.peakLimit) * 100) : 0;
+  const average = Math.round(data.averageConsumed * 10) / 10;
+  const peakAt = data.peakAtUtc
+    ? format(new Date(data.peakAtUtc), "dd.MM.yyyy HH:mm", { locale: ru })
+    : null;
+
+  return (
+    <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
+      <p>
+        <span className="text-muted-foreground">{t("reports.stats.peak")}:</span>{" "}
+        <span className="font-medium tabular-nums">
+          {t("reports.stats.peakValue", {
+            consumed: data.peakConsumed,
+            limit: data.peakLimit,
+            percent,
+          })}
+        </span>
+        {peakAt && <span className="text-muted-foreground"> ({peakAt})</span>}
+      </p>
+      <p>
+        <span className="text-muted-foreground">{t("reports.stats.average")}:</span>{" "}
+        <span className="font-medium tabular-nums">{average}</span>
+      </p>
+    </div>
+  );
+}

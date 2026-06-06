@@ -2470,3 +2470,49 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
   принятого ADR-25.
 - **Зависимости.** Разблокирует `MLC-050` (Frontend, раздел «Отчёты»). ADR-25/20/16/3.3/single-node/RU-only
   не затронуты.
+
+### MLC-050 — Frontend: раздел «Отчёты» (использование лицензий) — 2026-06-06
+
+- **Постановка (куратор, трек «Отчёты»).** Финальная задача цепочки 048→049→050: раздел `/reports`
+  поверх Reports API из `MLC-049`. Полная спека — `.claude/plans/concurrent-purring-kahn.md` (раздел
+  MLC-050); план реализации — `.claude/plans/plan-concurrent-cocke.md`. В plan-режиме согласованы UX-решения:
+  вид графика (area max + линия avg + пунктир-лимит), drill-down отдельным блоком, заметная оговорка про
+  обзорность суммы под сводным графиком, показ эффективного периода из ответа.
+- **Фича `frontend/src/features/reports/` (паттерн MLC-032: контейнер + оркестрационный хук + презентация).**
+  `types.ts` (зеркало контракта, camelCase + `ReportsFilters`/`ReportsRange`); `reportsUrlState.ts`
+  (parse/build URL `from`/`to`/`tenant`, date-only→ISO как `auditUrlState`); `useLicenseUsage.ts` —
+  TanStack Query `useLicenseUsage(range)` → `/api/v1/reports/license-usage` (always-on) и
+  `useLicenseUsageByTenant(tenantId, range)` → `…/{tenantId}` (`enabled:!!tenantId`), query через
+  `URLSearchParams` (границы ставятся только если заданы — дефолт/кламп на сервере); `useReportsPage.ts`
+  (разбор URL, оба запроса, `useAllTenants` для селектора, `applyFilters`/`setTenant`).
+- **Презентация.** `LicenseUsageChart` — **первое применение recharts** в проекте (`ComposedChart` в
+  `ResponsiveContainer`: `Area consumedMax` заливкой + `Line consumedAvg` + `Line limit` пунктиром, ось
+  времени `dd.MM HH:mm` через date-fns/ru, скелет при загрузке); один компонент на оба режима (контракт
+  одинаков). `LicenseUsageSummary` (эффективный период из `fromUtc`/`toUtc`, стат-тексты, график, оговорка),
+  `ReportsDetail` (Select клиента → ряд тенанта + его стат-тексты, плейсхолдер без выбора), `ReportsStats`
+  (пик с долей от лимита и моментом + среднее), `ReportsEmptyState` («данные накапливаются» — пустой ряд =
+  `200`, не ошибка; образец empty-state `AuditTable`), `ReportsFiltersBar` (период `from`/`to` + сброс),
+  `ReportsPage` (контейнер + карточка ошибки с refetch).
+- **Роут/навигация/i18n.** `/reports` lazy в `router.tsx` под общим `ProtectedRoute` (**не** admin-only);
+  пункт `LineChartIcon` в группе «Операции» (`Sidebar.tsx`, после «Публикации»); ключи `nav.reports` +
+  блок `reports.*` в `ru.json` (i18next only-ru) — тексты графика/сводки/детализации/empty-state/оговорки.
+- **Бандл (vite.config).** recharts тянет victory-vendor (d3) + redux-toolkit + immer (~370 кБ) — иначе
+  единый `vendor` перевалил бы за 500 кБ (порог, который схема MLC-018 держит осмысленно). Введена отдельная
+  принудительная группа `charts` (priority>vendor); итог: `charts` 372 кБ / `vendor` 396 кБ / `react-vendor`
+  274 кБ — все < 500 кБ, предупреждение сборки ушло. Полностью ленивым чанк не сделать (pnpm-путь
+  `.pnpm/<pkg>/node_modules` ломает negative-lookahead, именованная группа всегда прелоадится) — eager наравне
+  с прочими vendor-зависимостями.
+- **Тесты (по образцу `features/audit/__tests__/`).** `reportsUrlState.test.ts` (parse/build URL +
+  date-only→ISO границы) и `useLicenseUsage.test.tsx` (сбор query сводки/drill-down, `enabled:false` без
+  тенанта = нет запроса, success/error). FE 145 тестов зелёные; графики recharts в jsdom не рендерятся
+  (нулевая ширина) — тесты на хуки/утилиты. `pnpm type-check`/`lint` чисто, полный CI (`build.ps1`) зелёный.
+- **Проверка в preview.** На реальной dev-БД с накопленной телеметрией: пункт «Отчёты» в «Операциях», график
+  рисуется (легенда max/avg/limit, оси), эффективный период из ответа, drill-down (выбор тенанта → второй
+  график с его пиком), оговорка под сводкой; на диапазоне без данных (2025 г.) — empty-state «данные
+  накапливаются». Консоль без ошибок recharts.
+- **Канон present-tense.** `05_UI_REQUIREMENTS.md` §3.6 (новая страница Reports; «Администраторы» → §3.7);
+  `06_UI_DESIGN.md` (Charts: recharts подключён на `/reports`, чанк `charts`; sidebar Operations +Reports;
+  ссылка §3.6→§3.7); `ROADMAP.md` (recharts применён на «Отчётах», дашборд-графики — опция будущего; §3.6→§3.7).
+  **ADR не трогали** — UI в рамках принятого ADR-25.
+- **Трек «Отчёты» завершён 3/3** (`MLC-048` сбор → `MLC-049` API → `MLC-050` UI). Активных задач нет;
+  следующую ставит куратор. ADR-25/20/16/3.3/single-node/RU-only не затронуты.
