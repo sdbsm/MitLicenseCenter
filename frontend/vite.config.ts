@@ -25,6 +25,19 @@ export default defineConfig({
               test: /node_modules[\\/](react|react-dom|react-router|scheduler)[\\/]/,
               priority: 20,
             },
+            // MLC-050: recharts + его эксклюзивный груз (victory-vendor/d3, redux-toolkit,
+            // immer — ~370 кБ) выносим из общего vendor в свой чанк. Иначе единый vendor
+            // переваливает за 500 кБ (порог, который эта схема держит осмысленно). Чанк
+            // грузится eager'ом наравне с vendor — так же, как все прочие зависимости в этой
+            // сборке (полностью ленивым его не сделать: pnpm-путь `.pnpm/<pkg>/node_modules`
+            // ломает negative-lookahead, а именованная группа всегда прелоадится). Список —
+            // синхронно с node_modules/recharts/package.json. priority>vendor (специфичная
+            // раньше общей; positive-regex ловит вложенный `node_modules/recharts`).
+            {
+              name: "charts",
+              test: /node_modules[\\/](recharts|victory-vendor|d3-[a-z-]+|internmap|@reduxjs[\\/]toolkit|react-redux|redux|reselect|immer|decimal\.js-light)[\\/]/,
+              priority: 30,
+            },
             {
               name: "vendor",
               test: /node_modules[\\/]/,

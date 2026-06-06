@@ -64,7 +64,15 @@ The Control Panel is delivered in **Russian** as the only shipping locale of v1 
 - Shows who (or what background job) killed a session, updated a publication, or changed a limit.
 - Filters: by `ActionType`, `Initiator`, `TenantId`, date range. For `SessionKilled` rows, the `Reason` column distinguishes `LimitExceeded` from `ManualByAdmin`.
 
-### 3.6. Administrators — **planned, not implemented in v1**
+### 3.6. License-Usage Reports
+- Route `/reports` (sidebar group «Операции», `Viewer`-readable — not admin-only), backed by the read-only Reports API (`GET /api/v1/reports/license-usage` and `/{tenantId}`, see `03_DOMAIN_MODEL.md`).
+- **Period filter** (`from`/`to` date inputs, shared by both sections). Omitted bounds default to the last 7 days; a span wider than 31 days is clamped server-side, and the **effective** range echoed in the response (`fromUtc`/`toUtc`) is shown above the summary chart — not the requested one.
+- **Summary section** (all clients): a time-series chart of peak consumption (`consumedMax`, filled area), average consumption (`consumedAvg`, line) and the licence limit (`limit`, dashed ceiling) over 15-minute buckets, plus textual stats (period peak with share-of-limit and moment, period average). A **visible caveat** notes that the per-bucket sum is an overview figure, not a true simultaneous platform peak (tenants peak at different moments — the `MLC-049` decision).
+- **Drill-down block** (separate, below the summary): a client selector renders the same chart for one tenant's stored series with its own peak/average stats.
+- **Empty-state «данные накапливаются»**: telemetry accrues only since `MLC-048`, so an empty series (a `200` with `buckets: []`, never an error) renders an explanatory empty-state instead of a chart — both in the summary and the drill-down.
+- First use of `recharts` in the SPA (chart components live in `features/reports/`).
+
+### 3.7. Administrators — **planned, not implemented in v1**
 There is **no administrator-management screen, route, or sidebar entry in v1.** Account handling today: a single `Admin` user is seeded at startup (`IdentitySeeder`, password logged once), every user changes their own password via the Profile page (`/profile`), and the `Admin`/`Viewer` roles are assigned in the database directly. The design below is the intended future shape, to be promoted via its own backlog item before it is built:
 - List of admin accounts (`Admin` and `Viewer` roles), last login timestamp, lockout status.
 - Create / disable / reset-password actions (the latter generates a temporary password printed to the audit log; user must change it on next login).

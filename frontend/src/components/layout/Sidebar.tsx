@@ -3,6 +3,7 @@ import {
   DatabaseIcon,
   GaugeIcon,
   GlobeIcon,
+  LineChartIcon,
   MonitorPlayIcon,
   ScrollTextIcon,
   SettingsIcon,
@@ -43,6 +44,7 @@ export function Sidebar() {
               <NavLinkItem to="/" end icon={GaugeIcon} label={t("nav.dashboard")} />
               <NavLinkItem to="/sessions" icon={MonitorPlayIcon} label={t("nav.sessions")} />
               <NavLinkItem to="/publications" icon={GlobeIcon} label={t("nav.publications")} />
+              <NavLinkItem to="/reports" icon={LineChartIcon} label={t("nav.reports")} />
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
