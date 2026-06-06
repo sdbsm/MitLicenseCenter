@@ -2363,3 +2363,63 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
   фронта**: `usePublish`/`useChangePlatform` передавали в `api()` уже `JSON.stringify(body)`, а хелпер сам
   сериализует и ставит `Content-Type` → двойная сериализация → `[FromBody]` не биндился → 500. Исправлено
   на передачу объекта; перепрогон FE `type-check`/`lint`/`test` (119) зелёный, UI-операции подтверждены 200.
+
+---
+
+### MLC-048 — Сбор time-series использования лицензий (фундамент трека «Отчёты») — 2026-06-06
+
+- **Постановка (куратор, трек «Отчёты»).** Раздел «Отчёты»; первый отчёт — использование лицензий
+  (concurrent-сеансов) во времени. Главное ограничение: системе нечем наполнять график — история
+  потребления не хранится (активные сессии живут только в памяти, `ActiveSessionSnapshotStore`;
+  персистится лишь `AuditLogs` = события, не замеры). Поэтому time-series вводится **с нуля**. MLC-048 —
+  входная задача цепочки 048→049→050: хранение + точка съёма + агрегация + ретеншен. Полная спека —
+  `.claude/plans/concurrent-purring-kahn.md`; план реализации — `.claude/plans/mlc-048-compiled-gosling.md`.
+- **ADR-25** (`DECISIONS.md`, после ADR-24). Метрика = мгновенное `Consumed` (лицензие-потребляющие
+  сессии) + `Limit` (`MaxConcurrentLicenses`) на момент замера. Бакеты 15 мин, агрегат min/max/avg
+  (**max обязателен** — у concurrent-лицензий пик упирается в лимит; `avg` = `double`; `Limit` = последнее
+  наблюдённое в бакете). Съём в cold `ReconciliationJob` через singleton-аккумулятор; ретеншен через
+  настройку+джобу; один тир без rollup; сущность — телеметрия в Infrastructure (прецедент `AuditLog`),
+  не доменный агрегат; `TenantId` FK `SetNull`.
+- **Сущность/БД.** `Infrastructure/Reporting/LicenseUsageSnapshot` (`IEntity`: `Guid Id`, `Guid? TenantId`,
+  `DateTime BucketStartUtc`, `int ConsumedMin/ConsumedMax`, `double ConsumedAvg`, `int Limit`). DbSet +
+  конфиг inline в `AppDbContext.OnModelCreating` (паттерн `AuditLog`): `dbo.LicenseUsageSnapshots`, индекс
+  `(TenantId, BucketStartUtc)`, FK на `Tenant` `OnDelete(SetNull)`. Миграция `MLC048LicenseUsageSnapshots`
+  (нормализована: UTF-8 без BOM, LF).
+- **Аккумулятор.** `Application/Reporting/ILicenseUsageAccumulator` (singleton, регистрация как
+  `ColdThrottleState` — состояние переживает scoped-инвокации джобы) + `Infrastructure` impl
+  `LicenseUsageAccumulator` (thread-safe `lock`): per-tenant running min/max/sum/count в текущем 15-мин
+  бакете (floor по тикам); на пересечении границы возвращает агрегаты прошлого бакета и сбрасывается;
+  откат часов назад игнорируется; частичный бакет при рестарте теряется (best-effort).
+- **Слой-граница (решение по ходу).** NetArchTest запрещает Application→Infrastructure, поэтому интерфейс
+  аккумулятора **не** возвращает entity `LicenseUsageSnapshot` (как `IAuditLogger` оперирует примитивами,
+  не сущностью `AuditLog`). Application определяет нейтральные `LicenseUsageSample` (вход) и
+  `LicenseUsageBucket` (выход); `ReconciliationJob` маппит bucket→entity при персисте. Эскиз спеки
+  `IReadOnlyList<LicenseUsageSnapshot>` уточнён под границу — прозрачно (не [Doc divergence] канона).
+- **`TenantId` = `Guid?` (решение по ходу).** Эскиз спеки давал `Guid TenantId`, но затребованный
+  «по образцу `AuditLog`» `SetNull` требует nullable-колонку. Взят `Guid?` (как `AuditLog.TenantId`).
+- **Врезка в `ReconciliationJob.RunColdAsync`.** После tier-цикла собирается семпл по **всем активным**
+  тенантам цикла (distinct по тенанту; `Consumed = consumptionByTenant.GetValueOrDefault(id, 0)` — идлы=0,
+  чтобы min/avg были честными; `Limit` = `MaxConcurrentLicenses`), переиспользуя данные цикла —
+  **нового спавна `rac.exe` нет** (ADR-3.3/16). Готовые бакеты (если аккумулятор вернул) персистятся
+  `_db.LicenseUsageSnapshots.AddRange + SaveChangesAsync` **вне** enforcement-замка (телеметрия не
+  блокирует kill-путь).
+- **Ретеншен.** `SettingKey.LicenseUsageRetentionDays` + запись в `SettingDefinitions` (Number, деф. 365,
+  Min 30/Max 3650 — автосидер подхватил). Джоба `LicenseUsageRetentionJob`/`ILicenseUsageRetentionJob`:
+  cron `30 3 * * *` (смещён от audit `0 3`), батч 5000 + commit-per-batch, **без аудит-записи**
+  (housekeeping). **Решение (с куратором):** удаление — provider-portable `ExecuteDelete` (SELECT id'шников
+  Take(5000) → `ExecuteDeleteAsync` WHERE Id IN), а не raw `DELETE TOP` образца `AuditRetentionJob` —
+  транслируется и на прод-MSSQL, и на SQLite → ретеншен **покрыт юнит-тестом** (raw-T-SQL образец на SQLite
+  непроверяем, потому `AuditRetentionJob` юнит-теста и не имеет).
+- **Тесты (15 новых).** `LicenseUsageAccumulatorTests` (floor 15-мин, min/max/avg, флаш на границе,
+  мультитенант, идл=0, last-limit, откат часов); `ReconciliationJobUsageSamplingTests` (семпл по активным
+  тенантам, персист возвращённых бакетов / ничего внутри бакета — со stub-аккумулятором);
+  `LicenseUsageRetentionJobTests` (SQLite: удаляет старше cutoff, батчинг >5000, no-op без старых);
+  `LicenseUsageSnapshotPersistenceTests` (SQLite: схема/таблица/индекс в модели, FK SetNull). BE **377**
+  зелёные (+0 регрессий, NetArchTest-границы держатся), `dotnet format` чист, миграция нормализована.
+- **Канон present-tense.** ADR-25 (`DECISIONS.md`); `04_INFRASTRUCTURE.md` (каталог +1 ключ → **17**, новая
+  телеметрия-таблица + джобы сбора/ретеншена в §5); `OPERATIONS.md` (каденция съёма ≈25с, ретеншен,
+  потеря частичного бакета при рестарте = допустимо); счётчики «14 настроек» → 17 в `ROADMAP.md`/`00_INDEX.md`
+  (попутно исправлена **предсуществующая** недосчитанность: каталог был 16 ключей до этой задачи, доки
+  говорили 14). Индекс «Закрыто» дополнен пропущенным `MLC-047`.
+- **Зависимости.** Разблокирует `MLC-049` (Reports API) и `MLC-050` (UI). ADR-20/16/3.3/single-node/RU-only
+  не затронуты.

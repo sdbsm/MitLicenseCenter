@@ -10,6 +10,7 @@ using MitLicenseCenter.Domain.Infobases;
 using MitLicenseCenter.Domain.Tenants;
 using MitLicenseCenter.Infrastructure.Jobs;
 using MitLicenseCenter.Infrastructure.Persistence;
+using MitLicenseCenter.Infrastructure.Reporting;
 using MitLicenseCenter.Tests.Unit.Diagnostics;
 using MitLicenseCenter.Tests.Unit.Endpoints;
 using NSubstitute;
@@ -81,7 +82,8 @@ public sealed class HotColdEnforcementOverKillTests
 
         var cold = new ReconciliationJob(
             cluster, coldDb, store, registry, coldEnforcer, gate, settings,
-            new ColdThrottleState(), clock, metrics, NullLogger<ReconciliationJob>.Instance);
+            new ColdThrottleState(), new LicenseUsageAccumulator(), clock, metrics,
+            NullLogger<ReconciliationJob>.Instance);
 
         var hot = new HotTierPollingService(
             Substitute.For<IServiceScopeFactory>(), store, registry, gate, settings,

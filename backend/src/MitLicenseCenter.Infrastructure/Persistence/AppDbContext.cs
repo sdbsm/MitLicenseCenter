@@ -7,6 +7,7 @@ using MitLicenseCenter.Domain.Settings;
 using MitLicenseCenter.Domain.Tenants;
 using MitLicenseCenter.Infrastructure.Audit;
 using MitLicenseCenter.Infrastructure.Identity;
+using MitLicenseCenter.Infrastructure.Reporting;
 
 namespace MitLicenseCenter.Infrastructure.Persistence;
 
@@ -21,6 +22,7 @@ public sealed class AppDbContext : IdentityDbContext<AppUser, AppRole, Guid>
     public DbSet<Publication> Publications => Set<Publication>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<SettingEntry> Settings => Set<SettingEntry>();
+    public DbSet<LicenseUsageSnapshot> LicenseUsageSnapshots => Set<LicenseUsageSnapshot>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -123,6 +125,27 @@ public sealed class AppDbContext : IdentityDbContext<AppUser, AppRole, Guid>
                 .HasDatabaseName("IX_AuditLogs_TenantId_Timestamp_Id");
             // SetNull: tenant deletion обнуляет ссылку, но запись аудита остаётся —
             // история всегда сохраняется.
+            e.HasOne<Tenant>()
+                .WithMany()
+                .HasForeignKey(x => x.TenantId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        builder.Entity<LicenseUsageSnapshot>(e =>
+        {
+            // MLC-048 (ADR-25): телеметрия использования лицензий — агрегат на тенанта за
+            // 15-мин бакет. Конфиг inline по паттерну AuditLog (сущность-телеметрия).
+            e.ToTable("LicenseUsageSnapshots", "dbo");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.BucketStartUtc).IsRequired();
+            e.Property(x => x.ConsumedMin).IsRequired();
+            e.Property(x => x.ConsumedMax).IsRequired();
+            e.Property(x => x.ConsumedAvg).IsRequired();
+            e.Property(x => x.Limit).IsRequired();
+            // Дорога чтения отчётов (MLC-049): фильтр по TenantId + диапазон BucketStartUtc.
+            e.HasIndex(x => new { x.TenantId, x.BucketStartUtc });
+            // SetNull (как AuditLog): удаление тенанта обнуляет ссылку, но замеры остаются —
+            // история использования переживает удаление клиента.
             e.HasOne<Tenant>()
                 .WithMany()
                 .HasForeignKey(x => x.TenantId)

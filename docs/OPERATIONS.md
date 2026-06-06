@@ -126,6 +126,27 @@ The «Публикации» page lets an admin select several publications and 
 - **The run is bound to the open browser tab** (like watching a deploy). Closing the tab or losing the network stops scheduling new items; the server keeps finishing any in-flight `webinst`. Because re-publish is idempotent and a now-`Webinst` publication no longer trips the overwrite gate, a partial run is safely finished by re-selecting the still-failed/unprocessed rows and running again — the dialog leaves successful items deselected for exactly this.
 - **Unattended / scheduled mass-publish is not supported** by design (would need the deferred Hangfire-job model, ADR-4). For now, run bulk operations interactively.
 
+## Сбор истории использования лицензий (`MLC-048`, ADR-25)
+
+Фундамент раздела «Отчёты»: панель копит time-series потребления лицензий клиентами.
+
+- **Каденция съёма ≈25 с.** Замер делается внутри cold-цикла `ReconciliationJob`
+  (троттл `Polling.ColdIntervalSeconds`, деф. 25 с) — переиспользует уже посчитанное
+  потребление цикла, **нового спавна `rac.exe` не добавляет** (бюджет ADR-3.3 не растёт).
+  Это ~36 замеров на 15-минутный бакет; в БД (`dbo.LicenseUsageSnapshots`) пишется один
+  агрегат на клиента за бакет (min/max/avg + лимит), не каждый замер.
+- **Данные появляются только после релиза сбора.** История не реконструируется задним
+  числом — график наполняется с момента, когда заработал cold-цикл с этой версией; на
+  свежей БД первые строки появятся после пересечения двух 15-минутных границ.
+- **Потеря текущего частичного бакета при рестарте — норма.** Накопление открытого бакета
+  живёт в памяти процесса; рестарт/редеплой теряет ещё не закрытый бакет (флаша на
+  graceful shutdown нет). Для телеметрии это допустимо (best-effort) — закрытые бакеты уже
+  в БД, теряется максимум последние <15 мин.
+- **Ретеншен** — `Settings.LicenseUsage.RetentionDays` (деф. 365, диапазон 30–3650),
+  настраивается оператором на странице «Параметры». Ночная джоба `license-usage-retention`
+  (03:30 UTC, фиксировано) удаляет замеры старше окна батчами; в аудит не пишет
+  (housekeeping). Смещена от `audit-retention` (03:00), чтобы ночные чистки не пересекались.
+
 ## Проверки готовности — liveness vs readiness (`MLC-040` / PERF-04)
 
 Два анонимных эндпоинта с разной семантикой и ценой:
