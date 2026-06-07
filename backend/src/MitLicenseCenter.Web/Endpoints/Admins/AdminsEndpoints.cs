@@ -48,7 +48,7 @@ public static class AdminsEndpoints
         foreach (var user in users)
         {
             var roles = await userManager.GetRolesAsync(user).ConfigureAwait(false);
-            items.Add(new AdminResponse(user.Id, user.UserName!, roles.ToArray(), IsActive(user, now)));
+            items.Add(new AdminResponse(user.Id, user.UserName!, roles.ToArray(), IsActive(user, now), user.LastLoginAt));
         }
 
         return TypedResults.Ok(new AdminListResponse(items));
@@ -93,6 +93,9 @@ public static class AdminsEndpoints
             UserName = userName,
             Email = null,
             EmailConfirmed = true,
+            // MLC-059 — выданный пароль временный: при первом входе пользователя обяжем
+            // сменить его (админ не знает чужой постоянный пароль).
+            MustChangePassword = true,
         };
 
         var createResult = await userManager.CreateAsync(user, password).ConfigureAwait(false);
@@ -152,6 +155,11 @@ public static class AdminsEndpoints
                 "Не удалось сбросить пароль: "
                 + string.Join("; ", resetResult.Errors.Select(e => $"{e.Code}: {e.Description}")));
         }
+
+        // MLC-059 — сброшенный пароль временный: обяжем пользователя сменить его при
+        // следующем входе.
+        user.MustChangePassword = true;
+        await userManager.UpdateAsync(user).ConfigureAwait(false);
 
         await httpContext.AuditAsync(audit, AuditActionType.AdminPasswordReset,
             init => AuditDescriptions.AdminPasswordReset(user.UserName!, init),

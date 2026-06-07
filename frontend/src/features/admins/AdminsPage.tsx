@@ -1,3 +1,5 @@
+import { format } from "date-fns";
+import { ru } from "date-fns/locale";
 import {
   KeyRoundIcon,
   MoreHorizontalIcon,
@@ -58,6 +60,11 @@ export function AdminsPage() {
   const renderRoles = (admin: Admin) =>
     admin.roles.map((role) => t(`admins.roles.${role}`, { defaultValue: role })).join(", ") || "—";
 
+  const renderLastLogin = (admin: Admin) =>
+    admin.lastLoginAt
+      ? format(new Date(admin.lastLoginAt), "dd.MM.yyyy HH:mm", { locale: ru })
+      : "—";
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
@@ -95,6 +102,7 @@ export function AdminsPage() {
               <TableHead>{t("admins.fields.userName")}</TableHead>
               <TableHead>{t("admins.fields.role")}</TableHead>
               <TableHead>{t("admins.fields.status")}</TableHead>
+              <TableHead>{t("admins.fields.lastLogin")}</TableHead>
               <TableHead className="w-10" />
             </TableRow>
           </TableHeader>
@@ -111,13 +119,16 @@ export function AdminsPage() {
                     <TableCell>
                       <Skeleton className="h-5 w-20" />
                     </TableCell>
+                    <TableCell>
+                      <Skeleton className="h-4 w-32" />
+                    </TableCell>
                     <TableCell />
                   </TableRow>
                 ))
               : items.length === 0
                 ? !isError && (
                     <TableRow>
-                      <TableCell colSpan={4} className="py-12">
+                      <TableCell colSpan={5} className="py-12">
                         <div className="flex flex-col items-center justify-center gap-3 text-center">
                           <ShieldIcon className="text-muted-foreground size-8" />
                           <div className="space-y-1">
@@ -144,6 +155,9 @@ export function AdminsPage() {
                         ) : (
                           <StatusBadge variant="neutral">{t("admins.status.disabled")}</StatusBadge>
                         )}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground tabular-nums">
+                        {renderLastLogin(admin)}
                       </TableCell>
                       <TableCell className="text-right">
                         <DropdownMenu>

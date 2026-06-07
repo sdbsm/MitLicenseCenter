@@ -8,6 +8,12 @@ vi.mock("../useAuth", () => ({
   useMe: vi.fn(),
 }));
 
+// Экран форс-смены — отдельная единица; здесь проверяем только маршрутный гейт, поэтому
+// подменяем его маркером (его собственное поведение покрыто отдельно).
+vi.mock("../ForcePasswordChange", () => ({
+  ForcePasswordChange: () => <div>FORCE CHANGE SCREEN</div>,
+}));
+
 import { useMe } from "../useAuth";
 
 const mockedUseMe = vi.mocked(useMe);
@@ -53,7 +59,7 @@ describe("ProtectedRoute", () => {
   });
 
   it("пускает авторизованного пользователя к содержимому", () => {
-    setMe({ data: { userName: "viewer", roles: ["Viewer"] } });
+    setMe({ data: { userName: "viewer", roles: ["Viewer"], mustChangePassword: false } });
     renderProtected(false);
     expect(screen.getByText("PROTECTED CONTENT")).toBeInTheDocument();
     expect(screen.queryByText("LOGIN PAGE")).not.toBeInTheDocument();
@@ -73,7 +79,7 @@ describe("ProtectedRoute", () => {
   });
 
   it("admin-only маршрут редиректит Viewer на /", () => {
-    setMe({ data: { userName: "viewer", roles: ["Viewer"] } });
+    setMe({ data: { userName: "viewer", roles: ["Viewer"], mustChangePassword: false } });
     renderProtected(true);
     expect(screen.getByText("HOME PAGE")).toBeInTheDocument();
     expect(screen.queryByText("PROTECTED CONTENT")).not.toBeInTheDocument();
@@ -81,9 +87,17 @@ describe("ProtectedRoute", () => {
   });
 
   it("admin-only маршрут пускает Admin к содержимому", () => {
-    setMe({ data: { userName: "admin", roles: ["Admin"] } });
+    setMe({ data: { userName: "admin", roles: ["Admin"], mustChangePassword: false } });
     renderProtected(true);
     expect(screen.getByText("PROTECTED CONTENT")).toBeInTheDocument();
+  });
+
+  it("показывает экран форс-смены, пока стоит mustChangePassword", () => {
+    setMe({ data: { userName: "operator", roles: ["Admin"], mustChangePassword: true } });
+    renderProtected(false);
+    expect(screen.getByText("FORCE CHANGE SCREEN")).toBeInTheDocument();
+    expect(screen.queryByText("PROTECTED CONTENT")).not.toBeInTheDocument();
+    expect(screen.queryByText("LOGIN PAGE")).not.toBeInTheDocument();
   });
 
   it("во время загрузки не редиректит и не показывает содержимое", () => {

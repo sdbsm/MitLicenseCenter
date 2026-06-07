@@ -29,6 +29,7 @@ const sampleAdmin: Admin = {
   userName: "operator",
   roles: ["Admin"],
   isActive: true,
+  lastLoginAt: null,
 };
 
 function setup() {

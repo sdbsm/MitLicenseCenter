@@ -9,6 +9,9 @@ import { z } from "zod";
 export const currentUserSchema = z.object({
   userName: z.string(),
   roles: z.array(z.string()),
+  // MLC-059 — пользователь вошёл по временному паролю (после создания/сброса учётки) и
+  // обязан сменить его: ProtectedRoute держит его на блокирующем экране, пока флаг стоит.
+  mustChangePassword: z.boolean(),
 });
 
 export type CurrentUser = z.infer<typeof currentUserSchema>;

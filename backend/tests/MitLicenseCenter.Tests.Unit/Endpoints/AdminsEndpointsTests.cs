@@ -50,6 +50,8 @@ public sealed class AdminsEndpointsTests
         user.Should().NotBeNull();
         (await h.UserManager.IsInRoleAsync(user!, Roles.Admin)).Should().BeTrue();
         (await h.UserManager.CheckPasswordAsync(user!, "Aa1!_valid_pwd_0")).Should().BeTrue();
+        // MLC-059 — выданный пароль временный: пользователь обязан сменить его при первом входе.
+        user!.MustChangePassword.Should().BeTrue();
 
         audit.Entries.Should().ContainSingle(e => e.Action == AuditActionType.AdminCreated);
         audit.Entries[0].Description.Should().NotContain("Aa1!_valid_pwd_0", "пароль в аудит не пишется");
@@ -116,6 +118,8 @@ public sealed class AdminsEndpointsTests
         var reloaded = (await h.UserManager.FindByIdAsync(user.Id.ToString()))!;
         (await h.UserManager.CheckPasswordAsync(reloaded, newPwd)).Should().BeTrue();
         (await h.UserManager.CheckPasswordAsync(reloaded, "Old-Password-123!")).Should().BeFalse();
+        // MLC-059 — сброшенный пароль временный: снова требуем смену при следующем входе.
+        reloaded.MustChangePassword.Should().BeTrue();
         audit.Entries.Should().ContainSingle(e => e.Action == AuditActionType.AdminPasswordReset);
     }
 
@@ -204,6 +208,8 @@ public sealed class AdminsEndpointsTests
         items.Single(i => i.UserName == "alpha").Roles.Should().ContainSingle().Which.Should().Be(Roles.Admin);
         items.Single(i => i.UserName == "alpha").IsActive.Should().BeTrue();
         items.Single(i => i.UserName == "bravo").IsActive.Should().BeFalse();
+        // MLC-059 — ни разу не входивший пользователь имеет пустой «последний вход».
+        items.Single(i => i.UserName == "alpha").LastLoginAt.Should().BeNull();
     }
 
     // Реальный UserManager/RoleManager над EF InMemory + DataProtection (для reset-token).

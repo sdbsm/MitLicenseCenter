@@ -7,12 +7,14 @@ namespace MitLicenseCenter.Web.Endpoints;
 // UserManager, без EF-mapping-хелпера.
 
 // Одна учётка панели в списке. `Roles` — назначенные роли (Admin/Viewer); `IsActive` —
-// не залочена ли учётка (Identity-lockout = «отключена»).
+// не залочена ли учётка (Identity-lockout = «отключена»); `LastLoginAt` (MLC-059) — время
+// последнего успешного входа в UTC, `null` — ни разу не входил.
 public sealed record AdminResponse(
     Guid Id,
     string UserName,
     IReadOnlyList<string> Roles,
-    bool IsActive);
+    bool IsActive,
+    DateTime? LastLoginAt);
 
 public sealed record AdminListResponse(IReadOnlyList<AdminResponse> Items);
 

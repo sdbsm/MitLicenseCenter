@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { omittable } from "@/lib/apiSchema";
 
 // Роли панели. Назначаются при создании учётки; смену роли у существующих учёток
 // раздел не поддерживает (вне объёма MLC-058).
@@ -11,6 +12,9 @@ export const adminSchema = z.object({
   roles: z.array(z.string()),
   // Identity-lockout = «отключена»; активна — когда lockout не действует.
   isActive: z.boolean(),
+  // MLC-059 — время последнего успешного входа (ISO-UTC), null — ни разу не входил.
+  // omittable: бэкенд опускает ключ при null (WhenWritingNull) — принимаем оба варианта.
+  lastLoginAt: omittable(z.string()),
 });
 
 // Список учёток (`GET /api/v1/admins`) — простой конверт без пагинации (учёток единицы).

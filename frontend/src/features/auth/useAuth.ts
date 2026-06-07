@@ -4,7 +4,7 @@ import { currentUserSchema, type CurrentUser } from "./types";
 
 export type { CurrentUser };
 
-const ME_KEY = ["auth", "me"] as const;
+export const ME_KEY = ["auth", "me"] as const;
 
 async function fetchMe(): Promise<CurrentUser | null> {
   try {
