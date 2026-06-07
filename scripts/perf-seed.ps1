@@ -11,6 +11,12 @@
     Ростовые точки. Дефолты = baseline; ×10 = ростовая точка (см. docs\OPERATIONS.md).
 .PARAMETER OverLimitFraction
     Доля тенантов, заведомо превышающих лимит (триггерит enforcement/kill-путь).
+    Дефолт зависит от -Realistic: 0.10 (realistic) / 0.30 (perf).
+.PARAMETER Realistic
+    Реалистичные demo-данные «как будто пользовались»: лимиты клиентов 5..150 (СМБ-микс),
+    правдоподобные названия, история /reports = лимиту клиента (coupled), живые сессии =
+    текущему потреблению. Дефолты сдвигаются: over-limit ~10%, usage-days 365.
+    Без флага — perf-поведение MLC-039 1:1 (лимиты 1/1e6).
 .PARAMETER ConnectionString
     Строка подключения к dev-БД (с Database=). По умолчанию локальный MSSQL / MitLicenseCenter.
 .PARAMETER ScenarioPath
@@ -25,6 +31,7 @@ param(
     [int]$Sessions = 500,
     [int]$UsageDays = 0,
     [double]$OverLimitFraction = 0.30,
+    [switch]$Realistic,
     [int]$Seed = 1039,
     [string]$ConnectionString = 'Server=.;Database=MitLicenseCenter;Trusted_Connection=True;TrustServerCertificate=True;Encrypt=False',
     [string]$ScenarioPath,
@@ -43,6 +50,14 @@ if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
 
 $env:ConnectionStrings__Default = $ConnectionString
 
+# Realistic-дефолты применяем, только если оператор НЕ задал параметр явно (PSBoundParameters).
+if (-not $PSBoundParameters.ContainsKey('OverLimitFraction')) {
+    $OverLimitFraction = if ($Realistic) { 0.10 } else { 0.30 }
+}
+if (-not $PSBoundParameters.ContainsKey('UsageDays')) {
+    $UsageDays = if ($Realistic) { 365 } else { 0 }
+}
+
 # Доля форматируется инвариантно — иначе на RU-локали уйдёт «0,3» и парсер харнесса упадёт.
 $fraction = $OverLimitFraction.ToString([System.Globalization.CultureInfo]::InvariantCulture)
 
@@ -57,6 +72,7 @@ $seedArgs = @(
     '--over-limit-fraction', $fraction,
     '--seed', $Seed
 )
+if ($Realistic) { $seedArgs += '--realistic' }
 if ($ScenarioPath) { $seedArgs += @('--scenario', $ScenarioPath) }
 
 Write-Host "Сидинг dev-БД нагрузочными данными..." -ForegroundColor Cyan

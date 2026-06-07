@@ -25,14 +25,21 @@ internal sealed record SeedOptions
     // Глубина истории использования лицензий в днях (0 = не сеять — сохраняет 1:1 поведение
     // perf-харнесса MLC-039). Совпадает с дефолтным LicenseUsage.RetentionDays = 365.
     public int UsageDays { get; init; }
+
+    // Realistic-режим (--realistic): лимиты тенантов из СМБ-распределения 5..150, снапшоты
+    // usage пишут Limit = лимиту тенанта (coupled, как в проде), сессии = текущему потреблению.
+    // По умолчанию ВЫКЛ → perf-поведение MLC-039 (1/1e6, round-robin) сохраняется 1:1.
+    public bool Realistic { get; init; }
 }
 
 // Засеваемый граф (без аудита — он стримится отдельно из-за объёма K) + сценарий для заглушки.
+// Profiles непуст только в realistic-режиме (единый источник для снапшотов и сессий).
 internal sealed record SeedGraph(
     IReadOnlyList<Tenant> Tenants,
     IReadOnlyList<Infobase> Infobases,
     IReadOnlyList<Publication> Publications,
-    PerfScenario Scenario);
+    PerfScenario Scenario,
+    IReadOnlyList<TenantUsageProfile> Profiles);
 
 // Чистая генерация графа — без БД, поэтому инварианты (per-tenant имена, глобальная
 // уникальность ClusterInfobaseId, 1:1 публикация, over-limit тенанты) проверяемы unit-тестом.
@@ -59,11 +66,19 @@ internal static class SeedDataGenerator
         var tenants = new List<Tenant>(opts.Tenants);
         for (var i = 0; i < opts.Tenants; i++)
         {
+            // NextGuid вызывается всегда; BuildRealisticLimit — ТОЛЬКО в realistic-ветке
+            // тернарника (короткое замыкание), поэтому поток rng perf-пути неизменен и
+            // Build_is_deterministic_for_a_fixed_seed остаётся зелёным.
+            var id = NextGuid(rng);
+            var limit = opts.Realistic
+                ? BuildRealisticLimit(rng)
+                : (i < overLimitCount ? OverLimitCap : NormalCap);
+
             tenants.Add(new Tenant
             {
-                Id = NextGuid(rng),
-                Name = $"perf-tenant-{i:D5}",
-                MaxConcurrentLicenses = i < overLimitCount ? OverLimitCap : NormalCap,
+                Id = id,
+                Name = opts.Realistic ? BuildRealisticName(i) : $"perf-tenant-{i:D5}",
+                MaxConcurrentLicenses = limit,
                 IsActive = true,
                 CreatedAt = nowUtc,
             });
@@ -111,7 +126,21 @@ internal static class SeedDataGenerator
             });
         }
 
-        var sessions = BuildSessions(opts, overLimitCount, infobases, infobasesByTenant, rng, nowUtc);
+        // Realistic: профили (единый источник) → сессии из текущего потребления. Perf: прежний
+        // round-robin BuildSessions. Профили строятся БЕЗ rng (модель детерминирована от
+        // tenantIndex+bucket), поэтому не влияют на поток rng сессий.
+        IReadOnlyList<TenantUsageProfile> profiles;
+        List<ScenarioSession> sessions;
+        if (opts.Realistic)
+        {
+            profiles = BuildProfiles(overLimitCount, tenants, infobases, infobasesByTenant, nowUtc);
+            sessions = BuildRealisticSessions(profiles, rng, nowUtc);
+        }
+        else
+        {
+            profiles = [];
+            sessions = BuildSessions(opts, overLimitCount, infobases, infobasesByTenant, rng, nowUtc);
+        }
 
         var scenarioInfobases = infobases
             .Select(i => new ScenarioInfobase(i.ClusterInfobaseId, i.Name, null))
@@ -119,7 +148,7 @@ internal static class SeedDataGenerator
 
         var scenario = new PerfScenario(NextGuid(rng), sessions, scenarioInfobases);
 
-        return new SeedGraph(tenants, infobases, publications, scenario);
+        return new SeedGraph(tenants, infobases, publications, scenario, profiles);
     }
 
     // Стримим K строк аудита лениво — материализовать миллион в список незачем (батчевая вставка).
@@ -157,36 +186,148 @@ internal static class SeedDataGenerator
     // Один сэмпл потребления лицензий за 15-мин бакет (вход для LicenseUsageSnapshot).
     internal readonly record struct UsageSample(int ConsumedMin, int ConsumedMax, double ConsumedAvg, int Limit);
 
-    // Потолок лицензий тенанта ДЛЯ ГРАФИКОВ — намеренно отвязан от enforcement-лимита
-    // (MaxConcurrentLicenses = 1/1e6, заточен под rac-stub kill-путь). Детерминирован от
-    // индекса → реалистичный диапазон 10..55, чтобы график /reports был осмысленным.
+    // Потолок лицензий тенанта ДЛЯ ГРАФИКОВ в perf-режиме — намеренно отвязан от enforcement-
+    // лимита (1/1e6). Детерминирован от индекса → диапазон 10..55, чтобы perf-график /reports
+    // был осмысленным. В realistic-режиме НЕ используется (Limit = реальному лимиту тенанта).
     public static int UsageLimitFor(int tenantIndex) => 10 + (tenantIndex % 10) * 5;
 
-    // Чистая модель потребления: суточная «колоколом» к полудню + спад ночью и в выходные +
-    // детерминированный шум и per-tenant фаза/интенсивность; у части тенантов пики залезают
-    // выше лимита (видимые всплески над линией лимита). Без последовательного RNG — значение
-    // зависит только от (tenantIndex, bucket), поэтому порядок обхода неважен и воспроизводим.
+    // Perf-перегрузка (1:1 вызов из UsageSeeder в perf-режиме): decoupled лимит, не over-limit.
     public static UsageSample BuildUsageSample(int tenantIndex, DateTime bucketStartUtc)
-    {
-        var limit = UsageLimitFor(tenantIndex);
+        => BuildUsageSample(tenantIndex, UsageLimitFor(tenantIndex), overLimit: false, bucketStartUtc);
 
+    // Чистая модель потребления относительно ЗАДАННОГО лимита: суточный профиль (рабочие
+    // часы выше, ночь/выходные ниже) × нагрузка × детерминированный шум. Значение зависит
+    // только от (tenantIndex, limit, overLimit, bucket) — без последовательного RNG, поэтому
+    // порядок обхода неважен и воспроизводим.
+    //   • normal      → нагрузка 0.30..0.85 (с шумом <1.0) → держится НИЖЕ лимита;
+    //   • over-limit «постоянный» (чётный индекс)  → 1.15..1.40 → всегда ВЫШЕ лимита (и «сейчас»);
+    //   • over-limit «пиковый»     (нечётный)      → 0.6..1.6  → превышает только в рабочие часы.
+    public static UsageSample BuildUsageSample(
+        int tenantIndex, int limit, bool overLimit, DateTime bucketStartUtc)
+    {
         var hour = bucketStartUtc.Hour + (bucketStartUtc.Minute / 60.0);
         var daily = Math.Exp(-Math.Pow((hour - 13.0) / 5.0, 2)); // 0..1, пик в 13:00
         var weekend = bucketStartUtc.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday;
-        var weekly = weekend ? 0.25 : 1.0;
+        var weekly = weekend ? 0.30 : 1.0;
 
         const double idleFloor = 0.08; // небольшой ночной фон
-        var activity = idleFloor + ((1 - idleFloor) * daily * weekly);
+        var activity = idleFloor + ((1 - idleFloor) * daily * weekly); // 0.08..1.0
 
-        var phase = ((tenantIndex * 37) % 100) / 100.0; // 0..1, разводит тенанты
-        var scale = 0.85 + (0.45 * phase);              // часть тенантов «горячее» (до 1.30)
+        double load;
+        if (!overLimit)
+        {
+            // Кап подобран так, чтобы даже ConsumedMax (avg + spread, с шумом) не превышал лимит
+            // → normal-тенанты НИКОГДА не «красные» (over-limit «сейчас» = ровно помеченные).
+            load = 0.25 + (0.45 * activity);                 // 0.27..0.70 — заведомо ниже лимита
+        }
+        else if (tenantIndex % 2 == 0)
+        {
+            load = 1.15 + (0.25 * activity);                 // 1.17..1.40 — постоянно выше
+        }
+        else
+        {
+            load = 0.60 + (1.00 * activity);                 // 0.68..1.60 — выше только в пик
+        }
+
         var noise = DeterministicNoise(tenantIndex, bucketStartUtc); // -0.15..0.15
-
-        var avg = Math.Max(0.0, limit * activity * scale * (1 + noise));
-        var spread = Math.Max(1.0, avg * 0.15);
+        var avg = Math.Max(0.0, limit * load * (1 + noise));
+        var spread = Math.Max(1.0, avg * 0.12);
         var max = (int)Math.Ceiling(avg + spread);
         var min = (int)Math.Max(0, Math.Floor(avg - spread));
         return new UsageSample(min, max, avg, limit);
+    }
+
+    // СМБ-распределение лимитов лицензий (выбор пользователя): ~60% мелкие 5..20, ~30% средние
+    // 25..60, ~10% крупные 75..150. Всё ∈ [0,100000] (= валидация [Range(0,100_000)]).
+    private static int BuildRealisticLimit(Random rng)
+    {
+        var roll = rng.NextDouble();
+        if (roll < 0.60)
+        {
+            return rng.Next(5, 21);
+        }
+
+        return roll < 0.90 ? rng.Next(25, 61) : rng.Next(75, 151);
+    }
+
+    // Детерминированное правдоподобное имя клиента (форма × основа), уникальное для i: сначала
+    // перебираются все комбинации, затем добавляется числовой суффикс. Без rng — на поток не влияет.
+    private static string BuildRealisticName(int index)
+    {
+        var combos = NameForms.Length * NameStems.Length;
+        var combo = index % combos;
+        var form = NameForms[combo % NameForms.Length];
+        var stem = NameStems[combo / NameForms.Length];
+        var cycle = index / combos;
+        return cycle == 0 ? $"{form} «{stem}»" : $"{form} «{stem} {cycle + 1}»";
+    }
+
+    private static readonly string[] NameForms = ["ООО", "АО", "ПАО", "ИП"];
+
+    private static readonly string[] NameStems =
+    [
+        "Ромашка", "Сибирь", "Альфа-Трейд", "ТехноСервис", "Прогресс", "Вектор", "Гарант",
+        "Меридиан", "Стройинвест", "АгроХолдинг", "Логистик", "МедСервис", "ФинГрупп", "Энергия",
+        "Уралмаш-Сервис", "Дом Книги", "Зелёный Сад", "Свежий Хлеб", "АвтоМир", "МастерОк",
+        "Уют", "Фортуна", "Каскад", "Орбита", "Юпитер", "Атлант", "Бриз", "Лидер", "Капитал",
+        "Союз", "Регион-Торг", "ПромСнаб", "ТоргСервис", "Веста", "Кристалл", "Магнат", "Олимп",
+        "Пирамида", "Эталон", "Феникс",
+    ];
+
+    // 15-минутный бакет (как у боевого LicenseUsageAccumulator) — общий хелпер для профилей и UsageSeeder.
+    internal static DateTime FloorToBucket(DateTime utc)
+    {
+        var minute = utc.Minute - (utc.Minute % 15);
+        return new DateTime(utc.Year, utc.Month, utc.Day, utc.Hour, minute, 0, DateTimeKind.Utc);
+    }
+
+    // Профиль каждого тенанта: лимит = MaxConcurrentLicenses (coupled), over-limit = первые
+    // overLimitCount, current = потребление «сейчас» (floor(now)) — оно задаёт число живых сессий.
+    private static List<TenantUsageProfile> BuildProfiles(
+        int overLimitCount,
+        List<Tenant> tenants,
+        List<Infobase> infobases,
+        List<int>[] infobasesByTenant,
+        DateTime nowUtc)
+    {
+        var currentBucket = FloorToBucket(nowUtc);
+        var profiles = new List<TenantUsageProfile>(tenants.Count);
+        for (var t = 0; t < tenants.Count; t++)
+        {
+            var limit = tenants[t].MaxConcurrentLicenses;
+            var overLimit = t < overLimitCount;
+            var clusterIds = infobasesByTenant[t].Select(j => infobases[j].ClusterInfobaseId).ToList();
+            var current = BuildUsageSample(t, limit, overLimit, currentBucket).ConsumedMax;
+            profiles.Add(new TenantUsageProfile(tenants[t].Id, t, limit, overLimit, current, clusterIds));
+        }
+
+        return profiles;
+    }
+
+    // Realistic-сессии: ровно CurrentConsumed живых сессий на тенанта, round-robin по его
+    // инфобазам → правый край /reports совпадает с live-снимком дашборда; over-limit тенанты
+    // дают сессий больше лимита (kill-демо).
+    private static List<ScenarioSession> BuildRealisticSessions(
+        IReadOnlyList<TenantUsageProfile> profiles, Random rng, DateTime nowUtc)
+    {
+        var sessions = new List<ScenarioSession>();
+        var n = 0;
+        foreach (var p in profiles)
+        {
+            if (p.InfobaseClusterIds.Count == 0)
+            {
+                continue;
+            }
+
+            for (var k = 0; k < p.CurrentConsumed; k++)
+            {
+                var cluster = p.InfobaseClusterIds[k % p.InfobaseClusterIds.Count];
+                sessions.Add(NewSession(cluster, n, rng, nowUtc));
+                n++;
+            }
+        }
+
+        return sessions;
     }
 
     // Дешёвый детерминированный шум из (tenantIndex, тики бакета) → [-0.15, 0.15].

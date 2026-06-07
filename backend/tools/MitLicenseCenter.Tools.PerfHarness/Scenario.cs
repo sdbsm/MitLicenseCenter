@@ -24,6 +24,19 @@ internal sealed record ScenarioInfobase(
     string Name,
     string? Description);
 
+// Realistic-режим: per-tenant профиль потребления — единый источник истины и для истории
+// снапшотов (UsageSeeder), и для числа живых сессий, чтобы правый край графика /reports
+// совпадал с live-снимком дашборда. Limit = MaxConcurrentLicenses тенанта (coupled, как в
+// проде). CurrentConsumed = потребление «сейчас» (значение модели в floor(now)). В perf-
+// режиме профили не строятся (пустой список).
+internal sealed record TenantUsageProfile(
+    Guid TenantId,
+    int TenantIndex,
+    int Limit,
+    bool OverLimit,
+    int CurrentConsumed,
+    IReadOnlyList<Guid> InfobaseClusterIds);
+
 internal static class ScenarioFile
 {
     public const string EnvVar = "MLC_PERF_SCENARIO";

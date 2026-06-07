@@ -121,4 +121,127 @@ public sealed class PerfHarnessTests
         exitCode.Should().Be(0);
         stdout.Should().BeEmpty();
     }
+
+    // ── Realistic-режим (демо-данные «как будто пользовались») ───────────────────────────
+
+    [Fact]
+    public void Realistic_perf_off_keeps_extreme_enforcement_limits()
+    {
+        var opts = new SeedOptions { Tenants = 50, Infobases = 100, Audit = 0, Sessions = 200 };
+
+        var graph = SeedDataGenerator.Build(opts, FixedNow);
+
+        // Perf-путь (Realistic=false) 1:1: лимиты строго 1 или 1_000_000, профили пусты.
+        graph.Tenants.Select(t => t.MaxConcurrentLicenses).Should().OnlyContain(l => l == 1 || l == 1_000_000);
+        graph.Profiles.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Realistic_limits_are_smb_sized_in_three_bands()
+    {
+        var opts = new SeedOptions { Tenants = 100, Infobases = 300, Audit = 0, Realistic = true };
+
+        var limits = SeedDataGenerator.Build(opts, FixedNow).Tenants
+            .Select(t => t.MaxConcurrentLicenses).ToList();
+
+        limits.Should().OnlyContain(l => l >= 5 && l <= 150, "СМБ-микс 5..150, не 1/1_000_000");
+        limits.Should().Contain(l => l <= 20);                  // мелкие
+        limits.Should().Contain(l => l >= 25 && l <= 60);       // средние
+        limits.Should().Contain(l => l >= 75);                  // крупные
+    }
+
+    [Fact]
+    public void Realistic_names_are_plausible_and_unique()
+    {
+        var opts = new SeedOptions { Tenants = 100, Infobases = 300, Audit = 0, Realistic = true };
+
+        var names = SeedDataGenerator.Build(opts, FixedNow).Tenants.Select(t => t.Name).ToList();
+
+        names.Should().OnlyHaveUniqueItems();
+        names.Should().NotContain(n => n.StartsWith("perf-tenant", StringComparison.Ordinal));
+        names.Should().OnlyContain(n => n.Contains('«', StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Realistic_profiles_couple_snapshot_limit_to_tenant_limit()
+    {
+        var opts = new SeedOptions { Tenants = 100, Infobases = 300, Audit = 0, Realistic = true };
+
+        var graph = SeedDataGenerator.Build(opts, FixedNow);
+        var limitById = graph.Tenants.ToDictionary(t => t.Id, t => t.MaxConcurrentLicenses);
+
+        graph.Profiles.Should().HaveCount(100);
+        graph.Profiles.Should().OnlyContain(p => p.Limit == limitById[p.TenantId],
+            "snapshot.Limit = MaxConcurrentLicenses тенанта (как в проде ReconciliationJob)");
+    }
+
+    [Fact]
+    public void Realistic_over_limit_tenants_peak_above_limit_normal_stay_below()
+    {
+        // OverLimitFraction = 0.10 — реалистичный дефолт CLI (Program.cs) для --realistic.
+        var opts = new SeedOptions
+        {
+            Tenants = 100,
+            Infobases = 300,
+            Audit = 0,
+            Realistic = true,
+            OverLimitFraction = 0.10,
+        };
+        var graph = SeedDataGenerator.Build(opts, FixedNow);
+
+        // Будни (2026-06-04 — четверг): сэмплируем каждый час суток.
+        static int MaxOverDay(TenantUsageProfile p)
+        {
+            var maxConsumed = 0;
+            for (var h = 0; h < 24; h++)
+            {
+                var s = SeedDataGenerator.BuildUsageSample(p.TenantIndex, p.Limit, p.OverLimit,
+                    new DateTime(2026, 6, 4, h, 0, 0, DateTimeKind.Utc));
+                maxConsumed = Math.Max(maxConsumed, s.ConsumedMax);
+            }
+            return maxConsumed;
+        }
+
+        foreach (var p in graph.Profiles.Where(p => p.OverLimit))
+        {
+            MaxOverDay(p).Should().BeGreaterThan(p.Limit, "over-limit тенант обязан пробивать лимит в пике");
+        }
+
+        foreach (var p in graph.Profiles.Where(p => !p.OverLimit))
+        {
+            MaxOverDay(p).Should().BeLessThanOrEqualTo(p.Limit, "normal тенант не превышает лимит");
+        }
+
+        // ~10% over-limit (выбор пользователя): clamp(ceil(100*0.10)) = 10.
+        graph.Profiles.Count(p => p.OverLimit).Should().Be(10);
+    }
+
+    [Fact]
+    public void Realistic_sessions_equal_current_consumption_and_consume_license()
+    {
+        var opts = new SeedOptions { Tenants = 100, Infobases = 300, Audit = 0, Realistic = true };
+        var graph = SeedDataGenerator.Build(opts, FixedNow);
+
+        // Сессий ровно столько, сколько суммарное текущее потребление профилей (у каждого ≥1 ИБ).
+        var expected = graph.Profiles.Sum(p => p.CurrentConsumed);
+        graph.Scenario.Sessions.Should().HaveCount(expected);
+        graph.Scenario.Sessions.Should().OnlyContain(s => s.AppId == "1CV8");
+
+        // «Постоянные» over-limit (чётный индекс) превышают лимит и «сейчас» (полночь) → красные/kill.
+        graph.Profiles.Where(p => p.OverLimit && p.TenantIndex % 2 == 0)
+            .Should().OnlyContain(p => p.CurrentConsumed > p.Limit);
+    }
+
+    [Fact]
+    public void Realistic_is_deterministic_for_a_fixed_seed()
+    {
+        var opts = new SeedOptions { Tenants = 40, Infobases = 120, Audit = 0, Realistic = true, Seed = 1039 };
+
+        var a = SeedDataGenerator.Build(opts, FixedNow);
+        var b = SeedDataGenerator.Build(opts, FixedNow);
+
+        a.Tenants.Select(t => t.MaxConcurrentLicenses).Should().Equal(b.Tenants.Select(t => t.MaxConcurrentLicenses));
+        a.Tenants.Select(t => t.Name).Should().Equal(b.Tenants.Select(t => t.Name));
+        a.Scenario.Sessions.Select(s => s.SessionId).Should().Equal(b.Scenario.Sessions.Select(s => s.SessionId));
+    }
 }

@@ -6,8 +6,11 @@ namespace MitLicenseCenter.Tools.PerfHarness;
 
 // Засев истории использования лицензий (dbo.LicenseUsageSnapshots, MLC-048/ADR-25) для
 // наполнения графиков /reports. Объём большой (дни × 96 бакетов × тенанты ≈ миллионы строк) →
-// пишем через SqlBulkCopy чанками, минуя EF change-tracking. Модель потребления и per-tenant
-// потолок — в чистом SeedDataGenerator.BuildUsageSample (отвязаны от enforcement-лимита).
+// пишем через SqlBulkCopy чанками, минуя EF change-tracking. Модель потребления — в чистом
+// SeedDataGenerator.BuildUsageSample.
+//   • realistic → Limit строки = лимиту тенанта (coupled, как в проде ReconciliationJob),
+//     consumed относительно него (профиль задаёт over-limit);
+//   • perf      → decoupled Limit = UsageLimitFor (поведение MLC-039-надстройки 1:1).
 internal static class UsageSeeder
 {
     private const int ChunkSize = 100_000;
@@ -15,24 +18,43 @@ internal static class UsageSeeder
 
     public static async Task RunAsync(
         IReadOnlyList<Tenant> tenants,
+        IReadOnlyList<TenantUsageProfile> profiles,
+        bool realistic,
         int usageDays,
         int seed,
         string connectionString,
+        DateTime nowUtc,
         TextWriter log,
         CancellationToken ct)
     {
-        if (usageDays <= 0 || tenants.Count == 0)
+        if (usageDays <= 0)
         {
             return;
         }
 
-        // Окно выровнено на границу бакета (как у боевого аккумулятора): [now-usageDays; now).
-        var end = FloorToBucket(DateTime.UtcNow);
-        var start = end.AddDays(-usageDays);
-        var bucketCount = (int)((end - start).TotalMinutes / BucketMinutes);
-        var totalRows = (long)bucketCount * tenants.Count;
+        // Кого сеять: realistic → профили (coupled Limit), perf → тенанты (decoupled UsageLimitFor).
+        List<(Guid TenantId, int Index, int Limit, bool Over)> series = realistic
+            ? profiles
+                .Select(p => (p.TenantId, p.TenantIndex, p.Limit, p.OverLimit))
+                .ToList()
+            : tenants
+                .Select((t, i) => (t.Id, i, SeedDataGenerator.UsageLimitFor(i), false))
+                .ToList();
+
+        if (series.Count == 0)
+        {
+            return;
+        }
+
+        // Окно выровнено на границу бакета (как у боевого аккумулятора) и ВКЛЮЧАЕТ текущий
+        // бакет floor(now) последним — он совпадает с CurrentConsumed профиля (правый край
+        // графика = live-снимок дашборда).
+        var end = SeedDataGenerator.FloorToBucket(nowUtc);
+        var bucketCount = usageDays * 24 * 60 / BucketMinutes;
+        var firstBucket = end.AddMinutes(-BucketMinutes * (bucketCount - 1));
+        var totalRows = (long)bucketCount * series.Count;
         log.WriteLine(
-            $"Usage: {tenants.Count} тенантов × {bucketCount} бакетов " +
+            $"Usage: {series.Count} тенантов × {bucketCount} бакетов " +
             $"({usageDays}д × {BucketMinutes}мин) = {totalRows} строк.");
 
         var rng = new Random(seed ^ 0x05A6E);
@@ -53,13 +75,12 @@ internal static class UsageSeeder
         }
 
         long written = 0;
-        for (var t = 0; t < tenants.Count; t++)
+        foreach (var (tenantId, index, limit, over) in series)
         {
-            var tenantId = tenants[t].Id;
-            var bucket = start;
+            var bucket = firstBucket;
             for (var b = 0; b < bucketCount; b++, bucket = bucket.AddMinutes(BucketMinutes))
             {
-                var s = SeedDataGenerator.BuildUsageSample(t, bucket);
+                var s = SeedDataGenerator.BuildUsageSample(index, limit, over, bucket);
                 table.Rows.Add(
                     NextGuid(rng), tenantId, bucket,
                     s.ConsumedMin, s.ConsumedMax, s.ConsumedAvg, s.Limit);
@@ -94,12 +115,6 @@ internal static class UsageSeeder
         t.Columns.Add("ConsumedAvg", typeof(double));
         t.Columns.Add("Limit", typeof(int));
         return t;
-    }
-
-    private static DateTime FloorToBucket(DateTime utc)
-    {
-        var minute = utc.Minute - (utc.Minute % BucketMinutes);
-        return new DateTime(utc.Year, utc.Month, utc.Day, utc.Hour, minute, 0, DateTimeKind.Utc);
     }
 
     private static Guid NextGuid(Random rng)
