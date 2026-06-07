@@ -22,6 +22,12 @@ export function ReportsPage() {
 
       <ReportsFiltersBar filters={filters} onChange={applyFilters} />
 
+      {summary.data?.clamped && (
+        <div className="bg-muted/30 text-muted-foreground rounded-md border p-3 text-sm">
+          {t("reports.filters.clampNotice", { days: summary.data.maxSpanDays })}
+        </div>
+      )}
+
       {summary.isError && (
         <div className="border-destructive/40 bg-destructive/5 rounded-md border p-4 text-sm">
           <p className="font-medium">{t("reports.errors.loadFailed")}</p>

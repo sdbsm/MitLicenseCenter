@@ -11,6 +11,8 @@ const data: LicenseUsageSeriesResponse = {
   peakLimit: 0,
   peakAtUtc: null,
   averageConsumed: 0,
+  clamped: false,
+  maxSpanDays: 31,
 };
 
 describe("exportFilename", () => {

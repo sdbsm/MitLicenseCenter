@@ -32,22 +32,13 @@ function jsonForScript(value: unknown): string {
 }
 
 /** Сериализация ряда в самодостаточный HTML-документ: сводка (текст) + интерактивный
- *  график Chart.js (инлайн-движок) + таблица бакетов. Открывается офлайн в любом
- *  браузере; график оживает при открытии (canvas на этапе формирования не нужен). */
+ *  график Chart.js (инлайн-движок). Открывается офлайн в любом браузере; график оживает
+ *  при открытии (canvas на этапе формирования не нужен). Сырую побакетную таблицу
+ *  презентационная выгрузка не несёт (MLC-054) — она шумна на длинных периодах. */
 export function toHtml(data: LicenseUsageSeriesResponse, scope: ExportScope): Blob {
   const scopeLabel = scope === "all" ? "Все клиенты" : (scope.tenantName ?? "Клиент");
   const percent = data.peakLimit > 0 ? Math.round((data.peakConsumed / data.peakLimit) * 100) : 0;
   const peakAt = data.peakAtUtc ? fmtFull(data.peakAtUtc) : null;
-
-  const rows = data.buckets
-    .map(
-      (b) =>
-        `<tr><td>${escapeHtml(fmtFull(b.bucketStartUtc))}</td>` +
-        `<td class="num">${round1(b.consumedAvg)}</td>` +
-        `<td class="num">${b.consumedMax}</td>` +
-        `<td class="num">${b.limit}</td></tr>`
-    )
-    .join("");
 
   // Оговорка про обзорность суммы по бакету — только для сводки по всем клиентам
   // (зеркало §3.6 / решения MLC-049: клиенты пикуют в разные моменты).
@@ -88,16 +79,9 @@ export function toHtml(data: LicenseUsageSeriesResponse, scope: ExportScope): Bl
   .caveat { color: #64748b; font-size: 13px; margin: 0 0 16px; max-width: 60ch; }
   /* Высота графика подстраивается под экран; ширину держит canvas (responsive). */
   .chart-wrap { position: relative; width: 100%; height: clamp(240px, 48vh, 380px); margin: 8px 0 24px; }
-  /* На узких экранах таблица скроллится по горизонтали, а не ломает вёрстку. */
-  .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  table { border-collapse: collapse; font-size: 13px; width: 100%; min-width: 420px; }
-  th, td { border: 1px solid #e2e8f0; padding: 4px 10px; text-align: left; white-space: nowrap; }
-  th { background: #f8fafc; }
-  td.num { text-align: right; font-variant-numeric: tabular-nums; }
   @media (max-width: 640px) { body { margin: 12px auto; padding: 0 12px; } }
   @media (prefers-color-scheme: dark) {
     body { color: #e2e8f0; background: #0f172a; }
-    th { background: #1e293b; } th, td { border-color: #334155; }
   }
 </style>
 </head>
@@ -112,12 +96,6 @@ export function toHtml(data: LicenseUsageSeriesResponse, scope: ExportScope): Bl
 </div>
 ${caveat}
 <div class="chart-wrap"><canvas id="chart"></canvas></div>
-<div class="table-wrap">
-<table>
-  <thead><tr><th>Начало бакета</th><th>Среднее</th><th>Пик</th><th>Лимит</th></tr></thead>
-  <tbody>${rows}</tbody>
-</table>
-</div>
 <script>${chartSrc}</script>
 <script>
   const DATA = ${jsonForScript(chartConfig)};

@@ -97,13 +97,14 @@ export default defineConfig({
               priority: 30,
             },
             {
-              // Только jspdf + автотаблица. Его статические codec-зависимости (fflate,
-              // fast-png, pako, iobuffer) — шарятся (fflate/pako использует и xlsx-путь);
-              // если затащить их сюда, eager-чанки получают статическую кромку в export-pdf
-              // и тянут его в preload. Поэтому codec'и оставляем в общем vendor (мелкие),
-              // а тяжёлые рендереры html2canvas/canvg/dompurify застаблены (resolve.alias).
+              // Только jspdf (автотаблицу убрали в MLC-054 — выгрузка без сырой таблицы).
+              // Его статические codec-зависимости (fflate, fast-png, pako, iobuffer) —
+              // шарятся (fflate/pako использует и xlsx-путь); если затащить их сюда,
+              // eager-чанки получают статическую кромку в export-pdf и тянут его в preload.
+              // Поэтому codec'и оставляем в общем vendor (мелкие), а тяжёлые рендереры
+              // html2canvas/canvg/dompurify застаблены (resolve.alias).
               name: "export-pdf",
-              test: /node_modules[\\/](jspdf|jspdf-autotable)[\\/]/,
+              test: /node_modules[\\/](jspdf)[\\/]/,
               priority: 30,
             },
             {

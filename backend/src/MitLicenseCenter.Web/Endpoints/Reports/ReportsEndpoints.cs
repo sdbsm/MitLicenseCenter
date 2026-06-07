@@ -45,7 +45,7 @@ public static class ReportsEndpoints
             return TypedResults.ValidationProblem(error);
         }
 
-        var (rangeFrom, rangeTo) = ResolveRange(from, to, clock.GetUtcNow().UtcDateTime);
+        var (rangeFrom, rangeTo, clamped) = ResolveRange(from, to, clock.GetUtcNow().UtcDateTime);
 
         var buckets = await db.LicenseUsageSnapshots
             .AsNoTracking()
@@ -59,7 +59,7 @@ public static class ReportsEndpoints
                 g.Sum(x => x.Limit)))
             .ToListAsync(ct).ConfigureAwait(false);
 
-        return TypedResults.Ok(BuildResponse(buckets, rangeFrom, rangeTo));
+        return TypedResults.Ok(BuildResponse(buckets, rangeFrom, rangeTo, clamped, MaxSpan.Days));
     }
 
     // Drill-down одного тенанта: хранимые значения как есть. Null-тенант строки сюда не
@@ -77,7 +77,7 @@ public static class ReportsEndpoints
             return TypedResults.ValidationProblem(error);
         }
 
-        var (rangeFrom, rangeTo) = ResolveRange(from, to, clock.GetUtcNow().UtcDateTime);
+        var (rangeFrom, rangeTo, clamped) = ResolveRange(from, to, clock.GetUtcNow().UtcDateTime);
 
         var buckets = await db.LicenseUsageSnapshots
             .AsNoTracking()
@@ -90,25 +90,25 @@ public static class ReportsEndpoints
                 x.Limit))
             .ToListAsync(ct).ConfigureAwait(false);
 
-        return TypedResults.Ok(BuildResponse(buckets, rangeFrom, rangeTo));
+        return TypedResults.Ok(BuildResponse(buckets, rangeFrom, rangeTo, clamped, MaxSpan.Days));
     }
 
     // Период-сводка из готового ряда. Пик — самый ранний бакет с максимальным ConsumedMax
     // (ряд отсортирован по возрастанию, MaxBy возвращает первый из равных). Пустой ряд = не
     // ошибка: нули + null-пик (под empty-state FE).
     private static LicenseUsageSeriesResponse BuildResponse(
-        List<LicenseUsageBucketPoint> buckets, DateTime from, DateTime to)
+        List<LicenseUsageBucketPoint> buckets, DateTime from, DateTime to, bool clamped, int maxSpanDays)
     {
         if (buckets.Count == 0)
         {
-            return new LicenseUsageSeriesResponse(buckets, from, to, 0, 0, null, 0);
+            return new LicenseUsageSeriesResponse(buckets, from, to, 0, 0, null, 0, clamped, maxSpanDays);
         }
 
         var peak = buckets.MaxBy(b => b.ConsumedMax)!;
         var average = buckets.Average(b => b.ConsumedAvg);
 
         return new LicenseUsageSeriesResponse(
-            buckets, from, to, peak.ConsumedMax, peak.Limit, peak.BucketStartUtc, average);
+            buckets, from, to, peak.ConsumedMax, peak.Limit, peak.BucketStartUtc, average, clamped, maxSpanDays);
     }
 
     private static Dictionary<string, string[]>? RangeError(DateTime? from, DateTime? to)
@@ -125,17 +125,19 @@ public static class ReportsEndpoints
     }
 
     // Дефолт: to=now, from=now-DefaultWindow. Ширину >MaxSpan кламп двигает from вперёд —
-    // эффективный диапазон возвращается в ответе (FromUtc/ToUtc).
-    internal static (DateTime From, DateTime To) ResolveRange(DateTime? from, DateTime? to, DateTime now)
+    // эффективный диапазон возвращается в ответе (FromUtc/ToUtc), а факт обрезки — флагом
+    // Clamped (MLC-054). Дефолтное окно 7 дней ветку клампа не задевает → Clamped=false.
+    internal static (DateTime From, DateTime To, bool Clamped) ResolveRange(DateTime? from, DateTime? to, DateTime now)
     {
         var effectiveTo = to ?? now;
         var effectiveFrom = from ?? effectiveTo - DefaultWindow;
 
-        if (effectiveTo - effectiveFrom > MaxSpan)
+        var clamped = effectiveTo - effectiveFrom > MaxSpan;
+        if (clamped)
         {
             effectiveFrom = effectiveTo - MaxSpan;
         }
 
-        return (effectiveFrom, effectiveTo);
+        return (effectiveFrom, effectiveTo, clamped);
     }
 }

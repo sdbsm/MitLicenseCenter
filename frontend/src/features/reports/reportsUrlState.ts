@@ -1,3 +1,4 @@
+import { addMonths, endOfMonth, format, parseISO } from "date-fns";
 import type { ReportsFilters, ReportsRange } from "./types";
 
 // Разбор URL → фильтры. Битый параметр не роняет страницу: tenantId берётся как есть
@@ -35,4 +36,19 @@ export function buildBackendRange(filters: ReportsFilters): ReportsRange {
     from: filters.from ? dateOnlyToIsoStart(filters.from) : null,
     to: filters.to ? dateOnlyToIsoEnd(filters.to) : null,
   };
+}
+
+// MLC-054: помесячный выбор — заполняет те же date-only `from`/`to` границами месяца
+// «YYYY-MM». Целый месяц всегда < 31 дня, поэтому серверный кламп не срабатывает (плашки
+// обрезки не будет). Новых URL-параметров нет — месяц выводится из `from`.
+export function monthToRange(ym: string): { from: string; to: string } {
+  return {
+    from: `${ym}-01`,
+    to: format(endOfMonth(parseISO(`${ym}-01`)), "yyyy-MM-dd"),
+  };
+}
+
+// Сдвиг «YYYY-MM» на delta месяцев (корректно переходит границу года).
+export function shiftMonth(ym: string, delta: number): string {
+  return format(addMonths(parseISO(`${ym}-01`), delta), "yyyy-MM");
 }

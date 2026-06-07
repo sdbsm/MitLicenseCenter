@@ -19,6 +19,10 @@ export interface LicenseUsageSeriesResponse {
   peakLimit: number;
   peakAtUtc: string | null;
   averageConsumed: number;
+  // MLC-054: сервер обрезал запрошенную ширину до maxSpanDays (сдвинул from вперёд) —
+  // FE показывает плашку обрезки. Дефолтное окно/диапазон ≤ предела → clamped=false.
+  clamped: boolean;
+  maxSpanDays: number;
 }
 
 // UI-состояние страницы: общий период (date-only из `<input type="date">`) +
