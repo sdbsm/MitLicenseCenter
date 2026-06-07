@@ -10,6 +10,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ExportMenu } from "./export/ExportMenu";
 import { LicenseUsageChart } from "./LicenseUsageChart";
 import { ReportsEmptyState } from "./ReportsEmptyState";
 import { ReportsStats } from "./ReportsStats";
@@ -25,6 +26,7 @@ interface TenantOption {
 interface ReportsDetailProps {
   tenants: TenantOption[];
   selectedTenantId: string | null;
+  selectedTenantName: string | null;
   data: LicenseUsageSeriesResponse | undefined;
   isLoading: boolean;
   onSelectTenant: (tenantId: string | null) => void;
@@ -35,6 +37,7 @@ interface ReportsDetailProps {
 export function ReportsDetail({
   tenants,
   selectedTenantId,
+  selectedTenantName,
   data,
   isLoading,
   onSelectTenant,
@@ -46,7 +49,10 @@ export function ReportsDetail({
   return (
     <Card>
       <CardHeader className="gap-3">
-        <CardTitle>{t("reports.detail.title")}</CardTitle>
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle>{t("reports.detail.title")}</CardTitle>
+          <ExportMenu data={data} scope={{ tenantName: selectedTenantName }} />
+        </div>
         <div className="grid max-w-sm gap-1.5">
           <Label className="text-xs font-medium">{t("reports.detail.tenant")}</Label>
           <Select
