@@ -136,21 +136,45 @@ REF-10→MLC-027, REF-11→MLC-011(a), REF-13→MLC-028). Phase 1–2 (MLC-029..
    Chart.js-графиком) + PDF (jspdf + встроенный кириллический Roboto, картинка графика + таблица),
    per-format lazy-чанки. **Трек «Экспорт отчётов» завершён 2/2** (см. архив).
 
+### Трек «Полировка страницы /settings» (открыт 2026-06-07)
+
+Постановка пользователя; нарезан куратором. Раздел «Параметры» накопил поля, дублирующие
+автодискавери (rac.exe ↔ версия платформы) или требующие ручного ввода там, где discovery уже
+есть; плюс скрытый ключ `LicenseUsage.RetentionDays` не выведен в UI. Цель — переиспользовать
+существующую discovery-инфраструктуру (`/discovery/*` + `DiscoveryField`), ничего не писать с нуля
+кроме SQL-instance discovery. Полная спека (Контекст/развилки/файлы/проверка) — в план-файле
+`C:\Users\andre\.claude\plans\1-2-rippling-zephyr.md`. Согласованные развилки: сохранение остаётся
+пер-контрольным (без общей «Применить»); поле `status` формы и скрытость `OneC.Cluster.Server`
+сохраняются; SQL-discovery только localhost. Берём по одной за сессию:
+
+1. `MLC-055` — **Done (2026-06-07)** — Переработка `/settings` одним заходом (frontend+доки):
+   секции разнесены, `LicenseUsage.RetentionDays` выведена, RAS endpoint→поле «Порт», единый пикер
+   «Платформа 1С». Отчёт — в индексе «Закрыто» ниже и в `PROJECT_BACKLOG_ARCHIVE.md`.
+2. `MLC-056` — **NEXT TASK** — SQL-instance discovery (localhost) + пикер сервера БД: backend `ISqlInstanceDiscovery`/
+   `SqlInstanceDiscovery` (реестр `Instance Names\SQL`, `SupportedOSPlatform("windows")`, DI Scoped
+   рядом с `ISqlDatabaseDiscovery`, тесты по шаблону `*DiscoveryTests`) + `GET /discovery/sql-instances`
+   (error-contract как `GetDatabasesAsync`); frontend `useSqlInstances` + `Defaults.DatabaseServer` на
+   `/settings` и `databaseServer` в форме инфобазы → `DiscoveryField`. Доки: `04`/`05`. Режим `plan`.
+
 ---
 
 ## NEXT TASK
 
-> **Нет активной задачи.** Трек «Отчёты» **завершён 3/3** 2026-06-06 (`MLC-048` сбор time-series →
-> `MLC-049` Reports API → `MLC-050` раздел `/reports`), трек «Экспорт отчётов» **завершён 2/2** 2026-06-07
-> (`MLC-051` CSV/XLSX → `MLC-052` HTML/PDF). Последняя закрытая — `MLC-054` (полировка `/reports`: плашка
-> обрезки + сводка HTML/PDF без сырой таблицы + помесячный выбор, 2026-06-07; перед ней `MLC-053` —
-> dev/ops-утилита `reset-admin`). Все закрыты, отчёты в `PROJECT_BACKLOG_ARCHIVE.md`, см. индекс «Закрыто» ниже.
+> **`MLC-056` — SQL-instance discovery (localhost) + пикер сервера БД** (трек «Полировка /settings»,
+> открыт 2026-06-07, нарезан куратором). Net-new backend: `ISqlInstanceDiscovery`/`SqlInstanceDiscovery`
+> (реестр `Instance Names\SQL`, `SupportedOSPlatform("windows")`, DI Scoped рядом с `ISqlDatabaseDiscovery`,
+> тесты по шаблону `*DiscoveryTests`) + `GET /discovery/sql-instances` (error-contract как `GetDatabasesAsync`);
+> frontend `useSqlInstances` + `Defaults.DatabaseServer` на `/settings` и `databaseServer` в форме инфобазы
+> → `DiscoveryField`. Доки: `04`/`05`. Полная спека — план-файл
+> `C:\Users\andre\.claude\plans\1-2-rippling-zephyr.md` (раздел MLC-056). Режим исполнителя: `plan`.
 >
-> Следующую задачу/трек ставит внешний чат-куратор (исполнитель сам `NEXT TASK` не выбирает).
+> Предыдущая в треке — `MLC-055` (переработка `/settings`) — **Done 2026-06-07** (см. индекс «Закрыто»).
+> Берём строго по одной за сессию.
 >
-> Ранее закрытые треки (рефакторинг MLC-029..035, перф MLC-037..043, плюс MLC-044..050) — в индексе
-> «Закрыто» ниже и в архиве. **Отложенные опции** (`MLC-025/026/027/028/011(a)` + Phase 3–4
-> рефакторинг-трека / `MLC-036` RAS Strategy B) остаются gated на триггеры, по умолчанию не берутся.
+> Ранее закрытые треки (полировка /settings `MLC-055`, отчёты `MLC-048..052`/`054`, рефакторинг
+> `MLC-029..035`, перф `MLC-037..043`, плюс `MLC-044..047`/`053`) — в индексе «Закрыто» ниже и в архиве.
+> **Отложенные опции** (`MLC-025/026/027/028/011(a)` + Phase 3–4 рефакторинг-трека / `MLC-036` RAS
+> Strategy B) остаются gated на триггеры, по умолчанию не берутся.
 
 ---
 
@@ -181,7 +205,7 @@ REF-10→MLC-027, REF-11→MLC-011(a), REF-13→MLC-028). Phase 1–2 (MLC-029..
 
 ---
 
-## Закрыто (MLC-001..024, 029, 030, 031, 032, 033, 034, 035, 037, 038, 039, 040, 041, 042, 043, 044, 045, 046, 047, 048, 049, 050, 051, 052, 053, 054) — индекс
+## Закрыто (MLC-001..024, 029, 030, 031, 032, 033, 034, 035, 037, 038, 039, 040, 041, 042, 043, 044, 045, 046, 047, 048, 049, 050, 051, 052, 053, 054, 055) — индекс
 
 Полные постановки и отчёты: **`docs/PROJECT_BACKLOG_ARCHIVE.md`**.
 
@@ -233,3 +257,4 @@ REF-10→MLC-027, REF-11→MLC-011(a), REF-13→MLC-028). Phase 1–2 (MLC-029..
 - `MLC-052` — Экспорт отчётов `/reports`, форматы HTML + PDF (клиентские, без нового API): `toHtml` — самодостаточный офлайн-файл с интерактивным графиком на vanilla Chart.js (исходник UMD инлайнится в документ через виртуальный модуль `virtual:chartjs-umd-src` — плагин читает файл установленного пакета, без вендоринга и без esbuild-предбандла dev-сервера, что ломал бы `?raw`), воспроизводит график панели (area `consumedMax` + линии `consumedAvg`/`limit`-пунктир) + сводка + таблица. `toPdf` — jspdf + jspdf-autotable: заголовок/сводка/картинка графика (offscreen Chart.js → PNG, гард при отсутствии canvas) / таблица; встроен кириллический сабсет **Roboto Regular (Apache-2.0)** через `addFileToVFS`/`addFont` (станд. шрифты jsPDF без кириллицы); `compress:true` (fflate) — PDF 5.9 МБ→145 кБ. `chartConfig.ts` — общий источник данных/опций. Чанки: `export-libs`→ per-format `export-xlsx`/`export-chart`/`export-pdf` (один чанк был бы ~1.4 МБ); неиспользуемые опц-зависимости jsPDF (html2canvas/canvg/dompurify, только `.html()`/SVG) застаблены алиасом, иначе текли в eager-vendor; общий `__vitePreload`-хелпер изолирован в свой чанк, иначе тянул `export-pdf` в preload. `core-js` (опц. деп jspdf) помечен не-собираемым (`pnpm-workspace.yaml allowBuilds`). Все чанки <500 кБ. 8 новых тестов (toHtml/toPdf), FE 170 зелёные; type-check/lint/build чистые. Проверено в браузере: HTML рисует график офлайн (скрин), PDF — кириллица читается (`pdftotext`: «Использование лицензий — ООО «Ромашка»», шапка таблицы), `FontFile2`+`/Image` встроены. Канон present-tense: `05_UI_REQUIREMENTS.md` §3.6. **Трек «Экспорт отчётов» завершён 2/2.** ADR не трогали (UI в рамках ADR-25). — Done (2026-06-07)
 - `MLC-053` — dev/ops-утилита сброса пароля администратора без потери данных: новый verb `reset-admin` в dev/test-only бинаре `MitLicenseCenter.Tools.PerfHarness` (`IsPublishable=false`, вне прод-publish) рядом с `seed`/rac-stub. Поднимает `Host.CreateApplicationBuilder` + `AddInfrastructure(...)` (строка подключения через `AddInMemoryCollection` → `ConnectionStrings:Default`), резолвит `UserManager<AppUser>` из scope **без запуска хоста** (хостед-сервисы/IIS-адаптеры конструируются лениво, не стартуют; eager-валидация контейнера отключена `ServiceProviderOptions{ValidateOnBuild=false}` — иначе падала бы на `SignInManager` без `IAuthenticationSchemeProvider` Web-слоя). Сброс через штатный `GeneratePasswordResetTokenAsync`→`ResetPasswordAsync` (корректный Identity-хеш + та же парольная политика из `AddInfrastructure`, не голый SQL); `--unlock` снимает lockout (`SetLockoutEndDateAsync(null)`+`ResetAccessFailedCountAsync`). Флаги `--user` (дефолт `admin`)/`--password` (иначе криптослучайный, генератор `IdentitySeeder.GenerateInitialPassword` стал `internal` + `InternalsVisibleTo`, единый источник парити)/`--connection`; пароль печатается в stdout (как сидер), exit `0`/`2` (нет пользователя)/`3` (политика). PS-обёртка `scripts/reset-admin.ps1` (UTF-8 BOM, по образцу `perf-seed.ps1`, ставит `DOTNET_ENVIRONMENT=Development` для LocalAppData-key ring). 2 unit-теста генератора (политика + различимость); BE зелёные. Ручной прогон на dev-БД: генерация/явный/слабый(→exit 3)/несущ.(→exit 2)/`--unlock` — данные сохранены. Канон present-tense: `OPERATIONS.md` «Recovering admin access». Offline-утилита: контракты/эндпоинты/ADR не тронуты (ADR-20 допускает прямой Identity в tools); аудит не пишется (консистентно с сидером). — Done (2026-06-07)
 - `MLC-054` — Полировка `/reports` (UX, постановка куратора; номер сдвинут с занятого `MLC-053`). Три части: **(1)** видимая обрезка периода — контракт `LicenseUsageSeriesResponse` +`Clamped`/`MaxSpanDays` (`ResolveRange`→`(From,To,Clamped)`, `Clamped` ровно в ветке `>MaxSpan`; дефолтное окно 7д не триггерит; пустой ряд тоже несёт флаги), FE-плашка под фильтром при `summary.data?.clamped` + i18n `clampNotice`; **(2)** HTML/PDF без сырой побакетной таблицы (остаются сводка+график) — `toHtml.ts`/`toPdf.ts`, зависимость `jspdf-autotable` удалена (package.json + regex чанка `export-pdf` в vite.config), сырая таблица только в CSV/XLSX; **(3)** помесячный выбор «Месяц ‹ ›» — чистые хелперы `monthToRange`/`shiftMonth` (`reportsUrlState.ts`) + контрол в `ReportsFiltersBar.tsx`, заполняет те же `from`/`to` (целый месяц <31д → кламп не триггерит). BE 397 / FE 177 зелёные; type-check/lint/build чистые, `export-pdf` 399.6 кБ (<500). Проверено в браузере: плашка на >31д, помесячный клик без плашки, HTML/PDF без таблицы (живые данные 2880 бакетов). Канон: `03_DOMAIN_MODEL.md`, `05_UI_REQUIREMENTS.md` §3.6. ADR не трогали (ADR-25). — Done (2026-06-07)
+- `MLC-055` — Переработка `/settings` (трек «Полировка /settings», 1/2; frontend+доки, без бэкенда). Четыре сведённые правки одной страницы: **(a)** секции разнесены — смешанная «cluster» → «Подключение к 1С / RAS» (креды + порт + платформа) и отдельная «Учёт лицензий» (`OneC.LicenseConsumingAppIds`); `audit`→объединённая «Хранение данных»; из «Значений по умолчанию» убрана версия платформы (ушла в пикер); **(b)** выведена скрытая `LicenseUsage.RetentionDays` (была в каталоге+доке, не в UI) рядом с `Audit.RetentionDays`; **(c)** RAS endpoint→поле «Порт» (`RasPortField`, 1024–65535, дефолт 1545; хранение wire-формата `localhost:<порт>`, бэкенд не тронут); **(d)** единый пикер «Платформа 1С» (`PlatformPicker` вместо `RacPathDetect`) — выбор установленной платформы из `useRacPaths` пишет **оба** раздельных ключа одним действием (`OneC.RAS.ExePath` + `OneC.DefaultPlatformVersion`, версия парсится из пути `…\1cv8\<version>\bin\rac.exe` чистым хелпером `parsePlatformVersionFromRacPath`, regex 4 сегмента без фиксации длин — 8.5 одноцифровой build), свёрнутый escape-hatch (`SettingField` для пути + `DiscoveryField`/`usePlatformVersions` для версии) разводит ключи врозь. Переиспользованы `DiscoveryField`/`useDiscovery`/`SettingField`/`useSettings`; пер-контрольное сохранение сохранено (без общей «Применить»). Чистые хелперы `parsing.ts` (версия + порт parse/build) + unit-тесты; новый render-тест на пикер/порт. FE 192 зелёные; type-check/lint чистые. Live-preview не гонялся (бэкенд-стек не поднят — нужен админ-elevation+MSSQL); render-пути покрыты jsdom-тестами. Канон present-tense: ADR-3.3 (UI-подача rac.exe/порта, wire-формат не тронут), `04_INFRASTRUCTURE.md`, `05_UI_REQUIREMENTS.md`. ADR-20/16/single-node/RU-only не затронуты. — Done (2026-06-07)
