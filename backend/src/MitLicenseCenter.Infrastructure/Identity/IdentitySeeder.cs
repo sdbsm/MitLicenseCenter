@@ -68,7 +68,10 @@ public static partial class IdentitySeeder
         }
     }
 
-    private static string GenerateInitialPassword()
+    // internal (не private): переиспользуется dev/ops-утилитой PerfHarness `reset-admin`
+    // (см. InternalsVisibleTo в .csproj) — единый генератор сохраняет парити с парольной
+    // политикой Identity, без второго источника.
+    internal static string GenerateInitialPassword()
     {
         // 24 символа из безопасного алфавита (без неоднозначных 0/O, 1/l/I).
         // Гарантируем минимум одну заглавную, одну строчную, одну цифру и один спецсимвол —

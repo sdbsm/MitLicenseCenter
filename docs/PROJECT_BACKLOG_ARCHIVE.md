@@ -2635,3 +2635,65 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
   «Скачать» на самой `/reports` требует накопленной телеметрии — заменён детерминированной проверкой модулей;
   (2) две предсуществующие FE-формат-расхождения (`AuditFiltersBar.tsx`, `DeleteInfobaseDialog.tsx`) prettier
   флагует — не трогал (вне объёма, не staged). ADR-25/20/16/3.3/single-node/RU-only не затронуты.
+
+### MLC-053 — dev/ops-утилита сброса пароля администратора (`reset-admin`) — 2026-06-07
+
+- **Category:** Maintainability / Backend (dev/ops tooling)
+- **Priority:** P2 · **Severity:** Medium
+- **Module:** Identity / dev-tooling (`MitLicenseCenter.Tools.PerfHarness`)
+- **File(s):** `backend/tools/MitLicenseCenter.Tools.PerfHarness/Program.cs` (диспетч + `RunResetAdminAsync`);
+  `backend/tools/MitLicenseCenter.Tools.PerfHarness/AdminReset.cs` (**новый**);
+  `backend/src/MitLicenseCenter.Infrastructure/Identity/IdentitySeeder.cs` (`GenerateInitialPassword` → `internal`);
+  `backend/src/MitLicenseCenter.Infrastructure/MitLicenseCenter.Infrastructure.csproj` (`InternalsVisibleTo`);
+  `scripts/reset-admin.ps1` (**новый**, UTF-8 BOM);
+  `backend/tests/MitLicenseCenter.Tests.Unit/Identity/IdentitySeederTests.cs` (**новый**);
+  `docs/OPERATIONS.md` (раздел «Recovering admin access»).
+- **Постановка (куратор).** Пароль первого `admin` генерируется случайно при первом старте и печатается в
+  лог **один раз** (`IdentitySeeder.EnsureSeededAsync`→`LogSeededAdmin`). При его потере единственный путь —
+  `scripts/db-reset.ps1`, который дропает и пересоздаёт БД (стирает все данные). Нужна поддерживаемая команда,
+  сбрасывающая пароль администратора **без потери данных**, через штатный `UserManager` (корректный
+  Identity-хеш, та же парольная политика).
+- **Контракт.** `PerfHarness reset-admin [--user admin] [--password <value>] [--unlock] [--connection <cs>]`.
+  Находит пользователя (`--user`, дефолт `admin` = `IdentitySeeder.DefaultAdminUserName`); нет такого →
+  ошибка + exit `2`. Пароль: `--password`, иначе криптослучайный по политике. Сброс через
+  `GeneratePasswordResetTokenAsync`→`ResetPasswordAsync` (не голый SQL). `--unlock` снимает lockout
+  (`SetLockoutEndDateAsync(null)`+`ResetAccessFailedCountAsync`; политика лока `MaxFailedAccessAttempts=5`).
+  Логин+итоговый пароль печатаются в **stdout** (как сидер), exit `0`; слабый `--password` → ошибки политики +
+  exit `3`.
+- **Wiring (`AdminReset.cs`).** Поднимается `Host.CreateApplicationBuilder` + `services.AddInfrastructure(config, env)`;
+  `UserManager<AppUser>` резолвится из scope **без запуска хоста** (`Run/StartAsync` не зовутся → хостед-сервисы
+  RAS-пробер/hot-tier и Windows-only IIS-адаптеры конструируются лениво, не стартуют). Так парольная политика и
+  token-провайдеры — 1:1 с приложением, единственный источник в `AddInfrastructure`, без дублирования. Строка
+  подключения цепочкой `--connection` → env `ConnectionStrings__Default` → дефолт, инъекция через
+  `Configuration.AddInMemoryCollection(["ConnectionStrings:Default"])` (последний источник перекрывает прочие;
+  `AddInfrastructure` читает её через `GetConnectionString("Default")`).
+- **Гоча валидации контейнера.** В Development `Host.CreateApplicationBuilder` включает `ValidateOnBuild` —
+  на `Build()` он эджерно валидирует **все** дескрипторы, включая `SignInManager<AppUser>` (ему нужен
+  `IAuthenticationSchemeProvider`, регистрируемый только Web-слоем через `AddAuthentication`), и падал
+  `Unable to resolve service for type 'IAuthenticationSchemeProvider'`. Нам нужен только `UserManager`, поэтому
+  валидация отключена явно: `builder.ConfigureContainer(new DefaultServiceProviderFactory(new
+  ServiceProviderOptions { ValidateScopes = false, ValidateOnBuild = false }))`. Scope создаётся вручную.
+- **Генерация пароля (парити).** `IdentitySeeder.GenerateInitialPassword()` сделан `private`→`internal` +
+  `InternalsVisibleTo("MitLicenseCenter.Tools.PerfHarness")` в csproj Infrastructure — единый генератор,
+  не плодим второй (политика-парити). `PickChar` остался private.
+- **Аудит.** CLI-сброс без HTTP-initiator; сидер создание admin не аудитит → `AuditLog` **не пишем**
+  (консистентно). Писать означало бы новое `AuditActionType` = новое замороженное int-значение — без надобности.
+- **Безопасность вывода.** Пароль печатается только в stdout (как сидер), не в файловые лог-приёмники.
+- **PS-обёртка `scripts/reset-admin.ps1`** (UTF-8 BOM, по образцу `perf-seed.ps1`): параметры
+  `-User`/`-Password`/`-Unlock`/`-ConnectionString`/`-Configuration`, ставит `DOTNET_ENVIRONMENT=Development`
+  (dev-key ring в LocalAppData — гарантированно writable без elevation; на корректность не влияет — токен
+  сброса одноразовый и потребляется в том же процессе), снимает `$ErrorActionPreference=Stop` вокруг
+  `dotnet run` и проверяет `$LASTEXITCODE` (паттерн build/perf-seed).
+- **Тесты.** `IdentitySeederTests` (2 факта): генератор удовлетворяет политике (длина ≥12, есть
+  upper/lower/digit/non-alphanumeric — прогон ×200 против флака перемешивания) и два вызова различны. BE-сборка
+  и тесты зелёные.
+- **Ручной прогон на dev-БД.** `reset-admin --user __nosuch__` → «не найден» + exit `2`; `--user admin` →
+  печатает сгенерированный пароль + exit `0`; `--user admin --password '…' --unlock` → задаёт указанный + снимает
+  lockout + exit `0`; `--password '123'` → ошибки политики (`PasswordTooShort`/`RequiresNonAlphanumeric`/
+  `RequiresLower`/`RequiresUpper`) + exit `3`. Данные (клиенты/инфобазы) на месте — переписан только хеш пароля.
+- **Канон present-tense.** `docs/OPERATIONS.md` — раздел «Recovering admin access — `reset-admin` instead of a
+  destructive reset» (когда применять вместо `db-reset.ps1`, команда/флаги/exit-коды, сохранность данных, prod vs
+  dev key ring). **ADR не требуется** — offline-утилита, контракты/эндпоинты/ADR не трогаются (ADR-20 допускает
+  прямой `AppDbContext`/Identity в tools-проекте). tools-проект остаётся вне прод-publish (`IsPublishable=false`,
+  Web на него не ссылается).
+- **Status:** **Done** (2026-06-07).
