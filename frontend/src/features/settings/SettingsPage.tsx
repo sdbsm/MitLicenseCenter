@@ -2,16 +2,18 @@ import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SettingField } from "./SettingField";
-import { RacPathDetect } from "./RacPathDetect";
+import { PlatformPicker } from "./PlatformPicker";
+import { RasPortField } from "./RasPortField";
 import type { SettingDescriptor } from "./types";
 import { useSettings } from "./useSettings";
 
-// Stage 5 PR 5.1 (ADR-16): REST adapter и circuit breaker удалены — 3 секции
-// вместо 4. OneC.Cluster.AdminUser/AdminPassword остаются в секции «cluster» —
-// rac.exe RAS-адаптер использует их для --cluster-user / --cluster-pwd
-// (см. ADR-3.3). Секция «defaults» (ADR-17) добавляет 3 form-prefill ключа;
-// informational IIS.ServiceAccount.UserName удалён (не читался). Секция «audit»
-// (1 ключ) даёт оператору окно хранения журнала аудита → 14 ключей.
+// Раскладка секций /settings (MLC-055). Подключение к 1С / RAS объединяет креды
+// rac.exe (--cluster-user/--cluster-pwd, ADR-3.3), порт RAS (OneC.RAS.Endpoint →
+// RasPortField) и единый пикер платформы (OneC.RAS.ExePath + OneC.DefaultPlatformVersion
+// → PlatformPicker, версия в SECTIONS отдельно не перечисляется — её ведёт пикер).
+// Учёт лицензий вынесен отдельно (whitelist app-id). «Значения по умолчанию» теперь
+// только сервер БД + сайт IIS (версия платформы переехала в пикер). «Хранение данных»
+// объединяет два окна ретенции — аудит и историю использования лицензий для /reports.
 const SECTIONS: { titleKey: string; keys: string[] }[] = [
   {
     titleKey: "settings.sections.cluster",
@@ -20,8 +22,11 @@ const SECTIONS: { titleKey: string; keys: string[] }[] = [
       "OneC.Cluster.AdminPassword",
       "OneC.RAS.Endpoint",
       "OneC.RAS.ExePath",
-      "OneC.LicenseConsumingAppIds",
     ],
+  },
+  {
+    titleKey: "settings.sections.license",
+    keys: ["OneC.LicenseConsumingAppIds"],
   },
   {
     titleKey: "settings.sections.iis",
@@ -29,7 +34,7 @@ const SECTIONS: { titleKey: string; keys: string[] }[] = [
   },
   {
     titleKey: "settings.sections.defaults",
-    keys: ["Defaults.DatabaseServer", "IIS.DefaultSiteName", "OneC.DefaultPlatformVersion"],
+    keys: ["Defaults.DatabaseServer", "IIS.DefaultSiteName"],
   },
   {
     titleKey: "settings.sections.polling",
@@ -42,8 +47,8 @@ const SECTIONS: { titleKey: string; keys: string[] }[] = [
     ],
   },
   {
-    titleKey: "settings.sections.audit",
-    keys: ["Audit.RetentionDays"],
+    titleKey: "settings.sections.retention",
+    keys: ["Audit.RetentionDays", "LicenseUsage.RetentionDays"],
   },
 ];
 
@@ -55,8 +60,7 @@ const FIELD_META: Record<
 > = {
   "OneC.Cluster.AdminUser": { type: "text" },
   "OneC.Cluster.AdminPassword": { type: "password" },
-  "OneC.RAS.Endpoint": { type: "text", placeholder: "host:1545" },
-  "OneC.RAS.ExePath": { type: "text" },
+  // OneC.RAS.Endpoint → RasPortField, OneC.RAS.ExePath → PlatformPicker (см. renderField).
   "OneC.LicenseConsumingAppIds": {
     type: "text",
     placeholder: "1CV8,1CV8C,WebClient,Designer,COMConnection",
@@ -64,13 +68,13 @@ const FIELD_META: Record<
   "IIS.DefaultVrdRoot": { type: "text" },
   "Defaults.DatabaseServer": { type: "text", placeholder: "sql.local или (local)" },
   "IIS.DefaultSiteName": { type: "text", placeholder: "Default Web Site" },
-  "OneC.DefaultPlatformVersion": { type: "text", placeholder: "8.3.23.1865" },
   "Polling.HotIntervalSeconds": { type: "number", min: 2, max: 60 },
   "Polling.ColdIntervalSeconds": { type: "number", min: 10, max: 300 },
   "Polling.HotThresholdPercent": { type: "number", min: 50, max: 100 },
   "Enforcement.KillGraceSeconds": { type: "number", min: 5, max: 120 },
   "Drift.IntervalMinutes": { type: "number", min: 1, max: 60 },
   "Audit.RetentionDays": { type: "number", min: 30, max: 3650 },
+  "LicenseUsage.RetentionDays": { type: "number", min: 30, max: 3650 },
 };
 
 export function SettingsPage() {
@@ -111,18 +115,31 @@ export function SettingsPage() {
                   if (!setting) {
                     return null;
                   }
+                  // Спец-рендер: порт RAS и единый пикер платформы заменяют плоские
+                  // поля OneC.RAS.Endpoint / OneC.RAS.ExePath (последний ведёт ещё и
+                  // OneC.DefaultPlatformVersion — он в SECTIONS не перечислен).
+                  if (k === "OneC.RAS.Endpoint") {
+                    return <RasPortField key={k} setting={setting} />;
+                  }
+                  if (k === "OneC.RAS.ExePath") {
+                    return (
+                      <PlatformPicker
+                        key={k}
+                        racSetting={setting}
+                        versionSetting={byKey.get("OneC.DefaultPlatformVersion")}
+                      />
+                    );
+                  }
                   const meta = FIELD_META[k] ?? { type: "text" as const };
                   return (
-                    <div key={k} className="space-y-2">
-                      <SettingField
-                        setting={setting}
-                        inputType={meta.type}
-                        min={meta.min}
-                        max={meta.max}
-                        placeholder={meta.placeholder}
-                      />
-                      {k === "OneC.RAS.ExePath" ? <RacPathDetect /> : null}
-                    </div>
+                    <SettingField
+                      key={k}
+                      setting={setting}
+                      inputType={meta.type}
+                      min={meta.min}
+                      max={meta.max}
+                      placeholder={meta.placeholder}
+                    />
                   );
                 })}
           </CardContent>

@@ -2739,3 +2739,57 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 - **Канон present-tense.** `03_DOMAIN_MODEL.md` (поля `clamped`/`maxSpanDays` + семантика флага),
   `05_UI_REQUIREMENTS.md` §3.6 (плашка обрезки, помесячный выбор, HTML/PDF = сводка+график без сырой таблицы).
 - **Status:** **Done** (2026-06-07).
+
+### MLC-055 — Переработка страницы `/settings` (секции, retention, порт RAS, единый пикер платформы) — 2026-06-07
+
+- **Category:** UX / Frontend (+ канон-доки)
+- **Priority:** P2 · **Severity:** Low
+- **Module:** `frontend/src/features/settings/` + `i18n/ru.json` + docs (ADR-3.3 / 04 / 05)
+- **Постановка (трек «Полировка /settings», 1/2).** Раздел «Параметры» накопил поля, дублирующие
+  автодискавери или требующие ручного ввода там, где discovery уже есть, плюс скрытый ключ
+  `LicenseUsage.RetentionDays` не выведен в UI. Четыре сведённые правки одной когерентной
+  переработки страницы (дробить = тройной churn одного файла). Только frontend+доки, бэкенд не тронут.
+  Сохранение остаётся пер-контрольным (общую «Применить» НЕ вводили). Спека —
+  `.claude/plans/1-2-rippling-zephyr.md` (MLC-055); план исполнения — `.claude/plans/plan-elegant-hoare.md`.
+- **(a) Перегруппировка секций.** `SECTIONS` в `SettingsPage.tsx`: смешанная «cluster» разнесена на
+  «Подключение к 1С / RAS» (`OneC.Cluster.AdminUser/AdminPassword` + порт + платформа) и отдельную
+  «Учёт лицензий» (`OneC.LicenseConsumingAppIds`). «audit» → объединённая «Хранение данных»
+  (`Audit.RetentionDays` + `LicenseUsage.RetentionDays`). Из «Значений по умолчанию для новых баз»
+  убрана версия платформы (ушла в пикер) → остались `Defaults.DatabaseServer` + `IIS.DefaultSiteName`.
+  Ключи в БД не менялись — только распределение по секциям; устаревший комментарий «14 ключей» переписан.
+- **(b) Выведена `LicenseUsage.RetentionDays`.** Ключ был в каталоге (`SettingDefinitions.cs`, 30–3650,
+  дефолт 365) и в доке (`04_INFRASTRUCTURE.md` таблица), но не в UI — UI отстал. Добавлен в секцию
+  хранения, `FIELD_META {type:number, min:30, max:3650}`, label/hint в `ru.json` («история для /reports»).
+- **(c) RAS endpoint → поле «Порт».** Новый `RasPortField.tsx` (по образцу плоской ветки `SettingField`
+  + ресинк draft): редактирует только порт (1024–65535, дефолт 1545), на сохранении пишет wire-формат
+  `localhost:<порт>` (`buildRasEndpoint`), при загрузке вырезает порт (`parseRasPort`). Хост фиксирован
+  `localhost` (single-node топология). Бэкенд (`WebinstArgs`, `RacExecutableRasClusterClient`, kind
+  `HostPort`) не тронут — wire-формат `host:port` сохранён, не-localhost host остаётся настраиваемым через API/БД.
+- **(d) Единый пикер «Платформа 1С».** Новый `PlatformPicker.tsx` заменил `RacPathDetect.tsx` (удалён).
+  Основной контрол — `Select` по `useRacPaths(true)` (save-on-pick): пункт = установленная платформа
+  с rac.exe, label = распарсенная версия, выбор пишет **оба** раздельных ключа одним действием
+  (`OneC.RAS.ExePath` = путь, `OneC.DefaultPlatformVersion` = версия) двумя мутациями `useUpdateSetting`
+  + тост. Версия парсится чистым хелпером `parsePlatformVersionFromRacPath` (regex
+  `[\\/]1cv8[\\/]([^\\/]+)[\\/]bin[\\/]rac\.exe$` + проверка «4 числовых сегмента», длины НЕ фиксируем —
+  1С 8.5 одноцифровой build `8.5.1.1302`). Свёрнутый escape-hatch (`ChevronDown`-disclosure) разводит
+  ключи врозь: путь — `SettingField` (ручной + Save), версия — `DiscoveryField`/`usePlatformVersions`
+  (полный список, в т.ч. версии без rac.exe) с мостом draft+Save (немедленный onChange `DiscoveryField`
+  не годится для пер-контрольного сохранения). Внешняя ресинхронизация переиспользует паттерн `SettingField`.
+- **Реализационная гоча (зафиксирована).** `DiscoveryField.onChange` срабатывает на каждый keystroke
+  ручного ввода (в форме инфобазы дёшево — кладёт в RHF-state); на странице настроек onChange = сетевой
+  save, поэтому основной пикер — `Select` (save-on-pick), а ручной ввод — escape-hatch с явным Save.
+- **Переиспользовано (не писали заново):** `features/discovery/{DiscoveryField,useDiscovery}`,
+  `features/settings/{SettingField,useSettings}`. Чистые хелперы вынесены в `parsing.ts`.
+- **Тесты.** `parsing.test.ts` (версия из rac-пути вкл. 8.5 одноцифровой build / прямые слэши / null;
+  порт parse/build/дефолты); новый render-тест в `SettingsPage.test.tsx` (мок api по URL: порт-поле
+  показывает `1600`, пикер показывает текущий путь+версию). FE 192 зелёные; type-check/lint чистые.
+- **Verification.** Live-preview не гонялся — dev-стек не поднят, бэкенд требует админ-elevation+MSSQL,
+  а frontend-only preview (бэкенд down) рендерит только error-баннер и не монтирует новые компоненты.
+  Наблюдаемые render-пути покрыты jsdom-тестами (порт парсится `localhost:1600`→`1600`; пикер показывает
+  путь+версию) + unit-тесты чистых парсеров.
+- **Канон present-tense.** ADR-3.3 (UI-подача rac.exe-пути через пикер платформы + endpoint как порт;
+  wire-формат `host:port`/первый позиционный аргумент НЕ менялся), `04_INFRASTRUCTURE.md` (UI-подача
+  tool path/endpoint; каталог-таблица 17 ключей не тронута — `LicenseUsage.RetentionDays` уже был),
+  `05_UI_REQUIREMENTS.md` §3.3 (зеркало секций /settings). ADR-20/16/single-node/RU-only не затронуты.
+- **Следом по треку:** `MLC-056` (SQL-instance discovery localhost + пикер сервера БД, net-new backend).
+- **Status:** **Done** (2026-06-07).
