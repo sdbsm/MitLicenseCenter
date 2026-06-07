@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using MitLicenseCenter.Application.Auditing;
 using MitLicenseCenter.Application.Clusters;
 using MitLicenseCenter.Application.Discovery;
+using MitLicenseCenter.Application.Identity;
 using MitLicenseCenter.Application.Jobs;
 using MitLicenseCenter.Application.Publishing;
 using MitLicenseCenter.Application.Reporting;
@@ -90,6 +91,11 @@ public static class DependencyInjection
 
         services.TryAddSingletonTimeProvider();
         services.AddScoped<IAuditLogger, AuditLogger>();
+
+        // MLC-058 — генератор временного пароля для администраторских операций веб-панели
+        // (создание / сброс пароля). Обёртка над единым генератором сидера: парити с
+        // парольной политикой Identity без второго источника. Stateless → singleton.
+        services.AddSingleton<IInitialPasswordGenerator, InitialPasswordGenerator>();
 
         // Settings: singleton snapshot (in-mem TTL ≈ 30s) + scoped store
         // (DbContext-bound). Mutate через store → store.Invalidate() сбрасывает snapshot.

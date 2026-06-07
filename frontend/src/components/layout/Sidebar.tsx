@@ -7,6 +7,7 @@ import {
   MonitorPlayIcon,
   ScrollTextIcon,
   SettingsIcon,
+  ShieldIcon,
   UserIcon,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -64,6 +65,7 @@ export function Sidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               <NavLinkItem to="/audit" icon={ScrollTextIcon} label={t("nav.audit")} />
+              {isAdmin && <NavLinkItem to="/admins" icon={ShieldIcon} label={t("nav.admins")} />}
               {isAdmin && (
                 <NavLinkItem to="/settings" icon={SettingsIcon} label={t("nav.settings")} />
               )}

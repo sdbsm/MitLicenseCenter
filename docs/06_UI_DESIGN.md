@@ -66,7 +66,7 @@ Semantic colors map 1:1 to states across the entire app. **Same status, same col
 └──────────────┴─────────────────────────────────────┘
 ```
 
-- **Sidebar:** shadcn `Sidebar` component, collapsible to icons. Sections grouped by domain — `Operations` (Dashboard, Sessions, Publications, Reports), `Configuration` (Tenants, Infobases), `System` (Audit). There is **no Administrators entry in v1** (see §3.7 of `05_UI_REQUIREMENTS.md` — admin self-management is not built; the single seeded admin manages everything).
+- **Sidebar:** shadcn `Sidebar` component, collapsible to icons. Sections grouped by domain — `Operations` (Dashboard, Sessions, Publications, Reports), `Configuration` (Tenants, Infobases), `System` (Audit, **Администраторы** — admin-only, `ShieldIcon`; Settings — admin-only; Profile). The «Администраторы» entry is gated on the `Admin` role (a Viewer never sees it) and routes to `/admins` (see §3.7 of `05_UI_REQUIREMENTS.md`).
 - **Content area uses full available width.** Admin tables benefit from horizontal real estate; do not centre-cap to `max-w-7xl` like marketing sites do.
 - **Page header** in every content view: title (h1), subtitle/description (muted), and primary action button(s) top-right.
 - **No breadcrumbs in v1.** Two-level nav (sidebar group → page) is shallow enough.
