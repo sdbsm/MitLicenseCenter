@@ -1,12 +1,15 @@
 using System.Globalization;
+using MitLicenseCenter.Infrastructure.Identity;
 
 namespace MitLicenseCenter.Tools.PerfHarness;
 
-// MLC-039 (PERF-03) — единый dev/test-only бинарь с двумя режимами:
+// MLC-039 (PERF-03) — единый dev/test-only бинарь с режимами:
 //   • `PerfHarness seed [--tenants N --infobases M --audit K --sessions S …]` — засев dev-БД
 //     + запись scenario.json;
+//   • `PerfHarness reset-admin [--user admin] [--password <v>] [--unlock] [--connection <cs>]` —
+//     сброс пароля администратора без потери данных через штатный UserManager (MLC-053);
 //   • `PerfHarness <rac-аргументы>` — фейковый rac.exe (OneC.RAS.ExePath указывает сюда).
-// `seed` — наш собственный verb, его rac.exe никогда не передаёт; всё остальное уходит в заглушку.
+// `seed`/`reset-admin` — наши verb'ы, их rac.exe никогда не передаёт; всё остальное уходит в заглушку.
 internal static class Program
 {
     private const string DefaultConnectionString =
@@ -17,6 +20,11 @@ internal static class Program
         if (args.Length > 0 && string.Equals(args[0], "seed", StringComparison.OrdinalIgnoreCase))
         {
             return await RunSeedAsync(args[1..]).ConfigureAwait(false);
+        }
+
+        if (args.Length > 0 && string.Equals(args[0], "reset-admin", StringComparison.OrdinalIgnoreCase))
+        {
+            return await RunResetAdminAsync(args[1..]).ConfigureAwait(false);
         }
 
         var scenarioPath = ScenarioFile.ResolvePath(null);
@@ -55,6 +63,25 @@ internal static class Program
             "Готово. Выставьте OneC.RAS.ExePath на этот PerfHarness.exe (OneC.RAS.Endpoint оставьте " +
             $"пустым) и при необходимости env {ScenarioFile.EnvVar}={scenarioPath}.");
         return 0;
+    }
+
+    private static async Task<int> RunResetAdminAsync(string[] args)
+    {
+        var map = ParseOptions(args);
+
+        var userName = GetString(map, "user") ?? IdentitySeeder.DefaultAdminUserName;
+        var password = GetString(map, "password");
+        var unlock = map.TryGetValue("unlock", out var u)
+            && !string.Equals(u, "false", StringComparison.OrdinalIgnoreCase);
+
+        var connectionString =
+            GetString(map, "connection")
+            ?? Environment.GetEnvironmentVariable("ConnectionStrings__Default")
+            ?? DefaultConnectionString;
+
+        return await AdminReset
+            .RunAsync(userName, password, unlock, connectionString, Console.Out, CancellationToken.None)
+            .ConfigureAwait(false);
     }
 
     // Минимальный парсер --key value / --key=value (флаги без значения → "true").

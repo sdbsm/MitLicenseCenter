@@ -13,6 +13,32 @@ Operationally this means:
 - **Run the host under a supervisor that surfaces the exit code** (Windows Service / IIS hosting / `sc.exe` / NSSM). A fail-fast exit should be visible and alert the operator, not be silently restarted into the same broken state.
 - **First-run admin password:** on the very first successful start against an empty database, `IdentitySeeder` creates the `admin` account with a random password and writes it to the service log at `Warning` level (same in Development and Production). Capture it from the log on first boot and change it at first sign-in.
 
+## Recovering admin access — `reset-admin` instead of a destructive reset
+
+The first-run password is logged **once**. If it is lost and no one can sign in, **do not** reach for `scripts/db-reset.ps1` — that script **drops and recreates the database**, wiping every tenant, infobase, publication and audit row. Use the **`reset-admin`** utility instead: it resets an existing user's password **without touching any data**, through the same ASP.NET Identity `UserManager` the application uses, so the resulting hash and the password policy (length ≥ 12, upper/lower/digit/non-alphanumeric) are identical to a normal password change.
+
+The utility is a verb of the dev/test-only `MitLicenseCenter.Tools.PerfHarness` binary (not part of the production publish — the Web project does not reference it). Run it from the repository root:
+
+```powershell
+# Generated password (printed to the console):
+scripts\reset-admin.ps1
+
+# Explicit password and/or a different user:
+scripts\reset-admin.ps1 -User admin -Password 'Choose-A-Strong-One!'
+
+# Also clear a lockout (5 failed sign-ins → 15-minute lockout):
+scripts\reset-admin.ps1 -Unlock
+```
+
+The wrapper invokes `dotnet run --project backend/tools/MitLicenseCenter.Tools.PerfHarness -- reset-admin …`; the same verb can be run directly. Flags: `--user` (default `admin`), `--password` (omit to generate a policy-compliant random one), `--unlock` (lift lockout + reset the failed-attempt counter), `--connection` (override the SQL connection string; defaults to the local instance, or the `ConnectionStrings__Default` env var).
+
+Operationally:
+
+- **The new password is printed to stdout only** (never to a file log sink), exactly like the first-run seeder — capture it from the console and change it at first sign-in.
+- **Data is preserved** — the command only rewrites the user's password hash (and, with `--unlock`, the lockout fields). Tenants, infobases and audit history are untouched.
+- **Exit codes:** `0` success · `2` user not found · `3` the chosen password fails the policy (the validation errors are printed). A non-zero exit means nothing was changed.
+- **On the production host** run the verb under the service account that owns the database and the key ring (the SQL connection and Data Protection paths must be reachable). On a dev box the wrapper sets `DOTNET_ENVIRONMENT=Development` so the local-profile key ring is used; the reset token is single-use and consumed in-process, so the key-ring location does not affect correctness.
+
 ## Deployment is manual — there is no deploy script
 
 Per [ADR-14](DECISIONS.md#14-cicd--github-actions-ci-only-no-cd-in-v1), v1 has CI only: **no deployment automation and no deploy script** ships in `scripts/` (only `build.ps1` / `db-reset.ps1` / `dev.ps1` / `shadcn-add.ps1`). Releasing a new version onto the single-node host (topology in `04_INFRASTRUCTURE.md`) is a manual operator procedure:
