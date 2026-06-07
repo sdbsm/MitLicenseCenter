@@ -16,6 +16,15 @@ internal sealed record SeedOptions
     public int Sessions { get; init; } = 500;
     public double OverLimitFraction { get; init; } = 0.30;
     public int Seed { get; init; } = 1039;
+
+    // Горизонт давности для строк аудита (timestamps размазаны по этому окну). Совпадает с
+    // дефолтным ретеншеном аудита (Audit.RetentionDays = 365) — сеем ровно столько, сколько
+    // программа хранит, чтобы ночная AuditRetentionJob не выкосила засеянное.
+    public int AuditDays { get; init; } = 365;
+
+    // Глубина истории использования лицензий в днях (0 = не сеять — сохраняет 1:1 поведение
+    // perf-харнесса MLC-039). Совпадает с дефолтным LicenseUsage.RetentionDays = 365.
+    public int UsageDays { get; init; }
 }
 
 // Засеваемый граф (без аудита — он стримится отдельно из-за объёма K) + сценарий для заглушки.
@@ -121,8 +130,7 @@ internal static class SeedDataGenerator
 
         // Отдельный rng со смещённым seed → аудит независим от графа, но воспроизводим.
         var rng = new Random(opts.Seed ^ 0x5EED);
-        const int retentionDays = 365;
-        var retentionMinutes = retentionDays * 24 * 60;
+        var retentionMinutes = Math.Max(1, opts.AuditDays) * 24 * 60;
 
         for (var k = 0; k < opts.Audit; k++)
         {
@@ -143,6 +151,54 @@ internal static class SeedDataGenerator
                 Description = $"perf audit row {k}",
                 TenantId = tenantId,
             };
+        }
+    }
+
+    // Один сэмпл потребления лицензий за 15-мин бакет (вход для LicenseUsageSnapshot).
+    internal readonly record struct UsageSample(int ConsumedMin, int ConsumedMax, double ConsumedAvg, int Limit);
+
+    // Потолок лицензий тенанта ДЛЯ ГРАФИКОВ — намеренно отвязан от enforcement-лимита
+    // (MaxConcurrentLicenses = 1/1e6, заточен под rac-stub kill-путь). Детерминирован от
+    // индекса → реалистичный диапазон 10..55, чтобы график /reports был осмысленным.
+    public static int UsageLimitFor(int tenantIndex) => 10 + (tenantIndex % 10) * 5;
+
+    // Чистая модель потребления: суточная «колоколом» к полудню + спад ночью и в выходные +
+    // детерминированный шум и per-tenant фаза/интенсивность; у части тенантов пики залезают
+    // выше лимита (видимые всплески над линией лимита). Без последовательного RNG — значение
+    // зависит только от (tenantIndex, bucket), поэтому порядок обхода неважен и воспроизводим.
+    public static UsageSample BuildUsageSample(int tenantIndex, DateTime bucketStartUtc)
+    {
+        var limit = UsageLimitFor(tenantIndex);
+
+        var hour = bucketStartUtc.Hour + (bucketStartUtc.Minute / 60.0);
+        var daily = Math.Exp(-Math.Pow((hour - 13.0) / 5.0, 2)); // 0..1, пик в 13:00
+        var weekend = bucketStartUtc.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday;
+        var weekly = weekend ? 0.25 : 1.0;
+
+        const double idleFloor = 0.08; // небольшой ночной фон
+        var activity = idleFloor + ((1 - idleFloor) * daily * weekly);
+
+        var phase = ((tenantIndex * 37) % 100) / 100.0; // 0..1, разводит тенанты
+        var scale = 0.85 + (0.45 * phase);              // часть тенантов «горячее» (до 1.30)
+        var noise = DeterministicNoise(tenantIndex, bucketStartUtc); // -0.15..0.15
+
+        var avg = Math.Max(0.0, limit * activity * scale * (1 + noise));
+        var spread = Math.Max(1.0, avg * 0.15);
+        var max = (int)Math.Ceiling(avg + spread);
+        var min = (int)Math.Max(0, Math.Floor(avg - spread));
+        return new UsageSample(min, max, avg, limit);
+    }
+
+    // Дешёвый детерминированный шум из (tenantIndex, тики бакета) → [-0.15, 0.15].
+    private static double DeterministicNoise(int tenantIndex, DateTime ts)
+    {
+        unchecked
+        {
+            var h = (uint)tenantIndex * 2654435761u;
+            h ^= (uint)(ts.Ticks ^ (ts.Ticks >> 32)) * 2246822519u;
+            h ^= h >> 13;
+            var unit = (h & 0xFFFF) / 65535.0; // 0..1
+            return (unit - 0.5) * 0.30;
         }
     }
 

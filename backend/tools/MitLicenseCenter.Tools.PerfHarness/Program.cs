@@ -35,6 +35,8 @@ internal static class Program
             Sessions = GetInt(map, "sessions", 500),
             OverLimitFraction = GetDouble(map, "over-limit-fraction", 0.30),
             Seed = GetInt(map, "seed", 1039),
+            AuditDays = GetInt(map, "audit-days", 365),
+            UsageDays = GetInt(map, "usage-days", 0),
         };
 
         var connectionString =
@@ -46,7 +48,8 @@ internal static class Program
 
         Console.WriteLine(
             $"PerfHarness seed: tenants={opts.Tenants}, infobases={opts.Infobases}, " +
-            $"audit={opts.Audit}, sessions={opts.Sessions}, over-limit={opts.OverLimitFraction:0.##}");
+            $"audit={opts.Audit} (за {opts.AuditDays}д), sessions={opts.Sessions}, " +
+            $"usage-days={opts.UsageDays}, over-limit={opts.OverLimitFraction:0.##}");
 
         await Seeder.RunAsync(opts, connectionString, scenarioPath, Console.Out, CancellationToken.None)
             .ConfigureAwait(false);

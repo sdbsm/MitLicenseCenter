@@ -21,7 +21,9 @@ param(
     [int]$Tenants = 20,
     [int]$Infobases = 50,
     [int]$Audit = 100000,
+    [int]$AuditDays = 365,
     [int]$Sessions = 500,
+    [int]$UsageDays = 0,
     [double]$OverLimitFraction = 0.30,
     [int]$Seed = 1039,
     [string]$ConnectionString = 'Server=.;Database=MitLicenseCenter;Trusted_Connection=True;TrustServerCertificate=True;Encrypt=False',
@@ -49,7 +51,9 @@ $seedArgs = @(
     '--tenants', $Tenants,
     '--infobases', $Infobases,
     '--audit', $Audit,
+    '--audit-days', $AuditDays,
     '--sessions', $Sessions,
+    '--usage-days', $UsageDays,
     '--over-limit-fraction', $fraction,
     '--seed', $Seed
 )
