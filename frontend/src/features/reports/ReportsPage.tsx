@@ -10,7 +10,8 @@ import { useReportsPage } from "./useReportsPage";
  *  периода, секция сводки и блок детализации по клиенту (паттерн MLC-032). */
 export function ReportsPage() {
   const { t } = useTranslation();
-  const { filters, tenants, summary, detail, applyFilters, setTenant } = useReportsPage();
+  const { filters, tenants, selectedTenantName, summary, detail, applyFilters, setTenant } =
+    useReportsPage();
 
   return (
     <div className="space-y-6">
@@ -43,6 +44,7 @@ export function ReportsPage() {
       <ReportsDetail
         tenants={tenants}
         selectedTenantId={filters.tenantId}
+        selectedTenantName={selectedTenantName}
         data={detail.data}
         isLoading={detail.isLoading}
         onSelectTenant={setTenant}

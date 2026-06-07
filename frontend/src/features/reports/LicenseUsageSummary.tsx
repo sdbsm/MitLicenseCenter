@@ -3,6 +3,7 @@ import { ru } from "date-fns/locale";
 import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ExportMenu } from "./export/ExportMenu";
 import { LicenseUsageChart } from "./LicenseUsageChart";
 import { ReportsEmptyState } from "./ReportsEmptyState";
 import { ReportsStats } from "./ReportsStats";
@@ -22,7 +23,10 @@ export function LicenseUsageSummary({ data, isLoading }: LicenseUsageSummaryProp
   return (
     <Card>
       <CardHeader className="gap-2">
-        <CardTitle>{t("reports.summary.title")}</CardTitle>
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle>{t("reports.summary.title")}</CardTitle>
+          <ExportMenu data={data} scope="all" />
+        </div>
         {data && (
           <p className="text-muted-foreground text-sm">
             {t("reports.summary.effectiveRange", {

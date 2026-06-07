@@ -2516,3 +2516,54 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
   **ADR не трогали** — UI в рамках принятого ADR-25.
 - **Трек «Отчёты» завершён 3/3** (`MLC-048` сбор → `MLC-049` API → `MLC-050` UI). Активных задач нет;
   следующую ставит куратор. ADR-25/20/16/3.3/single-node/RU-only не затронуты.
+
+### MLC-051 — Экспорт отчётов: каркас + CSV + XLSX — 2026-06-07
+
+- **Постановка (куратор, трек «Экспорт отчётов»).** Задача A из мини-трека (2 задачи: A — каркас+CSV+XLSX,
+  B — HTML+PDF). Полная спека трека — `.claude/plans/adaptive-scribbling-quiche.md`; план реализации —
+  `.claude/plans/mitlicense-center-velvety-hinton.md`. Цель: в `/reports` выгружать отчёт в файл; оба разреза
+  (сводка по всем клиентам и детализация по выбранному) — **по отдельности**. Задача B (HTML/PDF,
+  chart.js/jspdf) — отдельной сессией, не тронута.
+- **Ключевое решение — экспорт целиком клиентский.** Данные уже посчитаны и лежат в браузере
+  (`useReportsPage` → `summary.data`/`detail.data` типа `LicenseUsageSeriesResponse`). Новый бэкенд-эндпоинт
+  не заводили (UI в рамках ADR-25, нового ADR нет) — серверный экспорт сэкономил бы только сериализацию.
+- **Новый модуль `frontend/src/features/reports/export/`.**
+  - `downloadBlob.ts` — `downloadBlob(filename, blob)`: object URL + временный `<a download>` + revoke
+    (готовых утилит скачивания в проекте не было).
+  - `exportFilename.ts` — `license-usage_<scope>_<from>_<to>.<ext>`; `scope` = `all` (сводка) или slug имени
+    клиента (детализация, кириллица сохраняется, вырезаны fs-небезопасные символы, пустое имя → `client`);
+    диапазон date-only из `fromUtc`/`toUtc`. Тип `ExportScope = "all" | { tenantName: string|null }`.
+  - `toCsv.ts` — без зависимостей, RU-Excel-дружелюбно: **UTF-8 с BOM** (`String.fromCharCode(0xFEFF)` —
+    литерал U+FEFF вырезается тулингом сборки), разделитель `;`, десятичная запятая в среднем (округление
+    `Math.round(x*10)/10`, как `LicenseUsageChart`), дата `dd.MM.yyyy HH:mm` (date-fns/ru), `\r\n`. Чистая
+    таблица «Начало бакета;Среднее;Пик;Лимит» (пик/среднее сводки не кладём).
+  - `toXlsx.ts` — зависимость `xlsx` (SheetJS) через `dynamic import` по клику. Книга из двух листов:
+    «Сводка» (разрез, эффективный диапазон, пик/лимит, момент пика, среднее) + «Данные» (таблица бакетов).
+    Числа — **настоящими числами** (`aoa_to_sheet`, тип ячейки `n`), чтобы работали сводные/графики Excel.
+  - `ExportMenu.tsx` — один компонент на оба разреза (shadcn `DropdownMenu`, «Скачать ▾», пункты «CSV»/«Excel»).
+    Скрыт при пустом ряде (`!data || buckets.length === 0`). XLSX в `try/catch` с `toast.error` (dynamic import
+    может упасть). Props: `data`, `scope`.
+- **Встройка (оба разреза по отдельности, требование пользователя).** `LicenseUsageSummary.tsx` — `ExportMenu`
+  в `CardHeader` (`scope="all"`); `ReportsDetail.tsx` — новый prop `selectedTenantName`, `ExportMenu`
+  `scope={{ tenantName }}`; `ReportsPage.tsx` — прокинут `selectedTenantName` из `useReportsPage` (хук уже
+  его отдавал, страница не использовала). i18n: блок `reports.export.*` (`menu`/`csv`/`xlsx`/`error`, ru).
+- **Бандл (vite.config).** Новая rolldown-группа `export-libs` (priority 30, как `charts`) под `xlsx`. `xlsx`
+  импортируется только динамически → чанк грузится по клику. Итог сборки: `export-libs` 425 кБ (gzip 142),
+  все чанки < 500 кБ, предупреждений нет. `xlsx@0.18.5` добавлен в `dependencies`.
+- **Тесты (Vitest).** `toCsv.test.ts` (BOM по сырым байтам EF BB BF — `blob.text()`/TextDecoder срезает
+  ведущий BOM; `;`/заголовок/десятичная запятая/число строк/пустой ряд), `exportFilename.test.ts` (scope
+  all/клиент, slug, sanitize, fallback), `toxlsx.test.ts` (читаем книгу обратно SheetJS — имена листов,
+  шапка «Данные», числовые ячейки `t==="n"`, метка разреза), `ExportMenu.test.tsx` (рендер триггера, пункты
+  CSV/Excel по `userEvent`-клику, скрытие при пустом/undefined ряде). Сериалайзер-тесты — в `node`-окружении
+  (`// @vitest-environment node`), т.к. jsdom-`Blob` не имеет `.text()`/`.arrayBuffer()`. FE **162** зелёные.
+  TZ-устойчивость фикстур: полдень UTC (date-only не плывёт), час в CSV проверяется регуляркой.
+- **Проверка.** `pnpm test`/`type-check`/`lint` чисто; `pnpm build` — чанк `export-libs` отдельным, порог
+  держится. Доказательство формата — реальные CSV/XLSX из тех же модулей (временный proof-скрипт, затем
+  удалён): CSV-байты `EF BB BF`, десятичная запятая `3,5`/`5,7`, дата `dd.MM.yyyy HH:mm`; XLSX — два листа
+  «Сводка»/«Данные», числовая ячейка `type=n value=3.5`. Live-скриншот меню требует накопленной телеметрии
+  (меню гейтится непустым рядом) + логина — заменён детерминированным `ExportMenu`-тестом.
+- **Терминология.** Спека куратора говорит «manualChunks-чанк», но реальный `vite.config` — rolldown
+  `codeSplitting.groups`; добавлена группа в фактическую структуру (деталь реализации, не doc-divergence).
+- **Канон present-tense.** `05_UI_REQUIREMENTS.md` §3.6 — буллет про выгрузку (меню «Скачать» в обоих разрезах,
+  CSV/XLSX, клиентский экспорт без нового API). **ADR не трогали** — UI в рамках ADR-25.
+- **Зависимости.** Разблокирует/предшествует `MLC-052` (HTML+PDF, ставит куратор). ADR-25/20/16/3.3/single-node/RU-only не затронуты.

@@ -38,6 +38,16 @@ export default defineConfig({
               test: /node_modules[\\/](recharts|victory-vendor|d3-[a-z-]+|internmap|@reduxjs[\\/]toolkit|react-redux|redux|reselect|immer|decimal\.js-light)[\\/]/,
               priority: 30,
             },
+            // MLC-051: тяжёлые либы экспорта отчётов (xlsx ≈ 430 кБ; в задаче B сюда
+            // же лягут chart.js/jspdf). Грузятся `dynamic import` по клику (см.
+            // features/reports/export/), но именованная группа держит их в отдельном
+            // чанке вне общего vendor — иначе vendor перевалит за порог 500 кБ.
+            // priority>vendor (специфичная раньше общей).
+            {
+              name: "export-libs",
+              test: /node_modules[\\/](xlsx)[\\/]/,
+              priority: 30,
+            },
             {
               name: "vendor",
               test: /node_modules[\\/]/,
