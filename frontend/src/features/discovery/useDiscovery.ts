@@ -95,3 +95,14 @@ export function usePlatformVersions(enabled: boolean) {
     staleTime: STALE_TIME,
   });
 }
+
+// MLC-056: локальные инстансы SQL (из реестра) — пикер сервера БД на /settings и
+// в форме инфобазы. Без параметров (localhost-only).
+export function useSqlInstances(enabled: boolean) {
+  return useQuery({
+    queryKey: ["discovery", "sql-instances"],
+    queryFn: () => api<DiscoveryResponse<string>>("/api/v1/discovery/sql-instances"),
+    enabled,
+    staleTime: STALE_TIME,
+  });
+}

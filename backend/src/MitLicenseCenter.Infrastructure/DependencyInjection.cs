@@ -141,6 +141,9 @@ public static class DependencyInjection
         services.AddScoped<ISqlDatabaseDiscovery, SqlDatabaseDiscovery>();
         services.AddSingleton<IRacPathDiscovery, RacPathDiscovery>();
         services.AddSingleton<IPlatformVersionDiscovery, PlatformVersionDiscovery>();
+        // MLC-056: инстансы SQL из локального реестра. Singleton — машинно-локальный
+        // снимок (как rac/platform), не per-request в отличие от SqlDatabaseDiscovery.
+        services.AddSingleton<ISqlInstanceDiscovery, SqlInstanceDiscovery>();
 
         // Snapshot store + hot-tier registry (singletons, PR 3.3).
         services.AddSingleton<IActiveSessionSnapshotStore, ActiveSessionSnapshotStore>();

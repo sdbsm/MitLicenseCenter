@@ -64,6 +64,9 @@ export function InfobaseFormDialog({
     databaseOptions,
     databasesState,
     refetchDatabases,
+    sqlInstanceOptions,
+    sqlInstancesState,
+    refetchSqlInstances,
     siteOptions,
     sitesState,
     refetchSites,
@@ -190,6 +193,9 @@ export function InfobaseFormDialog({
             {advancedOpen && (
               <PublicationFieldset
                 control={form.control}
+                sqlInstanceOptions={sqlInstanceOptions}
+                sqlInstancesState={sqlInstancesState}
+                onRefreshSqlInstances={refetchSqlInstances}
                 siteOptions={siteOptions}
                 sitesState={sitesState}
                 onRefreshSites={refetchSites}

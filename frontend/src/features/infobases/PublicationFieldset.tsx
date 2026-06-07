@@ -23,7 +23,10 @@ import { STATUSES, type InfobaseFormValues } from "./validation";
 
 interface PublicationFieldsetProps {
   control: Control<InfobaseFormValues>;
-  // Discovery для полей публикации (сайт IIS, версия платформы).
+  // Discovery: сервер СУБД (инстансы SQL), сайт IIS, версия платформы.
+  sqlInstanceOptions: DiscoveryOption[];
+  sqlInstancesState: DiscoveryState;
+  onRefreshSqlInstances: () => void;
   siteOptions: DiscoveryOption[];
   sitesState: DiscoveryState;
   onRefreshSites: () => void;
@@ -44,6 +47,9 @@ interface PublicationFieldsetProps {
 // useInfobaseForm. Раскрытие/сворачивание блока остаётся в InfobaseFormDialog.
 export function PublicationFieldset({
   control,
+  sqlInstanceOptions,
+  sqlInstancesState,
+  onRefreshSqlInstances,
   siteOptions,
   sitesState,
   onRefreshSites,
@@ -133,10 +139,15 @@ export function PublicationFieldset({
             <FormItem>
               <FormLabel>{t("infobases.form.databaseServerLabel")}</FormLabel>
               <FormControl>
-                <Input
-                  autoComplete="off"
-                  placeholder={t("infobases.form.databaseServerPlaceholder")}
-                  {...field}
+                <DiscoveryField
+                  value={field.value}
+                  onChange={field.onChange}
+                  options={sqlInstanceOptions}
+                  available={sqlInstancesState.available}
+                  loading={sqlInstancesState.loading}
+                  error={sqlInstancesState.error}
+                  onRefresh={onRefreshSqlInstances}
+                  manualPlaceholder={t("infobases.form.databaseServerPlaceholder")}
                 />
               </FormControl>
               <FormMessage />
