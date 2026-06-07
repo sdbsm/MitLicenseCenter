@@ -70,13 +70,15 @@ Immutable record of all critical system and administrator actions.
 - `StartedAtUtc` (DateTimeUtc)
 
 ## 6. AdminUser (ASP.NET Core Identity)
-Local administrator account, managed via the ASP.NET Core Identity framework. Tables are created by Identity migrations under the `auth` schema and are not modified by hand.
+Local administrator account, managed via the ASP.NET Core Identity framework. The stock Identity tables live under the `auth` schema; `AppUser` adds two custom columns (MLC-059) — the only hand-authored extension of the Identity schema.
 - `Id` (Guid, PK)
 - `UserName`, `NormalizedUserName`
 - `PasswordHash` (Identity-managed; PBKDF2 by default)
 - `Email`, `NormalizedEmail` (optional)
 - `TwoFactorEnabled` (Boolean) — Identity-stock column; operationally inert per ADR-15.
 - `LockoutEnd`, `AccessFailedCount` — Identity-managed brute-force protection
+- `MustChangePassword` (Boolean, MLC-059) — set when an account is created or its password is reset (temporary password); forces a password change on next login and is cleared by a successful change.
+- `LastLoginAt` (DateTimeUtc, nullable, MLC-059) — time of the last successful login (written by the login endpoint); `null` until the account first signs in. Shown in the Administrators list.
 - **Role assignment:** `Admin` (full access, including manual session kill and publication reconcile) or `Viewer` (read-only). Implemented via the standard Identity role tables.
 - The first admin account is seeded at startup by `IdentitySeeder` (a runtime fail-fast step that runs after migrations apply, not by a migration), with a random password printed once to the service log at `Warning` level.
 

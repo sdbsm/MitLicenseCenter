@@ -28,11 +28,12 @@ public static class AuthEndpoints
         group.MapPost("/change-password", ChangePasswordAsync).RequireAuthorization();
     }
 
-    private static async Task<Results<Ok<CurrentUserResponse>, UnauthorizedHttpResult, ValidationProblem>> LoginAsync(
+    internal static async Task<Results<Ok<CurrentUserResponse>, UnauthorizedHttpResult, ValidationProblem>> LoginAsync(
         [FromBody] LoginRequest request,
         SignInManager<AppUser> signInManager,
         UserManager<AppUser> userManager,
         IAuditLogger audit,
+        TimeProvider clock,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request.UserName) || string.IsNullOrWhiteSpace(request.Password))
@@ -62,13 +63,18 @@ public static class AuthEndpoints
 
         var roles = await userManager.GetRolesAsync(user).ConfigureAwait(false);
 
+        // MLC-059 — фиксируем время успешного входа (UTC) для колонки «Последний вход»
+        // в разделе «Администраторы».
+        user.LastLoginAt = clock.GetUtcNow().UtcDateTime;
+        await userManager.UpdateAsync(user).ConfigureAwait(false);
+
         await audit.LogAsync(
             AuditActionType.AdminLoggedIn,
             initiator: user.UserName!,
             description: $"Администратор {user.UserName} вошёл в систему.",
             ct: ct).ConfigureAwait(false);
 
-        return TypedResults.Ok(new CurrentUserResponse(user.UserName!, roles.ToArray()));
+        return TypedResults.Ok(new CurrentUserResponse(user.UserName!, roles.ToArray(), user.MustChangePassword));
     }
 
     private static async Task<NoContent> LogoutAsync(
@@ -91,7 +97,7 @@ public static class AuthEndpoints
         return TypedResults.NoContent();
     }
 
-    private static async Task<Results<Ok<CurrentUserResponse>, UnauthorizedHttpResult>> MeAsync(
+    internal static async Task<Results<Ok<CurrentUserResponse>, UnauthorizedHttpResult>> MeAsync(
         HttpContext httpContext,
         UserManager<AppUser> userManager)
     {
@@ -108,10 +114,10 @@ public static class AuthEndpoints
         }
 
         var roles = await userManager.GetRolesAsync(user).ConfigureAwait(false);
-        return TypedResults.Ok(new CurrentUserResponse(user.UserName!, roles.ToArray()));
+        return TypedResults.Ok(new CurrentUserResponse(user.UserName!, roles.ToArray(), user.MustChangePassword));
     }
 
-    private static async Task<Results<NoContent, UnauthorizedHttpResult, ValidationProblem>> ChangePasswordAsync(
+    internal static async Task<Results<NoContent, UnauthorizedHttpResult, ValidationProblem>> ChangePasswordAsync(
         [FromBody] ChangePasswordRequest request,
         HttpContext httpContext,
         UserManager<AppUser> userManager,
@@ -172,6 +178,15 @@ public static class AuthEndpoints
             }
 
             return TypedResults.ValidationProblem(ToDictionary(errors));
+        }
+
+        // MLC-059 — успешная смена снимает требование форс-смены (вход по временному паролю
+        // после создания/сброса учётки). Тот же эндпоинт обслуживает и обычную смену с
+        // /profile, и блокирующий экран форс-смены.
+        if (user.MustChangePassword)
+        {
+            user.MustChangePassword = false;
+            await userManager.UpdateAsync(user).ConfigureAwait(false);
         }
 
         await signInManager.RefreshSignInAsync(user).ConfigureAwait(false);

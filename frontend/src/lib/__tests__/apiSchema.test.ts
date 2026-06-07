@@ -29,9 +29,12 @@ describe("pagedResponseSchema()", () => {
 
 describe("currentUserSchema (критичная граница ролей)", () => {
   it("принимает валидного пользователя", () => {
-    expect(currentUserSchema.parse({ userName: "admin", roles: ["Admin"] })).toEqual({
+    expect(
+      currentUserSchema.parse({ userName: "admin", roles: ["Admin"], mustChangePassword: false })
+    ).toEqual({
       userName: "admin",
       roles: ["Admin"],
+      mustChangePassword: false,
     });
   });
 

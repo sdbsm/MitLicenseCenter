@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Navigate } from "react-router";
+import { ForcePasswordChange } from "./ForcePasswordChange";
 import { useMe } from "./useAuth";
 
 interface ProtectedRouteProps {
@@ -23,6 +24,13 @@ export function ProtectedRoute({ children, requireAdmin = false }: ProtectedRout
 
   if (isError || !data) {
     return <Navigate to="/login" replace />;
+  }
+
+  // MLC-059 — пока стоит флаг форс-смены (вход по временному паролю), не пускаем ни на
+  // одну защищённую страницу: внешний ProtectedRoute оборачивает весь AppShell, поэтому
+  // блокирующий экран замещает приложение целиком (сайдбар/контент не рендерятся).
+  if (data.mustChangePassword) {
+    return <ForcePasswordChange />;
   }
 
   if (requireAdmin && !data.roles.includes("Admin")) {
