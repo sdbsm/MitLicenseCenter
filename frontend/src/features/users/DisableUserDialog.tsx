@@ -11,33 +11,33 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { matchConflictCode } from "@/lib/apiErrors";
-import type { Admin } from "./types";
-import { useDisableAdmin } from "./useAdmins";
+import type { User } from "./types";
+import { useDisableUser } from "./useUsers";
 
-interface DisableAdminDialogProps {
-  admin: Admin | null;
+interface DisableUserDialogProps {
+  user: User | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
-export function DisableAdminDialog({ admin, open, onOpenChange }: DisableAdminDialogProps) {
+export function DisableUserDialog({ user, open, onOpenChange }: DisableUserDialogProps) {
   const { t } = useTranslation();
-  const disable = useDisableAdmin();
+  const disable = useDisableUser();
 
-  if (!admin) {
+  if (!user) {
     return null;
   }
 
   const handleConfirm = async () => {
     try {
-      await disable.mutateAsync(admin.id);
-      toast.success(t("admins.toasts.disabled", { name: admin.userName }));
+      await disable.mutateAsync(user.id);
+      toast.success(t("users.toasts.disabled", { name: user.userName }));
       onOpenChange(false);
     } catch (error) {
       // Серверные guard'ы → понятный тост; диалог остаётся открытым.
       const messageKey = matchConflictCode(error, {
-        ADMIN_CANNOT_DISABLE_SELF: "admins.errors.cannotDisableSelf",
-        ADMIN_LAST_ACTIVE: "admins.errors.lastActive",
+        USER_CANNOT_DISABLE_SELF: "users.errors.cannotDisableSelf",
+        USER_LAST_ACTIVE: "users.errors.lastActive",
       });
       toast.error(messageKey ? t(messageKey) : t("errors.generic"));
     }
@@ -47,9 +47,9 @@ export function DisableAdminDialog({ admin, open, onOpenChange }: DisableAdminDi
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>{t("admins.disable.title")}</AlertDialogTitle>
+          <AlertDialogTitle>{t("users.disable.title")}</AlertDialogTitle>
           <AlertDialogDescription>
-            {t("admins.disable.body", { name: admin.userName })}
+            {t("users.disable.body", { name: user.userName })}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -62,7 +62,7 @@ export function DisableAdminDialog({ admin, open, onOpenChange }: DisableAdminDi
               void handleConfirm();
             }}
           >
-            {disable.isPending ? t("common.loading") : t("admins.disable.confirm")}
+            {disable.isPending ? t("common.loading") : t("users.disable.confirm")}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

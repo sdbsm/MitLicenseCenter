@@ -4,9 +4,9 @@ import {
   KeyRoundIcon,
   MoreHorizontalIcon,
   PlusIcon,
-  ShieldIcon,
   ShieldOffIcon,
   UserCheckIcon,
+  UsersRoundIcon,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -28,59 +28,57 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { AdminFormDialog } from "./AdminFormDialog";
-import { DisableAdminDialog } from "./DisableAdminDialog";
-import { EnableAdminDialog } from "./EnableAdminDialog";
+import { DisableUserDialog } from "./DisableUserDialog";
+import { EnableUserDialog } from "./EnableUserDialog";
 import { GeneratedPasswordDialog } from "./GeneratedPasswordDialog";
 import { ResetPasswordDialog } from "./ResetPasswordDialog";
-import type { Admin } from "./types";
-import { useAdmins } from "./useAdmins";
+import type { User } from "./types";
+import { UserFormDialog } from "./UserFormDialog";
+import { useUsers } from "./useUsers";
 
 interface GeneratedPassword {
   userName: string;
   password: string;
 }
 
-export function AdminsPage() {
+export function UsersPage() {
   const { t } = useTranslation();
-  const { data, isLoading, isError, refetch } = useAdmins();
+  const { data, isLoading, isError, refetch } = useUsers();
 
   const [formOpen, setFormOpen] = useState(false);
-  const [resetting, setResetting] = useState<Admin | null>(null);
-  const [disabling, setDisabling] = useState<Admin | null>(null);
-  const [enabling, setEnabling] = useState<Admin | null>(null);
+  const [resetting, setResetting] = useState<User | null>(null);
+  const [disabling, setDisabling] = useState<User | null>(null);
+  const [enabling, setEnabling] = useState<User | null>(null);
   const [generated, setGenerated] = useState<GeneratedPassword | null>(null);
 
-  const items = useMemo<Admin[]>(() => data?.items ?? [], [data]);
+  const items = useMemo<User[]>(() => data?.items ?? [], [data]);
 
   const handlePasswordGenerated = (userName: string, password: string) => {
     setGenerated({ userName, password });
   };
 
-  const renderRoles = (admin: Admin) =>
-    admin.roles.map((role) => t(`admins.roles.${role}`, { defaultValue: role })).join(", ") || "—";
+  const renderRoles = (user: User) =>
+    user.roles.map((role) => t(`users.roles.${role}`, { defaultValue: role })).join(", ") || "—";
 
-  const renderLastLogin = (admin: Admin) =>
-    admin.lastLoginAt
-      ? format(new Date(admin.lastLoginAt), "dd.MM.yyyy HH:mm", { locale: ru })
-      : "—";
+  const renderLastLogin = (user: User) =>
+    user.lastLoginAt ? format(new Date(user.lastLoginAt), "dd.MM.yyyy HH:mm", { locale: ru }) : "—";
 
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-1">
-          <h2 className="text-2xl font-semibold tracking-tight">{t("admins.title")}</h2>
-          <p className="text-muted-foreground text-sm">{t("admins.subtitle")}</p>
+          <h2 className="text-2xl font-semibold tracking-tight">{t("users.title")}</h2>
+          <p className="text-muted-foreground text-sm">{t("users.subtitle")}</p>
         </div>
         <Button onClick={() => setFormOpen(true)}>
           <PlusIcon className="size-4" />
-          {t("admins.actions.add")}
+          {t("users.actions.add")}
         </Button>
       </div>
 
       {isError && (
         <div className="border-destructive/40 bg-destructive/5 rounded-md border p-4 text-sm">
-          <p className="font-medium">{t("admins.errors.loadFailed")}</p>
+          <p className="font-medium">{t("users.errors.loadFailed")}</p>
           <Button
             variant="link"
             className="px-0"
@@ -99,10 +97,10 @@ export function AdminsPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>{t("admins.fields.userName")}</TableHead>
-              <TableHead>{t("admins.fields.role")}</TableHead>
-              <TableHead>{t("admins.fields.status")}</TableHead>
-              <TableHead>{t("admins.fields.lastLogin")}</TableHead>
+              <TableHead>{t("users.fields.userName")}</TableHead>
+              <TableHead>{t("users.fields.role")}</TableHead>
+              <TableHead>{t("users.fields.status")}</TableHead>
+              <TableHead>{t("users.fields.lastLogin")}</TableHead>
               <TableHead className="w-10" />
             </TableRow>
           </TableHeader>
@@ -130,34 +128,32 @@ export function AdminsPage() {
                     <TableRow>
                       <TableCell colSpan={5} className="py-12">
                         <div className="flex flex-col items-center justify-center gap-3 text-center">
-                          <ShieldIcon className="text-muted-foreground size-8" />
+                          <UsersRoundIcon className="text-muted-foreground size-8" />
                           <div className="space-y-1">
-                            <p className="font-medium">{t("admins.empty.title")}</p>
-                            <p className="text-muted-foreground text-sm">
-                              {t("admins.empty.hint")}
-                            </p>
+                            <p className="font-medium">{t("users.empty.title")}</p>
+                            <p className="text-muted-foreground text-sm">{t("users.empty.hint")}</p>
                           </div>
                           <Button size="sm" onClick={() => setFormOpen(true)}>
                             <PlusIcon className="size-4" />
-                            {t("admins.actions.add")}
+                            {t("users.actions.add")}
                           </Button>
                         </div>
                       </TableCell>
                     </TableRow>
                   )
-                : items.map((admin) => (
-                    <TableRow key={admin.id}>
-                      <TableCell className="font-medium">{admin.userName}</TableCell>
-                      <TableCell className="text-muted-foreground">{renderRoles(admin)}</TableCell>
+                : items.map((user) => (
+                    <TableRow key={user.id}>
+                      <TableCell className="font-medium">{user.userName}</TableCell>
+                      <TableCell className="text-muted-foreground">{renderRoles(user)}</TableCell>
                       <TableCell>
-                        {admin.isActive ? (
-                          <StatusBadge variant="success">{t("admins.status.active")}</StatusBadge>
+                        {user.isActive ? (
+                          <StatusBadge variant="success">{t("users.status.active")}</StatusBadge>
                         ) : (
-                          <StatusBadge variant="neutral">{t("admins.status.disabled")}</StatusBadge>
+                          <StatusBadge variant="neutral">{t("users.status.disabled")}</StatusBadge>
                         )}
                       </TableCell>
                       <TableCell className="text-muted-foreground tabular-nums">
-                        {renderLastLogin(admin)}
+                        {renderLastLogin(user)}
                       </TableCell>
                       <TableCell className="text-right">
                         <DropdownMenu>
@@ -168,22 +164,22 @@ export function AdminsPage() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem onSelect={() => setResetting(admin)}>
+                            <DropdownMenuItem onSelect={() => setResetting(user)}>
                               <KeyRoundIcon className="size-4" />
-                              {t("admins.actions.resetPassword")}
+                              {t("users.actions.resetPassword")}
                             </DropdownMenuItem>
-                            {admin.isActive ? (
+                            {user.isActive ? (
                               <DropdownMenuItem
                                 variant="destructive"
-                                onSelect={() => setDisabling(admin)}
+                                onSelect={() => setDisabling(user)}
                               >
                                 <ShieldOffIcon className="size-4" />
-                                {t("admins.actions.disable")}
+                                {t("users.actions.disable")}
                               </DropdownMenuItem>
                             ) : (
-                              <DropdownMenuItem onSelect={() => setEnabling(admin)}>
+                              <DropdownMenuItem onSelect={() => setEnabling(user)}>
                                 <UserCheckIcon className="size-4" />
-                                {t("admins.actions.enable")}
+                                {t("users.actions.enable")}
                               </DropdownMenuItem>
                             )}
                           </DropdownMenuContent>
@@ -195,31 +191,31 @@ export function AdminsPage() {
         </Table>
       </div>
 
-      <AdminFormDialog
+      <UserFormDialog
         open={formOpen}
         onOpenChange={setFormOpen}
         onPasswordGenerated={handlePasswordGenerated}
       />
       <ResetPasswordDialog
         key={resetting?.id ?? "reset-none"}
-        admin={resetting}
+        user={resetting}
         open={resetting !== null}
         onOpenChange={(open) => {
           if (!open) setResetting(null);
         }}
         onPasswordGenerated={handlePasswordGenerated}
       />
-      <DisableAdminDialog
+      <DisableUserDialog
         key={disabling?.id ?? "disable-none"}
-        admin={disabling}
+        user={disabling}
         open={disabling !== null}
         onOpenChange={(open) => {
           if (!open) setDisabling(null);
         }}
       />
-      <EnableAdminDialog
+      <EnableUserDialog
         key={enabling?.id ?? "enable-none"}
-        admin={enabling}
+        user={enabling}
         open={enabling !== null}
         onOpenChange={(open) => {
           if (!open) setEnabling(null);

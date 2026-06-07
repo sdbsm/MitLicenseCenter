@@ -16,7 +16,7 @@ using Xunit;
 namespace MitLicenseCenter.Tests.Unit.Endpoints;
 
 // MLC-059 — обработчики AuthEndpoints, отвечающие за форс-смену пароля и «последний вход».
-// Гоняем их напрямую (как AdminsEndpoints-тесты), но поверх РЕАЛЬНОГО UserManager +
+// Гоняем их напрямую (как UsersEndpoints-тесты), но поверх РЕАЛЬНОГО UserManager +
 // SignInManager над EF InMemory с настоящей cookie-схемой Identity: PasswordSignInAsync и
 // RefreshSignInAsync ходят в HttpContext.SignInAsync, поэтому харнесс поднимает
 // AddAuthentication/AddCookie и подсовывает SignInManager общий HttpContext через

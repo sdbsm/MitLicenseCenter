@@ -191,12 +191,11 @@ REF-10→MLC-027, REF-11→MLC-011(a), REF-13→MLC-028). Phase 1–2 (MLC-029..
 (файлы/guard'ы/аудит/проверка) — в план-файле `C:\Users\andre\.claude\plans\users-section-rename-roles.md`.
 Берём по одной за сессию (в одном чате последовательно):
 
-1. `MLC-060` — **NEXT TASK** — Полное переименование «Администраторы»→«Пользователи» (рефакторинг,
-   поведение 1:1): `/admins`→`/users` (роут + API `MapGroup` + папки `Web/Endpoints/Users`,
+1. `MLC-060` — **Done (2026-06-08)** — Полное переименование «Администраторы»→«Пользователи»
+   (рефакторинг, поведение 1:1): `/admins`→`/users` (роут + API `MapGroup` + папки `Web/Endpoints/Users`,
    `features/users`), контракты/`Problems`/коды ошибок (parity BE↔FE), имена слотов аудита `Admin*`→`User*`
-   (**int 103–106 заморожены, не менять**), текст аудита «Администратор»→«Пользователь», i18n, канон §3.7.
-   Роль `Roles.Admin/Viewer` и утилита `reset-admin` НЕ трогаются. BE+FE, объём M.
-2. `MLC-061` — Смена роли существующей учётки (Admin↔Viewer): `POST /api/v1/users/{id}/role` (Admin),
+   (int 103–106 заморожены), i18n, канон §3.7. Отчёт — в индексе «Закрыто» ниже.
+2. `MLC-061` — **NEXT TASK** — Смена роли существующей учётки (Admin↔Viewer): `POST /api/v1/users/{id}/role` (Admin),
    guard'ы «сам себе нельзя» + «нельзя разжаловать последнего активного Admin», +1 слот аудита
    `UserRoleChanged=107` (новое число); фронт — действие «Сменить роль» (radio). Нюанс: смена вступает в
    силу при следующем входе целевого пользователя (роль в cookie). BE+FE, объём S–M. **Завершает мини-трек 2/2.**
@@ -205,14 +204,15 @@ REF-10→MLC-027, REF-11→MLC-011(a), REF-13→MLC-028). Phase 1–2 (MLC-029..
 
 ## NEXT TASK
 
-> **`MLC-060` — Полное переименование «Администраторы» → «Пользователи»** (рефакторинг, поведение 1:1).
-> Первая задача мини-трека «Раздел Пользователи» (`MLC-060..061`). `/admins`→`/users` до кода: роут, API
-> `MapGroup("/api/v1/users")`, папки `Web/Endpoints/Users`/`features/users`, контракты, `Problems`+строки
-> кодов ошибок (parity BE↔FE через `matchConflictCode`), имена слотов аудита `Admin*`→`User*` (**int-значения
-> 103–106 заморожены — менять только имена C#**), текст аудита, i18n, канон §3.7. `Roles.Admin/Viewer` и
-> `reset-admin` не трогать. Полная спека — в план-файле
-> `C:\Users\andre\.claude\plans\users-section-rename-roles.md`. После `MLC-060` — `NEXT TASK` = `MLC-061`
-> (смена роли Admin↔Viewer).
+> **`MLC-061` — Смена роли существующей учётки (Admin↔Viewer)** (фича поверх переименованного `/users`).
+> Вторая задача мини-трека «Раздел Пользователи» (`MLC-060..061`); `MLC-060` (переименование) закрыта.
+> Новый эндпоинт `POST /api/v1/users/{id}/role` (`Roles.Admin`, тело `{role}`, валидация `role ∈ Roles.All`,
+> идемпотентность при role==текущей). Guard'ы (409): нельзя менять роль **себе** (`USER_CANNOT_CHANGE_OWN_ROLE`),
+> нельзя разжаловать **последнего активного Admin** (переиспользовать last-active-Admin логику disable).
+> +1 слот аудита `UserRoleChanged=107` (enum заморожен, новое число; 103–106 заняты). Фронт — действие
+> «Сменить роль» (radio Admin/Viewer) в `features/users/`, подсказка «вступит в силу при следующем входе».
+> Полная спека — в план-файле `C:\Users\andre\.claude\plans\users-section-rename-roles.md`.
+> **Завершает мини-трек 2/2.**
 >
 > Закрытые треки (полировка панели `MLC-057..059`, полировка /settings `MLC-055..056`, отчёты
 > `MLC-048..052`/`054`, экспорт `MLC-051..052`, рефакторинг `MLC-029..035`, перф `MLC-037..043`, плюс
@@ -250,7 +250,7 @@ REF-10→MLC-027, REF-11→MLC-011(a), REF-13→MLC-028). Phase 1–2 (MLC-029..
 
 ---
 
-## Закрыто (MLC-001..024, 029, 030, 031, 032, 033, 034, 035, 037, 038, 039, 040, 041, 042, 043, 044, 045, 046, 047, 048, 049, 050, 051, 052, 053, 054, 055, 056, 057, 058, 059) — индекс
+## Закрыто (MLC-001..024, 029, 030, 031, 032, 033, 034, 035, 037, 038, 039, 040, 041, 042, 043, 044, 045, 046, 047, 048, 049, 050, 051, 052, 053, 054, 055, 056, 057, 058, 059, 060) — индекс
 
 Полные постановки и отчёты: **`docs/PROJECT_BACKLOG_ARCHIVE.md`**.
 
@@ -417,3 +417,30 @@ REF-10→MLC-027, REF-11→MLC-011(a), REF-13→MLC-028). Phase 1–2 (MLC-029..
   present-tense: `05_UI_REQUIREMENTS.md` §3.7 (last-login + форс-смена описаны как построенные, снято «out of
   scope»), `03_DOMAIN_MODEL.md` §6 (поля `MustChangePassword`/`LastLoginAt`). ADR-20 не затронут. — Done
   (2026-06-08)
+- `MLC-060` — Полное переименование раздела «Администраторы»→«Пользователи» (мини-трек «Раздел Пользователи»,
+  1/2; чистый рефакторинг, поведение строго 1:1 с MLC-058/059). Раздел управляет и Admin-, и Viewer-учётками,
+  поэтому имя «Администраторы» неточно. Где «admins/Admin(s)» означало **раздел** → «users/User(s)»; роли
+  `Roles.Admin/Viewer` (доступ), ops-утилита `reset-admin` и логин-слоты аудита `AdminLoggedIn=100`/
+  `AdminLoggedOut=101`/`AdminPasswordChanged=102` (про вход, не про раздел) **не тронуты**. **Backend:**
+  `git mv` `Web/Endpoints/Admins/`→`Users/`, `AdminsEndpoints`→`UsersEndpoints` (`MapAdminsEndpoints`→
+  `MapUsersEndpoints`, `MapGroup("/api/v1/admins")`→`/users`, `WithTags`), контракты `Admin*Response/
+  CreateAdminRequest`→`User*`; `Problems`/`ProblemCodes` `Admin*`→`User*` **со строками кодов**
+  `ADMIN_*`→`USER_*` (`USER_USERNAME_DUPLICATE`/`USER_NOT_FOUND`/`USER_CANNOT_DISABLE_SELF`/`USER_LAST_ACTIVE` —
+  контракт API, parity BE↔FE через `matchConflictCode`); имена слотов аудита `AuditActionType.AdminCreated/
+  Disabled/PasswordReset/Enabled`→`User*` (**int 103–106 заморожены — переименовано только имя C#**),
+  `AuditDescriptions.*` методы (русский текст «Учётная запись …» role-neutral сохранён; «администратором
+  {initiator}» = роль исполнителя, не раздел). `Program.cs`-регистрация. **Frontend:** `git mv`
+  `features/admins/`→`features/users/`, `AdminsPage`→`UsersPage`, `useAdmins`→`useUsers` (`adminsQueryKey
+  ["admins"]`→`usersQueryKey ["users"]`, все хуки `*Admin`→`*User`), `AdminFormDialog`→`UserFormDialog`,
+  `Disable/EnableAdminDialog`→`*UserDialog` (проп `admin`→`user`), `types` (`ADMIN_ROLES`/`Admin*`→`USER_ROLES`/
+  `User*`); роут `/admins`→`/users` (`requireAdmin` сохранён); сайдбар «Пользователи» + иконка `ShieldIcon`→
+  `UsersRound`, `to="/users"`; i18n `nav.admins`→`nav.users`, блок `admins.*`→`users.*` (подписи раздела
+  «Администраторы»→«Пользователи»; ярлыки ролей «Администратор»/«Наблюдатель» и guard-текст про «последнего
+  активного администратора» = роль, сохранены); `matchConflictCode`-коды под backend. Тесты переименованы
+  (`UsersEndpointsTests`, `UserFormDialog`/`DisableUserDialog`), ссылка в `AuthEndpointsTests`. Миграции нет
+  (rename только символов/строк, БД-контракт enum по числам цел). BE **420** / FE **202** зелёные,
+  NetArchTest-границы целы, type-check/lint чистые, `build.ps1` зелёный. **Live-preview против запущенного
+  стека (2026-06-08):** раздел открывается на `/users` (сайдбар «Пользователи», иконка людей), создание/сброс/
+  disable/enable работают 1:1, аудит пишет «Учётная запись … администратором …», коды конфликтов `USER_*`
+  матчатся фронтом. Канон present-tense: `05_UI_REQUIREMENTS.md` §3.7 (Administrators→Users/«Пользователи»),
+  `06_UI_DESIGN.md` (sidebar), `03_DOMAIN_MODEL.md` (имена enum 103–106). ADR не затронуты. — Done (2026-06-08)

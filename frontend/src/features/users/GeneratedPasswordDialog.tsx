@@ -38,7 +38,7 @@ export function GeneratedPasswordDialog({
       setCopied(true);
       toast.success(t("common.copied"));
     } catch {
-      toast.error(t("admins.password.copyFailed"));
+      toast.error(t("users.password.copyFailed"));
     }
   };
 
@@ -46,12 +46,12 @@ export function GeneratedPasswordDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{t("admins.password.title")}</DialogTitle>
-          <DialogDescription>{t("admins.password.body", { name: userName })}</DialogDescription>
+          <DialogTitle>{t("users.password.title")}</DialogTitle>
+          <DialogDescription>{t("users.password.body", { name: userName })}</DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-2">
-          <Label htmlFor="generated-password">{t("admins.password.label")}</Label>
+          <Label htmlFor="generated-password">{t("users.password.label")}</Label>
           <div className="flex items-center gap-2">
             <Input
               id="generated-password"
@@ -65,7 +65,7 @@ export function GeneratedPasswordDialog({
               <span className="sr-only">{t("common.copy")}</span>
             </Button>
           </div>
-          <p className="text-muted-foreground text-xs">{t("admins.password.oneTimeWarning")}</p>
+          <p className="text-muted-foreground text-xs">{t("users.password.oneTimeWarning")}</p>
         </div>
 
         <DialogFooter>
