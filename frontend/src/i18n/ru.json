@@ -39,6 +39,12 @@
       "system": "Система"
     }
   },
+  "theme": {
+    "label": "Тема",
+    "light": "Светлая",
+    "dark": "Тёмная",
+    "system": "Системная"
+  },
   "auth": {
     "title": "Вход в систему",
     "subtitle": "MitLicense Center",

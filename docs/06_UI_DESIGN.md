@@ -30,7 +30,7 @@ No additional component libraries (no MUI, Ant, etc. mixed in). If shadcn doesn'
 
 ## 3. Color & Semantics
 
-We use shadcn's CSS-variable theme system unchanged for **structural** colors (`background`, `foreground`, `border`, `muted`, `accent`, etc.) and define a small **semantic palette** for status. The dark-mode CSS variables are defined, but **v1 ships no theme switcher** — there is no `ThemeProvider` or toggle, and the app follows the system preference only (`next-themes` is pulled in transitively by the sonner toaster, never driven by a UI control). A user-facing light/dark toggle is a future addition, not a v1 feature.
+We use shadcn's CSS-variable theme system unchanged for **structural** colors (`background`, `foreground`, `border`, `muted`, `accent`, etc.) and define a small **semantic palette** for status. Both light and dark CSS-variable sets are defined. The app wraps everything in a `next-themes` `ThemeProvider` (`attribute="class"`, `defaultTheme="system"`, `storageKey="mlc-theme"`) and exposes a **theme toggle** in the topbar (`components/layout/ThemeToggle.tsx`): light / dark / system, persisted in `localStorage`. `system` follows the OS `prefers-color-scheme`; the sonner toaster reads the same theme via `useTheme`.
 
 Semantic colors map 1:1 to states across the entire app. **Same status, same color, every screen.**
 

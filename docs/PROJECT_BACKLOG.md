@@ -165,8 +165,8 @@ REF-10→MLC-027, REF-11→MLC-011(a), REF-13→MLC-028). Phase 1–2 (MLC-029..
 Полная спека (Контекст/объём/файлы/переиспользование/проверка) — в план-файле
 `C:\Users\andre\.claude\plans\eventual-hopping-pebble.md`. Берём по одной за сессию:
 
-1. `MLC-057` — Переключатель темы (light/dark/system): `ThemeProvider` (`next-themes` уже установлен) +
-   тумблер в `Topbar` + i18n `theme.*`; `.dark`-переменные уже есть. FE, объём S.
+1. `MLC-057` — **Done (2026-06-08)** — Переключатель темы (light/dark/system): `ThemeProvider` (`next-themes`)
+   в `App.tsx` + тумблер `ThemeToggle` в `Topbar` + i18n `theme.*`. Отчёт — в индексе «Закрыто» ниже.
 2. `MLC-058` — Раздел «Администраторы» (Backend API + Frontend UI в одном заходе): эндпоинты `/admins`
    (список/создать/сброс пароля/disable+enable) на готовой Identity, +4 слота аудита (103–106, enum
    заморожен), guard «последний админ»/«сам себя», миграция не нужна; фронт `features/admins/` по образцу
@@ -176,12 +176,14 @@ REF-10→MLC-027, REF-11→MLC-011(a), REF-13→MLC-028). Phase 1–2 (MLC-029..
 
 ## NEXT TASK
 
-> **`MLC-057` — Переключатель темы (light/dark/system).** Первая задача трека «Полировка панели v1.1»
-> (`MLC-057..058`, 2 задачи). Frontend, объём S: `ThemeProvider` из уже установленного `next-themes`
-> (`App.tsx`) + тумблер light/dark/system в `Topbar.tsx` + i18n `theme.*`; тёмные CSS-переменные уже есть
-> в `index.css`. Полная спека — в план-файле `C:\Users\andre\.claude\plans\eventual-hopping-pebble.md`.
+> **`MLC-058` — Раздел «Администраторы» (Backend API + Frontend UI).** Вторая задача трека «Полировка
+> панели v1.1» (`MLC-057..058`, 1/2 закрыта). BE+FE, объём M: эндпоинты `/admins`
+> (список/создать/сброс пароля/disable+enable) на готовой Identity, +4 слота аудита (103–106, enum
+> заморожен), guard «последний админ»/«сам себя», миграция не нужна; фронт `features/admins/` по образцу
+> `features/tenants/`, admin-only роут + пункт сайдбара, показ сгенерированного пароля. Полная спека — в
+> план-файле `C:\Users\andre\.claude\plans\eventual-hopping-pebble.md`.
 >
-> После `MLC-057` — `NEXT TASK` = `MLC-058` (раздел «Администраторы» full-stack).
+> `MLC-057` (переключатель темы) — **Done (2026-06-08)**, отчёт в индексе «Закрыто» ниже.
 >
 > Закрытые треки (полировка /settings `MLC-055..056`, отчёты `MLC-048..052`/`054`, экспорт `MLC-051..052`,
 > рефакторинг `MLC-029..035`, перф `MLC-037..043`, плюс `MLC-044..047`/`053`) — в индексе «Закрыто» ниже
@@ -218,7 +220,7 @@ REF-10→MLC-027, REF-11→MLC-011(a), REF-13→MLC-028). Phase 1–2 (MLC-029..
 
 ---
 
-## Закрыто (MLC-001..024, 029, 030, 031, 032, 033, 034, 035, 037, 038, 039, 040, 041, 042, 043, 044, 045, 046, 047, 048, 049, 050, 051, 052, 053, 054, 055, 056) — индекс
+## Закрыто (MLC-001..024, 029, 030, 031, 032, 033, 034, 035, 037, 038, 039, 040, 041, 042, 043, 044, 045, 046, 047, 048, 049, 050, 051, 052, 053, 054, 055, 056, 057) — индекс
 
 Полные постановки и отчёты: **`docs/PROJECT_BACKLOG_ARCHIVE.md`**.
 
@@ -308,3 +310,19 @@ REF-10→MLC-027, REF-11→MLC-011(a), REF-13→MLC-028). Phase 1–2 (MLC-029..
   (пикер сервера БД). ADR не вводился (localhost-реестр за интерфейсом в Infrastructure = штатная
   adapter-граница ADR-20). ADR-16/3.3/single-node/RU-only не затронуты. **Трек «Полировка /settings»
   завершён 2/2.** — Done (2026-06-07)
+- `MLC-057` — Переключатель темы (light/dark/system) (трек «Полировка панели v1.1», 1/2; frontend+доки).
+  Приложение обёрнуто в `ThemeProvider` из `next-themes` (`App.tsx`: `attribute="class"`,
+  `defaultTheme="system"`, `enableSystem`, `storageKey="mlc-theme"`); новый `components/layout/ThemeToggle.tsx`
+  (dropdown light/dark/system на shadcn `DropdownMenuRadioGroup`, иконки `SunIcon`/`MoonIcon`/`MonitorIcon`,
+  `useTheme().setTheme`) в `Topbar` слева от меню пользователя; i18n `theme.*` (label/light/dark/system, ru).
+  Заодно `App` переключён на тематизированный `@/components/ui/sonner` (раньше импортировал сырой `sonner`,
+  и `useTheme` в нём не работал без провайдера) — тосты теперь следуют выбранной теме. Переиспользовано:
+  `.dark`-переменные + `@custom-variant dark` (`index.css`, готовы), `next-themes` (уже в `package.json`),
+  shadcn `dropdown-menu`/`button`. 3 новых теста (`ThemeToggle.test.tsx`: рендер + смена темы вешает/снимает
+  класс `.dark` на `documentElement` + пишет `localStorage`). FE 195 зелёные; type-check/lint чистые.
+  **Live-preview прогнан против запущенного стека (2026-06-08):** `system`→`dark` по `prefers-color-scheme`
+  (OS dark, `mlc-theme` пуст), затем выбор «Светлая» → класс `light` + `mlc-theme=light` + **переживает
+  перезагрузку**, выбор «Тёмная» → класс `dark`; светлый/тёмный скрин сняты, консоль чистая. Канон
+  present-tense: `06_UI_DESIGN.md` §3 (тумблер/ThemeProvider описаны как построенные), `ROADMAP.md` (пункт
+  снят из «заспечено, но не построено»). ADR не трогали (UI-фича в рамках существующего дизайн-канона);
+  single-node/RU-only не затронуты. — Done (2026-06-08)
