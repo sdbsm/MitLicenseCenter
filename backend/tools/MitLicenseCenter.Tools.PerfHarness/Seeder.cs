@@ -61,6 +61,12 @@ internal static class Seeder
         }
         log.WriteLine($"Seeded {inserted} audit rows.");
 
+        // История использования лицензий для графиков /reports (выкл по умолчанию: usageDays=0).
+        await UsageSeeder.RunAsync(
+                graph.Tenants, graph.Profiles, opts.Realistic, opts.UsageDays,
+                opts.Seed, connectionString, nowUtc, log, ct)
+            .ConfigureAwait(false);
+
         await ScenarioFile.SaveAsync(graph.Scenario, scenarioPath, ct).ConfigureAwait(false);
         log.WriteLine($"Scenario written: {scenarioPath} ({graph.Scenario.Sessions.Count} sessions).");
     }

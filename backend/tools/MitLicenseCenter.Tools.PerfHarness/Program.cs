@@ -35,14 +35,22 @@ internal static class Program
     {
         var map = ParseOptions(args);
 
+        // --realistic — флаг без значения (парсер кладёт "true"). В realistic-режиме дефолты
+        // сдвигаются: over-limit-доля 0.10 (~10%) и usage-days 365 (год истории под /reports).
+        var realistic = map.TryGetValue("realistic", out var rv)
+            && !string.Equals(rv, "false", StringComparison.OrdinalIgnoreCase);
+
         var opts = new SeedOptions
         {
             Tenants = GetInt(map, "tenants", 20),
             Infobases = GetInt(map, "infobases", 50),
             Audit = GetInt(map, "audit", 100_000),
             Sessions = GetInt(map, "sessions", 500),
-            OverLimitFraction = GetDouble(map, "over-limit-fraction", 0.30),
+            OverLimitFraction = GetDouble(map, "over-limit-fraction", realistic ? 0.10 : 0.30),
             Seed = GetInt(map, "seed", 1039),
+            AuditDays = GetInt(map, "audit-days", 365),
+            UsageDays = GetInt(map, "usage-days", realistic ? 365 : 0),
+            Realistic = realistic,
         };
 
         var connectionString =
@@ -53,8 +61,10 @@ internal static class Program
         var scenarioPath = ScenarioFile.ResolvePath(GetString(map, "scenario"));
 
         Console.WriteLine(
-            $"PerfHarness seed: tenants={opts.Tenants}, infobases={opts.Infobases}, " +
-            $"audit={opts.Audit}, sessions={opts.Sessions}, over-limit={opts.OverLimitFraction:0.##}");
+            $"PerfHarness seed: realistic={opts.Realistic}, tenants={opts.Tenants}, " +
+            $"infobases={opts.Infobases}, audit={opts.Audit} (за {opts.AuditDays}д), " +
+            $"sessions={(opts.Realistic ? "из потребления" : opts.Sessions.ToString(CultureInfo.InvariantCulture))}, " +
+            $"usage-days={opts.UsageDays}, over-limit={opts.OverLimitFraction:0.##}");
 
         await Seeder.RunAsync(opts, connectionString, scenarioPath, Console.Out, CancellationToken.None)
             .ConfigureAwait(false);
