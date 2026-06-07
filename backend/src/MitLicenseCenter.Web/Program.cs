@@ -183,6 +183,7 @@ var versionSet = app.NewApiVersionSet()
 
 app.MapAuthEndpoints(versionSet);
 app.MapHealthEndpoints(versionSet);
+app.MapAdminsEndpoints(versionSet);
 app.MapTenantsEndpoints(versionSet);
 app.MapInfobasesEndpoints(versionSet);
 app.MapPublicationsEndpoints(versionSet);

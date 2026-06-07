@@ -33,6 +33,12 @@ public static class ProblemCodes
     // MLC-002 — ручной kill сеанса.
     public const string SessionStale = "SESSION_STALE";
     public const string ClusterUnavailable = "CLUSTER_UNAVAILABLE";
+
+    // MLC-058 — управление учётками администраторов.
+    public const string AdminUsernameDuplicate = "ADMIN_USERNAME_DUPLICATE";
+    public const string AdminNotFound = "ADMIN_NOT_FOUND";
+    public const string AdminCannotDisableSelf = "ADMIN_CANNOT_DISABLE_SELF";
+    public const string AdminLastActive = "ADMIN_LAST_ACTIVE";
 }
 
 public static class Problems
@@ -147,6 +153,40 @@ public static class Problems
             ProblemCodes.SessionStale,
             "Сеанс изменился",
             "Сеанс изменился с момента обновления списка (возможно, перезапущен). Обновите список сеансов и повторите.");
+
+    // ── Управление учётками администраторов (MLC-058) ──────────────────────────────
+    public static ProblemDetails AdminUsernameDuplicate(string userName) =>
+        Conflict(
+            ProblemCodes.AdminUsernameDuplicate,
+            "Дубликат логина",
+            $"Учётная запись с логином «{userName}» уже существует.");
+
+    public static ProblemDetails AdminCannotDisableSelf() =>
+        Conflict(
+            ProblemCodes.AdminCannotDisableSelf,
+            "Нельзя отключить себя",
+            "Нельзя отключить собственную учётную запись.");
+
+    public static ProblemDetails AdminLastActive() =>
+        Conflict(
+            ProblemCodes.AdminLastActive,
+            "Последний активный администратор",
+            "Нельзя отключить последнего активного администратора — иначе панелью некому будет управлять.");
+
+    // 404 для несуществующей учётки. Не 409, поэтому отдельный helper со Status=404 и
+    // machine-readable code (frontend сопоставляет код, как и с конфликтами).
+    public static ProblemDetails AdminNotFound()
+    {
+        var problem = new ProblemDetails
+        {
+            Type = "https://mitlicense.center/problems/not-found",
+            Title = "Учётная запись не найдена",
+            Status = StatusCodes.Status404NotFound,
+            Detail = "Учётная запись не найдена (возможно, удалена). Обновите список.",
+        };
+        problem.Extensions["code"] = ProblemCodes.AdminNotFound;
+        return problem;
+    }
 
     // MLC-002 — kill не выполнен: кластер 1С (RAS) недоступен или вернул ошибку.
     // 502 (upstream-сбой). Запись в аудит при этом НЕ делается.
