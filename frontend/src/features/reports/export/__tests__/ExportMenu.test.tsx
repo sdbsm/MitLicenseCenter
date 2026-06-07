@@ -23,12 +23,14 @@ describe("ExportMenu", () => {
     expect(screen.getByRole("button", { name: /Скачать/ })).toBeInTheDocument();
   });
 
-  it("offers CSV and Excel items once opened", async () => {
+  it("offers CSV, Excel, HTML and PDF items once opened", async () => {
     const user = userEvent.setup();
     render(<ExportMenu data={data} scope="all" />);
     await user.click(screen.getByRole("button", { name: /Скачать/ }));
     expect(await screen.findByRole("menuitem", { name: "CSV" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "Excel" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /HTML/ })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "PDF" })).toBeInTheDocument();
   });
 
   it("is hidden for an undefined series", () => {

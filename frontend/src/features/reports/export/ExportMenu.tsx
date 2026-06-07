@@ -20,8 +20,9 @@ interface ExportMenuProps {
 
 /** Меню «Скачать» для выгрузки видимого ряда (MLC-051). Один компонент на оба
  *  разреза — сводку (`scope="all"`) и детализацию (`scope={{ tenantName }}`),
- *  они выгружаются по отдельности. Скрыт при пустом ряде. Тяжёлый XLSX-сериалайзер
- *  грузится `dynamic import` по клику (см. `toXlsx`). */
+ *  они выгружаются по отдельности. Скрыт при пустом ряде. Тяжёлые сериалайзеры
+ *  (XLSX, интерактивный HTML на Chart.js, PDF на jsPDF) грузятся `dynamic import`
+ *  по клику — в основной бандл не попадают. */
 export function ExportMenu({ data, scope }: ExportMenuProps) {
   const { t } = useTranslation();
 
@@ -44,6 +45,28 @@ export function ExportMenu({ data, scope }: ExportMenuProps) {
     })();
   };
 
+  const handleHtml = () => {
+    void (async () => {
+      try {
+        const { toHtml } = await import("./toHtml");
+        downloadBlob(exportFilename(scope, data, "html"), toHtml(data, scope));
+      } catch {
+        toast.error(t("reports.export.error"));
+      }
+    })();
+  };
+
+  const handlePdf = () => {
+    void (async () => {
+      try {
+        const { toPdf } = await import("./toPdf");
+        downloadBlob(exportFilename(scope, data, "pdf"), await toPdf(data, scope));
+      } catch {
+        toast.error(t("reports.export.error"));
+      }
+    })();
+  };
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -56,6 +79,8 @@ export function ExportMenu({ data, scope }: ExportMenuProps) {
       <DropdownMenuContent align="end">
         <DropdownMenuItem onSelect={handleCsv}>{t("reports.export.csv")}</DropdownMenuItem>
         <DropdownMenuItem onSelect={handleXlsx}>{t("reports.export.xlsx")}</DropdownMenuItem>
+        <DropdownMenuItem onSelect={handleHtml}>{t("reports.export.html")}</DropdownMenuItem>
+        <DropdownMenuItem onSelect={handlePdf}>{t("reports.export.pdf")}</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

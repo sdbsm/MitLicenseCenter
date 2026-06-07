@@ -2567,3 +2567,71 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 - **Канон present-tense.** `05_UI_REQUIREMENTS.md` §3.6 — буллет про выгрузку (меню «Скачать» в обоих разрезах,
   CSV/XLSX, клиентский экспорт без нового API). **ADR не трогали** — UI в рамках ADR-25.
 - **Зависимости.** Разблокирует/предшествует `MLC-052` (HTML+PDF, ставит куратор). ADR-25/20/16/3.3/single-node/RU-only не затронуты.
+
+### MLC-052 — Экспорт отчётов: HTML (интерактивный) + PDF — 2026-06-07
+
+- **Постановка (куратор, трек «Экспорт отчётов»).** Задача B (финальная) мини-трека. Спека —
+  `.claude/plans/adaptive-scribbling-quiche.md` (раздел «Задача B»); план реализации —
+  `.claude/plans/mitlicense-center-starry-meerkat.md`. Цель: добавить к CSV/XLSX (MLC-051) два «живых»
+  формата — HTML с **тем же интерактивным графиком**, что в панели (офлайн, одним файлом), и печатный PDF.
+  Оба разреза (сводка/детализация) — по отдельности, как в A. Экспорт целиком клиентский (UI в рамках
+  ADR-25, нового ADR/эндпоинта нет).
+- **Согласование с пользователем.** В plan-режиме поднят конфликт: спека просила положить chart.js/jspdf в
+  один чанк `export-libs` при пороге <500 кБ, но суммарно ≈1.4 МБ. Пользователь делегировал выбор
+  («надёжно/правильно/best practices»). Решение: реальный скачиваемый `.pdf` через jsPDF со встроенным
+  кириллическим шрифтом (а не print-fallback), чанки бьём по форматам.
+- **`chartConfig.ts`** — единый источник конфигурации Chart.js (данные + опции), JSON-сериализуемый.
+  Воспроизводит `LicenseUsageChart.tsx`: area `consumedMax` (sky `#0ea5e9`) + линия `consumedAvg`
+  (emerald `#059669`) + линия `limit` (rose `#f43f5e`, `borderDash`), метки `dd.MM HH:mm` (date-fns/ru),
+  `consumedAvg` округлён до десятых, `animation:false`/`responsive:false`. Переиспользуется HTML и PDF.
+- **`toHtml.ts`** — самодостаточный офлайн-HTML (Blob `text/html`): инлайн `<style>`, сводка (пик/доля/момент/
+  среднее, оговорка про обзорность суммы — только для сводки), `<canvas>`, таблица бакетов, инлайн-исходник
+  Chart.js (UMD авто-регистрирует контроллеры → достаточно `new Chart`), `<script>` с `const DATA` (JSON,
+  `<` экранирован). Чистое построение строки — canvas не нужен (график оживает при открытии). Исходник
+  Chart.js отдаёт **виртуальный модуль `virtual:chartjs-umd-src`** (плагин `chartjsUmdSource` в vite.config:
+  `load()` читает `chart.umd.min.js` установленного пакета). Почему не `node_modules/...?raw`: пакет не
+  экспортирует `./dist` через `exports`, а alias-обход ломался в dev — esbuild-предбандл исполнял UMD как CJS
+  вместо выдачи текста; виртуальный модуль не оптимизируется и работает одинаково в dev и сборке.
+- **`toPdf.ts`** — `jspdf` + `jspdf-autotable` (`dynamic import`). Документ: заголовок (разрез+период) → сводка →
+  картинка графика → таблица (`autoTable`). Картинка — **offscreen Chart.js** (`import("chart.js")` +
+  `Chart.register(...registerables)`, canvas → `toDataURL("image/png")`), под гардом отсутствия 2D-контекста
+  (node/jsdom → картинка пропускается, PDF валиден — так проходит smoke-тест). **Кириллица:** `addFileToVFS`+
+  `addFont`+`setFont` встроенного сабсета; AutoTable — `font:"Roboto", fontStyle:"normal"` и для шапки (иначе
+  helvetica-bold без кириллицы). `compress:true` (zlib через fflate) — иначе несжатый битмап графика раздувал
+  PDF до **5.9 МБ → 145 кБ**.
+- **Шрифт `fonts/robotoCyrillic.ts`** — base64 TTF-сабсета **Roboto Regular v2.137, Apache License 2.0**
+  (источник: `@expo-google-fonts/roboto` через jsdelivr; сабсет Basic Latin + Latin-1 + весь блок Cyrillic
+  U+0400–04FF + типографика, инструмент `subset-font`/harfbuzz, **без Python**; 102 кБ → ~137 кБ base64).
+  Лицензия/происхождение зафиксированы в шапке файла. Едет в app-чанке `toPdf` (не в vendor).
+- **Бандл (vite.config).** `export-libs` → три per-format группы `export-xlsx`/`export-chart`/`export-pdf`
+  (один чанк был бы ~1.4 МБ). Тонкости, найденные при сборке:
+  - неиспользуемые **опциональные** зависимости jsPDF (`html2canvas`/`canvg`/`dompurify` — только `.html()`/SVG,
+    мы их не зовём) тянулись динамическим `import()` jsPDF и **утекали в eager-`vendor`** (≈250 кБ+, html2canvas
+    один ~200 кБ). Застаблены alias-ом на пустой модуль (`jspdfOptionalStub.ts`) — vendor вернулся к 396 кБ.
+    Статические codec-зависимости (`fflate`/`fast-png`) — нужны (сжатие/PNG), оставлены в общем vendor.
+  - общий рантайм-хелпер `__vitePreload` (виртуальный, не в node_modules) ролдаун ко-локовал в `export-pdf`,
+    из-за чего entry статически тянул тот чанк в `modulepreload` (jspdf грузился/инициализировался на старте).
+    Изолирован в собственный чанк `vite-preload-helper` (priority 100, ~1.2 кБ) — `export-pdf`/`export-chart`/
+    `export-xlsx` стали по-настоящему ленивыми (нет в preload).
+  - Итог: все чанки <500 кБ (`export-chart` 203, `toHtml` 212, `export-xlsx` 425, `export-pdf` 430 кБ),
+    предупреждений нет. `chart.js`/`jspdf`/`jspdf-autotable` в `dependencies`.
+- **pnpm.** `jspdf` тянет опциональный `core-js`, чей build-скрипт pnpm 11 гейтит (ERR_PNPM_IGNORED_BUILDS),
+  что валило `verify-deps-before-run` перед скриптами. Решение зафиксировано в `pnpm-workspace.yaml`
+  (`allowBuilds: core-js: false` — не собираем).
+- **Тесты (Vitest, node-окружение).** `toHtml.test.ts` (тип blob, инлайн-баннер `Chart.js v`, `<canvas>`,
+  init-скрипт, JSON `DATA`, метки рядов, строки таблицы по бакетам, оговорка только для сводки, пустой ряд),
+  `toPdf.test.ts` (Blob `application/pdf` ненулевой, сигнатура `%PDF`, пустой ряд). `ExportMenu.test.tsx`
+  расширен на пункты HTML/PDF. FE **170** зелёные; type-check/lint/build чисто.
+- **Проверка в браузере (dev-preview, реальные модули).** HTML: в офлайн-файле Chart.js инлайнится (209 кБ,
+  баннер на месте), график **рисуется** (непустой canvas по пиксель-инспекции), 24 строки таблицы, кириллица
+  в сводке; визуальный скрин — area+линия+пунктир-лимит, легенда «Пик потребления/Среднее потребление/Лимит».
+  PDF (canvas доступен → реальная картинка): 145 кБ, `pdftotext` извлёк читаемую кириллицу
+  («Использование лицензий — ООО «Ромашка»», «Пик за период: 10 из 10 (100%)», шапка «Начало бакета/Среднее/
+  Пик/Лимит»); в PDF присутствуют `FontFile2` (встроенный TTF) и `/Image` (картинка графика).
+- **Канон present-tense.** `05_UI_REQUIREMENTS.md` §3.6 — перечень форматов дополнен HTML/PDF (инлайн-движок,
+  встроенный Roboto Apache-2.0, per-format lazy-чанки). **ADR не трогали** — UI в рамках ADR-25.
+- **Трек «Экспорт отчётов» завершён 2/2** (`MLC-051` CSV/XLSX → `MLC-052` HTML/PDF). Активных задач нет;
+  следующую задачу/трек ставит куратор. **Кандидаты на потом** (зафиксированы, не взяты): (1) live-скрин меню
+  «Скачать» на самой `/reports` требует накопленной телеметрии — заменён детерминированной проверкой модулей;
+  (2) две предсуществующие FE-формат-расхождения (`AuditFiltersBar.tsx`, `DeleteInfobaseDialog.tsx`) prettier
+  флагует — не трогал (вне объёма, не staged). ADR-25/20/16/3.3/single-node/RU-only не затронуты.
