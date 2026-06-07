@@ -2697,3 +2697,45 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
   прямой `AppDbContext`/Identity в tools-проекте). tools-проект остаётся вне прод-publish (`IsPublishable=false`,
   Web на него не ссылается).
 - **Status:** **Done** (2026-06-07).
+
+### MLC-054 — Отчёты: полировка (плашка обрезки + сводка HTML/PDF + помесячный выбор) — 2026-06-07
+
+- **Category:** UX / Frontend (+ малая правка контракта Reports API)
+- **Priority:** P2 · **Severity:** Low
+- **Module:** `features/reports/` (FE) + `Web/Endpoints/Reports/` (BE-флаг)
+- **Постановка (куратор).** Три UX-шероховатости `/reports` одной задачей. Номер: куратор пометил `MLC-053`,
+  но он занят (`reset-admin`, Done 2026-06-07) — согласован следующий свободный `MLC-054`. Спека —
+  `.claude/plans/adaptive-scribbling-quiche.md`; план исполнения — `.claude/plans/mitlicense-center-eager-ullman.md`.
+  ADR не трогали (UI/чтение в рамках ADR-25), эндпоинтов не добавляли, глубину/ретеншен не трогали.
+- **Часть 1 — плашка обрезки.** Сервер молча резал запрос > 31 дня — сделали обрезку видимой. Контракт
+  `LicenseUsageSeriesResponse` +`Clamped`/`MaxSpanDays` (`ReportsContracts.cs`); `ResolveRange` →
+  `(From, To, Clamped)`, `Clamped=true` **ровно** в ветке `effectiveTo - effectiveFrom > MaxSpan` (дефолтное
+  окно 7 дней её не задевает); `BuildResponse` прокидывает флаги (пустой ряд тоже несёт). Оба эндпоинта
+  (`SummaryAsync`/`DrilldownAsync`) отдают флаг. FE: `types.ts` зеркалит поля; `ReportsPage.tsx` под фильтром
+  рендерит уведомление при `summary.data?.clamped` (нейтральный info-блок `border`+`bg-muted/30`); i18n
+  `reports.filters.clampNotice` (интерполяция `{{days}}`).
+- **Часть 2 — HTML/PDF без сырой таблицы.** Презентационные выгрузки несли побакетную таблицу (на длинных
+  периодах — тысячи строк). `toHtml.ts` — убраны вычисление `rows`, блок `<table>`/`.table-wrap` и CSS таблицы;
+  заголовок/период/stats/caveat/график остались (`escapeHtml`/`round1` ещё нужны для заголовка/stats).
+  `toPdf.ts` — убраны `import jspdf-autotable` и вызов `autoTable(...)`; заголовок→период→пик/среднее→картинка
+  графика остались. Зависимость `jspdf-autotable` удалена из `package.json` + lock; regex чанка `export-pdf` в
+  `vite.config.ts` → `(jspdf)`. Сырая таблица осталась только в CSV/XLSX.
+- **Часть 3 — помесячный выбор «Месяц ‹ ›».** Чисто FE, заполняет те же `from`/`to` (новых URL-параметров нет).
+  `reportsUrlState.ts` — чистые хелперы `monthToRange(ym)` (границы месяца через `endOfMonth`/`parseISO`) и
+  `shiftMonth(ym, delta)` (`addMonths`, формат `yyyy-MM`). `ReportsFiltersBar.tsx` — группа «Месяц»: ‹ +
+  `<input type="month">` + › (lucide `ChevronLeft`/`ChevronRight`, aria-label из i18n); значение — `from.slice(0,7)`
+  или текущий месяц от `new Date()` при пустом периоде. **Свойство:** целый месяц всегда < 31 дня → кламп не
+  триггерит (проверено).
+- **Тесты.** BE: `Range_wider_than_max_span_clamps_from_forward` +`Clamped==true`/`MaxSpanDays==31`; новые
+  `Default_range_is_not_clamped`, `Range_within_max_span_is_not_clamped`. FE: `reportsUrlState.test.ts` —
+  `monthToRange` (28/29/30/31-дн.), `shiftMonth` (через границу года); `toHtml.test.ts` — нет таблицы / есть
+  сводка+график; export-фикстуры обновлены новыми полями. BE 397 / FE 177 зелёные; type-check/lint/build чистые.
+- **Вес чанков.** `export-pdf` 399.6 кБ (ушёл `jspdf-autotable`), все чанки < 500 кБ.
+- **Проверено в браузере (`/reports`, реалистичная dev-БД).** Период > 31 дня → плашка «Запрошенный период больше
+  31 дней — показаны последние 31», эффективный период 31 день; клик › помесячного контрола → `from`/`to` =
+  границы месяца (`2026-04-01`/`2026-04-30`), плашки нет. Выгрузки сгенерированы на живых данных (2880 бакетов):
+  HTML — нет `<table>`/«Начало бакета», есть период/пик/среднее + canvas + инлайн Chart.js (293 кБ);
+  PDF — `%PDF-`, встроенный Roboto (`FontFile2`) + картинка графика (`/XObject`), 286 кБ.
+- **Канон present-tense.** `03_DOMAIN_MODEL.md` (поля `clamped`/`maxSpanDays` + семантика флага),
+  `05_UI_REQUIREMENTS.md` §3.6 (плашка обрезки, помесячный выбор, HTML/PDF = сводка+график без сырой таблицы).
+- **Status:** **Done** (2026-06-07).

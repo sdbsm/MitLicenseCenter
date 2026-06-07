@@ -15,6 +15,8 @@ const sample: LicenseUsageSeriesResponse = {
   peakLimit: 10,
   peakAtUtc: "2026-06-01T12:15:00Z",
   averageConsumed: 3.73,
+  clamped: false,
+  maxSpanDays: 31,
 };
 
 describe("toHtml", () => {
@@ -37,11 +39,16 @@ describe("toHtml", () => {
     expect(html).toContain('"Лимит"');
   });
 
-  it("renders a bucket table with one row per bucket", async () => {
+  it("carries the summary (period + peak/average) but no raw bucket table (MLC-054)", async () => {
     const html = await toHtml(sample, "all").text();
-    const rows = html.match(/<tr><td>/g) ?? [];
-    expect(rows).toHaveLength(sample.buckets.length);
-    expect(html).toContain("Начало бакета");
+    // Сводка на месте: период, пик, среднее.
+    expect(html).toContain("Период:");
+    expect(html).toContain("Пик за период");
+    expect(html).toContain("Среднее за период");
+    // Сырой побакетной таблицы — нет.
+    expect(html).not.toContain("<table");
+    expect(html).not.toContain("Начало бакета");
+    expect(html.match(/<tr><td>/g) ?? []).toHaveLength(0);
   });
 
   it("labels the scope and shows the overview caveat only for the summary", async () => {
@@ -54,9 +61,9 @@ describe("toHtml", () => {
     expect(tenant).not.toContain("обзорная оценка");
   });
 
-  it("handles an empty series (table head only, still valid HTML)", async () => {
+  it("handles an empty series (chart canvas present, still valid HTML)", async () => {
     const html = await toHtml({ ...sample, buckets: [] }, "all").text();
     expect(html).toContain("<canvas");
-    expect(html.match(/<tr><td>/g) ?? []).toHaveLength(0);
+    expect(html).not.toContain("<table");
   });
 });

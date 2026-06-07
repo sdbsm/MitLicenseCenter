@@ -1,6 +1,6 @@
 // @vitest-environment node
 // Лёгкий smoke: node-окружение (нет canvas-контекста) → картинка графика
-// пропускается, проверяем сам PDF-документ (заголовок/сводка/таблица + кириллический
+// пропускается, проверяем сам PDF-документ (заголовок/сводка + кириллический
 // шрифт строятся без canvas). Blob.arrayBuffer() есть в node.
 import { describe, expect, it } from "vitest";
 import type { LicenseUsageSeriesResponse } from "../../types";
@@ -17,6 +17,8 @@ const sample: LicenseUsageSeriesResponse = {
   peakLimit: 10,
   peakAtUtc: "2026-06-01T12:15:00Z",
   averageConsumed: 3.73,
+  clamped: false,
+  maxSpanDays: 31,
 };
 
 describe("toPdf", () => {

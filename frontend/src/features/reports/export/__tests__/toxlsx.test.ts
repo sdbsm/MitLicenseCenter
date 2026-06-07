@@ -16,6 +16,8 @@ const sample: LicenseUsageSeriesResponse = {
   peakLimit: 10,
   peakAtUtc: "2026-06-01T12:15:00Z",
   averageConsumed: 3.73,
+  clamped: false,
+  maxSpanDays: 31,
 };
 
 async function readBack(blob: Blob): Promise<XLSX.WorkBook> {

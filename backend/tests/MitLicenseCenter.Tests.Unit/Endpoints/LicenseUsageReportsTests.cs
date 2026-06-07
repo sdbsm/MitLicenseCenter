@@ -203,5 +203,37 @@ public sealed class LicenseUsageReportsTests
 
         body.ToUtc.Should().Be(to);
         body.FromUtc.Should().Be(to - TimeSpan.FromDays(31));
+        // MLC-054: факт обрезки виден флагом + порог (FE рисует плашку).
+        body.Clamped.Should().BeTrue();
+        body.MaxSpanDays.Should().Be(31);
+    }
+
+    [Fact]
+    public async Task Default_range_is_not_clamped()
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+
+        // Дефолтное окно 7 дней (from/to опущены) ветку клампа не задевает.
+        var result = await ReportsEndpoints.SummaryAsync(db, Clock, from: null, to: null, CancellationToken.None);
+        var body = Body(result);
+
+        body.Clamped.Should().BeFalse();
+        body.MaxSpanDays.Should().Be(31);
+    }
+
+    [Fact]
+    public async Task Range_within_max_span_is_not_clamped()
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+
+        // Ровно 31 день — на границе, кламп не срабатывает (строгое >).
+        var to = Now;
+        var from = Now.AddDays(-31);
+        var result = await ReportsEndpoints.SummaryAsync(db, Clock, from, to, CancellationToken.None);
+        var body = Body(result);
+
+        body.FromUtc.Should().Be(from);
+        body.ToUtc.Should().Be(to);
+        body.Clamped.Should().BeFalse();
     }
 }

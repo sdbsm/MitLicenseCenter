@@ -32,6 +32,8 @@ const sample: LicenseUsageSeriesResponse = {
   peakLimit: 10,
   peakAtUtc: "2026-06-01T00:00:00Z",
   averageConsumed: 3.5,
+  clamped: false,
+  maxSpanDays: 31,
 };
 
 describe("useLicenseUsage", () => {

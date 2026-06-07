@@ -1,7 +1,8 @@
-// Печатный PDF-отчёт на фронте (MLC-052): jsPDF + jsPDF-AutoTable, `dynamic import`
-// по клику. Картинка графика рисуется ПЕРЕИСПОЛЬЗОВАНИЕМ Chart.js (offscreen-canvas →
-// PNG), второй граф-движок не тащим. Кириллица: стандартные шрифты jsPDF её не знают —
-// встраиваем сабсет Roboto (Apache-2.0) через addFileToVFS/addFont (см. fonts/).
+// Печатный PDF-отчёт на фронте (MLC-052): jsPDF, `dynamic import` по клику. Картинка
+// графика рисуется ПЕРЕИСПОЛЬЗОВАНИЕМ Chart.js (offscreen-canvas → PNG), второй граф-движок
+// не тащим. Кириллица: стандартные шрифты jsPDF её не знают — встраиваем сабсет Roboto
+// (Apache-2.0) через addFileToVFS/addFont (см. fonts/). Сырую побакетную таблицу
+// презентационная выгрузка не несёт (MLC-054) — отсюда нет jspdf-autotable.
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import type { LicenseUsageSeriesResponse } from "../types";
@@ -23,7 +24,7 @@ function round1(value: number): number {
 
 /** Offscreen-рендер графика в PNG через Chart.js. Возвращает data-URL либо `null`,
  *  если 2D-контекст canvas недоступен (node/jsdom при тестах) — тогда PDF строится
- *  без картинки (заголовок/сводка/таблица на месте). */
+ *  без картинки (заголовок/сводка на месте). */
 async function renderChartPng(data: LicenseUsageSeriesResponse): Promise<string | null> {
   if (typeof document === "undefined") {
     return null;
@@ -48,10 +49,9 @@ async function renderChartPng(data: LicenseUsageSeriesResponse): Promise<string 
 }
 
 /** Сериализация ряда в PDF: заголовок (разрез + период) → сводка (пик/среднее) →
- *  картинка графика → таблица бакетов. Текст — встроенным кириллическим Roboto. */
+ *  картинка графика. Текст — встроенным кириллическим Roboto. */
 export async function toPdf(data: LicenseUsageSeriesResponse, scope: ExportScope): Promise<Blob> {
   const { jsPDF } = await import("jspdf");
-  const { default: autoTable } = await import("jspdf-autotable");
 
   // compress: true — zlib-сжатие потоков (через fflate), иначе картинка графика кладётся
   // несжатым битмапом и PDF раздувается до мегабайтов.
@@ -91,30 +91,7 @@ export async function toPdf(data: LicenseUsageSeriesResponse, scope: ExportScope
   if (png) {
     const imgHeight = contentWidth * 0.38;
     doc.addImage(png, "PNG", marginX, y, contentWidth, imgHeight);
-    y += imgHeight + 12;
   }
-
-  autoTable(doc, {
-    startY: y,
-    margin: { left: marginX, right: marginX },
-    head: [["Начало бакета", "Среднее", "Пик", "Лимит"]],
-    body: data.buckets.map((b) => [
-      fmtFull(b.bucketStartUtc),
-      String(round1(b.consumedAvg)),
-      String(b.consumedMax),
-      String(b.limit),
-    ]),
-    // Только стиль «normal» зарегистрирован (сабсет одного начертания) — фиксируем
-    // его и для шапки, иначе AutoTable возьмёт helvetica-bold (без кириллицы).
-    styles: { font: ROBOTO_FONT_NAME, fontStyle: "normal", fontSize: 9 },
-    headStyles: {
-      font: ROBOTO_FONT_NAME,
-      fontStyle: "normal",
-      fillColor: [241, 245, 249],
-      textColor: 15,
-    },
-    columnStyles: { 1: { halign: "right" }, 2: { halign: "right" }, 3: { halign: "right" } },
-  });
 
   return doc.output("blob");
 }
