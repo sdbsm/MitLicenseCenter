@@ -30,6 +30,7 @@ public static partial class DiscoveryEndpoints
         group.MapGet("/iis-sites", GetIisSitesAsync);
         group.MapGet("/rac-paths", GetRacPaths);
         group.MapGet("/platform-versions", GetPlatformVersions);
+        group.MapGet("/sql-instances", GetSqlInstances);
     }
 
     internal static async Task<Ok<DiscoveryResponse<ClusterInfobaseDto>>> GetClusterInfobasesAsync(
@@ -115,6 +116,30 @@ public static partial class DiscoveryEndpoints
         return TypedResults.Ok(
             new DiscoveryResponse<PlatformVersionDto>(versions, Available: true, Error: null));
     }
+
+    // MLC-056: локальные инстансы SQL из реестра. Без query-параметра (localhost-only).
+    // Чтение реестра синхронно и быстро, но может бросить (нет прав) — try/catch как
+    // у GetIisSitesAsync: исключение в лог, наружу санитизированный текст + Available:false.
+    internal static Ok<DiscoveryResponse<string>> GetSqlInstances(
+        [FromServices] ISqlInstanceDiscovery discovery,
+        [FromServices] ILoggerFactory loggerFactory)
+    {
+        try
+        {
+            var instances = discovery.FindLocalInstances();
+            return TypedResults.Ok(new DiscoveryResponse<string>(instances, Available: true, Error: null));
+        }
+        catch (Exception ex)
+        {
+            // Реестр недоступен / нет прав. Полное исключение — в лог; наружу только
+            // санитизированный русский текст. Фронт по Available:false покажет ручной ввод.
+            LogSqlInstancesDiscoveryFailed(loggerFactory.CreateLogger(typeof(DiscoveryEndpoints).FullName!), ex);
+            return TypedResults.Ok(new DiscoveryResponse<string>(
+                Array.Empty<string>(),
+                Available: false,
+                Error: "Не удалось получить список инстансов SQL Server. Введите сервер БД вручную."));
+        }
+    }
 }
 
 // MLC-009: полное инфраструктурное исключение пишем в журнал сервера (source-gen
@@ -130,6 +155,11 @@ public static partial class DiscoveryEndpoints
         Level = LogLevel.Warning,
         Message = "Discovery: не удалось получить список сайтов IIS.")]
     private static partial void LogIisSitesDiscoveryFailed(ILogger logger, Exception ex);
+
+    [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "Discovery: не удалось получить список инстансов SQL Server из реестра.")]
+    private static partial void LogSqlInstancesDiscoveryFailed(ILogger logger, Exception ex);
 }
 
 public sealed record DiscoveryResponse<T>(IReadOnlyList<T> Items, bool Available, string? Error);

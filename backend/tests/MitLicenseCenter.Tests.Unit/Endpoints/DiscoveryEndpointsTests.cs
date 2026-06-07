@@ -107,4 +107,37 @@ public sealed class DiscoveryEndpointsTests
 
         await act.Should().ThrowAsync<OperationCanceledException>();
     }
+
+    [Fact]
+    public void GetSqlInstances_on_exception_returns_unavailable_without_raw_message()
+    {
+        const string secret = "Access denied to HKLM\\SOFTWARE\\Microsoft\\Microsoft SQL Server for SQLPROD01.";
+        var discovery = Substitute.For<ISqlInstanceDiscovery>();
+        discovery.FindLocalInstances().Throws(new UnauthorizedAccessException(secret));
+
+        var result = DiscoveryEndpoints.GetSqlInstances(discovery, NullLoggerFactory.Instance);
+
+        var body = result.Value!;
+        body.Available.Should().BeFalse();
+        body.Items.Should().BeEmpty();
+        body.Error.Should().NotBeNullOrEmpty();
+        body.Error.Should().NotContain(secret);
+        body.Error.Should().NotContain("HKLM", "детали реестра не должны утекать в UI");
+        body.Error.Should().Contain("Не удалось получить список инстансов SQL Server");
+    }
+
+    [Fact]
+    public void GetSqlInstances_returns_instances_when_available()
+    {
+        var discovery = Substitute.For<ISqlInstanceDiscovery>();
+        string[] instances = ["localhost", "localhost\\SQLEXPRESS"];
+        discovery.FindLocalInstances().Returns(instances);
+
+        var result = DiscoveryEndpoints.GetSqlInstances(discovery, NullLoggerFactory.Instance);
+
+        var body = result.Value!;
+        body.Available.Should().BeTrue();
+        body.Error.Should().BeNull();
+        body.Items.Should().Equal("localhost", "localhost\\SQLEXPRESS");
+    }
 }

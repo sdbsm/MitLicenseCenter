@@ -62,7 +62,7 @@ Beyond the three publication operations, the panel manages the IIS **hosting lif
 
 ### IIS Administration
 - The backend interacts with IIS using the `Microsoft.Web.Administration` library (`ServerManager`) — read-only for status; publication mutations are `webinst` + the `web.config` edit; the **hosting lifecycle** (pool/site/`iisreset`, MLC-047) is the third class of mutation (see above).
-- **Discovery error contract (`GET /discovery/databases`, `/discovery/iis-sites`, `/discovery/platform-versions`).** On any infrastructure failure the endpoint returns `200 OK` with `DiscoveryResponse { Available: false, Error: <short Russian message> }` so the form falls back to manual entry. The raw `ex.Message` is **never** placed in `Error`; the full exception is logged. `OperationCanceledException` (request abort) propagates.
+- **Discovery error contract (`GET /discovery/databases`, `/discovery/iis-sites`, `/discovery/platform-versions`, `/discovery/sql-instances`).** On any infrastructure failure the endpoint returns `200 OK` with `DiscoveryResponse { Available: false, Error: <short Russian message> }` so the form falls back to manual entry. The raw `ex.Message` is **never** placed in `Error`; the full exception is logged. `OperationCanceledException` (request abort) propagates. `GET /discovery/sql-instances` enumerates local MSSQL instances from the registry (`Instance Names\SQL`, both 64- and 32-bit views) — server-side, localhost-only, no SQL Browser / UDP scan; `MSSQLSERVER` maps to `localhost`, named instances to `localhost\<instance>`.
 
 ## 3. Windows Server & Security Context
 

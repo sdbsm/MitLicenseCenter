@@ -11,6 +11,7 @@ import {
   useDatabases,
   useIisSites,
   usePlatformVersions,
+  useSqlInstances,
 } from "@/features/discovery/useDiscovery";
 import type { Tenant } from "@/features/tenants/types";
 import type { CreateInfobaseInput, InfobaseListItem, UpdateInfobaseInput } from "./types";
@@ -127,11 +128,13 @@ export function useInfobaseForm({
   // Discovery: тянем списки, пока диалог открыт (ленивая загрузка по `open`).
   const infobasesQuery = useClusterInfobases(open);
   const sitesQuery = useIisSites(open);
+  const sqlInstancesQuery = useSqlInstances(open);
   const databasesQuery = useDatabases(watchedDatabaseServer ?? "", open);
   const platformVersionsQuery = usePlatformVersions(open);
 
   const infobasesState = toDiscoveryState(infobasesQuery);
   const sitesState = toDiscoveryState(sitesQuery);
+  const sqlInstancesState = toDiscoveryState(sqlInstancesQuery);
   const databasesState = toDiscoveryState(databasesQuery);
   const platformVersionsState = toDiscoveryState(platformVersionsQuery);
 
@@ -171,6 +174,10 @@ export function useInfobaseForm({
   const siteOptions = (sitesQuery.data?.items ?? []).map((s) => ({
     value: s.siteName,
     label: s.siteName,
+  }));
+  const sqlInstanceOptions = (sqlInstancesQuery.data?.items ?? []).map((s) => ({
+    value: s,
+    label: s,
   }));
   const databaseOptions = (databasesQuery.data?.items ?? []).map((d) => ({
     value: d,
@@ -299,6 +306,9 @@ export function useInfobaseForm({
     databasesState,
     refetchDatabases: () => void databasesQuery.refetch(),
     // discovery — блок «Дополнительно»
+    sqlInstanceOptions,
+    sqlInstancesState,
+    refetchSqlInstances: () => void sqlInstancesQuery.refetch(),
     siteOptions,
     sitesState,
     refetchSites: () => void sitesQuery.refetch(),

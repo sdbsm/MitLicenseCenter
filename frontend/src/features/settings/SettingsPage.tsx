@@ -4,6 +4,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { SettingField } from "./SettingField";
 import { PlatformPicker } from "./PlatformPicker";
 import { RasPortField } from "./RasPortField";
+import { DatabaseServerField } from "./DatabaseServerField";
 import type { SettingDescriptor } from "./types";
 import { useSettings } from "./useSettings";
 
@@ -129,6 +130,10 @@ export function SettingsPage() {
                         versionSetting={byKey.get("OneC.DefaultPlatformVersion")}
                       />
                     );
+                  }
+                  // MLC-056: сервер БД — пикер локальных SQL-инстансов (ручной fallback).
+                  if (k === "Defaults.DatabaseServer") {
+                    return <DatabaseServerField key={k} setting={setting} />;
                   }
                   const meta = FIELD_META[k] ?? { type: "text" as const };
                   return (
