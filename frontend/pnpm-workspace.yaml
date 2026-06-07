@@ -1,0 +1,6 @@
+# MLC-052: core-js — опциональная зависимость jspdf; её postinstall-скрипт нам не нужен.
+# pnpm 11 требует явного решения по build-скриптам зависимостей, иначе install ругается
+# (ERR_PNPM_IGNORED_BUILDS) и это валит verify-deps-before-run перед pnpm-скриптами.
+# Фиксируем решение: core-js НЕ собираем.
+allowBuilds:
+  core-js: false
