@@ -2326,9 +2326,12 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
   `useCheckDrift`/`useReconcile`. Форма инфобазы: убраны поля OData/HTTP из `validation.ts`/`types.ts`/
   `PublicationFieldset`/`useInfobaseForm` (parity с backend). i18n `publications.*` переписан
   (status/source/publish/changePlatform). URL-фильтр `driftStatus`→`status`.
-- **Открытый риск (зафиксирован).** connstr-аутентификация: если серверная ИБ требует админа ИБ/кластера,
-  webinst может потребовать `Usr=;Pwd=`. MVP публикует без auth — добавить вторым шагом (переиспользовав
-  `OneC.Cluster.AdminUser/Password`) при появлении триггера.
+- **connstr-аутентификация — рассмотрена и отклонена (2026-06-08, решение пользователя/куратора).**
+  Ранее зафиксированный «открытый риск» (webinst мог бы требовать учётку в connstr) **закрыт без
+  реализации**: в официальной документации 1С механизма передачи пароля кластера/ИБ в `webinst` нет,
+  поэтому путь не реализуется и не вводится. webinst публикует без auth — это финальное решение, не
+  временный MVP. Настройки `OneC.Cluster.AdminUser/Password` остаются исключительно за `rac.exe`
+  (RAS-адаптер, флаги `--cluster-user`/`--cluster-pwd`) и к webinst отношения не имеют.
 - **Жёсткие границы.** `webinst.exe`/`Microsoft.Web.Administration` — только в Infrastructure за
   интерфейсами (ADR-20; NetArchTest зелёный). Enum int-стабильность соблюдена (210/211 сохранены как
   historical). Single-node/RU-only не затронуты.
