@@ -2783,10 +2783,15 @@ concurrency-дефект на пути авто-kill'а (MLC-001).
 - **Тесты.** `parsing.test.ts` (версия из rac-пути вкл. 8.5 одноцифровой build / прямые слэши / null;
   порт parse/build/дефолты); новый render-тест в `SettingsPage.test.tsx` (мок api по URL: порт-поле
   показывает `1600`, пикер показывает текущий путь+версию). FE 192 зелёные; type-check/lint чистые.
-- **Verification.** Live-preview не гонялся — dev-стек не поднят, бэкенд требует админ-elevation+MSSQL,
-  а frontend-only preview (бэкенд down) рендерит только error-баннер и не монтирует новые компоненты.
-  Наблюдаемые render-пути покрыты jsdom-тестами (порт парсится `localhost:1600`→`1600`; пикер показывает
-  путь+версию) + unit-тесты чистых парсеров.
+- **Verification.** Сначала покрыто jsdom-тестами (порт парсится `localhost:1600`→`1600`; пикер
+  показывает путь+версию) + unit-тесты чистых парсеров. **Затем live-preview против запущенного стека
+  (2026-06-07, пользователь поднял backend+frontend):** реальный `GET /discovery/rac-paths` нашёл
+  `C:\Program Files\1cv8\8.5.1.1302\bin\rac.exe`, версия распарсилась `8.5.1.1302` (одноцифровой build
+  8.5 — каверзный кейс на живых данных), строка состояния показала оба ключа; поле «Порт» = `1545` из
+  хранимого `localhost:1545`; escape-hatch развернулся — поле «Путь к rac.exe» + версия через
+  `DiscoveryField`/`usePlatformVersions` (`8.5.1.1302 — x64`); `LicenseUsage.RetentionDays` в «Хранение
+  данных» рядом с audit; шесть секций в правильном порядке; консоль без warn/error; `auth/me`/`settings`/
+  `discovery/rac-paths` → `200`. Живые настройки не менялись (RAS health не трогали).
 - **Канон present-tense.** ADR-3.3 (UI-подача rac.exe-пути через пикер платформы + endpoint как порт;
   wire-формат `host:port`/первый позиционный аргумент НЕ менялся), `04_INFRASTRUCTURE.md` (UI-подача
   tool path/endpoint; каталог-таблица 17 ключей не тронута — `LicenseUsage.RetentionDays` уже был),
