@@ -180,6 +180,12 @@ public sealed class HotColdEnforcementOverKillTests
 
         public Task<ClusterInfobaseDiscoveryResult> ListInfobasesAsync(CancellationToken ct)
             => Task.FromResult(new ClusterInfobaseDiscoveryResult([], Available: false, null));
+
+        public Task<IReadOnlyList<OneCSessionLoad>> ListSessionLoadsAsync(CancellationToken ct)
+            => Task.FromResult<IReadOnlyList<OneCSessionLoad>>([]);
+
+        public Task<IReadOnlyList<OneCProcessLoad>> ListProcessesAsync(CancellationToken ct)
+            => Task.FromResult<IReadOnlyList<OneCProcessLoad>>([]);
     }
 
     private sealed class ConcurrentAuditLogger : IAuditLogger

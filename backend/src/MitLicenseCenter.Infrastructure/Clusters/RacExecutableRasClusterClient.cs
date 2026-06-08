@@ -188,6 +188,170 @@ internal sealed partial class RacExecutableRasClusterClient : IClusterClient
         return new ClusterInfobaseDiscoveryResult(infobases, Available: true, Error: null);
     }
 
+    // Раздел «Быстродействие» (MLC-066): тот же спавн `session list`, что и kill-путь, но
+    // богаче маппинг (perf-поля). Отдельный метод — чтобы не утяжелять ClusterSession,
+    // который держит enforcement-путь тонким. Ошибка → пустой список + инвалидация UUID (MLC-041).
+    public async Task<IReadOnlyList<OneCSessionLoad>> ListSessionLoadsAsync(CancellationToken ct)
+    {
+        if (!TryGetExePath(out var exePath))
+        {
+            return Array.Empty<OneCSessionLoad>();
+        }
+
+        var clusterUuid = await ResolveClusterUuidAsync(exePath, ct).ConfigureAwait(false);
+        if (clusterUuid is null)
+        {
+            return Array.Empty<OneCSessionLoad>();
+        }
+
+        var args = BuildArgsWithAuth(
+            "session", "list",
+            $"--cluster={clusterUuid}");
+
+        var invocation = await _runner.RunAsync(exePath, args, InvocationTimeout, ct)
+            .ConfigureAwait(false);
+
+        if (invocation.ExitCode != 0)
+        {
+            LogRacFailed(_logger, "session list", invocation.ExitCode, invocation.Stderr.Trim());
+            _uuidCache.Invalidate(BuildClusterKey(exePath));
+            return Array.Empty<OneCSessionLoad>();
+        }
+
+        return ParseSessionLoads(invocation.Stdout);
+    }
+
+    // Раздел «Быстродействие» (MLC-066): рабочие процессы кластера. +1 спавн `rac.exe` на poll
+    // сверх session list (spawn-бюджет ADR-3.3) — live-pull по требованию, не фон. UUID берётся
+    // из того же кэша, лишний `cluster list` не спавнится при тёплом кэше.
+    public async Task<IReadOnlyList<OneCProcessLoad>> ListProcessesAsync(CancellationToken ct)
+    {
+        if (!TryGetExePath(out var exePath))
+        {
+            return Array.Empty<OneCProcessLoad>();
+        }
+
+        var clusterUuid = await ResolveClusterUuidAsync(exePath, ct).ConfigureAwait(false);
+        if (clusterUuid is null)
+        {
+            return Array.Empty<OneCProcessLoad>();
+        }
+
+        var args = BuildArgsWithAuth(
+            "process", "list",
+            $"--cluster={clusterUuid}");
+
+        var invocation = await _runner.RunAsync(exePath, args, InvocationTimeout, ct)
+            .ConfigureAwait(false);
+
+        if (invocation.ExitCode != 0)
+        {
+            LogRacFailed(_logger, "process list", invocation.ExitCode, invocation.Stderr.Trim());
+            _uuidCache.Invalidate(BuildClusterKey(exePath));
+            return Array.Empty<OneCProcessLoad>();
+        }
+
+        return ParseProcessLoads(invocation.Stdout);
+    }
+
+    // Маппинг `rac session list` → OneCSessionLoad с perf-полями (MLC-066). Required: session,
+    // infobase (как у kill-маппинга — запись без них пропускается). Все perf-поля опциональны
+    // (parser «never throws» — могут отсутствовать на иных версиях). Числа парсятся инвариантно.
+    internal static IReadOnlyList<OneCSessionLoad> ParseSessionLoads(string stdout)
+    {
+        var records = RacOutputParser.Parse(stdout);
+        var result = new List<OneCSessionLoad>(records.Count);
+
+        foreach (var rec in records)
+        {
+            if (!rec.TryGetValue("session", out var sessionRaw) || !Guid.TryParse(sessionRaw, out var sessionId))
+            {
+                continue;
+            }
+            if (!rec.TryGetValue("infobase", out var infobaseRaw) || !Guid.TryParse(infobaseRaw, out var infobaseId))
+            {
+                continue;
+            }
+
+            result.Add(new OneCSessionLoad(
+                SessionId: sessionId,
+                SessionNumber: ParseIntOrNull(rec.GetValueOrDefault("session-id")),
+                ClusterInfobaseId: infobaseId,
+                AppId: rec.GetValueOrDefault("app-id") ?? string.Empty,
+                UserName: rec.GetValueOrDefault("user-name") ?? string.Empty,
+                Host: rec.GetValueOrDefault("host") ?? string.Empty,
+                Process: ParseGuidOrNull(rec.GetValueOrDefault("process")),
+                Connection: ParseGuidOrNull(rec.GetValueOrDefault("connection")),
+                CpuTimeCurrent: ParseLongOrNull(rec.GetValueOrDefault("cpu-time-current")),
+                DurationCurrent: ParseLongOrNull(rec.GetValueOrDefault("duration-current")),
+                DurationCurrentDbms: ParseLongOrNull(rec.GetValueOrDefault("duration-current-dbms")),
+                MemoryCurrent: ParseLongOrNull(rec.GetValueOrDefault("memory-current")),
+                BlockedByDbms: ParseIntOrNull(rec.GetValueOrDefault("blocked-by-dbms")),
+                BlockedByLs: ParseIntOrNull(rec.GetValueOrDefault("blocked-by-ls")),
+                LastActiveAtUtc: ParseUtcOrNull(rec.GetValueOrDefault("last-active-at"))));
+        }
+
+        return result;
+    }
+
+    // Маппинг `rac process list` → OneCProcessLoad (MLC-066). Required: process (UUID рабочего
+    // процесса). `available-perfomance` — ключ rac с опечаткой (сохраняем как есть). `avg-call-time`
+    // дробный → инвариантный парс (научная нотация). memory-size большой → long.
+    internal static IReadOnlyList<OneCProcessLoad> ParseProcessLoads(string stdout)
+    {
+        var records = RacOutputParser.Parse(stdout);
+        var result = new List<OneCProcessLoad>(records.Count);
+
+        foreach (var rec in records)
+        {
+            if (!rec.TryGetValue("process", out var processRaw) || !Guid.TryParse(processRaw, out var processId))
+            {
+                continue;
+            }
+
+            result.Add(new OneCProcessLoad(
+                Process: processId,
+                Pid: ParseIntOrNull(rec.GetValueOrDefault("pid")),
+                AvailablePerformance: ParseIntOrNull(rec.GetValueOrDefault("available-perfomance")),
+                AvgCallTime: ParseDoubleOrNull(rec.GetValueOrDefault("avg-call-time")),
+                MemorySize: ParseLongOrNull(rec.GetValueOrDefault("memory-size"))));
+        }
+
+        return result;
+    }
+
+    // Инвариантный числовой парс perf-полей (MLC-066). Integer допускает знак — `memory-current`
+    // бывает отрицательным (GC, разведка MLC-063). Float допускает экспоненту — `avg-call-time`
+    // встречается в научной нотации (`9.99E-05`). Отсутствует/битое → null (поля опциональны).
+    private static int? ParseIntOrNull(string? raw)
+        => int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : null;
+
+    private static long? ParseLongOrNull(string? raw)
+        => long.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : null;
+
+    private static double? ParseDoubleOrNull(string? raw)
+        => double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : null;
+
+    // Нулевой UUID (`0000…`) = «не привязан» (сеанс к рабочему процессу / соединению) → null.
+    private static Guid? ParseGuidOrNull(string? raw)
+        => Guid.TryParse(raw, out var g) && g != Guid.Empty ? g : null;
+
+    // `last-active-at` — ISO без offset, локальное время сервера (как started-at, см. ParseUtc).
+    private static DateTime? ParseUtcOrNull(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return null;
+        }
+        if (DateTime.TryParse(raw, CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeLocal | DateTimeStyles.AdjustToUniversal,
+                out var parsed))
+        {
+            return DateTime.SpecifyKind(parsed, DateTimeKind.Utc);
+        }
+        return null;
+    }
+
     internal static IReadOnlyList<ClusterInfobase> ParseInfobases(string stdout)
     {
         var records = RacOutputParser.Parse(stdout);

@@ -10,4 +10,15 @@ public interface IClusterClient
     // Используется формами вместо ручного ввода UUID инфобазы. Работает с теми
     // же cluster-admin кредами, что и остальные команды (BuildArgsWithAuth).
     Task<ClusterInfobaseDiscoveryResult> ListInfobasesAsync(CancellationToken ct);
+
+    // Раздел «Быстродействие» (MLC-066, Фаза 2). Live-срез нагрузки сеансов с perf-полями
+    // (`rac session list`, тот же спавн что и ListActiveSessionsAsync, но богаче маппинг).
+    // Пустой список = rac не настроен/недоступен (best-effort, как ListActiveSessionsAsync).
+    Task<IReadOnlyList<OneCSessionLoad>> ListSessionLoadsAsync(CancellationToken ct);
+
+    // Рабочие процессы кластера (`rac process list`) для атрибуции «кто грузит» (MLC-066).
+    // **+1 спавн rac.exe на poll** сверх session list (учтено в spawn-бюджете ADR-3.3) —
+    // зовётся только live-pull по требованию (вкладка «Быстродействие» открыта), не в фоне.
+    // UUID кластера переиспользуется из IClusterUuidCache (без лишнего cluster list).
+    Task<IReadOnlyList<OneCProcessLoad>> ListProcessesAsync(CancellationToken ct);
 }
