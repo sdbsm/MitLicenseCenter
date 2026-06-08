@@ -202,20 +202,54 @@ REF-10→MLC-027, REF-11→MLC-011(a), REF-13→MLC-028). Phase 1–2 (MLC-029..
 
 **Мини-трек «Раздел Пользователи» завершён 2/2 (MLC-060/061).**
 
+### Трек «Анализ быстродействия 1С» (открыт 2026-06-08)
+
+Постановка пользователя; нарезан куратором. Новый раздел панели «Быстродействие» — ответ на
+«почему 1С тормозит»: атрибуция (1) 1С vs не-1С, (2) если 1С — какой сеанс/пользователь/вызов.
+**Методика** — «светофор ресурсов» (сатурация: CPU-очередь, disk-латентность, paging — не голый %)
++ атрибуция потребителя по семьям процессов (1С/MSSQL/ОС-обновления/антивирус/прочее) со спуском
+внутрь виновной семьи. **Модель Live + Recording** (согласована, отменяет always-on историю):
+live-панель собирает pull-по-требованию и **ничего не персистит** (закрыл вкладку — сбор стоп);
+запись (recording) включается **вручную** для расследования, пишет в БД-таблицу с авто-стопом.
+Отклонены в v1 (gated): always-on «чёрный ящик», сшивка SQL→сеанс→юзер. Co-located/single-node,
+RU-only. Полная спека (методика/метрики/раскладка/нарезка/проверка) — в план-файле
+`C:\Users\andre\.claude\plans\spicy-discovering-torvalds.md`. Трек = `MLC-063..071`, 5 фаз;
+**Фазы 2–3 (1С-сеансы/SQL) — контур**; **разведка `MLC-063` инвертировала риск №1** — `rac session list`
+отдаёт полный набор perf-полей (`cpu-time-*`/`duration-current`/`-dbms`/`memory-*`/`blocked-by-*`/`calls-*`)
+уже в покое, `process list` (`available-perfomance`/`pid`) и DMV-доступ + атрибуция SQL **по базе**
+подтверждены, **SQL→сеанс→юзер невозможна** (отклонение обосновано). Состав `MLC-066`/`068` доуточнён в
+плане (секция «Результаты разведки»). Порядок:
+063 → 064 → 065 → 066→067 → 068→069 → 070→071. Берём по одной за сессию:
+
+1. `MLC-063` — **Done (2026-06-08)** — Разведка источников perf-метрик (research): на нагруженном стенде
+   8.5.1.1302 снят реальный вывод `rac session list` (perf-поля ЕСТЬ — исходная гипотеза опровергнута) +
+   `rac process list` + проверен доступ к MSSQL DMV (`VIEW SERVER STATE`, атрибуция по базе
+   `1CV83 Server`→БД→клиент). Отчёт — в индексе «Закрыто» ниже и в секции «Результаты разведки» плана.
+2. `MLC-064` — **Done (2026-06-08)** — Backend: адаптер host-метрик (`IHostMetricsProbe` + нейтральные
+   DTO; `OneCHostMetricsProbe` на **WMI**, не `PerformanceCounter` — имена счётчиков локализованы на RU
+   Windows; ADR-20 + `#pragma CA1416` + `StubHostMetricsProbe`) + `GET /performance/host` (live, Viewer).
+   Заведён **ADR-26**, настройка `Performance.ProcessFamilyMap`, дельта-CPU% через singleton. Отчёт — в
+   индексе «Закрыто» ниже и в `PROJECT_BACKLOG_ARCHIVE.md`.
+3. `MLC-065` — Frontend: каркас раздела `/performance` + стартовый live-экран (гейджи + атрибуция
+   по семьям, polling 5с). Фаза 1.
+4. `MLC-066` / `MLC-067` — 1С-сеансы/процессы: кто грузит (backend rac-расширение + frontend). **Контур.**
+5. `MLC-068` / `MLC-069` — SQL DMV realtime (backend адаптер по ADR-20 + frontend). **Контур.**
+6. `MLC-070` / `MLC-071` — Recording: запись по требованию (backend сущности+сервис+API, миграция;
+   frontend старт/стоп + просмотр + экспорт). Фаза 4.
+
 ---
 
 ## NEXT TASK
 
-> **Активных задач нет.** Мини-трек «Раздел Пользователи» (`MLC-060` переименование + `MLC-061` смена роли)
-> завершён 2/2 (2026-06-08) — отчёты в индексе «Закрыто» ниже. Следующий `NEXT TASK` ставит внешний
-> чат-куратор.
->
-> Закрытые треки (полировка панели `MLC-057..059`, полировка /settings `MLC-055..056`, отчёты
-> `MLC-048..052`/`054`, экспорт `MLC-051..052`, рефакторинг `MLC-029..035`, перф `MLC-037..043`, плюс
-> `MLC-044..047`/`053`) — в индексе «Закрыто» ниже и в архиве. **Отложенные опции**
-> (`MLC-025/026/027/028/011(a)` + Phase 3–4 рефакторинг-трека / `MLC-036` RAS Strategy B, перф PERF-08+)
-> остаются gated на триггеры — анализ 2026-06-08 подтвердил, что триггеры не сработали, по умолчанию не
-> берутся.
+> **`MLC-064` завершён (2026-06-08)** — backend-фундамент раздела «Быстродействие»: порт
+> `IHostMetricsProbe` + нейтральные DTO, WMI-адаптер `OneCHostMetricsProbe` (ADR-20 + `#pragma CA1416` +
+> `StubHostMetricsProbe`), endpoint `GET /api/v1/performance/host` (Viewer), **ADR-26**, настройка
+> `Performance.ProcessFamilyMap`, дельта-CPU% через singleton. Отчёт — в индексе «Закрыто» ниже и в
+> `PROJECT_BACKLOG_ARCHIVE.md`. Следующий `NEXT TASK` ставит внешний чат-куратор — по порядку трека это
+> **`MLC-065`** (frontend каркас раздела `/performance` + стартовый live-экран: гейджи + атрибуция по
+> семьям, polling 5с). **Отложенные опции** (`MLC-025/026/027/028/011(a)` + Phase 3–4 рефакторинг-трека /
+> `MLC-036` RAS Strategy B, перф PERF-08+, `MLC-062` движок таблиц `@tanstack/react-table` → будущий
+> UI-холистик-трек / Фаза 5 этого трека) остаются gated на триггеры — по умолчанию не берутся.
 
 ---
 
@@ -246,7 +280,7 @@ REF-10→MLC-027, REF-11→MLC-011(a), REF-13→MLC-028). Phase 1–2 (MLC-029..
 
 ---
 
-## Закрыто (MLC-001..024, 029, 030, 031, 032, 033, 034, 035, 037, 038, 039, 040, 041, 042, 043, 044, 045, 046, 047, 048, 049, 050, 051, 052, 053, 054, 055, 056, 057, 058, 059, 060, 061) — индекс
+## Закрыто (MLC-001..024, 029, 030, 031, 032, 033, 034, 035, 037, 038, 039, 040, 041, 042, 043, 044, 045, 046, 047, 048, 049, 050, 051, 052, 053, 054, 055, 056, 057, 058, 059, 060, 061, 063, 064) — индекс
 
 Полные постановки и отчёты: **`docs/PROJECT_BACKLOG_ARCHIVE.md`**.
 
@@ -464,3 +498,5 @@ REF-10→MLC-027, REF-11→MLC-011(a), REF-13→MLC-028). Phase 1–2 (MLC-029..
   USER_CANNOT_CHANGE_OWN_ROLE`); аудит содержит `UserRoleChanged` «Роль учётной записи «mitpro» изменена с
   Viewer на Admin / с Admin на Viewer администратором admin». Канон present-tense: `05_UI_REQUIREMENTS.md` §3.7
   (смена роли как построенная), `03_DOMAIN_MODEL.md` (слот 107). ADR не затронуты. — Done (2026-06-08)
+- `MLC-063` — Разведка источников perf-метрик 1С/хоста/SQL (трек «Анализ быстродействия 1С», Фаза 0, research) — Done (2026-06-08). На живом **нагруженном** стенде 8.5.1.1302 снят реальный вывод `rac session list` / `rac process list` + проверен доступ к MSSQL DMV. **Риск №1 ИНВЕРТИРОВАН:** `session list` отдаёт полный набор perf-полей (`cpu-time-*`/`memory-*`/`duration-current`/`-dbms`/`blocked-by-*`/`calls-*`/`last-active-at`) уже в покое (пустая фикстура PR 3.8 — артефакт idle-сеанса, не ограничение версии); под нагрузкой `*-current` оживают, сеанс привязывается к rphost. `process list` — `available-perfomance`/`avg-call-time`/`memory-size`/`pid` на месте. DMV-доступ есть (панель=`Trusted_Connection`; prod нужен `GRANT VIEW SERVER STATE TO [login]`, не на группу — UAC-фильтрация), атрибуция SQL **по базе** работает (`program_name='1CV83 Server'`→`DB_NAME`→`Infobase`→клиент), **SQL→сеанс→юзер невозможна** (подтверждено — отклонение опции обосновано). Гочи для `MLC-066`: `memory-current` бывает отрицательным; `avg-*` дробные (инвариантный парс); `process list` = +1 спавн `rac.exe`/poll (ADR-3.3). Урок: тяжёлый отчёт был CPU-bound в rphost (не DBMS-bound) → UI атрибутирует и app-сервер (rac), и SQL (DMV) равно уверенно. Прод-код не менялся (research). Полный отчёт — секция «Результаты разведки (MLC-063)» в `.claude/plans/spicy-discovering-torvalds.md`.
+- `MLC-064` — Backend: адаптер host-метрик (трек «Анализ быстродействия 1С», Фаза 1) — Done (2026-06-08). Application-порт `IHostMetricsProbe` + нейтральные DTO (`HostMetricsSnapshot`/`CpuMetrics`/`MemoryMetrics`/`DiskMetrics`/`ProcessGroupUsage`) + чистые `ProcessFamilyMap`/`ProcessFamilyGrouping` (атрибуция по семьям, тестируются без WMI). Infrastructure-адаптер `OneCHostMetricsProbe` — **на WMI, не `PerformanceCounter`** (имена perf-категорий/счётчиков локализованы на RU Windows → English-lookup падает; WQL-свойства инвариантны — подтверждено CIM-проверкой на стенде): CPU%/queue/RAM/pages из `Win32_PerfFormattedData_*`, латентность диска из `Win32_PerfRawData_PerfDisk_PhysicalDisk` ручным cook `PERF_AVERAGE_TIMER` (формат-класс режет дробь до целых секунд), total RAM из `Win32_ComputerSystem`, CPU%/RAM процессов из `System.Diagnostics.Process`. Паттерн `OneCIisPublishingService`: `[SupportedOSPlatform("windows")]` + `#pragma CA1416` в DI + `StubHostMetricsProbe`. Singleton держит предыдущий снимок (CPU-времена процессов + сырые perf-счётчики диска) для **дельты CPU%** между poll; первый poll → `Measuring=true`. Маппинг процесс→семья настраиваемый: `Settings.Performance.ProcessFamilyMap` (образец `OneC.LicenseConsumingAppIds`). Endpoint `GET /api/v1/performance/host` (Viewer, vertical slice ADR-20). Заведён **ADR-26** (Live pull/без персиста + Recording on-demand/БД/авто-стоп; адаптеры host/SQL по ADR-20; perf-события — своя таблица, не AuditLog; «чёрный ящик» и SQL→сеанс→юзер отклонены/gated). Канон present-tense: `DECISIONS.md` ADR-26 + `04_INFRASTRUCTURE.md` §6 + строка каталога настроек. Тесты: чистая группировка (без WMI) + стаб + endpoint; guard-тест границ усилён (`Infrastructure.Performance` в запрете для Web). `dotnet build`/`format`/443 теста зелёные. **Live-проверено на стенде:** два poll'а `GET /performance/host` под Viewer — poll 1 `Measuring=true` (CPU/RAM из WMI валидны, дельта-метрики 0), poll 2 `Measuring=false` с живыми CPU%-дельтами по семьям и cooked-латентностью диска (read≈0.4мс/write≈0.08мс); 1С-процессы (rphost/ragent/rmngr/ras) опознаны в семью OneC, sqlservr → Mssql.
