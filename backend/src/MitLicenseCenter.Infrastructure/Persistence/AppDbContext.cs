@@ -23,6 +23,8 @@ public sealed class AppDbContext : IdentityDbContext<AppUser, AppRole, Guid>
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<SettingEntry> Settings => Set<SettingEntry>();
     public DbSet<LicenseUsageSnapshot> LicenseUsageSnapshots => Set<LicenseUsageSnapshot>();
+    public DbSet<PerfRecording> PerfRecordings => Set<PerfRecording>();
+    public DbSet<PerfRecordingSample> PerfRecordingSamples => Set<PerfRecordingSample>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -150,6 +152,53 @@ public sealed class AppDbContext : IdentityDbContext<AppUser, AppRole, Guid>
                 .WithMany()
                 .HasForeignKey(x => x.TenantId)
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        builder.Entity<PerfRecording>(e =>
+        {
+            // MLC-070 (ADR-26, Фаза 4): запись быстродействия по требованию. Сущность-телеметрия,
+            // конфиг inline по паттерну LicenseUsageSnapshot. Без FK на Tenant — запись охватывает
+            // весь хост, а не клиента.
+            e.ToTable("PerfRecordings", "dbo");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.StartedAtUtc).IsRequired();
+            e.Property(x => x.StoppedAtUtc);
+            // Enum'ы как int (HasConversion) по конвенции проекта (InfobaseStatus/Publication.*).
+            e.Property(x => x.Status).HasConversion<int>().IsRequired();
+            e.Property(x => x.StopReason).HasConversion<int?>();
+            e.Property(x => x.StartedBy).IsRequired().HasMaxLength(256);
+            // Список расследований сортируется по началу (свежие сверху).
+            e.HasIndex(x => x.StartedAtUtc);
+        });
+
+        builder.Entity<PerfRecordingSample>(e =>
+        {
+            // MLC-070: один сэмпл записи. Host-метрики уровня 1 — плоскими колонками; атрибуция по
+            // семьям и точечные топ-виновники 1С/SQL — в JSON-колонках (nvarchar(max)).
+            e.ToTable("PerfRecordingSamples", "dbo");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.RecordingId).IsRequired();
+            e.Property(x => x.SampleUtc).IsRequired();
+            e.Property(x => x.Measuring).IsRequired();
+            e.Property(x => x.CpuPercent).IsRequired();
+            e.Property(x => x.CpuQueueLength).IsRequired();
+            e.Property(x => x.MemoryAvailableMBytes).IsRequired();
+            e.Property(x => x.MemoryTotalMBytes).IsRequired();
+            e.Property(x => x.MemoryPagesPerSec).IsRequired();
+            e.Property(x => x.DiskAvgReadSecPerOp).IsRequired();
+            e.Property(x => x.DiskAvgWriteSecPerOp).IsRequired();
+            e.Property(x => x.DiskQueueLength).IsRequired();
+            e.Property(x => x.ProcessesInaccessible).IsRequired();
+            e.Property(x => x.ProcessGroupsJson).IsRequired();
+            e.Property(x => x.OneCLoadJson);
+            e.Property(x => x.SqlLoadJson);
+            // Ряд сэмплов записи читается отсортированным по времени.
+            e.HasIndex(x => new { x.RecordingId, x.SampleUtc });
+            // Cascade: удаление записи (DELETE /recordings/{id}) сносит её сэмплы.
+            e.HasOne<PerfRecording>()
+                .WithMany(r => r.Samples)
+                .HasForeignKey(x => x.RecordingId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         builder.Entity<SettingEntry>(e =>

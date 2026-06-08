@@ -151,6 +151,15 @@ public static class DependencyInjection
         // ConnectionStrings:Default; в тестах — StubSqlPerformanceProbe (реальная ходит в SQL).
         services.AddSingleton<ISqlPerformanceProbe, SqlPerformanceProbe>();
 
+        // Запись по требованию раздела «Быстродействие» (MLC-070, ADR-26, Фаза 4). Singleton —
+        // держит активную запись + счётчик сэмплов между тиками (как ColdThrottleState/аккумулятор
+        // лицензий); БД и scoped IClusterClient берёт через IServiceScopeFactory. Фоновый драйвер
+        // PerfRecordingSamplingService тикает по таймеру и зовёт SampleOnceAsync (паттерн
+        // HotTierPollingService — sub-minute таймер вне Hangfire CRON).
+        services.AddSingleton<IPerfRecordingService, PerfRecordingService>();
+        services.AddSingleton<PerfRecordingSamplingService>();
+        services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<PerfRecordingSamplingService>());
+
         // Публикация через webinst.exe (MLC-045, ADR-20). Scoped — читает ISettingsSnapshot;
         // запускает процесс webinst версии платформы из публикации.
         services.AddScoped<IWebinstPublisher, OneCWebinstPublisher>();

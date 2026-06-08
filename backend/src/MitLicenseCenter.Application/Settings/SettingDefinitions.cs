@@ -167,5 +167,32 @@ public static class SettingDefinitions
                 Description: "Маппинг процессов в семьи для раздела «Быстродействие» (атрибуция CPU/RAM). Формат: Семья=маска,маска;Семья2=маска. Имя процесса без .exe, регистр не важен. Пусто → стандартный набор (1С, MSSQL, обновления ОС, антивирус).",
                 Kind: SettingValueKind.Text,
                 DefaultValue: ProcessFamilyMap.Default),
+
+            [SettingKey.PerformanceRecordingSampleIntervalSeconds] = new(
+                SettingKey.PerformanceRecordingSampleIntervalSeconds,
+                IsSecret: false,
+                Description: "Период сэмплинга активной записи раздела «Быстродействие», секунды. Каждый тик пишет снимок хоста и топ-виновников 1С/SQL в таблицу записи.",
+                Kind: SettingValueKind.Number,
+                DefaultValue: "15",
+                Min: 5,
+                Max: 60),
+
+            [SettingKey.PerformanceRecordingMaxDurationMinutes] = new(
+                SettingKey.PerformanceRecordingMaxDurationMinutes,
+                IsSecret: false,
+                Description: "Авто-стоп записи раздела «Быстродействие» по длительности, минуты. Запись останавливается сама по достижении лимита (или лимита числа сэмплов — что раньше).",
+                Kind: SettingValueKind.Number,
+                DefaultValue: "60",
+                Min: 1,
+                Max: 1440),
+
+            [SettingKey.PerformanceRecordingMaxSamples] = new(
+                SettingKey.PerformanceRecordingMaxSamples,
+                IsSecret: false,
+                Description: "Авто-стоп записи раздела «Быстродействие» по числу собранных сэмплов. Запись останавливается сама по достижении лимита (или лимита длительности — что раньше).",
+                Kind: SettingValueKind.Number,
+                DefaultValue: "1000",
+                Min: 10,
+                Max: 100000),
         };
 }
