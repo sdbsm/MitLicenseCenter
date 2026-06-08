@@ -85,18 +85,23 @@ internal static class AuditDescriptions
     public static string IisStarted(string initiator) =>
         $"Выполнен полный запуск IIS (iisreset /start) администратором {initiator}.";
 
-    // ── Управление учётками администраторов (MLC-058) ──────────────────────────────
+    // ── Управление учётками пользователей (MLC-058; раздел переименован в MLC-060) ──
     // Пароль в описание НЕ включаем — он возвращается в ответе API и показывается в UI
-    // один раз; аудит фиксирует только факт действия и кто кого затронул.
-    public static string AdminCreated(string userName, string role, string initiator) =>
+    // один раз; аудит фиксирует только факт действия и кто кого затронул. «администратором
+    // {initiator}» — про роль исполнителя действия (эндпоинты требуют Admin), не про раздел.
+    public static string UserCreated(string userName, string role, string initiator) =>
         $"Учётная запись «{userName}» (роль {role}) создана администратором {initiator}.";
 
-    public static string AdminDisabled(string userName, string initiator) =>
+    public static string UserDisabled(string userName, string initiator) =>
         $"Учётная запись «{userName}» отключена администратором {initiator}.";
 
-    public static string AdminEnabled(string userName, string initiator) =>
+    public static string UserEnabled(string userName, string initiator) =>
         $"Учётная запись «{userName}» включена администратором {initiator}.";
 
-    public static string AdminPasswordReset(string userName, string initiator) =>
+    public static string UserPasswordReset(string userName, string initiator) =>
         $"Пароль учётной записи «{userName}» сброшен администратором {initiator}.";
+
+    // MLC-061 — смена роли существующей учётки. Указываем старую и новую роль.
+    public static string UserRoleChanged(string userName, string oldRole, string newRole, string initiator) =>
+        $"Роль учётной записи «{userName}» изменена с {oldRole} на {newRole} администратором {initiator}.";
 }

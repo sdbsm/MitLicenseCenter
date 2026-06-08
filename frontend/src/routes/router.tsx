@@ -46,8 +46,8 @@ const ReportsPage = lazy(() =>
 const SettingsPage = lazy(() =>
   import("@/features/settings/SettingsPage").then((m) => ({ default: m.SettingsPage }))
 );
-const AdminsPage = lazy(() =>
-  import("@/features/admins/AdminsPage").then((m) => ({ default: m.AdminsPage }))
+const UsersPage = lazy(() =>
+  import("@/features/users/UsersPage").then((m) => ({ default: m.UsersPage }))
 );
 
 export const router = createBrowserRouter([
@@ -84,10 +84,10 @@ export const router = createBrowserRouter([
         ),
       },
       {
-        path: "admins",
+        path: "users",
         element: (
           <ProtectedRoute requireAdmin>
-            <AdminsPage />
+            <UsersPage />
           </ProtectedRoute>
         ),
       },

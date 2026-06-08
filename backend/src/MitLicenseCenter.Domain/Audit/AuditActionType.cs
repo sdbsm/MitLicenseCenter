@@ -22,13 +22,18 @@ public enum AuditActionType
     AdminLoggedOut = 101,
     AdminPasswordChanged = 102,
 
-    // Управление учётками администраторов из веб-панели (MLC-058). Server-scope
-    // операции (TenantId не пишется); пароль в описание НЕ кладётся — выдаётся в
-    // ответе API и показывается в UI один раз.
-    AdminCreated = 103,
-    AdminDisabled = 104,
-    AdminPasswordReset = 105,
-    AdminEnabled = 106,
+    // Управление учётками пользователей из веб-панели (MLC-058; раздел переименован
+    // «Администраторы»→«Пользователи» в MLC-060). Server-scope операции (TenantId не
+    // пишется); пароль в описание НЕ кладётся — выдаётся в ответе API и показывается в
+    // UI один раз. int-значения 103–106 ЗАМОРОЖЕНЫ (переименовано только имя C#).
+    UserCreated = 103,
+    UserDisabled = 104,
+    UserPasswordReset = 105,
+    UserEnabled = 106,
+
+    // Смена роли существующей учётки Admin↔Viewer из веб-панели (MLC-061). Server-scope
+    // (TenantId не пишется). Новое число — 103–106 заняты MLC-058.
+    UserRoleChanged = 107,
 
     SessionKilled = 200,
     LimitChanged = 201,

@@ -34,11 +34,15 @@ public static class ProblemCodes
     public const string SessionStale = "SESSION_STALE";
     public const string ClusterUnavailable = "CLUSTER_UNAVAILABLE";
 
-    // MLC-058 — управление учётками администраторов.
-    public const string AdminUsernameDuplicate = "ADMIN_USERNAME_DUPLICATE";
-    public const string AdminNotFound = "ADMIN_NOT_FOUND";
-    public const string AdminCannotDisableSelf = "ADMIN_CANNOT_DISABLE_SELF";
-    public const string AdminLastActive = "ADMIN_LAST_ACTIVE";
+    // MLC-058 — управление учётками пользователей (раздел переименован в MLC-060).
+    // Строки кодов — контракт API (матчатся фронтом в matchConflictCode), меняются
+    // синхронно BE↔FE.
+    public const string UserUsernameDuplicate = "USER_USERNAME_DUPLICATE";
+    public const string UserNotFound = "USER_NOT_FOUND";
+    public const string UserCannotDisableSelf = "USER_CANNOT_DISABLE_SELF";
+    public const string UserLastActiveAdmin = "USER_LAST_ACTIVE";
+    // MLC-061 — смена роли существующей учётки.
+    public const string UserCannotChangeOwnRole = "USER_CANNOT_CHANGE_OWN_ROLE";
 }
 
 public static class Problems
@@ -154,28 +158,39 @@ public static class Problems
             "Сеанс изменился",
             "Сеанс изменился с момента обновления списка (возможно, перезапущен). Обновите список сеансов и повторите.");
 
-    // ── Управление учётками администраторов (MLC-058) ──────────────────────────────
-    public static ProblemDetails AdminUsernameDuplicate(string userName) =>
+    // ── Управление учётками пользователей (MLC-058; раздел переименован в MLC-060) ──
+    public static ProblemDetails UserUsernameDuplicate(string userName) =>
         Conflict(
-            ProblemCodes.AdminUsernameDuplicate,
+            ProblemCodes.UserUsernameDuplicate,
             "Дубликат логина",
             $"Учётная запись с логином «{userName}» уже существует.");
 
-    public static ProblemDetails AdminCannotDisableSelf() =>
+    public static ProblemDetails UserCannotDisableSelf() =>
         Conflict(
-            ProblemCodes.AdminCannotDisableSelf,
+            ProblemCodes.UserCannotDisableSelf,
             "Нельзя отключить себя",
             "Нельзя отключить собственную учётную запись.");
 
-    public static ProblemDetails AdminLastActive() =>
+    // Считаются именно учётки роли Admin (не любой пользователь) — иначе панелью некому
+    // будет управлять; текст про «администратора» относится к роли, не к разделу. Общий
+    // для отключения (MLC-058) и разжалования роли (MLC-061) — фронт подбирает точную
+    // формулировку по коду в своём контексте.
+    public static ProblemDetails UserLastActiveAdmin() =>
         Conflict(
-            ProblemCodes.AdminLastActive,
+            ProblemCodes.UserLastActiveAdmin,
             "Последний активный администратор",
-            "Нельзя отключить последнего активного администратора — иначе панелью некому будет управлять.");
+            "Нельзя оставить панель без активного администратора — это последний активный администратор.");
+
+    // MLC-061 — нельзя менять роль собственной учётке: само-разжалование = потеря доступа.
+    public static ProblemDetails UserCannotChangeOwnRole() =>
+        Conflict(
+            ProblemCodes.UserCannotChangeOwnRole,
+            "Нельзя сменить роль себе",
+            "Нельзя менять роль собственной учётной записи.");
 
     // 404 для несуществующей учётки. Не 409, поэтому отдельный helper со Status=404 и
     // machine-readable code (frontend сопоставляет код, как и с конфликтами).
-    public static ProblemDetails AdminNotFound()
+    public static ProblemDetails UserNotFound()
     {
         var problem = new ProblemDetails
         {
@@ -184,7 +199,7 @@ public static class Problems
             Status = StatusCodes.Status404NotFound,
             Detail = "Учётная запись не найдена (возможно, удалена). Обновите список.",
         };
-        problem.Extensions["code"] = ProblemCodes.AdminNotFound;
+        problem.Extensions["code"] = ProblemCodes.UserNotFound;
         return problem;
     }
 

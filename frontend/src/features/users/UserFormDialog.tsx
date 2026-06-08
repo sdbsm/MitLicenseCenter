@@ -22,32 +22,32 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { matchConflictCode, toastFormSubmitError } from "@/lib/apiErrors";
-import { ADMIN_ROLES, type AdminRole, type CreateAdminInput } from "./types";
-import { useCreateAdmin } from "./useAdmins";
+import { USER_ROLES, type UserRole, type CreateUserInput } from "./types";
+import { useCreateUser } from "./useUsers";
 
 function buildSchema(t: (k: string) => string) {
   return z.object({
     userName: z
       .string()
       .trim()
-      .min(1, t("admins.errors.userNameRequired"))
-      .max(256, t("admins.errors.userNameTooLong")),
-    role: z.enum(ADMIN_ROLES),
+      .min(1, t("users.errors.userNameRequired"))
+      .max(256, t("users.errors.userNameTooLong")),
+    role: z.enum(USER_ROLES),
   });
 }
 
 type FormValues = z.infer<ReturnType<typeof buildSchema>>;
 
-interface AdminFormDialogProps {
+interface UserFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   // Поднимает сгенерированный пароль наверх — страница показывает его в отдельном диалоге.
   onPasswordGenerated: (userName: string, password: string) => void;
 }
 
-export function AdminFormDialog({ open, onOpenChange, onPasswordGenerated }: AdminFormDialogProps) {
+export function UserFormDialog({ open, onOpenChange, onPasswordGenerated }: UserFormDialogProps) {
   const { t } = useTranslation();
-  const create = useCreateAdmin();
+  const create = useCreateUser();
 
   const form = useForm<FormValues>({
     resolver: zodResolver(buildSchema(t)),
@@ -55,17 +55,17 @@ export function AdminFormDialog({ open, onOpenChange, onPasswordGenerated }: Adm
   });
 
   const onSubmit = form.handleSubmit(async (values) => {
-    const input: CreateAdminInput = { userName: values.userName.trim(), role: values.role };
+    const input: CreateUserInput = { userName: values.userName.trim(), role: values.role };
     try {
       const result = await create.mutateAsync(input);
-      toast.success(t("admins.toasts.created", { name: input.userName }));
+      toast.success(t("users.toasts.created", { name: input.userName }));
       onOpenChange(false);
       onPasswordGenerated(result.userName, result.generatedPassword);
     } catch (error) {
       const mapped = matchConflictCode(error, {
-        ADMIN_USERNAME_DUPLICATE: {
+        USER_USERNAME_DUPLICATE: {
           field: "userName",
-          messageKey: "admins.errors.userNameDuplicate",
+          messageKey: "users.errors.userNameDuplicate",
         } as const,
       });
       if (mapped) {
@@ -80,8 +80,8 @@ export function AdminFormDialog({ open, onOpenChange, onPasswordGenerated }: Adm
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{t("admins.form.createTitle")}</DialogTitle>
-          <DialogDescription>{t("admins.form.subtitle")}</DialogDescription>
+          <DialogTitle>{t("users.form.createTitle")}</DialogTitle>
+          <DialogDescription>{t("users.form.subtitle")}</DialogDescription>
         </DialogHeader>
 
         <Form {...form}>
@@ -91,12 +91,12 @@ export function AdminFormDialog({ open, onOpenChange, onPasswordGenerated }: Adm
               name="userName"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t("admins.fields.userName")}</FormLabel>
+                  <FormLabel>{t("users.fields.userName")}</FormLabel>
                   <FormControl>
                     <Input
                       autoFocus
                       autoComplete="off"
-                      placeholder={t("admins.form.userNamePlaceholder")}
+                      placeholder={t("users.form.userNamePlaceholder")}
                       {...field}
                     />
                   </FormControl>
@@ -109,10 +109,10 @@ export function AdminFormDialog({ open, onOpenChange, onPasswordGenerated }: Adm
               name="role"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t("admins.fields.role")}</FormLabel>
+                  <FormLabel>{t("users.fields.role")}</FormLabel>
                   <FormControl>
                     <div role="radiogroup" className="grid gap-2">
-                      {ADMIN_ROLES.map((role: AdminRole) => (
+                      {USER_ROLES.map((role: UserRole) => (
                         <label
                           key={role}
                           className="hover:bg-accent/50 flex cursor-pointer items-start gap-3 rounded-md border px-3 py-2"
@@ -126,9 +126,9 @@ export function AdminFormDialog({ open, onOpenChange, onPasswordGenerated }: Adm
                             className="mt-0.5 size-4 cursor-pointer"
                           />
                           <span className="grid gap-0.5">
-                            <span className="text-sm font-medium">{t(`admins.roles.${role}`)}</span>
+                            <span className="text-sm font-medium">{t(`users.roles.${role}`)}</span>
                             <span className="text-muted-foreground text-xs">
-                              {t(`admins.roleHints.${role}`)}
+                              {t(`users.roleHints.${role}`)}
                             </span>
                           </span>
                         </label>

@@ -1,0 +1,37 @@
+using System.ComponentModel.DataAnnotations;
+
+namespace MitLicenseCenter.Web.Endpoints;
+
+// MLC-058 — контракты раздела «Пользователи» (переименован из «Администраторы» в
+// MLC-060). Работают над Identity-учётками (AppUser/роли), а не над доменной сущностью,
+// поэтому ответы собираются вручную из UserManager, без EF-mapping-хелпера.
+
+// Одна учётка панели в списке. `Roles` — назначенные роли (Admin/Viewer); `IsActive` —
+// не залочена ли учётка (Identity-lockout = «отключена»); `LastLoginAt` (MLC-059) — время
+// последнего успешного входа в UTC, `null` — ни разу не входил.
+public sealed record UserResponse(
+    Guid Id,
+    string UserName,
+    IReadOnlyList<string> Roles,
+    bool IsActive,
+    DateTime? LastLoginAt);
+
+public sealed record UserListResponse(IReadOnlyList<UserResponse> Items);
+
+// Создание учётки. Роль выбирается при создании (Admin/Viewer); смену роли у
+// существующих учёток добавляет MLC-061. DataAnnotations — только для Swagger; реальную
+// проверку делает обработчик (см. гочу в CLAUDE.md).
+public sealed record CreateUserRequest(
+    [property: Required, StringLength(256, MinimumLength = 1)] string UserName,
+    [property: Required] string Role);
+
+// MLC-061 — смена роли существующей учётки (Admin↔Viewer). Валидация `Role ∈ Roles.All`
+// делается в обработчике (DataAnnotations — только для Swagger).
+public sealed record ChangeUserRoleRequest(
+    [property: Required] string Role);
+
+// Ответ на создание/сброс пароля: сгенерированный временный пароль. Показывается в UI
+// один раз; в аудит и логи не пишется.
+public sealed record UserCreatedResponse(Guid Id, string UserName, string GeneratedPassword);
+
+public sealed record UserPasswordResetResponse(string GeneratedPassword);

@@ -2,11 +2,11 @@ import { z } from "zod";
 import { omittable } from "@/lib/apiSchema";
 
 // Роли панели. Назначаются при создании учётки; смену роли у существующих учёток
-// раздел не поддерживает (вне объёма MLC-058).
-export const ADMIN_ROLES = ["Admin", "Viewer"] as const;
-export type AdminRole = (typeof ADMIN_ROLES)[number];
+// добавляет MLC-061.
+export const USER_ROLES = ["Admin", "Viewer"] as const;
+export type UserRole = (typeof USER_ROLES)[number];
 
-export const adminSchema = z.object({
+export const userSchema = z.object({
   id: z.string(),
   userName: z.string(),
   roles: z.array(z.string()),
@@ -17,28 +17,34 @@ export const adminSchema = z.object({
   lastLoginAt: omittable(z.string()),
 });
 
-// Список учёток (`GET /api/v1/admins`) — простой конверт без пагинации (учёток единицы).
-export const adminListResponseSchema = z.object({
-  items: z.array(adminSchema),
+// Список учёток (`GET /api/v1/users`) — простой конверт без пагинации (учёток единицы).
+export const userListResponseSchema = z.object({
+  items: z.array(userSchema),
 });
 
-export type Admin = z.infer<typeof adminSchema>;
-export type AdminListResponse = z.infer<typeof adminListResponseSchema>;
+export type User = z.infer<typeof userSchema>;
+export type UserListResponse = z.infer<typeof userListResponseSchema>;
 
 // Тело запроса (не ответ) — рукописное, runtime-валидация не нужна.
-export interface CreateAdminInput {
+export interface CreateUserInput {
   userName: string;
-  role: AdminRole;
+  role: UserRole;
+}
+
+// MLC-061 — смена роли существующей учётки (Admin↔Viewer).
+export interface ChangeUserRoleInput {
+  id: string;
+  role: UserRole;
 }
 
 // Ответы создания/сброса несут сгенерированный временный пароль — он показывается в UI
 // один раз и нигде не сохраняется.
-export interface AdminCreatedResponse {
+export interface UserCreatedResponse {
   id: string;
   userName: string;
   generatedPassword: string;
 }
 
-export interface AdminPasswordResetResponse {
+export interface UserPasswordResetResponse {
   generatedPassword: string;
 }

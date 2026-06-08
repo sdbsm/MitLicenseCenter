@@ -10,35 +10,28 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import type { Admin } from "./types";
-import { useResetAdminPassword } from "./useAdmins";
+import type { User } from "./types";
+import { useEnableUser } from "./useUsers";
 
-interface ResetPasswordDialogProps {
-  admin: Admin | null;
+interface EnableUserDialogProps {
+  user: User | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onPasswordGenerated: (userName: string, password: string) => void;
 }
 
-export function ResetPasswordDialog({
-  admin,
-  open,
-  onOpenChange,
-  onPasswordGenerated,
-}: ResetPasswordDialogProps) {
+export function EnableUserDialog({ user, open, onOpenChange }: EnableUserDialogProps) {
   const { t } = useTranslation();
-  const reset = useResetAdminPassword();
+  const enable = useEnableUser();
 
-  if (!admin) {
+  if (!user) {
     return null;
   }
 
   const handleConfirm = async () => {
     try {
-      const result = await reset.mutateAsync(admin.id);
-      toast.success(t("admins.toasts.passwordReset", { name: admin.userName }));
+      await enable.mutateAsync(user.id);
+      toast.success(t("users.toasts.enabled", { name: user.userName }));
       onOpenChange(false);
-      onPasswordGenerated(admin.userName, result.generatedPassword);
     } catch {
       toast.error(t("errors.generic"));
     }
@@ -48,21 +41,21 @@ export function ResetPasswordDialog({
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>{t("admins.reset.title")}</AlertDialogTitle>
+          <AlertDialogTitle>{t("users.enable.title")}</AlertDialogTitle>
           <AlertDialogDescription>
-            {t("admins.reset.body", { name: admin.userName })}
+            {t("users.enable.body", { name: user.userName })}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel disabled={reset.isPending}>{t("common.cancel")}</AlertDialogCancel>
+          <AlertDialogCancel disabled={enable.isPending}>{t("common.cancel")}</AlertDialogCancel>
           <AlertDialogAction
-            disabled={reset.isPending}
+            disabled={enable.isPending}
             onClick={(e) => {
               e.preventDefault();
               void handleConfirm();
             }}
           >
-            {reset.isPending ? t("common.loading") : t("admins.reset.confirm")}
+            {enable.isPending ? t("common.loading") : t("users.enable.confirm")}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

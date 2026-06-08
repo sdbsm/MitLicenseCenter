@@ -5,8 +5,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import "@/i18n";
 import type * as ApiModule from "@/lib/api";
-import { AdminFormDialog } from "../AdminFormDialog";
-import { adminsQueryKey } from "../useAdmins";
+import { UserFormDialog } from "../UserFormDialog";
+import { usersQueryKey } from "../useUsers";
 
 vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
@@ -35,18 +35,18 @@ function setup() {
     <QueryClientProvider client={client}>{children}</QueryClientProvider>
   );
   render(
-    <AdminFormDialog open onOpenChange={onOpenChange} onPasswordGenerated={onPasswordGenerated} />,
+    <UserFormDialog open onOpenChange={onOpenChange} onPasswordGenerated={onPasswordGenerated} />,
     { wrapper }
   );
   return { invalidateSpy, onOpenChange, onPasswordGenerated, user: userEvent.setup() };
 }
 
-describe("AdminFormDialog", () => {
+describe("UserFormDialog", () => {
   beforeEach(() => {
     mockedApi.mockReset();
   });
 
-  it("создаёт администратора, инвалидирует кэш и поднимает сгенерированный пароль", async () => {
+  it("создаёт пользователя, инвалидирует кэш и поднимает сгенерированный пароль", async () => {
     mockedApi.mockResolvedValueOnce({
       id: "a1",
       userName: "ivanov",
@@ -58,12 +58,12 @@ describe("AdminFormDialog", () => {
     await user.click(screen.getByRole("button", { name: "Создать" }));
 
     await waitFor(() =>
-      expect(mockedApi).toHaveBeenCalledWith("/api/v1/admins", {
+      expect(mockedApi).toHaveBeenCalledWith("/api/v1/users", {
         method: "POST",
         body: { userName: "ivanov", role: "Admin" },
       })
     );
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: adminsQueryKey });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: usersQueryKey });
     expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(onPasswordGenerated).toHaveBeenCalledWith("ivanov", "Aa1!_temp_pwd");
   });
@@ -77,16 +77,16 @@ describe("AdminFormDialog", () => {
     await user.click(screen.getByRole("button", { name: "Создать" }));
 
     await waitFor(() =>
-      expect(mockedApi).toHaveBeenCalledWith("/api/v1/admins", {
+      expect(mockedApi).toHaveBeenCalledWith("/api/v1/users", {
         method: "POST",
         body: { userName: "watcher", role: "Viewer" },
       })
     );
   });
 
-  it("409 ADMIN_USERNAME_DUPLICATE → ошибка на поле «Логин», диалог открыт", async () => {
+  it("409 USER_USERNAME_DUPLICATE → ошибка на поле «Логин», диалог открыт", async () => {
     mockedApi.mockRejectedValueOnce(
-      new ApiError(409, "conflict", { code: "ADMIN_USERNAME_DUPLICATE" })
+      new ApiError(409, "conflict", { code: "USER_USERNAME_DUPLICATE" })
     );
     const { onOpenChange, user } = setup();
 
