@@ -193,6 +193,106 @@ public sealed class UsersEndpointsTests
         conflict.Value!.Extensions["code"].Should().Be(ProblemCodes.UserCannotDisableSelf);
     }
 
+    // ── MLC-061 — смена роли существующей учётки ───────────────────────────────────
+
+    [Fact]
+    public async Task ChangeRole_promotes_viewer_to_admin()
+    {
+        await using var h = await UserTestHarness.CreateAsync();
+        await h.CreateUserAsync("keeper", Roles.Admin);          // инициатор ≠ target
+        var target = await h.CreateUserAsync("watcher", Roles.Viewer);
+        var audit = new TestHelpers.CapturingAuditLogger();
+
+        var result = await UsersEndpoints.ChangeRoleAsync(
+            target.Id, new ChangeUserRoleRequest(Roles.Admin), h.UserManager, audit,
+            TestHelpers.NewHttpContext("keeper"), TimeProvider.System, CancellationToken.None);
+
+        result.Result.Should().BeOfType<Ok>();
+        var reloaded = (await h.UserManager.FindByIdAsync(target.Id.ToString()))!;
+        (await h.UserManager.IsInRoleAsync(reloaded, Roles.Admin)).Should().BeTrue();
+        (await h.UserManager.IsInRoleAsync(reloaded, Roles.Viewer)).Should().BeFalse();
+        var entry = audit.Entries.Should().ContainSingle(e => e.Action == AuditActionType.UserRoleChanged).Subject;
+        entry.Description.Should().Contain("Viewer").And.Contain("Admin");
+    }
+
+    [Fact]
+    public async Task ChangeRole_same_role_is_idempotent_without_audit()
+    {
+        await using var h = await UserTestHarness.CreateAsync();
+        await h.CreateUserAsync("keeper", Roles.Admin);
+        var target = await h.CreateUserAsync("watcher", Roles.Viewer);
+        var audit = new TestHelpers.CapturingAuditLogger();
+
+        var result = await UsersEndpoints.ChangeRoleAsync(
+            target.Id, new ChangeUserRoleRequest(Roles.Viewer), h.UserManager, audit,
+            TestHelpers.NewHttpContext("keeper"), TimeProvider.System, CancellationToken.None);
+
+        result.Result.Should().BeOfType<Ok>();
+        var reloaded = (await h.UserManager.FindByIdAsync(target.Id.ToString()))!;
+        (await h.UserManager.IsInRoleAsync(reloaded, Roles.Viewer)).Should().BeTrue();
+        audit.Entries.Should().NotContain(e => e.Action == AuditActionType.UserRoleChanged);
+    }
+
+    [Fact]
+    public async Task ChangeRole_self_is_blocked()
+    {
+        await using var h = await UserTestHarness.CreateAsync();
+        await h.CreateUserAsync("keeper", Roles.Admin);          // другой активный админ есть → не last-admin
+        var me = await h.CreateUserAsync("operator", Roles.Admin);
+
+        var result = await UsersEndpoints.ChangeRoleAsync(
+            me.Id, new ChangeUserRoleRequest(Roles.Viewer), h.UserManager, new TestHelpers.CapturingAuditLogger(),
+            TestHelpers.NewHttpContext("operator"), TimeProvider.System, CancellationToken.None);
+
+        var conflict = result.Result.Should().BeOfType<Conflict<ProblemDetails>>().Subject;
+        conflict.Value!.Extensions["code"].Should().Be(ProblemCodes.UserCannotChangeOwnRole);
+    }
+
+    [Fact]
+    public async Task ChangeRole_demote_last_active_admin_is_blocked()
+    {
+        await using var h = await UserTestHarness.CreateAsync();
+        var onlyAdmin = await h.CreateUserAsync("operator", Roles.Admin);
+        await h.CreateUserAsync("watcher", Roles.Viewer);        // Viewer не считается активным админом
+
+        // Инициатор "ghost" не существует → self-guard пропускается, проверяем именно last-admin.
+        var result = await UsersEndpoints.ChangeRoleAsync(
+            onlyAdmin.Id, new ChangeUserRoleRequest(Roles.Viewer), h.UserManager,
+            new TestHelpers.CapturingAuditLogger(), TestHelpers.NewHttpContext("ghost"),
+            TimeProvider.System, CancellationToken.None);
+
+        var conflict = result.Result.Should().BeOfType<Conflict<ProblemDetails>>().Subject;
+        conflict.Value!.Extensions["code"].Should().Be(ProblemCodes.UserLastActiveAdmin);
+    }
+
+    [Fact]
+    public async Task ChangeRole_with_invalid_role_returns_validation_problem()
+    {
+        await using var h = await UserTestHarness.CreateAsync();
+        var target = await h.CreateUserAsync("watcher", Roles.Viewer);
+
+        var result = await UsersEndpoints.ChangeRoleAsync(
+            target.Id, new ChangeUserRoleRequest("Root"), h.UserManager,
+            new TestHelpers.CapturingAuditLogger(), TestHelpers.NewHttpContext("keeper"),
+            TimeProvider.System, CancellationToken.None);
+
+        var problem = result.Result.Should().BeOfType<ValidationProblem>().Subject;
+        problem.ProblemDetails.Errors.Should().ContainKey(nameof(ChangeUserRoleRequest.Role));
+    }
+
+    [Fact]
+    public async Task ChangeRole_unknown_id_returns_not_found()
+    {
+        await using var h = await UserTestHarness.CreateAsync();
+        var result = await UsersEndpoints.ChangeRoleAsync(
+            Guid.NewGuid(), new ChangeUserRoleRequest(Roles.Admin), h.UserManager,
+            new TestHelpers.CapturingAuditLogger(), TestHelpers.NewHttpContext("keeper"),
+            TimeProvider.System, CancellationToken.None);
+
+        var nf = result.Result.Should().BeOfType<NotFound<ProblemDetails>>().Subject;
+        nf.Value!.Extensions["code"].Should().Be(ProblemCodes.UserNotFound);
+    }
+
     [Fact]
     public async Task List_returns_users_with_roles_and_status()
     {

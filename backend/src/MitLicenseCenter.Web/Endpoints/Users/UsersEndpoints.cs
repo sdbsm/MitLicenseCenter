@@ -33,6 +33,7 @@ public static class UsersEndpoints
         group.MapPost("/{id:guid}/reset-password", ResetPasswordAsync).RequireAuthorization(Roles.Admin);
         group.MapPost("/{id:guid}/disable", DisableAsync).RequireAuthorization(Roles.Admin);
         group.MapPost("/{id:guid}/enable", EnableAsync).RequireAuthorization(Roles.Admin);
+        group.MapPost("/{id:guid}/role", ChangeRoleAsync).RequireAuthorization(Roles.Admin);
     }
 
     internal static async Task<Ok<UserListResponse>> ListAsync(
@@ -194,15 +195,10 @@ public static class UsersEndpoints
         // Guard «последний активный администратор» — считаем именно учётки роли Admin
         // (не любые активные): с одним Viewer панель станет неуправляемой. Применяем,
         // только если отключаемая учётка сама в роли Admin.
-        if (await userManager.IsInRoleAsync(user, Roles.Admin).ConfigureAwait(false))
+        if (await userManager.IsInRoleAsync(user, Roles.Admin).ConfigureAwait(false)
+            && !await HasOtherActiveAdminAsync(userManager, user.Id, clock.GetUtcNow()).ConfigureAwait(false))
         {
-            var now = clock.GetUtcNow();
-            var admins = await userManager.GetUsersInRoleAsync(Roles.Admin).ConfigureAwait(false);
-            var otherActiveAdmin = admins.Any(a => a.Id != user.Id && IsActive(a, now));
-            if (!otherActiveAdmin)
-            {
-                return TypedResults.Conflict(Problems.UserLastActiveAdmin());
-            }
+            return TypedResults.Conflict(Problems.UserLastActiveAdmin());
         }
 
         await userManager.SetLockoutEndDateAsync(user, DateTimeOffset.MaxValue).ConfigureAwait(false);
@@ -236,6 +232,94 @@ public static class UsersEndpoints
             tenantId: null, ct).ConfigureAwait(false);
 
         return TypedResults.NoContent();
+    }
+
+    internal static async Task<Results<Ok, ValidationProblem, NotFound<ProblemDetails>, Conflict<ProblemDetails>>> ChangeRoleAsync(
+        Guid id,
+        [FromBody] ChangeUserRoleRequest request,
+        UserManager<AppUser> userManager,
+        IAuditLogger audit,
+        HttpContext httpContext,
+        TimeProvider clock,
+        CancellationToken ct)
+    {
+        var role = (request.Role ?? string.Empty).Trim();
+        if (!Roles.All.Contains(role, StringComparer.Ordinal))
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>(StringComparer.Ordinal)
+            {
+                [nameof(ChangeUserRoleRequest.Role)] = ["Недопустимая роль. Допустимы: Admin, Viewer."],
+            });
+        }
+
+        var user = await userManager.FindByIdAsync(id.ToString()).ConfigureAwait(false);
+        if (user is null)
+        {
+            return TypedResults.NotFound(Problems.UserNotFound());
+        }
+
+        // Guard «сам себе» — смена роли собственной учётке = потеря доступа при само-разжаловании.
+        var initiatorName = httpContext.ResolveInitiator();
+        var current = await userManager.FindByNameAsync(initiatorName).ConfigureAwait(false);
+        if (current is not null && current.Id == user.Id)
+        {
+            return TypedResults.Conflict(Problems.UserCannotChangeOwnRole());
+        }
+
+        var currentRoles = await userManager.GetRolesAsync(user).ConfigureAwait(false);
+
+        // Идемпотентность: учётка уже ровно в целевой роли → no-op, без аудита.
+        if (currentRoles.Count == 1 && string.Equals(currentRoles[0], role, StringComparison.Ordinal))
+        {
+            return TypedResults.Ok();
+        }
+
+        // Guard «последний активный администратор»: разжалование Admin→не-Admin, когда
+        // других активных Admin нет, оставит панель неуправляемой. Переиспользуем ту же
+        // проверку, что и отключение учётки.
+        var demotingFromAdmin = currentRoles.Contains(Roles.Admin, StringComparer.Ordinal)
+            && !string.Equals(role, Roles.Admin, StringComparison.Ordinal);
+        if (demotingFromAdmin
+            && !await HasOtherActiveAdminAsync(userManager, user.Id, clock.GetUtcNow()).ConfigureAwait(false))
+        {
+            return TypedResults.Conflict(Problems.UserLastActiveAdmin());
+        }
+
+        var oldRole = currentRoles.Count > 0 ? string.Join(", ", currentRoles) : "—";
+        if (currentRoles.Count > 0)
+        {
+            var removeResult = await userManager.RemoveFromRolesAsync(user, currentRoles).ConfigureAwait(false);
+            if (!removeResult.Succeeded)
+            {
+                throw new InvalidOperationException(
+                    "Не удалось снять текущие роли: "
+                    + string.Join("; ", removeResult.Errors.Select(e => $"{e.Code}: {e.Description}")));
+            }
+        }
+
+        var addResult = await userManager.AddToRoleAsync(user, role).ConfigureAwait(false);
+        if (!addResult.Succeeded)
+        {
+            throw new InvalidOperationException(
+                $"Не удалось назначить роль '{role}': "
+                + string.Join("; ", addResult.Errors.Select(e => $"{e.Code}: {e.Description}")));
+        }
+
+        await httpContext.AuditAsync(audit, AuditActionType.UserRoleChanged,
+            init => AuditDescriptions.UserRoleChanged(user.UserName!, oldRole, role, init),
+            tenantId: null, ct).ConfigureAwait(false);
+
+        return TypedResults.Ok();
+    }
+
+    // Есть ли среди учёток роли Admin хотя бы один активный, отличный от `excludeUserId`.
+    // Общий guard для отключения (MLC-058) и разжалования роли (MLC-061): счёт идёт
+    // именно по роли Admin, а не по любым активным учёткам.
+    private static async Task<bool> HasOtherActiveAdminAsync(
+        UserManager<AppUser> userManager, Guid excludeUserId, DateTimeOffset now)
+    {
+        var admins = await userManager.GetUsersInRoleAsync(Roles.Admin).ConfigureAwait(false);
+        return admins.Any(a => a.Id != excludeUserId && IsActive(a, now));
     }
 
     // «Активна» = не под действующим lockout. Identity-lockout с LockoutEnd в будущем

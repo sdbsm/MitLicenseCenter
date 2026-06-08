@@ -25,6 +25,11 @@ public sealed record CreateUserRequest(
     [property: Required, StringLength(256, MinimumLength = 1)] string UserName,
     [property: Required] string Role);
 
+// MLC-061 — смена роли существующей учётки (Admin↔Viewer). Валидация `Role ∈ Roles.All`
+// делается в обработчике (DataAnnotations — только для Swagger).
+public sealed record ChangeUserRoleRequest(
+    [property: Required] string Role);
+
 // Ответ на создание/сброс пароля: сгенерированный временный пароль. Показывается в UI
 // один раз; в аудит и логи не пишется.
 public sealed record UserCreatedResponse(Guid Id, string UserName, string GeneratedPassword);

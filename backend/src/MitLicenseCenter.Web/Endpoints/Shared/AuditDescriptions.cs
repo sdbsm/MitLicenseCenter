@@ -100,4 +100,8 @@ internal static class AuditDescriptions
 
     public static string UserPasswordReset(string userName, string initiator) =>
         $"Пароль учётной записи «{userName}» сброшен администратором {initiator}.";
+
+    // MLC-061 — смена роли существующей учётки. Указываем старую и новую роль.
+    public static string UserRoleChanged(string userName, string oldRole, string newRole, string initiator) =>
+        $"Роль учётной записи «{userName}» изменена с {oldRole} на {newRole} администратором {initiator}.";
 }

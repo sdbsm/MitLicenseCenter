@@ -195,24 +195,20 @@ REF-10→MLC-027, REF-11→MLC-011(a), REF-13→MLC-028). Phase 1–2 (MLC-029..
    (рефакторинг, поведение 1:1): `/admins`→`/users` (роут + API `MapGroup` + папки `Web/Endpoints/Users`,
    `features/users`), контракты/`Problems`/коды ошибок (parity BE↔FE), имена слотов аудита `Admin*`→`User*`
    (int 103–106 заморожены), i18n, канон §3.7. Отчёт — в индексе «Закрыто» ниже.
-2. `MLC-061` — **NEXT TASK** — Смена роли существующей учётки (Admin↔Viewer): `POST /api/v1/users/{id}/role` (Admin),
-   guard'ы «сам себе нельзя» + «нельзя разжаловать последнего активного Admin», +1 слот аудита
-   `UserRoleChanged=107` (новое число); фронт — действие «Сменить роль» (radio). Нюанс: смена вступает в
-   силу при следующем входе целевого пользователя (роль в cookie). BE+FE, объём S–M. **Завершает мини-трек 2/2.**
+2. `MLC-061` — **Done (2026-06-08)** — Смена роли существующей учётки (Admin↔Viewer):
+   `POST /api/v1/users/{id}/role` (Admin), guard'ы «сам себе нельзя» + «нельзя разжаловать последнего
+   активного Admin», +1 слот аудита `UserRoleChanged=107`; фронт — действие «Сменить роль» (radio),
+   подсказка «вступит в силу при следующем входе». Отчёт — в индексе «Закрыто» ниже.
+
+**Мини-трек «Раздел Пользователи» завершён 2/2 (MLC-060/061).**
 
 ---
 
 ## NEXT TASK
 
-> **`MLC-061` — Смена роли существующей учётки (Admin↔Viewer)** (фича поверх переименованного `/users`).
-> Вторая задача мини-трека «Раздел Пользователи» (`MLC-060..061`); `MLC-060` (переименование) закрыта.
-> Новый эндпоинт `POST /api/v1/users/{id}/role` (`Roles.Admin`, тело `{role}`, валидация `role ∈ Roles.All`,
-> идемпотентность при role==текущей). Guard'ы (409): нельзя менять роль **себе** (`USER_CANNOT_CHANGE_OWN_ROLE`),
-> нельзя разжаловать **последнего активного Admin** (переиспользовать last-active-Admin логику disable).
-> +1 слот аудита `UserRoleChanged=107` (enum заморожен, новое число; 103–106 заняты). Фронт — действие
-> «Сменить роль» (radio Admin/Viewer) в `features/users/`, подсказка «вступит в силу при следующем входе».
-> Полная спека — в план-файле `C:\Users\andre\.claude\plans\users-section-rename-roles.md`.
-> **Завершает мини-трек 2/2.**
+> **Активных задач нет.** Мини-трек «Раздел Пользователи» (`MLC-060` переименование + `MLC-061` смена роли)
+> завершён 2/2 (2026-06-08) — отчёты в индексе «Закрыто» ниже. Следующий `NEXT TASK` ставит внешний
+> чат-куратор.
 >
 > Закрытые треки (полировка панели `MLC-057..059`, полировка /settings `MLC-055..056`, отчёты
 > `MLC-048..052`/`054`, экспорт `MLC-051..052`, рефакторинг `MLC-029..035`, перф `MLC-037..043`, плюс
@@ -250,7 +246,7 @@ REF-10→MLC-027, REF-11→MLC-011(a), REF-13→MLC-028). Phase 1–2 (MLC-029..
 
 ---
 
-## Закрыто (MLC-001..024, 029, 030, 031, 032, 033, 034, 035, 037, 038, 039, 040, 041, 042, 043, 044, 045, 046, 047, 048, 049, 050, 051, 052, 053, 054, 055, 056, 057, 058, 059, 060) — индекс
+## Закрыто (MLC-001..024, 029, 030, 031, 032, 033, 034, 035, 037, 038, 039, 040, 041, 042, 043, 044, 045, 046, 047, 048, 049, 050, 051, 052, 053, 054, 055, 056, 057, 058, 059, 060, 061) — индекс
 
 Полные постановки и отчёты: **`docs/PROJECT_BACKLOG_ARCHIVE.md`**.
 
@@ -444,3 +440,27 @@ REF-10→MLC-027, REF-11→MLC-011(a), REF-13→MLC-028). Phase 1–2 (MLC-029..
   disable/enable работают 1:1, аудит пишет «Учётная запись … администратором …», коды конфликтов `USER_*`
   матчатся фронтом. Канон present-tense: `05_UI_REQUIREMENTS.md` §3.7 (Administrators→Users/«Пользователи»),
   `06_UI_DESIGN.md` (sidebar), `03_DOMAIN_MODEL.md` (имена enum 103–106). ADR не затронуты. — Done (2026-06-08)
+- `MLC-061` — Смена роли существующей учётки Admin↔Viewer (мини-трек «Раздел Пользователи», 2/2; фича поверх
+  переименованного `/users`). **Завершает мини-трек 2/2.** **Backend:** новый эндпоинт `POST
+  /api/v1/users/{id}/role` (`RequireAuthorization(Roles.Admin)`, тело `ChangeUserRoleRequest { Role }`),
+  валидация `role ∈ Roles.All` → `ValidationProblem`; применение через `RemoveFromRolesAsync(текущие)` +
+  `AddToRoleAsync(новая)`; учётка уже ровно в целевой роли → идемпотентно `200` без аудита. Два guard'а (409,
+  до мутации): «сам себе» (`USER_CANNOT_CHANGE_OWN_ROLE` — само-разжалование = потеря доступа) и «последний
+  активный Admin» при разжаловании Admin→не-Admin (переиспользует общий `USER_LAST_ACTIVE` + извлечённый хелпер
+  `HasOtherActiveAdminAsync`, единый с `DisableAsync`). +1 слот аудита `AuditActionType.UserRoleChanged = 107`
+  (enum заморожен, новое число — 103–106 заняты MLC-058); `AuditDescriptions.UserRoleChanged(user, oldRole,
+  newRole, initiator)`, `tenantId: null`. Сообщение `Problems.UserLastActiveAdmin()` обобщено под отключение и
+  разжалование (фронт подбирает точную формулировку по коду). Миграции нет. **Frontend:** хук `useChangeUserRole`
+  (`useInvalidatingMutation`, инвалидация `["users"]`); новый `ChangeRoleDialog` (radio Admin/Viewer с дефолтом
+  текущей роли, подсказка «вступит в силу при следующем входе», guard-отказы → тост через `matchConflictCode`);
+  пункт «Сменить роль» (`UserCogIcon`) в дропдауне `UsersPage`; i18n `users.actions.changeRole` +
+  `users.changeRole.*` + `users.toasts.roleChanged` + `users.errors.cannotChangeOwnRole`/`lastActiveAdminDemote`.
+  Тесты: backend +6 (happy промоут, идемпотентность без аудита, self-guard, demote-last-admin guard, invalid
+  role, unknown id) → BE **426** зелёные; frontend +3 (`ChangeRoleDialog`: промоут+инвалидация, оба guard-тоста)
+  → FE **205** зелёные; NetArchTest целы, type-check/lint/`build.ps1` зелёные. **Live-preview против
+  запущенного стека (2026-06-08):** дропдаун показывает «Сменить роль», диалог рендерит radio+подсказку; через
+  реальные роуты — промоут `mitpro` Viewer→Admin (`200`, список обновился), разжалование Admin→Viewer (`200`),
+  повторная установка той же роли (`200` без второй записи аудита), смена роли себе (`409
+  USER_CANNOT_CHANGE_OWN_ROLE`); аудит содержит `UserRoleChanged` «Роль учётной записи «mitpro» изменена с
+  Viewer на Admin / с Admin на Viewer администратором admin». Канон present-tense: `05_UI_REQUIREMENTS.md` §3.7
+  (смена роли как построенная), `03_DOMAIN_MODEL.md` (слот 107). ADR не затронуты. — Done (2026-06-08)

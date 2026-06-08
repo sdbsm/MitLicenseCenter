@@ -31,6 +31,12 @@ export interface CreateUserInput {
   role: UserRole;
 }
 
+// MLC-061 — смена роли существующей учётки (Admin↔Viewer).
+export interface ChangeUserRoleInput {
+  id: string;
+  role: UserRole;
+}
+
 // Ответы создания/сброса несут сгенерированный временный пароль — он показывается в UI
 // один раз и нигде не сохраняется.
 export interface UserCreatedResponse {

@@ -31,6 +31,10 @@ public enum AuditActionType
     UserPasswordReset = 105,
     UserEnabled = 106,
 
+    // Смена роли существующей учётки Admin↔Viewer из веб-панели (MLC-061). Server-scope
+    // (TenantId не пишется). Новое число — 103–106 заняты MLC-058.
+    UserRoleChanged = 107,
+
     SessionKilled = 200,
     LimitChanged = 201,
 

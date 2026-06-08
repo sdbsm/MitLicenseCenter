@@ -41,6 +41,8 @@ public static class ProblemCodes
     public const string UserNotFound = "USER_NOT_FOUND";
     public const string UserCannotDisableSelf = "USER_CANNOT_DISABLE_SELF";
     public const string UserLastActiveAdmin = "USER_LAST_ACTIVE";
+    // MLC-061 — смена роли существующей учётки.
+    public const string UserCannotChangeOwnRole = "USER_CANNOT_CHANGE_OWN_ROLE";
 }
 
 public static class Problems
@@ -170,12 +172,21 @@ public static class Problems
             "Нельзя отключить собственную учётную запись.");
 
     // Считаются именно учётки роли Admin (не любой пользователь) — иначе панелью некому
-    // будет управлять; текст про «администратора» относится к роли, не к разделу.
+    // будет управлять; текст про «администратора» относится к роли, не к разделу. Общий
+    // для отключения (MLC-058) и разжалования роли (MLC-061) — фронт подбирает точную
+    // формулировку по коду в своём контексте.
     public static ProblemDetails UserLastActiveAdmin() =>
         Conflict(
             ProblemCodes.UserLastActiveAdmin,
             "Последний активный администратор",
-            "Нельзя отключить последнего активного администратора — иначе панелью некому будет управлять.");
+            "Нельзя оставить панель без активного администратора — это последний активный администратор.");
+
+    // MLC-061 — нельзя менять роль собственной учётке: само-разжалование = потеря доступа.
+    public static ProblemDetails UserCannotChangeOwnRole() =>
+        Conflict(
+            ProblemCodes.UserCannotChangeOwnRole,
+            "Нельзя сменить роль себе",
+            "Нельзя менять роль собственной учётной записи.");
 
     // 404 для несуществующей учётки. Не 409, поэтому отдельный helper со Status=404 и
     // machine-readable code (frontend сопоставляет код, как и с конфликтами).

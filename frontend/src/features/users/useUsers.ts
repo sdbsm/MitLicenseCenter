@@ -6,6 +6,7 @@ import {
   type UserCreatedResponse,
   type UserPasswordResetResponse,
   type CreateUserInput,
+  type ChangeUserRoleInput,
 } from "./types";
 
 export const usersQueryKey = ["users"] as const;
@@ -43,6 +44,14 @@ export function useDisableUser() {
 export function useEnableUser() {
   return useInvalidatingMutation({
     mutationFn: (id: string) => api<null>(`/api/v1/users/${id}/enable`, { method: "POST" }),
+    invalidate: usersQueryKey,
+  });
+}
+
+export function useChangeUserRole() {
+  return useInvalidatingMutation({
+    mutationFn: ({ id, role }: ChangeUserRoleInput) =>
+      api<null>(`/api/v1/users/${id}/role`, { method: "POST", body: { role } }),
     invalidate: usersQueryKey,
   });
 }

@@ -6,6 +6,7 @@ import {
   PlusIcon,
   ShieldOffIcon,
   UserCheckIcon,
+  UserCogIcon,
   UsersRoundIcon,
 } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -28,6 +29,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ChangeRoleDialog } from "./ChangeRoleDialog";
 import { DisableUserDialog } from "./DisableUserDialog";
 import { EnableUserDialog } from "./EnableUserDialog";
 import { GeneratedPasswordDialog } from "./GeneratedPasswordDialog";
@@ -49,6 +51,7 @@ export function UsersPage() {
   const [resetting, setResetting] = useState<User | null>(null);
   const [disabling, setDisabling] = useState<User | null>(null);
   const [enabling, setEnabling] = useState<User | null>(null);
+  const [changingRole, setChangingRole] = useState<User | null>(null);
   const [generated, setGenerated] = useState<GeneratedPassword | null>(null);
 
   const items = useMemo<User[]>(() => data?.items ?? [], [data]);
@@ -168,6 +171,10 @@ export function UsersPage() {
                               <KeyRoundIcon className="size-4" />
                               {t("users.actions.resetPassword")}
                             </DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => setChangingRole(user)}>
+                              <UserCogIcon className="size-4" />
+                              {t("users.actions.changeRole")}
+                            </DropdownMenuItem>
                             {user.isActive ? (
                               <DropdownMenuItem
                                 variant="destructive"
@@ -219,6 +226,14 @@ export function UsersPage() {
         open={enabling !== null}
         onOpenChange={(open) => {
           if (!open) setEnabling(null);
+        }}
+      />
+      <ChangeRoleDialog
+        key={changingRole?.id ?? "role-none"}
+        user={changingRole}
+        open={changingRole !== null}
+        onOpenChange={(open) => {
+          if (!open) setChangingRole(null);
         }}
       />
       {generated && (
