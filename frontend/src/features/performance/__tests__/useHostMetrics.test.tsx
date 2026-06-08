@@ -27,6 +27,8 @@ const sample: HostMetricsSnapshot = {
   memory: { availableMBytes: 8192, totalMBytes: 16384, pagesPerSec: 0 },
   disk: { avgReadSecPerOp: 0.002, avgWriteSecPerOp: 0.003, queueLength: 0 },
   processGroups: [{ family: "OneC", cpuPercent: 8, ramBytes: 1_500_000_000, processCount: 3 }],
+  processesInaccessible: 0,
+  attributionIncomplete: false,
 };
 
 describe("useHostMetrics", () => {

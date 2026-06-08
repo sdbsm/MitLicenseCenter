@@ -152,6 +152,19 @@ The «Публикации» page lets an admin select several publications and 
 - **The run is bound to the open browser tab** (like watching a deploy). Closing the tab or losing the network stops scheduling new items; the server keeps finishing any in-flight `webinst`. Because re-publish is idempotent and a now-`Webinst` publication no longer trips the overwrite gate, a partial run is safely finished by re-selecting the still-failed/unprocessed rows and running again — the dialog leaves successful items deselected for exactly this.
 - **Unattended / scheduled mass-publish is not supported** by design (would need the deferred Hangfire-job model, ADR-4). For now, run bulk operations interactively.
 
+## Быстродействие — required permissions
+
+The «Быстродействие» section attributes host load to process families (1С `rphost`/`ragent`/`rmngr` vs MSSQL vs OS-update vs antivirus vs other). For each process the probe (`OneCHostMetricsProbe`, MLC-064 / ADR-26) reads CPU time and working set via `System.Diagnostics.Process`. Reading a process owned by **another account** requires the backend process to be privileged.
+
+The backend that serves IIS already runs **elevated / as a local-`Administrators` service account** (see «IIS publishing — required permissions» above), so on a normal production install attribution is complete and no action is needed.
+
+**Symptom of insufficient permissions:** the start screen shows an amber banner «Недоступно процессов: N. … запустите backend с правами администратора», and the «Кто потребляет» attribution collapses toward «Прочее» (the backend can read its own processes but not the 1С/SQL service-account ones). This happens when the backend runs **non-elevated** — e.g. `scripts/dev.ps1 -NoElevate`, or a production service account that is neither in local `Administrators` nor granted the right to query other accounts' processes.
+
+- **Development** — run the backend from an **elevated** PowerShell (`scripts/dev.ps1` elevates by default; the banner appears only when you pass `-NoElevate`).
+- **Production** — the same local-`Administrators` membership that the IIS metabase reads require also covers reading other accounts' process metrics; no extra grant is needed beyond the IIS-publishing requirements.
+
+The count **excludes the kernel pseudo-processes Idle / System**, which are unreadable on every host regardless of privilege — so a correctly-elevated backend reports `0` inaccessible and the banner stays hidden.
+
 ## Сбор истории использования лицензий (`MLC-048`, ADR-25)
 
 Фундамент раздела «Отчёты»: панель копит time-series потребления лицензий клиентами.

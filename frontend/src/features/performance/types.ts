@@ -48,6 +48,12 @@ export const hostMetricsSnapshotSchema = z.object({
   memory: memoryMetricsSchema,
   disk: diskMetricsSchema,
   processGroups: z.array(processGroupUsageSchema),
+  // Сколько процессов бэкенд не смог прочитать из-за нехватки прав (их потребление
+  // выпало из атрибуции). `attributionIncomplete` — производный признак бэкенда
+  // (`> 0`): под недостаточно привилегированным backend'ом раздел рискует показать
+  // ложное «всё Прочее», поэтому фронт рисует честный баннер (MLC-064a).
+  processesInaccessible: z.number(),
+  attributionIncomplete: z.boolean(),
 });
 
 export type CpuMetrics = z.infer<typeof cpuMetricsSchema>;

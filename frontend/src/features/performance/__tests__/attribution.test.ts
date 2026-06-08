@@ -14,6 +14,8 @@ function snapshot(o: Partial<HostMetricsSnapshot>): HostMetricsSnapshot {
     memory: { availableMBytes: 8192, totalMBytes: 16384, pagesPerSec: 0 },
     disk: { avgReadSecPerOp: 0.002, avgWriteSecPerOp: 0.003, queueLength: 0 },
     processGroups: [],
+    processesInaccessible: 0,
+    attributionIncomplete: false,
     ...o,
   };
 }

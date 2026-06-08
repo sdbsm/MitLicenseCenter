@@ -60,16 +60,17 @@ internal sealed partial class OneCHostMetricsProbe : IHostMetricsProbe
         {
             var measuring = _previous is null;
 
-            var samples = BuildSamples(processes, _previous, now);
+            var samples = BuildSamples(processes.Infos, _previous, now);
             var groups = ProcessFamilyGrouping.Group(samples, map);
             var disk = CookDisk(diskRaw, _previous?.Disk);
 
             _previous = new PrevSample(
                 now,
-                processes.ToDictionary(p => p.Pid, p => new ProcCpu(p.Name, p.Cpu)),
+                processes.Infos.ToDictionary(p => p.Pid, p => new ProcCpu(p.Name, p.Cpu)),
                 diskRaw.Stored);
 
-            var snapshot = new HostMetricsSnapshot(now, measuring, cpu, memory, disk, groups);
+            var snapshot = new HostMetricsSnapshot(
+                now, measuring, cpu, memory, disk, groups, processes.Inaccessible);
             return Task.FromResult(snapshot);
         }
     }
@@ -156,27 +157,45 @@ internal sealed partial class OneCHostMetricsProbe : IHostMetricsProbe
 
     // ── Уровень 2: процессы (System.Diagnostics.Process) ───────────────────────────
 
-    private static List<ProcInfo> ReadProcesses()
+    private static ProcessReadResult ReadProcesses()
     {
         var infos = new List<ProcInfo>();
+        var inaccessible = 0;
         foreach (var proc in Process.GetProcesses())
         {
             using (proc)
             {
                 try
                 {
-                    // TotalProcessorTime / WorkingSet64 могут бросить для защищённых или
-                    // только что завершившихся процессов — такой просто пропускаем.
                     infos.Add(new ProcInfo(proc.Id, proc.ProcessName, proc.TotalProcessorTime, proc.WorkingSet64));
                 }
-                catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
+                catch (InvalidOperationException)
                 {
-                    // Idle/System и часть системных процессов недоступны — это норма, не шумим.
+                    // Процесс завершился между перечислением и чтением — обычная гонка
+                    // (не нехватка прав), в счётчик недоступных не идёт.
+                }
+                catch (System.ComponentModel.Win32Exception)
+                {
+                    // «Access is denied»: процесс чужой служебной учётки / защищённый. Под
+                    // недостаточно привилегированным backend'ом сюда выпадают rphost/sqlservr →
+                    // их CPU/RAM теряются и атрибуция показывает ложное «всё Прочее». Считаем —
+                    // честный сигнал «атрибуция неполна» (MLC-064a: баннер /performance + DTO).
+                    // Системные псевдопроцессы (Idle/System) недоступны на ЛЮБОМ хосте независимо
+                    // от прав и не относятся ни к одной семье — их исключаем, чтобы сигнал не
+                    // кричал вхолостую даже под админом (см. OPERATIONS.md «Быстродействие»).
+                    if (!SystemPseudoProcessIds.Contains(proc.Id))
+                    {
+                        inaccessible++;
+                    }
                 }
             }
         }
-        return infos;
+        return new ProcessReadResult(infos, inaccessible);
     }
+
+    // Idle (0) и System (4) — псевдопроцессы ядра: их CPU/RAM нечитаемы при любых правах,
+    // они не принадлежат семьям процессов. Не учитываем как «недоступные из-за прав».
+    private static readonly HashSet<int> SystemPseudoProcessIds = [0, 4];
 
     // CPU% процесса = дельта CPU-времени / (прошедшее время × число ядер) × 100. Сопоставление
     // по PID+имя (защита от переиспользования PID). Без предыдущего снимка / нового процесса → 0.
@@ -262,6 +281,9 @@ internal sealed partial class OneCHostMetricsProbe : IHostMetricsProbe
     private readonly record struct ProcCpu(string Name, TimeSpan Cpu);
 
     private readonly record struct ProcInfo(int Pid, string Name, TimeSpan Cpu, long Ram);
+
+    // Итог перечисления процессов: успешно прочитанные + число недоступных из-за прав.
+    private readonly record struct ProcessReadResult(List<ProcInfo> Infos, int Inaccessible);
 
     // Сырые perf-счётчики диска (perf-time ticks) — для дельта-cook между poll'ами.
     private readonly record struct DiskRaw(ulong Read, ulong ReadBase, ulong Write, ulong WriteBase, ulong Frequency);

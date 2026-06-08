@@ -18,7 +18,8 @@ internal sealed class StubHostMetricsProbe : IHostMetricsProbe
         [
             new ProcessGroupUsage("OneC", CpuPercent: 8, RamBytes: 1_500_000_000, ProcessCount: 3),
             new ProcessGroupUsage("Mssql", CpuPercent: 3, RamBytes: 2_000_000_000, ProcessCount: 1),
-        ]);
+        ],
+        ProcessesInaccessible: 0);
 
     public int CaptureCalls { get; private set; }
 
