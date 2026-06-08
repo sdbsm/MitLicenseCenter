@@ -1,3 +1,4 @@
+using MitLicenseCenter.Application.Performance;
 using MitLicenseCenter.Domain.Settings;
 
 namespace MitLicenseCenter.Application.Settings;
@@ -159,5 +160,12 @@ public static class SettingDefinitions
                 DefaultValue: "365",
                 Min: 30,
                 Max: 3650),
+
+            [SettingKey.PerformanceProcessFamilyMap] = new(
+                SettingKey.PerformanceProcessFamilyMap,
+                IsSecret: false,
+                Description: "Маппинг процессов в семьи для раздела «Быстродействие» (атрибуция CPU/RAM). Формат: Семья=маска,маска;Семья2=маска. Имя процесса без .exe, регистр не важен. Пусто → стандартный набор (1С, MSSQL, обновления ОС, антивирус).",
+                Kind: SettingValueKind.Text,
+                DefaultValue: ProcessFamilyMap.Default),
         };
 }

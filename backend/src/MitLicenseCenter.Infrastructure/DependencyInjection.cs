@@ -11,6 +11,7 @@ using MitLicenseCenter.Application.Clusters;
 using MitLicenseCenter.Application.Discovery;
 using MitLicenseCenter.Application.Identity;
 using MitLicenseCenter.Application.Jobs;
+using MitLicenseCenter.Application.Performance;
 using MitLicenseCenter.Application.Publishing;
 using MitLicenseCenter.Application.Reporting;
 using MitLicenseCenter.Application.Sessions;
@@ -21,6 +22,7 @@ using MitLicenseCenter.Infrastructure.Diagnostics;
 using MitLicenseCenter.Infrastructure.Discovery;
 using MitLicenseCenter.Infrastructure.Identity;
 using MitLicenseCenter.Infrastructure.Jobs;
+using MitLicenseCenter.Infrastructure.Performance;
 using MitLicenseCenter.Infrastructure.Persistence;
 using MitLicenseCenter.Infrastructure.Publishing;
 using MitLicenseCenter.Infrastructure.Reporting;
@@ -133,6 +135,14 @@ public static class DependencyInjection
         // MLC-047: сериализатор разрушительных IIS-операций (N=1). Singleton — кэп общий
         // на весь процесс (single-node): два recycle/iisreset одновременно недопустимы.
         services.AddSingleton<IIisResetConcurrencyGate, IisResetConcurrencyGate>();
+
+        // Host-метрики раздела «Быстродействие» (MLC-064, ADR-26): WMI + Process, Windows-only.
+        // Singleton — держит предыдущий снимок CPU-времён процессов и сырые perf-счётчики диска
+        // для дельты между poll'ами (паттерн ColdThrottleState/IClusterUuidCache); первый poll
+        // отдаёт Measuring=true. В тестах — StubHostMetricsProbe (реальный требует Windows).
+#pragma warning disable CA1416 // Validate platform compatibility — single-node deployment is Windows-only by design.
+        services.AddSingleton<IHostMetricsProbe, OneCHostMetricsProbe>();
+#pragma warning restore CA1416
 
         // Публикация через webinst.exe (MLC-045, ADR-20). Scoped — читает ISettingsSnapshot;
         // запускает процесс webinst версии платформы из публикации.

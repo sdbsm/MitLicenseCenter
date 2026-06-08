@@ -77,6 +77,7 @@ public sealed class LayerBoundaryTests
                 "MitLicenseCenter.Infrastructure.Publishing",
                 "MitLicenseCenter.Infrastructure.Discovery",
                 "MitLicenseCenter.Infrastructure.Jobs",
+                "MitLicenseCenter.Infrastructure.Performance",
                 "Microsoft.Web.Administration",
                 "System.Diagnostics.Process")
             .GetResult();
