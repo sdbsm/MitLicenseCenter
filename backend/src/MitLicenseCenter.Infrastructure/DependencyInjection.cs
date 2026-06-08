@@ -144,6 +144,13 @@ public static class DependencyInjection
         services.AddSingleton<IHostMetricsProbe, OneCHostMetricsProbe>();
 #pragma warning restore CA1416
 
+        // SQL DMV-проба раздела «Быстродействие» (MLC-068, ADR-26, Фаза 3): активные запросы /
+        // блокировки / IO-stall / дельта wait-stats. Чистый ADO.NET (как SqlDatabaseDiscovery) —
+        // НЕ Windows-only, без #pragma CA1416. Singleton — держит предыдущий срез wait/IO для
+        // дельты между poll'ами (первый poll → Measuring=true). Строку наследует из
+        // ConnectionStrings:Default; в тестах — StubSqlPerformanceProbe (реальная ходит в SQL).
+        services.AddSingleton<ISqlPerformanceProbe, SqlPerformanceProbe>();
+
         // Публикация через webinst.exe (MLC-045, ADR-20). Scoped — читает ISettingsSnapshot;
         // запускает процесс webinst версии платформы из публикации.
         services.AddScoped<IWebinstPublisher, OneCWebinstPublisher>();

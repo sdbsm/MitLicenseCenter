@@ -1,6 +1,8 @@
 using FluentAssertions;
 using MitLicenseCenter.Application.Clusters;
 using MitLicenseCenter.Application.Performance;
+using MitLicenseCenter.Domain.Infobases;
+using MitLicenseCenter.Domain.Tenants;
 using MitLicenseCenter.Infrastructure.Performance.Testing;
 using MitLicenseCenter.Web.Endpoints;
 using NSubstitute;
@@ -129,5 +131,89 @@ public sealed class PerformanceEndpointsTests
 
         result.Value!.Sessions.Should().BeEmpty();
         result.Value!.Processes.Should().BeEmpty();
+    }
+
+    // MLC-068: GET /performance/sql компонует live-снимок порта ISqlPerformanceProbe (DMV) +
+    // атрибуцию по клиенту (database→Infobase→tenant) из своего AppDbContext (vertical slice
+    // ADR-20 — Web читает свою БД, к DMV ходит только через порт). Без живого SQL — через стаб.
+    [Fact]
+    public async Task GetSql_passes_snapshot_and_attributes_databases_to_tenants()
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+        var tenant = new Tenant
+        {
+            Id = Guid.NewGuid(),
+            Name = "Клиент А",
+            MaxConcurrentLicenses = 10,
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow,
+        };
+        db.Tenants.Add(tenant);
+        db.Infobases.Add(new Infobase
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenant.Id,
+            Name = "Бухгалтерия",
+            ClusterInfobaseId = Guid.NewGuid(),
+            DatabaseServer = "localhost",
+            DatabaseName = "mitpro",
+            Status = InfobaseStatus.Active,
+            CreatedAt = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+
+        var probe = new StubSqlPerformanceProbe
+        {
+            Snapshot = new SqlPerformanceSnapshot(
+                CapturedAtUtc: new DateTime(2026, 6, 9, 12, 0, 0, DateTimeKind.Utc),
+                Status: SqlProbeStatus.Ok,
+                Measuring: false,
+                ActiveRequests:
+                [
+                    new SqlActiveRequest(
+                        SessionId: 77, BlockingSessionId: null, DatabaseName: "mitpro", IsOneC: true,
+                        ProgramName: "1CV83 Server", HostName: "ANDREY-PC", Status: "running",
+                        WaitType: null, WaitTimeMs: 0, CpuTimeMs: 1200, ElapsedMs: 1500,
+                        LogicalReads: 90000, SqlText: "SELECT T1._IDRRef FROM dbo._Reference172 T1"),
+                ],
+                DatabaseIo: [new SqlDatabaseIo("master", 10, 5, 3, 1)],
+                TopWaits: [new SqlWaitDelta("PAGEIOLATCH_SH", 200, 4)]),
+        };
+
+        var result = await PerformanceEndpoints.GetSqlAsync(probe, db, CancellationToken.None);
+
+        var view = result.Value!;
+        view.Snapshot.Status.Should().Be(SqlProbeStatus.Ok);
+        view.Snapshot.ActiveRequests.Should().ContainSingle().Which.IsOneC.Should().BeTrue();
+        view.Snapshot.CapturedAtUtc.Kind.Should().Be(DateTimeKind.Utc);
+
+        // Обе базы из снимка (mitpro из запроса + master из IO) попали в атрибуцию; mitpro → клиент,
+        // master → «ничья».
+        view.Databases.Should().HaveCount(2);
+        view.Databases.Single(d => d.DatabaseName == "mitpro").TenantName.Should().Be("Клиент А");
+        var system = view.Databases.Single(d => d.DatabaseName == "master");
+        system.TenantId.Should().BeNull();
+        system.InfobaseName.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GetSql_passes_through_permission_denied_with_empty_attribution()
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+        var probe = new StubSqlPerformanceProbe
+        {
+            Snapshot = new SqlPerformanceSnapshot(
+                CapturedAtUtc: new DateTime(2026, 6, 9, 12, 0, 0, DateTimeKind.Utc),
+                Status: SqlProbeStatus.PermissionDenied,
+                Measuring: false,
+                ActiveRequests: [], DatabaseIo: [], TopWaits: []),
+        };
+
+        var result = await PerformanceEndpoints.GetSqlAsync(probe, db, CancellationToken.None);
+
+        var view = result.Value!;
+        view.Snapshot.Status.Should().Be(SqlProbeStatus.PermissionDenied);
+        view.Databases.Should().BeEmpty();
+        probe.CaptureCalls.Should().Be(1);
     }
 }

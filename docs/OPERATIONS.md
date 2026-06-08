@@ -165,6 +165,15 @@ The backend that serves IIS already runs **elevated / as a local-`Administrators
 
 The count **excludes the kernel pseudo-processes Idle / System**, which are unreadable on every host regardless of privilege — so a correctly-elevated backend reports `0` inaccessible and the banner stays hidden.
 
+### SQL drill-down — `VIEW SERVER STATE` (MLC-068)
+
+The «1С грузит SQL?» drill-down (`GET /api/v1/performance/sql`, `SqlPerformanceProbe` / ADR-26) reads MSSQL dynamic-management views (`sys.dm_exec_requests`, `sys.dm_os_wait_stats`, `sys.dm_io_virtual_file_stats`, `sys.dm_exec_sql_text`). The probe connects with the account from `ConnectionStrings:Default` and `master` (single-node: the panel DB and the 1C infobase databases share one MSSQL instance). Reading server-scoped DMVs requires the **`VIEW SERVER STATE`** server permission.
+
+- **Symptom of the missing right:** the SQL drill-down shows a degraded banner (the response carries `status = "PermissionDenied"`) and no rows — the probe does not silently return an empty «всё спокойно».
+- **Grant (production):** `GRANT VIEW SERVER STATE TO [<login>];` for the **specific** login the backend runs under — not via a Windows group. A grant that arrives through `BUILTIN\Administrators` can be lost to UAC token-filtering when the backend runs without elevation, so an explicit per-login grant is the reliable path (MLC-063).
+- **Development / co-located prod where the backend account is `sysadmin`:** `VIEW SERVER STATE` is implied — no action needed.
+- **Unreachable SQL / unset connection string** surfaces as `status = "Unavailable"`, distinct from the permission case.
+
 ## Сбор истории использования лицензий (`MLC-048`, ADR-25)
 
 Фундамент раздела «Отчёты»: панель копит time-series потребления лицензий клиентами.
