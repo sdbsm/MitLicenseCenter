@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AttributionWarningBanner } from "./AttributionWarningBanner";
+import { OneCLoadSection } from "./OneCLoadSection";
 import { ProcessFamilyAttribution } from "./ProcessFamilyAttribution";
 import { SaturationGauges } from "./SaturationGauges";
 import { VerdictBanner } from "./VerdictBanner";
@@ -88,6 +89,10 @@ export function PerformancePage() {
           </Card>
         </>
       ) : null}
+
+      {/* Drill-down «кто грузит внутри 1С» — собственный live-источник (MLC-067), не зависит
+          от загрузки host-снимка: рендерится всегда, управляет своим состоянием сам. */}
+      <OneCLoadSection />
     </div>
   );
 }
