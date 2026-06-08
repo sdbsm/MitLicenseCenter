@@ -4,6 +4,7 @@ import { RelativeTime } from "@/components/ui/RelativeTime";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { AttributionWarningBanner } from "./AttributionWarningBanner";
 import { ProcessFamilyAttribution } from "./ProcessFamilyAttribution";
 import { SaturationGauges } from "./SaturationGauges";
 import { VerdictBanner } from "./VerdictBanner";
@@ -67,6 +68,10 @@ export function PerformancePage() {
       ) : snapshot && derived ? (
         <>
           <VerdictBanner verdict={derived.verdict} />
+
+          {snapshot.attributionIncomplete && (
+            <AttributionWarningBanner processesInaccessible={snapshot.processesInaccessible} />
+          )}
 
           <SaturationGauges snapshot={snapshot} />
 

@@ -15,13 +15,25 @@ public interface IHostMetricsProbe
 // дельты между двумя замерами (CPU% процессов, латентность диска), ещё не готовы —
 // фронт показывает «измеряю…». Уровень 1 (сатурация) — Cpu/Memory/Disk; уровень 2
 // (кто потребляет) — ProcessGroups по семьям (ADR-26, методика «светофор + атрибуция»).
+//
+// ProcessesInaccessible — сколько процессов адаптер НЕ смог прочитать из-за нехватки
+// прав (их CPU/RAM не попали в атрибуцию). Под недостаточно привилегированным backend'ом
+// сюда уходят rphost/sqlservr чужих служебных учёток → раздел рискует показать ложное
+// «всё Прочее». Производный AttributionIncomplete=true сигналит фронту нарисовать баннер
+// (паттерн честных сигналов проекта: IIS-permissions, readiness, Measuring; MLC-064a).
 public sealed record HostMetricsSnapshot(
     DateTime CapturedAtUtc,
     bool Measuring,
     CpuMetrics Cpu,
     MemoryMetrics Memory,
     DiskMetrics Disk,
-    IReadOnlyList<ProcessGroupUsage> ProcessGroups);
+    IReadOnlyList<ProcessGroupUsage> ProcessGroups,
+    int ProcessesInaccessible)
+{
+    // Атрибуция неполна, если хотя бы один процесс остался непрочитанным из-за прав:
+    // его потребление выпало из семей, и доли по семьям занижены/искажены.
+    public bool AttributionIncomplete => ProcessesInaccessible > 0;
+}
 
 // CPU: общий % загрузки + длина очереди процессора (сатурация — очередь важнее голого %).
 public sealed record CpuMetrics(double TotalPercent, double QueueLength);
