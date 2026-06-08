@@ -43,6 +43,9 @@ public static class ProblemCodes
     public const string UserLastActiveAdmin = "USER_LAST_ACTIVE";
     // MLC-061 — смена роли существующей учётки.
     public const string UserCannotChangeOwnRole = "USER_CANNOT_CHANGE_OWN_ROLE";
+
+    // MLC-070 — нельзя удалить идущую запись быстродействия (сначала остановить).
+    public const string RecordingActive = "RECORDING_ACTIVE";
 }
 
 public static class Problems
@@ -187,6 +190,14 @@ public static class Problems
             ProblemCodes.UserCannotChangeOwnRole,
             "Нельзя сменить роль себе",
             "Нельзя менять роль собственной учётной записи.");
+
+    // MLC-070 — удаление идущей записи быстродействия запрещено: сначала остановить, потом удалять
+    // (иначе фоновый сэмплер продолжит писать в удалённую запись).
+    public static ProblemDetails RecordingActive() =>
+        Conflict(
+            ProblemCodes.RecordingActive,
+            "Запись идёт",
+            "Эта запись быстродействия ещё идёт. Сначала остановите её, затем удалите.");
 
     // 404 для несуществующей учётки. Не 409, поэтому отдельный helper со Status=404 и
     // machine-readable code (frontend сопоставляет код, как и с конфликтами).

@@ -64,4 +64,11 @@ public static class SettingKey
     // «Быстродействие» (MLC-064, ADR-26). Формат «Семья=маска,маска;…»; пусто → дефолтный
     // набор (ProcessFamilyMap.Default). Вынесен в Settings, чтобы менять без редеплоя.
     public const string PerformanceProcessFamilyMap = "Performance.ProcessFamilyMap";
+
+    // Recording раздела «Быстродействие» (MLC-070, ADR-26, Фаза 4): период сэмплинга активной
+    // записи + два независимых лимита авто-стопа (по времени и по числу сэмплов — что наступит
+    // раньше). Запись ограничена собственной длительностью → ночного retention-джоба нет.
+    public const string PerformanceRecordingSampleIntervalSeconds = "Performance.RecordingSampleIntervalSeconds";
+    public const string PerformanceRecordingMaxDurationMinutes = "Performance.RecordingMaxDurationMinutes";
+    public const string PerformanceRecordingMaxSamples = "Performance.RecordingMaxSamples";
 }
