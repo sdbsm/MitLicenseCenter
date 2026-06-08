@@ -44,6 +44,8 @@ Semantic colors map 1:1 to states across the entire app. **Same status, same col
 
 **Status badge component** (`<StatusBadge variant="...">`) is the single way to render any status anywhere — never inline `<span className="bg-green...">`. This is a convention upheld by review; there is **no ESLint rule enforcing it** in v1.
 
+**Saturation gauges** (Performance section, §3.8 of `05_UI_REQUIREMENTS.md`) reuse this same semantic mapping for their OK/Warn/Crit state — `success`/`warning`/`danger` tint the gauge bar and value. There is **no radial gauge** in the kit; gauges are built on the linear `Progress` primitive (`MetricGauge`), tinted by targeting the indicator slot. The state reflects **resource saturation** (queue / latency / paging), not raw utilization — so a low-percent but queue-saturated CPU still shows amber/red.
+
 ## 4. Typography
 
 - **Font family:** Inter (variable). Fallback stack: `Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`. Cyrillic glyphs in Inter are excellent — no fallback to system fonts needed.
@@ -66,7 +68,7 @@ Semantic colors map 1:1 to states across the entire app. **Same status, same col
 └──────────────┴─────────────────────────────────────┘
 ```
 
-- **Sidebar:** shadcn `Sidebar` component, collapsible to icons. Sections grouped by domain — `Operations` (Dashboard, Sessions, Publications, Reports), `Configuration` (Tenants, Infobases), `System` (Audit, **Пользователи** — admin-only, `UsersRound` icon; Settings — admin-only; Profile). The «Пользователи» entry is gated on the `Admin` role (a Viewer never sees it) and routes to `/users` (see §3.7 of `05_UI_REQUIREMENTS.md`).
+- **Sidebar:** shadcn `Sidebar` component, collapsible to icons. Sections grouped by domain — `Operations` (Dashboard, Sessions, Publications, Reports, **Быстродействие** — `Activity` icon, `Viewer`-readable; see §3.8 of `05_UI_REQUIREMENTS.md`), `Configuration` (Tenants, Infobases), `System` (Audit, **Пользователи** — admin-only, `UsersRound` icon; Settings — admin-only; Profile). The «Пользователи» entry is gated on the `Admin` role (a Viewer never sees it) and routes to `/users` (see §3.7 of `05_UI_REQUIREMENTS.md`).
 - **Content area uses full available width.** Admin tables benefit from horizontal real estate; do not centre-cap to `max-w-7xl` like marketing sites do.
 - **Page header** in every content view: title (h1), subtitle/description (muted), and primary action button(s) top-right.
 - **No breadcrumbs in v1.** Two-level nav (sidebar group → page) is shallow enough.

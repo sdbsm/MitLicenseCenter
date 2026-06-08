@@ -43,6 +43,9 @@ const AuditPage = lazy(() =>
 const ReportsPage = lazy(() =>
   import("@/features/reports/ReportsPage").then((m) => ({ default: m.ReportsPage }))
 );
+const PerformancePage = lazy(() =>
+  import("@/features/performance/PerformancePage").then((m) => ({ default: m.PerformancePage }))
+);
 const SettingsPage = lazy(() =>
   import("@/features/settings/SettingsPage").then((m) => ({ default: m.SettingsPage }))
 );
@@ -74,6 +77,7 @@ export const router = createBrowserRouter([
       { path: "publications", element: <PublicationsPage /> },
       { path: "sessions", element: <SessionsPage /> },
       { path: "reports", element: <ReportsPage /> },
+      { path: "performance", element: <PerformancePage /> },
       { path: "audit", element: <AuditPage /> },
       {
         path: "settings",
