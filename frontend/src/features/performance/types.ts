@@ -77,31 +77,45 @@ export type HostMetricsSnapshot = z.infer<typeof hostMetricsSnapshotSchema>;
  * `process`/`connection` = `null`, когда сеанс не привязан к рабочему процессу (клиент
  * idle); `avgCallTime` дробный (секунды). Имена/инфобазы не резолвятся в этом эндпоинте
  * (он про нагрузку, а не про kill) — идентификация по `userName`/`host`/`appId`.
+ *
+ * **Сериализация бэкенда опускает `null`-поля целиком** (`JsonIgnoreCondition.WhenWritingNull`):
+ * у idle-сеанса `process`/`connection` приходят не как `null`, а отсутствуют вовсе. Поэтому
+ * nullable perf-поля объявлены `.nullish()` (nullable + optional) и нормализуются в `null`
+ * через `transform` — отсутствие ключа и явный `null` дают единый `number | null` для UI.
  */
+const nullableNumber = z
+  .number()
+  .nullish()
+  .transform((v) => v ?? null);
+const nullableString = z
+  .string()
+  .nullish()
+  .transform((v) => v ?? null);
+
 export const oneCSessionLoadSchema = z.object({
   sessionId: z.string(),
-  sessionNumber: z.number().nullable(),
+  sessionNumber: nullableNumber,
   clusterInfobaseId: z.string(),
   appId: z.string(),
   userName: z.string(),
   host: z.string(),
-  process: z.string().nullable(),
-  connection: z.string().nullable(),
-  cpuTimeCurrent: z.number().nullable(),
-  durationCurrent: z.number().nullable(),
-  durationCurrentDbms: z.number().nullable(),
-  memoryCurrent: z.number().nullable(),
-  blockedByDbms: z.number().nullable(),
-  blockedByLs: z.number().nullable(),
-  lastActiveAtUtc: z.string().nullable(),
+  process: nullableString,
+  connection: nullableString,
+  cpuTimeCurrent: nullableNumber,
+  durationCurrent: nullableNumber,
+  durationCurrentDbms: nullableNumber,
+  memoryCurrent: nullableNumber,
+  blockedByDbms: nullableNumber,
+  blockedByLs: nullableNumber,
+  lastActiveAtUtc: nullableString,
 });
 
 export const oneCProcessLoadSchema = z.object({
   process: z.string(),
-  pid: z.number().nullable(),
-  availablePerformance: z.number().nullable(),
-  avgCallTime: z.number().nullable(),
-  memorySize: z.number().nullable(),
+  pid: nullableNumber,
+  availablePerformance: nullableNumber,
+  avgCallTime: nullableNumber,
+  memorySize: nullableNumber,
 });
 
 export const oneCLoadSnapshotSchema = z.object({
