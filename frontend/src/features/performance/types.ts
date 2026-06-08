@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { omittable } from "@/lib/apiSchema";
 
 /**
  * Live-снимок метрик хоста (`GET /api/v1/performance/host`, MLC-064/ADR-26).
@@ -127,3 +128,90 @@ export const oneCLoadSnapshotSchema = z.object({
 export type OneCSessionLoad = z.infer<typeof oneCSessionLoadSchema>;
 export type OneCProcessLoad = z.infer<typeof oneCProcessLoadSchema>;
 export type OneCLoadSnapshot = z.infer<typeof oneCLoadSnapshotSchema>;
+
+/**
+ * Live-срез нагрузки на MSSQL «1С грузит SQL?» (`GET /api/v1/performance/sql`, MLC-068/069,
+ * ADR-26, Фаза 3). Та же pull-по-требованию модель (~5с poll, ничего не персистится). Ответ —
+ * `SqlPerformanceView`: `snapshot` (от DMV-пробы) + `databases` (атрибуция база→клиент, её
+ * добавляет эндпоинт по своему AppDbContext — vertical slice). Критичная граница (ADR-10.1 /
+ * MLC-016): perf-поля питают подсветку «кто грузит / заблокирован».
+ *
+ * `status` приходит строкой (`JsonStringEnumConverter`): `Ok` — данные сняты; `PermissionDenied`
+ * — у учётки backend'а нет `VIEW SERVER STATE`; `Unavailable` — SQL недоступен/строка не настроена.
+ * Degraded-статусы несут пустые списки и взводят честный баннер (паттерн MLC-064a).
+ *
+ * `measuring=true` на первом poll'е: wait-stats и IO-stall кумулятивны с старта SQL и значимы
+ * только как дельта между двумя замерами — первый раз дельты ещё нет, фронт показывает «измеряю…».
+ * Активные запросы мгновенны и доступны сразу.
+ *
+ * **Сериализация бэкенда опускает `null`-поля** (`JsonIgnoreCondition.WhenWritingNull`): nullable
+ * поля объявлены через `omittable()` (`.nullish()` + нормализация в `null`) — отсутствие ключа и
+ * явный `null` дают единый `T | null` для UI. Числовые/строковые perf-поля DMV отдаёт NULL для
+ * неактивных частей (например `wait-type` у running). nullable → «—», НЕ `0`.
+ */
+export const sqlProbeStatusSchema = z.enum(["Ok", "PermissionDenied", "Unavailable"]);
+
+export const sqlActiveRequestSchema = z.object({
+  sessionId: z.number(),
+  // ≠null → ждёт другой сеанс (звено цепочки блокировок); 0 в DMV бэкенд отдаёт как отсутствие.
+  blockingSessionId: omittable(z.number()),
+  databaseName: omittable(z.string()),
+  // true, когда program_name='1CV83 Server' — признак 1С-originated SQL (MLC-063). Всегда присутствует.
+  isOneC: z.boolean(),
+  programName: omittable(z.string()),
+  hostName: omittable(z.string()),
+  status: z.string(),
+  waitType: omittable(z.string()),
+  waitTimeMs: omittable(z.number()),
+  cpuTimeMs: omittable(z.number()),
+  elapsedMs: omittable(z.number()),
+  logicalReads: omittable(z.number()),
+  // Текст запроса, обрезан бэкендом (~1000 симв.); отсутствует у запросов без sql_handle.
+  sqlText: omittable(z.string()),
+});
+
+export const sqlDatabaseIoSchema = z.object({
+  databaseName: omittable(z.string()),
+  readStallMsDelta: z.number(),
+  writeStallMsDelta: z.number(),
+  readsDelta: z.number(),
+  writesDelta: z.number(),
+});
+
+export const sqlWaitDeltaSchema = z.object({
+  waitType: z.string(),
+  waitTimeMsDelta: z.number(),
+  waitingTasksDelta: z.number(),
+});
+
+export const sqlPerformanceSnapshotSchema = z.object({
+  capturedAtUtc: z.string(),
+  status: sqlProbeStatusSchema,
+  measuring: z.boolean(),
+  activeRequests: z.array(sqlActiveRequestSchema),
+  databaseIo: z.array(sqlDatabaseIoSchema),
+  topWaits: z.array(sqlWaitDeltaSchema),
+});
+
+// Привязка базы SQL к клиенту панели. tenant*/infobase null, когда базе из DMV не соответствует
+// ни одна зарегистрированная инфобаза (master/tempdb, БД панели, незарегистрированная) — строка
+// всё равно показывается с клиентом «—». Гранулярность — база (SQL→сеанс→юзер невозможна, ADR-26).
+export const sqlDatabaseAttributionSchema = z.object({
+  databaseName: z.string(),
+  tenantId: omittable(z.string()),
+  tenantName: omittable(z.string()),
+  infobaseName: omittable(z.string()),
+});
+
+export const sqlPerformanceViewSchema = z.object({
+  snapshot: sqlPerformanceSnapshotSchema,
+  databases: z.array(sqlDatabaseAttributionSchema),
+});
+
+export type SqlProbeStatus = z.infer<typeof sqlProbeStatusSchema>;
+export type SqlActiveRequest = z.infer<typeof sqlActiveRequestSchema>;
+export type SqlDatabaseIo = z.infer<typeof sqlDatabaseIoSchema>;
+export type SqlWaitDelta = z.infer<typeof sqlWaitDeltaSchema>;
+export type SqlPerformanceSnapshot = z.infer<typeof sqlPerformanceSnapshotSchema>;
+export type SqlDatabaseAttribution = z.infer<typeof sqlDatabaseAttributionSchema>;
+export type SqlPerformanceView = z.infer<typeof sqlPerformanceViewSchema>;
