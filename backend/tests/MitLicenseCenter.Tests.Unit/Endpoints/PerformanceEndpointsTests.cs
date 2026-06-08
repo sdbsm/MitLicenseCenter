@@ -1,7 +1,9 @@
 using FluentAssertions;
+using MitLicenseCenter.Application.Clusters;
 using MitLicenseCenter.Application.Performance;
 using MitLicenseCenter.Infrastructure.Performance.Testing;
 using MitLicenseCenter.Web.Endpoints;
+using NSubstitute;
 using Xunit;
 
 namespace MitLicenseCenter.Tests.Unit.Endpoints;
@@ -80,5 +82,52 @@ public sealed class PerformanceEndpointsTests
             ProcessesInaccessible: 0);
 
         snapshot.AttributionIncomplete.Should().BeFalse();
+    }
+
+    // MLC-066: GET /performance/onec-sessions компонует live-снимок из двух Application-портов
+    // IClusterClient (сеансы с perf + рабочие процессы) — vertical slice ADR-20, без rac.exe в Web.
+    [Fact]
+    public async Task GetOneCSessions_composes_session_loads_and_processes()
+    {
+        var cluster = Substitute.For<IClusterClient>();
+        var session = new OneCSessionLoad(
+            SessionId: Guid.Parse("02d5184c-65b5-4d8a-ae39-b156b909fcaf"),
+            SessionNumber: 1,
+            ClusterInfobaseId: Guid.Parse("6256b6f3-dde1-41f9-a6c2-bdfc36bca7aa"),
+            AppId: "1CV8C", UserName: "Андрей", Host: "ANDREY-PC",
+            Process: Guid.Parse("487281d5-aaaa-bbbb-cccc-ddddeeeeffff"), Connection: null,
+            CpuTimeCurrent: 109, DurationCurrent: 422, DurationCurrentDbms: 0,
+            MemoryCurrent: -1138560, BlockedByDbms: 0, BlockedByLs: 0,
+            LastActiveAtUtc: new DateTime(2026, 6, 8, 20, 21, 45, DateTimeKind.Utc));
+        var process = new OneCProcessLoad(
+            Process: Guid.Parse("487281d5-aaaa-bbbb-cccc-ddddeeeeffff"),
+            Pid: 15876, AvailablePerformance: 416, AvgCallTime: 1.124, MemorySize: 1682404);
+
+        cluster.ListSessionLoadsAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<OneCSessionLoad>>([session]));
+        cluster.ListProcessesAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<OneCProcessLoad>>([process]));
+
+        var result = await PerformanceEndpoints.GetOneCSessionsAsync(cluster, CancellationToken.None);
+
+        var body = result.Value!;
+        body.Sessions.Should().ContainSingle().Which.MemoryCurrent.Should().Be(-1138560);
+        body.Processes.Should().ContainSingle().Which.AvailablePerformance.Should().Be(416);
+        body.CapturedAtUtc.Kind.Should().Be(DateTimeKind.Utc);
+    }
+
+    [Fact]
+    public async Task GetOneCSessions_returns_empty_snapshot_when_cluster_unavailable()
+    {
+        var cluster = Substitute.For<IClusterClient>();
+        cluster.ListSessionLoadsAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<OneCSessionLoad>>([]));
+        cluster.ListProcessesAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<OneCProcessLoad>>([]));
+
+        var result = await PerformanceEndpoints.GetOneCSessionsAsync(cluster, CancellationToken.None);
+
+        result.Value!.Sessions.Should().BeEmpty();
+        result.Value!.Processes.Should().BeEmpty();
     }
 }

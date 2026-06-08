@@ -387,6 +387,120 @@ public sealed class RacExecutableRasClusterClientTests
             Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>());
     }
 
+    // --- MLC-066: раздел «Быстродействие» — session loads + process list ---
+
+    private const string FakeProcessListStdout =
+        "process              : 487281d5-aaaa-bbbb-cccc-ddddeeeeffff\r\n" +
+        "pid                  : 15876\r\n" +
+        "available-perfomance : 416\r\n" +
+        "memory-size          : 1682404\r\n" +
+        "avg-call-time        : 1.124\r\n";
+
+    [Fact]
+    public async Task ListSessionLoadsAsync_resolves_cluster_then_lists_sessions_with_perf()
+    {
+        const string loaded =
+            "session          : 02d5184c-65b5-4d8a-ae39-b156b909fcaf\r\n" +
+            "session-id       : 1\r\n" +
+            "infobase         : 6256b6f3-dde1-41f9-a6c2-bdfc36bca7aa\r\n" +
+            "app-id           : 1CV8C\r\n" +
+            "cpu-time-current : 109\r\n" +
+            "memory-current   : -1138560\r\n";
+
+        var settings = BuildSettings();
+        var runner = BuildRunner(clusterList: FakeClusterListStdout, sessionList: loaded);
+        var client = BuildClient(runner, settings);
+
+        var sessions = await client.ListSessionLoadsAsync(default);
+
+        var s = sessions.Should().ContainSingle().Subject;
+        s.SessionId.Should().Be(Guid.Parse("02d5184c-65b5-4d8a-ae39-b156b909fcaf"));
+        s.CpuTimeCurrent.Should().Be(109);
+        s.MemoryCurrent.Should().Be(-1138560);
+    }
+
+    [Fact]
+    public async Task ListProcessesAsync_resolves_cluster_then_runs_process_list_and_maps()
+    {
+        var settings = BuildSettings();
+        var runner = Substitute.For<IRacProcessRunner>();
+        runner.RunAsync("rac.exe", Arg.Is<IReadOnlyList<string>>(a => a.Contains("cluster") && a.Contains("list")), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(new RacInvocation(0, FakeClusterListStdout, string.Empty));
+        runner.RunAsync("rac.exe", Arg.Is<IReadOnlyList<string>>(a => a.Contains("process") && a.Contains("list")), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(new RacInvocation(0, FakeProcessListStdout, string.Empty));
+
+        var client = BuildClient(runner, settings);
+
+        var processes = await client.ListProcessesAsync(default);
+
+        var p = processes.Should().ContainSingle().Subject;
+        p.Pid.Should().Be(15876);
+        p.AvailablePerformance.Should().Be(416);
+        p.AvgCallTime.Should().Be(1.124);
+    }
+
+    [Fact]
+    public async Task ListProcessesAsync_reuses_cached_cluster_uuid_no_extra_cluster_list()
+    {
+        // +1 спавн на poll = только process list при тёплом кэше (после session list).
+        var settings = BuildSettings();
+        var runner = Substitute.For<IRacProcessRunner>();
+        runner.RunAsync(Arg.Any<string>(), Arg.Is<IReadOnlyList<string>>(a => a.Contains("cluster") && a.Contains("list")), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(new RacInvocation(0, FakeClusterListStdout, string.Empty));
+        runner.RunAsync(Arg.Any<string>(), Arg.Is<IReadOnlyList<string>>(a => a.Contains("session") && a.Contains("list")), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(new RacInvocation(0, FakeSingleSessionStdout, string.Empty));
+        runner.RunAsync(Arg.Any<string>(), Arg.Is<IReadOnlyList<string>>(a => a.Contains("process") && a.Contains("list")), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(new RacInvocation(0, FakeProcessListStdout, string.Empty));
+
+        var cache = new ClusterUuidCache();
+        var client = BuildClient(runner, settings, cache);
+
+        await client.ListSessionLoadsAsync(default); // тёплый резолв UUID
+        await client.ListProcessesAsync(default);    // берёт UUID из кэша
+
+        await runner.Received(1).RunAsync(Arg.Any<string>(),
+            Arg.Is<IReadOnlyList<string>>(a => a.Contains("cluster") && a.Contains("list")),
+            Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>());
+        await runner.Received(1).RunAsync(Arg.Any<string>(),
+            Arg.Is<IReadOnlyList<string>>(a => a.Contains("process") && a.Contains("list")),
+            Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ListSessionLoadsAsync_returns_empty_when_exe_path_missing()
+    {
+        var settings = Substitute.For<ISettingsSnapshot>();
+        settings.GetString(SettingKey.OneCRasExePath).Returns((string?)null);
+        var runner = Substitute.For<IRacProcessRunner>();
+        var client = BuildClient(runner, settings);
+
+        var sessions = await client.ListSessionLoadsAsync(default);
+
+        sessions.Should().BeEmpty();
+        await runner.DidNotReceiveWithAnyArgs().RunAsync(default!, default!, default, default);
+    }
+
+    [Fact]
+    public async Task ListProcessesAsync_returns_empty_and_invalidates_cache_on_error()
+    {
+        var settings = BuildSettings();
+        var runner = Substitute.For<IRacProcessRunner>();
+        runner.RunAsync(Arg.Any<string>(), Arg.Is<IReadOnlyList<string>>(a => a.Contains("cluster") && a.Contains("list")), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(new RacInvocation(0, FakeClusterListStdout, string.Empty));
+        runner.RunAsync(Arg.Any<string>(), Arg.Is<IReadOnlyList<string>>(a => a.Contains("process") && a.Contains("list")), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(new RacInvocation(255, string.Empty, "Ошибка соединения с сервером"));
+
+        var cache = new ClusterUuidCache();
+        var client = BuildClient(runner, settings, cache);
+
+        await client.ListProcessesAsync(default); // process list fail → Invalidate
+        await client.ListProcessesAsync(default); // кэш сброшен → перерезолв cluster list
+
+        await runner.Received(2).RunAsync(Arg.Any<string>(),
+            Arg.Is<IReadOnlyList<string>>(a => a.Contains("cluster") && a.Contains("list")),
+            Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>());
+    }
+
     // --- helpers ---
 
     // Каждый тест получает свежий ClusterUuidCache (если не передан общий) — поведение
