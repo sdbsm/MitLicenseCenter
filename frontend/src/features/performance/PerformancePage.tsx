@@ -8,6 +8,7 @@ import { AttributionWarningBanner } from "./AttributionWarningBanner";
 import { OneCLoadSection } from "./OneCLoadSection";
 import { ProcessFamilyAttribution } from "./ProcessFamilyAttribution";
 import { SaturationGauges } from "./SaturationGauges";
+import { SqlLoadSection } from "./SqlLoadSection";
 import { VerdictBanner } from "./VerdictBanner";
 import { usePerformancePage } from "./usePerformancePage";
 
@@ -93,6 +94,10 @@ export function PerformancePage() {
       {/* Drill-down «кто грузит внутри 1С» — собственный live-источник (MLC-067), не зависит
           от загрузки host-снимка: рендерится всегда, управляет своим состоянием сам. */}
       <OneCLoadSection />
+
+      {/* Drill-down «1С грузит SQL?» — собственный live-источник (MLC-069), своя Zod-граница
+          и degraded по статусу DMV-пробы; рендерится всегда, независимо от host/1С-снимков. */}
+      <SqlLoadSection />
     </div>
   );
 }

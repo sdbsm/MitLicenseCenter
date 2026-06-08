@@ -268,27 +268,44 @@ RU-only. Полная спека (методика/метрики/расклад
    при отсутствии `VIEW SERVER STATE` (`Status=PermissionDenied`)/недоступности (`Unavailable`). Endpoint
    `GET /performance/sql` (Viewer, vertical slice — атрибуция из своего `AppDbContext`). Канон: ADR-26 +
    04 §6.2 + OPERATIONS «Быстродействие — required permissions». Отчёт — в индексе «Закрыто» ниже.
-8. `MLC-069` — Frontend: вкладка SQL-активности (запросы, цепочки блокировок, топ по базе/клиенту) на
-   готовом endpoint. **Следующий по порядку.**
+8. `MLC-069` — **Done (2026-06-09) — ЗАВЕРШАЕТ ФАЗУ 3** — Frontend: вкладка SQL-активности. Секция
+   `SqlLoadSection` ниже `OneCLoadSection` на `/performance` (третий live-источник — свой
+   `useSqlPerformance`, своя загрузка/ошибка). Zod-граница `sqlPerformanceViewSchema` (`snapshot`+`databases`,
+   enum `status` строкой); **урок MLC-067 применён превентивно** — nullable через `omittable()` (не
+   `.nullable()`) + схема-тест на СЫРОМ omit-null ответе. Чистые хелперы `sqlLoad.ts` (атрибуция база→клиент
+   регистронезависимо, агрегация по базе/клиенту, сортировка по ЦП, `collectBlockerIds` для цепочек,
+   `formatInt`). Компоненты: `SqlActiveRequestsTable` (топ по ЦП, бейджи `1С`/`ждёт сеанс N`/`блокирует`,
+   текст запроса+tooltip, nullable→«—»), `SqlDatabaseLoadTable` (по базе/клиенту), `SqlContentionTables`
+   (дельта wait + IO-stall; `measuring`→«измеряю…»), `SqlStatusBanner` (degraded `PermissionDenied`/
+   `Unavailable`, образец MLC-064a). i18n `performance.sql.*`. Канон §3.8 present-tense. Тесты +20 (283),
+   type-check/lint/build зелёные; **live-verify на стенде под нагрузкой** (Zod на реальном omit-null,
+   активные 1С-запросы с атрибуцией, дельта wait/IO, polling). Отчёт — в индексе «Закрыто» ниже.
 9. `MLC-070` / `MLC-071` — Recording: запись по требованию (backend сущности+сервис+API, миграция;
-   frontend старт/стоп + просмотр + экспорт). Фаза 4.
+   frontend старт/стоп + просмотр + экспорт). Фаза 4. **`MLC-070` — следующий по порядку.**
 
 ---
 
 ## NEXT TASK
 
-> **`MLC-069` — Frontend: вкладка SQL-активности** (трек «Анализ быстродействия 1С», Фаза 3;
-> порядок `068→069` **подтверждён куратором** 2026-06-09).
-> `MLC-068` (backend SQL DMV-проба + `GET /performance/sql`) завершён. Объём: секция SQL-нагрузки на
-> `/performance` (отдельный live-источник, ~5с polling, `placeholderData: prev`, Zod-граница — паттерн
-> `OneCLoadSection`/MLC-067) — таблица активных запросов (топ по CPU, текст запроса, бейдж блокировки по
-> `blockingSessionId`, признак 1С по `isOneC`), цепочки блокировок, дельта wait-stats и IO-stall по базам,
-> топ **по базе/клиенту** (джойн строк DMV с `databases`-атрибуцией ответа по имени базы), nullable→«—»;
-> честный degraded-баннер по `status` (`PermissionDenied`/`Unavailable`, образец `AttributionWarningBanner`/
-> MLC-064a). Контракт — `SqlPerformanceView` (`snapshot` + `databases`), enum'ы строкой.
+> **`MLC-070` — Backend: Recording (запись по требованию)** (трек «Анализ быстродействия 1С», Фаза 4;
+> Фаза 3 `068→069` завершена 2/2 2026-06-09).
+> **Модель** (ADR-26): live-панель уже есть (pull-по-требованию без персиста); Recording — ручное вкл/выкл
+> для расследования, пишет в БД-таблицу с **авто-стопом** (по лимиту времени/числу сэмплов), без always-on и
+> без ночного retention. Объём: (1) сущности-телеметрия в Infrastructure (прецедент `LicenseUsageSnapshot`,
+> не Domain): `PerfRecording` (Id, StartedAtUtc, StoppedAtUtc?, Status, StartedBy, StopReason) +
+> `PerfRecordingSample` (RecordingId FK, SampleUtc, host-метрики + по семьям + сериализованные топ-виновники);
+> миграция (**нормализовать BOM/LF** — гоча CLAUDE.md). (2) `IPerfRecordingService` (Application) +
+> Infrastructure: старт/стоп (singleton держит активную запись + таймер сэмплинга ~10–30с), на тике пишет
+> host + точечные снимки виновников; авто-стоп по настройкам; на рестарте активная запись → `Interrupted`
+> (best-effort). (3) API: `POST /performance/recordings` (старт, **Admin**), `POST …/{id}/stop` (Admin),
+> `GET …/recordings` (список), `GET …/{id}` (просмотр = ряд сэмплов), `DELETE …/{id}` (Admin); настройки
+> интервала сэмплинга и лимита авто-стопа. (4) Тесты (старт/стоп/авто-стоп; persistence; API). Live-чтение
+> остаётся `Viewer`, управление записью — `Admin` (ADR-26). Аудит старт/стоп — **не** заводить в v1
+> (рекомендация плана; новый `AuditActionType` = новый замороженный номер, серия 600+ при необходимости).
 >
-> Полная спека — `C:\Users\andre\.claude\plans\spicy-discovering-torvalds.md` (Фаза 3, `MLC-069`).
-> Зависит от 068 (Done). Оценка S–M. Дальше — Фаза 4 (Recording, `MLC-070`/`MLC-071`).
+> Полная спека — `C:\Users\andre\.claude\plans\spicy-discovering-torvalds.md` (Фаза 4, `MLC-070`).
+> Зависит от Фазы 1–3 (Done). Оценка M–L. Дальше — `MLC-071` (frontend Recording: старт/стоп + просмотр +
+> экспорт по образцу `features/reports/export/`), затем Фаза 5 (UI-холистик) — вне трека.
 >
 > **Отложенные опции** (`MLC-025/026/027/028/011(a)` + Phase 3–4 рефакторинг-трека / `MLC-036` RAS
 > Strategy B, перф PERF-08+, `MLC-062` движок таблиц `@tanstack/react-table` → будущий UI-холистик-трек /
@@ -323,7 +340,7 @@ RU-only. Полная спека (методика/метрики/расклад
 
 ---
 
-## Закрыто (MLC-001..024, 029, 030, 031, 032, 033, 034, 035, 037, 038, 039, 040, 041, 042, 043, 044, 045, 046, 047, 048, 049, 050, 051, 052, 053, 054, 055, 056, 057, 058, 059, 060, 061, 063, 064, 064a, 065, 066, 067, 068) — индекс
+## Закрыто (MLC-001..024, 029, 030, 031, 032, 033, 034, 035, 037, 038, 039, 040, 041, 042, 043, 044, 045, 046, 047, 048, 049, 050, 051, 052, 053, 054, 055, 056, 057, 058, 059, 060, 061, 063, 064, 064a, 065, 066, 067, 068, 069) — индекс
 
 Полные постановки и отчёты: **`docs/PROJECT_BACKLOG_ARCHIVE.md`**.
 
