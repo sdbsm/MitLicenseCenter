@@ -368,35 +368,39 @@ differential base → не ломает внешнюю дифф-цепочку),
 
 ## NEXT TASK
 
-> **Активной задачи нет** — трек «Резервное копирование баз SQL» завершён 4/4 (`MLC-075..078`).
-> Следующую `NEXT TASK` выставляет внешний чат-куратор.
+> **`MLC-079` + `MLC-080`** — пара XS-хвостов после трека бэкапов, **один чат, два коммита** (прецедент
+> мини-трека «Раздел Пользователи»): сначала `MLC-079` (FE: сырые ключи `User*` в журнале аудита — +5 ключей
+> `audit.actions.User*` в `ru.json`, удалить стейл `Admin*` 103–106, дополнить union + `AUDIT_ACTION_TYPES`),
+> затем `MLC-080` (флейк CI: поднять таймаут дренажа `BackupOrchestratorTests` 5с → 30с). Постановки — ниже
+> в «Мини-постановка», диагнозы — из находок `MLC-078` (триаж куратора 2026-06-10).
 >
 > **Отложенные опции** (`MLC-025/026/027/028/011(a)` + Phase 3–4 рефакторинг-трека / `MLC-036` RAS
 > Strategy B, перф PERF-08+, `MLC-073` UX-полировка «Быстродействие», `MLC-062` движок таблиц
 > `@tanstack/react-table` → будущий UI-холистик-трек) остаются gated на триггеры — по умолчанию не берутся.
 
-## Кандидаты (на триаж куратору)
+## Мини-постановка «Хвосты после трека бэкапов» (открыта 2026-06-10)
 
-- **[Кандидат] FE: журнал аудита рендерит сырые ключи `User*`-действий** · Frontend · Severity Medium ·
-  `frontend/src/i18n/ru.json` + `frontend/src/features/audit/types.ts`. Найдено на `MLC-078` при добавлении
-  i18n-ключей аудита бэкапов и **подтверждено вживую на стенде**: строка создания учётки показывает в колонке
-  «Действие» сырое `audit.actions.UserCreated`. Причина: `MLC-060/061` переименовали слоты 103–106
-  `Admin*`→`User*` и добавили `UserRoleChanged=107` (бэкенд сериализует новые имена `UserCreated`/`UserDisabled`/
-  `UserPasswordReset`/`UserEnabled`/`UserRoleChanged`), но во фронте остались только старые ключи
-  `audit.actions.Admin{Created,Disabled,PasswordReset,Enabled}`, а union `AuditActionType` и фильтр
-  `AUDIT_ACTION_TYPES` пяти новых имён не содержат (фильтр их не предлагает). Лечение: +5 ключей `User*` в
-  `ru.json` (старые `Admin*`-ключи 103–106 удалить — после переименования enum исторические int-строки тоже
-  рендерятся новыми именами), дополнить union + `AUDIT_ACTION_TYPES`. Объём XS. В объём `MLC-078` не входило
-  (не бэкап-слоты) — молча не чинилось. Status: **Open**.
+Две независимые XS-задачи из находок `MLC-078`; триаж куратора: оба кандидата приняты как есть
+(диагнозы исполнителя подтверждены). Исполняются в одном чате, двумя отдельными коммитами, по порядку:
 
-- **[Кандидат] Флейк CI: `BackupOrchestratorTests.PumpOnce_clamps_max_parallel_to_definition_range`** ·
-  Testing · Severity Low · `backend/tests/MitLicenseCenter.Tests.Unit/Backups/BackupOrchestratorTests.cs`.
-  На CI PR #61 (код бэкенда не менялся — frontend+docs) кейс `(configured: 99, databases: 9, expectedRunning: 8)`
-  упал в `DrainAsync`: «Условие не наступило за 5 секунд: все выполняющиеся бэкапы должны завершиться перед
-  Dispose» (19с на тест); на том же SHA параллельный прогон и перезапуск зелёные → таймаут дренажа 5с тесен
-  для медленного windows-раннера с 8 параллельными фейк-бэкапами. Родственник гонки, уже чиненной в MLC-077
-  (коммит 36ef47f — «ждать терминальный статус, не Running»). Лечение: поднять таймаут `WaitUntilAsync`/дренажа
-  (5с → 30с — тест и так ждёт условие, зелёный путь не замедлится). Объём XS. Status: **Open**.
+1. `MLC-079` · Frontend · P2 · Severity Medium · **NEXT TASK** — журнал аудита рендерит сырые ключи
+   `User*`-действий. `frontend/src/i18n/ru.json` + `frontend/src/features/audit/types.ts`. Найдено на
+   `MLC-078`, **подтверждено вживую**: колонка «Действие» показывает `audit.actions.UserCreated` сырым.
+   Причина: `MLC-060/061` переименовали слоты 103–106 `Admin*`→`User*` и добавили `UserRoleChanged=107`
+   (бэкенд сериализует новые имена), но во фронте остались только старые ключи
+   `audit.actions.Admin{Created,Disabled,PasswordReset,Enabled}`, а union `AuditActionType` и фильтр
+   `AUDIT_ACTION_TYPES` пяти новых имён не содержат. Лечение: +5 ключей `User*` в `ru.json` (формулировки —
+   из терминологии раздела «Пользователи»; старые `Admin*`-ключи 103–106 удалить — после переименования enum
+   исторические int-строки тоже рендерятся новыми именами), дополнить union + `AUDIT_ACTION_TYPES` (фильтр
+   должен предлагать все пять). Тест по образцу зеркала enum'а аудита (как делал `MLC-078` для `Backup*`).
+2. `MLC-080` · Testing · P3 · Severity Low — флейк CI
+   `BackupOrchestratorTests.PumpOnce_clamps_max_parallel_to_definition_range`
+   (`backend/tests/MitLicenseCenter.Tests.Unit/Backups/BackupOrchestratorTests.cs`). На CI PR #61 кейс
+   `(configured: 99, databases: 9, expectedRunning: 8)` упал в `DrainAsync` («условие не наступило за 5с»,
+   19с на тест); на том же SHA перезапуск зелёный → таймаут дренажа 5с тесен для медленного windows-раннера
+   с 8 параллельными фейк-бэкапами. Родственник гонки, чиненной в `MLC-077` (36ef47f). Лечение: поднять
+   таймаут `WaitUntilAsync`/дренажа 5с → 30с (тест ждёт условие — зелёный путь не замедлится); заодно
+   свериться, что остальные `WaitUntilAsync`-вызовы файла используют тот же запас.
 
 ---
 
