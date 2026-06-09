@@ -111,9 +111,11 @@ public sealed class BackupOrchestratorTests
             "первые два бэкапа должны завершиться после открытия ворот");
 
         await fx.Orchestrator.PumpOnceAsync(CancellationToken.None);
+        // Ждём именно ТЕРМИНАЛЬНЫЙ статус: Running ставится синхронно ещё в тике, а вызов
+        // адаптера делает фоновая задача — ассерт по BackupCalls на промежуточном статусе гоняется.
         await fx.WaitUntilAsync(
-            db => db.DatabaseBackups.AnyAsync(b => b.DatabaseName == "gamma_db" && b.Status != BackupStatus.Queued),
-            "третья база должна стартовать следующим тиком");
+            db => db.DatabaseBackups.AnyAsync(b => b.DatabaseName == "gamma_db" && b.Status == BackupStatus.Succeeded),
+            "третья база должна стартовать следующим тиком и завершиться (ворота уже открыты)");
 
         fx.Backup.BackupCalls.Should().HaveCount(3);
         await fx.DrainAsync();
