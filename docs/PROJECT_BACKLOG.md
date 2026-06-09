@@ -323,12 +323,22 @@ RU-only. Полная спека (методика/метрики/расклад
 
 ## NEXT TASK
 
-> **Активной задачи нет.** Трек «Анализ быстродействия 1С» (`MLC-063..071`) **завершён 9/9**; диагностика
-> `MLC-072` (верификация корректности метрик) — **Done 2026-06-09: числа корректны, баг не подтверждён**
-> (sqlservr/host/RAM/диск/семьи/rac/DMV совпали с эталонами `Get-Counter`/ДЗ/прямыми запросами; «всплеск»
-> оператора — методика отображения, не ошибка чисел; отчёт в индексе «Закрыто» ниже). UX-полировка отображения
-> (рассинхрон базы времени host↔атрибуция, `SOS_WORK_DISPATCHER` в benign, подпись усреднения) — **отложена
-> пользователем** как опция `MLC-073` (см. «Открытые опции»). `NEXT TASK` выставляет внешний чат-куратор.
+> **`MLC-074` — Фикс: retention-джобы падают при retry-стратегии EF** (P2-дефект; найден в логах backend
+> во время `MLC-072`, к разделу «Быстродействие» отношения не имеет). **Симптом:** при включённом
+> `EnableRetryOnFailure` (`DependencyInjection.cs:50` → `SqlServerRetryingExecutionStrategy`) ручная
+> `BeginTransactionAsync` несовместима со стратегией повторов → обе retention-джобы падают на **реальном SQL
+> Server** (`The configured execution strategy ... does not support user-initiated transactions`; Hangfire
+> retry 6/10) → **`dbo.LicenseUsageSnapshots` и `dbo.AuditLogs` не очищаются, растут без ограничения**.
+> Затронуты обе: `LicenseUsageRetentionJob` (`BeginTransactionAsync`+`ExecuteDelete` на батч) и
+> `AuditRetentionJob` (`BeginTransactionAsync`+`DELETE TOP` на батч).
+> **Фикс:** обернуть транзакционный батч (begin→delete→commit) в
+> `_db.Database.CreateExecutionStrategy().ExecuteAsync(async () => { … })` — стратегия повторяет батч как
+> атомарную retriable-единицу (внешний do-while остаётся снаружи: одна транзакция-батч = одна retriable unit).
+> Применить к **обеим** джобам. **Почему не поймали:** retry-стратегия активна только на SQL Server, а
+> юнит-тесты retention идут на SQLite/InMemory (та же дыра, что закрывал `MLC-008`). **Тест:** регресс,
+> воспроизводящий путь со стратегией (по образцу `MLC-008` — провайдер/стратегия, требующая обёртки); минимум —
+> проверка на живом SQL-стенде, что обе джобы отрабатывают без ошибки и реально удаляют. Канон не затрагивается
+> (баг кода, не doc-divergence; ADR-25 retention present-tense не меняется). Оценка S. P2, backend.
 >
 > **Отложенные опции** (`MLC-025/026/027/028/011(a)` + Phase 3–4 рефакторинг-трека / `MLC-036` RAS
 > Strategy B, перф PERF-08+, `MLC-062` движок таблиц `@tanstack/react-table` → будущий UI-холистик-трек /
