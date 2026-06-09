@@ -14,6 +14,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { useMe } from "@/features/auth/useAuth";
+import { BackupsDialog } from "@/features/backups/BackupsDialog";
 import { useAllTenants } from "@/features/tenants/useTenants";
 import { DeleteInfobaseDialog } from "./DeleteInfobaseDialog";
 import { groupByTenant } from "./grouping";
@@ -59,6 +60,7 @@ export function InfobasesPage() {
   const [editing, setEditing] = useState<InfobaseListItem | null>(null);
   const [deleting, setDeleting] = useState<InfobaseListItem | null>(null);
   const [reassigning, setReassigning] = useState<InfobaseListItem | null>(null);
+  const [backupsFor, setBackupsFor] = useState<InfobaseListItem | null>(null);
 
   // Смена фильтра по клиенту возвращает на первую страницу — иначе можно «застрять»
   // на несуществующей странице сильно меньшего отфильтрованного набора.
@@ -217,6 +219,7 @@ export function InfobasesPage() {
                           onEdit={handleOpenEdit}
                           onDelete={setDeleting}
                           onReassign={tenants.length > 1 ? setReassigning : undefined}
+                          onBackups={setBackupsFor}
                         />
                       ))}
                     </TableBody>
@@ -250,6 +253,7 @@ export function InfobasesPage() {
                       onEdit={handleOpenEdit}
                       onDelete={setDeleting}
                       onReassign={tenants.length > 1 ? setReassigning : undefined}
+                      onBackups={setBackupsFor}
                     />
                   ))}
             </TableBody>
@@ -289,6 +293,14 @@ export function InfobasesPage() {
         }}
         infobase={reassigning}
         tenants={tenants}
+      />
+      <BackupsDialog
+        key={backupsFor?.id ?? "no-backups"}
+        open={backupsFor !== null}
+        onOpenChange={(open) => {
+          if (!open) setBackupsFor(null);
+        }}
+        infobase={backupsFor}
       />
     </div>
   );
