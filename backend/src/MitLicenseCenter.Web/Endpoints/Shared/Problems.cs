@@ -46,6 +46,12 @@ public static class ProblemCodes
 
     // MLC-070 — нельзя удалить идущую запись быстродействия (сначала остановить).
     public const string RecordingActive = "RECORDING_ACTIVE";
+
+    // MLC-077 — бэкапы баз SQL (ADR-27): дубль активной базы / незаданная папка /
+    // провал server-side удаления файла.
+    public const string BackupActive = "BACKUP_ACTIVE";
+    public const string BackupFolderNotConfigured = "BACKUP_FOLDER_NOT_CONFIGURED";
+    public const string BackupDeleteFailed = "BACKUP_DELETE_FAILED";
 }
 
 public static class Problems
@@ -198,6 +204,31 @@ public static class Problems
             ProblemCodes.RecordingActive,
             "Запись идёт",
             "Эта запись быстродействия ещё идёт. Сначала остановите её, затем удалите.");
+
+    // MLC-077 — у этой базы уже есть бэкап в очереди или выполняется (per-db замок, ADR-27).
+    // Общий и для POST-дубля, и для DELETE идущего бэкапа — фронт подбирает формулировку
+    // по контексту (образец UserLastActiveAdmin).
+    public static ProblemDetails BackupActive() =>
+        Conflict(
+            ProblemCodes.BackupActive,
+            "Бэкап уже выполняется",
+            "Бэкап этой базы уже стоит в очереди или выполняется. Дождитесь его завершения.");
+
+    // MLC-077 — корневая папка бэкапов не задана: честное «бэкап не настроен» вместо
+    // постановки заведомо провального запроса в очередь.
+    public static ProblemDetails BackupFolderNotConfigured() =>
+        Conflict(
+            ProblemCodes.BackupFolderNotConfigured,
+            "Папка бэкапов не настроена",
+            "Корневая папка для бэкапов не задана. Укажите настройку Backup.FolderPath в разделе «Параметры».");
+
+    // MLC-077 — server-side удаление .bak не удалось: запись о бэкапе сохранена, чтобы файл
+    // не осиротел невидимым. Технические детали — в журнале сервера (адаптер never-throws).
+    public static ProblemDetails BackupDeleteFailed() =>
+        Conflict(
+            ProblemCodes.BackupDeleteFailed,
+            "Не удалось удалить файл бэкапа",
+            "Файл бэкапа удалить не удалось — запись сохранена. Технические подробности записаны в журнал сервера.");
 
     // 404 для несуществующей учётки. Не 409, поэтому отдельный helper со Status=404 и
     // machine-readable code (frontend сопоставляет код, как и с конфликтами).

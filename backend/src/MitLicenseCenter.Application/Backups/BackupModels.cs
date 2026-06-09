@@ -40,3 +40,16 @@ public sealed record SqlBackupResult(
 
 // Итог server-side удаления устаревших .bak (TTL-джоба / Admin-удаление).
 public sealed record SqlDeleteResult(bool Succeeded, string? ErrorMessage);
+
+// Итог постановки бэкапа в очередь (MLC-077): Queued — заведена новая строка;
+// AlreadyActive — у этой пары (server, db) уже есть Queued/Running строка, эндпоинт
+// отвечает 409 BACKUP_ACTIVE (паттерн PerfRecordingStartOutcome).
+public enum BackupRequestOutcome
+{
+    Queued = 0,
+    AlreadyActive = 1,
+}
+
+// BackupId — id новой Queued-строки либо СУЩЕСТВУЮЩЕЙ активной (для AlreadyActive фронт
+// может сразу показать «уже идёт» по конкретной записи).
+public sealed record BackupRequestResult(BackupRequestOutcome Outcome, Guid BackupId);

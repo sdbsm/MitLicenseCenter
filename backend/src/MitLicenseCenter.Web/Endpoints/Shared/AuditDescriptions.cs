@@ -104,4 +104,15 @@ internal static class AuditDescriptions
     // MLC-061 — смена роли существующей учётки. Указываем старую и новую роль.
     public static string UserRoleChanged(string userName, string oldRole, string newRole, string initiator) =>
         $"Роль учётной записи «{userName}» изменена с {oldRole} на {newRole} администратором {initiator}.";
+
+    // ── Бэкапы баз SQL (MLC-077, ADR-27) ────────────────────────────────────────────
+    // Здесь — только действия, которые пишет Web (запрос = Viewer-оператор, удаление =
+    // Admin). Итоги выполнения (BackupSucceeded/BackupFailed) и ночную очистку
+    // (BackupsPurged) пишут оркестратор и TTL-джоба в Infrastructure — Web-каталог
+    // им недоступен (направление слоёв), формулировки живут рядом с их кодом.
+    public static string BackupRequested(string databaseName, string initiator) =>
+        $"Бэкап базы «{databaseName}» поставлен в очередь оператором {initiator}.";
+
+    public static string BackupDeleted(string databaseName, string initiator) =>
+        $"Бэкап базы «{databaseName}» удалён администратором {initiator}.";
 }
