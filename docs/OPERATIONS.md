@@ -174,6 +174,17 @@ The «1С грузит SQL?» drill-down (`GET /api/v1/performance/sql`, `SqlPer
 - **Development / co-located prod where the backend account is `sysadmin`:** `VIEW SERVER STATE` is implied — no action needed.
 - **Unreachable SQL / unset connection string** surfaces as `status = "Unavailable"`, distinct from the permission case.
 
+## Бэкап — required permissions
+
+The on-demand database backup ([ADR-27](DECISIONS.md#27-on-demand-sql-database-backup-operator-initiated-copy_only), `SqlBackupAdapter` / 04 §8) runs entirely **server-side**: `BACKUP DATABASE … WITH COPY_ONLY` plus the file operations `xp_create_subdir` (per-database subfolder), `xp_fixeddrives` (free-space check) and `xp_delete_file` (keep-latest replacement and retention). The `xp_*` procedures require the **sysadmin** server role — `db_backupoperator` alone covers `BACKUP` but not the file operations.
+
+- **Grant (production):** make the panel's SQL login (the account from `ConnectionStrings:Default`) a member of `sysadmin` on the instance: `ALTER SERVER ROLE [sysadmin] ADD MEMBER [<login>];`. As with `VIEW SERVER STATE` above, grant the **specific login**, not a Windows group — a membership arriving through `BUILTIN\Administrators` can be lost to UAC token-filtering.
+- **Symptom of missing rights:** the backup fails immediately with the typed reason `PermissionDenied` («Учётной записи панели не выдана серверная роль sysadmin…») — an honest degraded signal, not a 500 (same pattern as the «Быстродействие» permission banners above).
+- **Backup folder (`Settings.Backup.FolderPath`)** must be a path on a **local disk of the SQL host** (e.g. `D:\Backups`) — the free-space check uses `xp_fixeddrives`, which lists only local drives; a UNC or relative path is rejected with an explicit error before anything runs. There is no seeded default: until the operator sets the key, backups are unavailable. The files are written by the **SQL Server service account** (not the panel's login) — `xp_create_subdir` creates the folders under that same account, so a default install needs no extra NTFS grants.
+- **Disk guard:** a backup starts only when free space ≥ the database's used-data estimate + `Settings.Backup.DiskSafetyMarginMb` (default 2048). If the estimate cannot be obtained, the backup **refuses to start** (`EstimateUnavailable`) rather than guessing.
+- **Layout & replacement:** one subfolder per database under the root, holding the latest `.bak` (`<база>_yyyyMMdd_HHmmss.bak`). A new backup replaces the previous file only **after** `RESTORE VERIFYONLY WITH CHECKSUM` passes — a failed backup never deletes the existing one. `Settings.Backup.TtlHours` (default 24) bounds how long backup files are kept.
+- **`COPY_ONLY` by design:** the panel's backup never resets the differential base, so it is safe to use alongside an external full+diff maintenance plan — it cannot break the operator's chain.
+
 ## Сбор истории использования лицензий (`MLC-048`, ADR-25)
 
 Фундамент раздела «Отчёты»: панель копит time-series потребления лицензий клиентами.

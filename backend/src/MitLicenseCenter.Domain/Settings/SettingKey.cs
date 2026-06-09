@@ -71,4 +71,12 @@ public static class SettingKey
     public const string PerformanceRecordingSampleIntervalSeconds = "Performance.RecordingSampleIntervalSeconds";
     public const string PerformanceRecordingMaxDurationMinutes = "Performance.RecordingMaxDurationMinutes";
     public const string PerformanceRecordingMaxSamples = "Performance.RecordingMaxSamples";
+
+    // On-demand бэкап баз SQL (MLC-076, ADR-27): корневая папка .bak на локальном диске
+    // SQL-хоста (без default — зависит от инсталляции, как OneC.RAS.ExePath), TTL хранения,
+    // потолок параллельных бэкапов на сервер и запас свободного места поверх оценки.
+    public const string BackupFolderPath = "Backup.FolderPath";
+    public const string BackupTtlHours = "Backup.TtlHours";
+    public const string BackupMaxParallel = "Backup.MaxParallel";
+    public const string BackupDiskSafetyMarginMb = "Backup.DiskSafetyMarginMb";
 }

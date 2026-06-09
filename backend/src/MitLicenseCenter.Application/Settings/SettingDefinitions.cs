@@ -194,5 +194,41 @@ public static class SettingDefinitions
                 DefaultValue: "1000",
                 Min: 10,
                 Max: 100000),
+
+            // ADR-27: дефолт не сидируем — папка бэкапов зависит от инсталляции
+            // (локальный диск SQL-хоста), оператор обязан задать явно через «Параметры»
+            // до первого бэкапа (паттерн OneC.RAS.ExePath).
+            [SettingKey.BackupFolderPath] = new(
+                SettingKey.BackupFolderPath,
+                IsSecret: false,
+                Description: "Корневая папка для бэкапов баз (локальный диск SQL-сервера, например D:\\Backups). Внутри создаются подпапки по имени базы. Пока не задана — бэкап недоступен.",
+                Kind: SettingValueKind.Path),
+
+            [SettingKey.BackupTtlHours] = new(
+                SettingKey.BackupTtlHours,
+                IsSecret: false,
+                Description: "Срок хранения файлов бэкапа в часах. Файлы старше удаляются автоматически по ночам (свежий бэкап каждой базы при штатном цикле один и заменяется при следующем бэкапе).",
+                Kind: SettingValueKind.Number,
+                DefaultValue: "24",
+                Min: 1,
+                Max: 8760),
+
+            [SettingKey.BackupMaxParallel] = new(
+                SettingKey.BackupMaxParallel,
+                IsSecret: false,
+                Description: "Максимум одновременных бэкапов на сервере. Лишние запросы ждут в очереди. Перечитывается на каждом тике — действует без рестарта.",
+                Kind: SettingValueKind.Number,
+                DefaultValue: "2",
+                Min: 1,
+                Max: 8),
+
+            [SettingKey.BackupDiskSafetyMarginMb] = new(
+                SettingKey.BackupDiskSafetyMarginMb,
+                IsSecret: false,
+                Description: "Запас свободного места (МБ) поверх оценки размера базы, без которого бэкап не стартует (защита от переполнения диска).",
+                Kind: SettingValueKind.Number,
+                DefaultValue: "2048",
+                Min: 0,
+                Max: 1048576),
         };
 }

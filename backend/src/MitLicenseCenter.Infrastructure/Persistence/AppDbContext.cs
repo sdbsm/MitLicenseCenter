@@ -25,6 +25,7 @@ public sealed class AppDbContext : IdentityDbContext<AppUser, AppRole, Guid>
     public DbSet<LicenseUsageSnapshot> LicenseUsageSnapshots => Set<LicenseUsageSnapshot>();
     public DbSet<PerfRecording> PerfRecordings => Set<PerfRecording>();
     public DbSet<PerfRecordingSample> PerfRecordingSamples => Set<PerfRecordingSample>();
+    public DbSet<DatabaseBackup> DatabaseBackups => Set<DatabaseBackup>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -199,6 +200,33 @@ public sealed class AppDbContext : IdentityDbContext<AppUser, AppRole, Guid>
                 .WithMany(r => r.Samples)
                 .HasForeignKey(x => x.RecordingId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<DatabaseBackup>(e =>
+        {
+            // MLC-076 (ADR-27): учёт/очередь бэкапов баз SQL. Сущность-телеметрия, конфиг inline
+            // по паттерну PerfRecording. Без FK на Infobase — запись переживает удаление инфобазы
+            // (InfobaseId простым Guid, как у LicenseUsageSnapshot).
+            e.ToTable("DatabaseBackups", "dbo");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.InfobaseId).IsRequired();
+            e.Property(x => x.DatabaseServer).IsRequired().HasMaxLength(200);
+            e.Property(x => x.DatabaseName).IsRequired().HasMaxLength(200);
+            // Enum'ы как int (HasConversion) по конвенции проекта (PerfRecording/InfobaseStatus).
+            e.Property(x => x.Status).HasConversion<int>().IsRequired();
+            e.Property(x => x.RequestedBy).IsRequired().HasMaxLength(256);
+            e.Property(x => x.RequestedAtUtc).IsRequired();
+            e.Property(x => x.StartedAtUtc);
+            e.Property(x => x.CompletedAtUtc);
+            e.Property(x => x.FilePath).HasMaxLength(512);
+            e.Property(x => x.FileSizeBytes);
+            e.Property(x => x.FailureReason).HasConversion<int>().IsRequired();
+            e.Property(x => x.ErrorMessage);
+            // Список бэкапов сортируется по времени запроса (свежие сверху).
+            e.HasIndex(x => x.RequestedAtUtc);
+            // Дорога насоса (MLC-077): «есть ли Queued/Running для этой пары server+db» +
+            // выборка самой старой Queued.
+            e.HasIndex(x => new { x.DatabaseServer, x.DatabaseName, x.Status });
         });
 
         builder.Entity<SettingEntry>(e =>

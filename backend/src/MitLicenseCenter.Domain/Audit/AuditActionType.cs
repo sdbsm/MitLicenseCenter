@@ -74,4 +74,13 @@ public enum AuditActionType
 
     // System maintenance (PR 4.3, opens 500-серию).
     AuditLogsPurged = 500,
+
+    // On-demand бэкап баз SQL (MLC-076, ADR-27). Requested — оператор поставил бэкап в
+    // очередь; Succeeded/Failed — итог выполнения; Deleted — Admin удалил бэкап вручную;
+    // Purged — ночная TTL-джоба удалила устаревшие файлы (пишется только если что-то удалено).
+    BackupRequested = 510,
+    BackupSucceeded = 511,
+    BackupFailed = 512,
+    BackupDeleted = 513,
+    BackupsPurged = 514,
 }
