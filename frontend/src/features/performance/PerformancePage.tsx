@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { AttributionWarningBanner } from "./AttributionWarningBanner";
 import { OneCLoadSection } from "./OneCLoadSection";
 import { ProcessFamilyAttribution } from "./ProcessFamilyAttribution";
+import { RecordingSection } from "./RecordingSection";
 import { SaturationGauges } from "./SaturationGauges";
 import { SqlLoadSection } from "./SqlLoadSection";
 import { VerdictBanner } from "./VerdictBanner";
@@ -98,6 +99,10 @@ export function PerformancePage() {
       {/* Drill-down «1С грузит SQL?» — собственный live-источник (MLC-069), своя Zod-граница
           и degraded по статусу DMV-пробы; рендерится всегда, независимо от host/1С-снимков. */}
       <SqlLoadSection />
+
+      {/* Запись по требованию (MLC-070/071) — единственный персистируемый источник: старт/стоп
+          (Admin) + список расследований + просмотр (график host во времени + виновники за период). */}
+      <RecordingSection />
     </div>
   );
 }

@@ -215,3 +215,63 @@ export type SqlWaitDelta = z.infer<typeof sqlWaitDeltaSchema>;
 export type SqlPerformanceSnapshot = z.infer<typeof sqlPerformanceSnapshotSchema>;
 export type SqlDatabaseAttribution = z.infer<typeof sqlDatabaseAttributionSchema>;
 export type SqlPerformanceView = z.infer<typeof sqlPerformanceViewSchema>;
+
+/**
+ * Запись по требованию (Recording, `/api/v1/performance/recordings`, MLC-070/071, ADR-26,
+ * Фаза 4). В отличие от трёх live-источников выше, запись **персистится** в БД: оператор
+ * включает её вручную для расследования, бэкенд собирает по таймеру и пишет сэмплы, пока не
+ * остановят или не сработает авто-стоп. Критичная граница (ADR-10.1 / MLC-016): список и ряд
+ * сэмплов питают график host во времени и таблицы топ-виновников за период.
+ *
+ * `status`/`stopReason` приходят строкой (`JsonStringEnumConverter`). `stoppedAtUtc`/`stopReason`
+ * заполнены только у завершённой записи — у `Active` их нет (бэкенд опускает null-поля,
+ * `JsonIgnoreCondition.WhenWritingNull`), поэтому объявлены через `omittable()` (урок
+ * [[api-omits-null-fields]]: `.nullable()` упал бы на отсутствующем ключе).
+ *
+ * Сэмпл переиспользует те же формы, что live (`processGroupUsageSchema` / `oneCLoadSnapshotSchema`
+ * / `sqlPerformanceSnapshotSchema`) — бэкенд десериализует JSON-колонки обратно в них, фронт
+ * разбирает один формат и для live, и для записи. `oneC`/`sql` = null, если в момент сэмпла
+ * источник был не настроен/недоступен (best-effort, как live).
+ */
+export const perfRecordingStatusSchema = z.enum(["Active", "Stopped", "Interrupted"]);
+export const perfRecordingStopReasonSchema = z.enum(["Manual", "TimeLimit", "SampleLimit"]);
+
+export const recordingSummarySchema = z.object({
+  id: z.string(),
+  startedAtUtc: z.string(),
+  stoppedAtUtc: omittable(z.string()),
+  status: perfRecordingStatusSchema,
+  startedBy: z.string(),
+  stopReason: omittable(perfRecordingStopReasonSchema),
+  sampleCount: z.number(),
+});
+
+export const recordingListSchema = z.array(recordingSummarySchema);
+
+export const recordingSampleSchema = z.object({
+  sampleUtc: z.string(),
+  measuring: z.boolean(),
+  cpuPercent: z.number(),
+  cpuQueueLength: z.number(),
+  memoryAvailableMBytes: z.number(),
+  memoryTotalMBytes: z.number(),
+  memoryPagesPerSec: z.number(),
+  diskAvgReadSecPerOp: z.number(),
+  diskAvgWriteSecPerOp: z.number(),
+  diskQueueLength: z.number(),
+  processesInaccessible: z.number(),
+  processGroups: z.array(processGroupUsageSchema),
+  oneC: omittable(oneCLoadSnapshotSchema),
+  sql: omittable(sqlPerformanceSnapshotSchema),
+});
+
+export const recordingDetailSchema = z.object({
+  recording: recordingSummarySchema,
+  samples: z.array(recordingSampleSchema),
+});
+
+export type PerfRecordingStatus = z.infer<typeof perfRecordingStatusSchema>;
+export type PerfRecordingStopReason = z.infer<typeof perfRecordingStopReasonSchema>;
+export type RecordingSummary = z.infer<typeof recordingSummarySchema>;
+export type RecordingSample = z.infer<typeof recordingSampleSchema>;
+export type RecordingDetail = z.infer<typeof recordingDetailSchema>;
