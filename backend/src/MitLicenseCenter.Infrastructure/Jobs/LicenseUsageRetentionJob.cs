@@ -47,30 +47,44 @@ internal sealed partial class LicenseUsageRetentionJob : ILicenseUsageRetentionJ
             int lastBatch;
             do
             {
-                await using var tx = await _db.Database
-                    .BeginTransactionAsync(ct)
-                    .ConfigureAwait(false);
-
-                var ids = await _db.LicenseUsageSnapshots
-                    .Where(x => x.BucketStartUtc < cutoff)
-                    .OrderBy(x => x.BucketStartUtc)
-                    .Take(BatchSize)
-                    .Select(x => x.Id)
-                    .ToListAsync(ct)
-                    .ConfigureAwait(false);
-
-                if (ids.Count == 0)
+                // MLC-074: при включённом EnableRetryOnFailure (SqlServerRetryingExecutionStrategy)
+                // ручная BeginTransactionAsync вне стратегии бросает "...does not support
+                // user-initiated transactions". Оборачиваем ОДИН батч (begin→delete→commit) в
+                // CreateExecutionStrategy().ExecuteAsync — стратегия повторяет батч как
+                // ретраибл-юнит. Внешний do-while (накопление totalDeleted) остаётся снаружи:
+                // каждый батч — отдельная ретраибл-транзакция, commit-per-batch сохранён.
+                var batchDeleted = 0;
+                var strategy = _db.Database.CreateExecutionStrategy();
+                await strategy.ExecuteAsync(async () =>
                 {
+                    await using var tx = await _db.Database
+                        .BeginTransactionAsync(ct)
+                        .ConfigureAwait(false);
+
+                    var ids = await _db.LicenseUsageSnapshots
+                        .Where(x => x.BucketStartUtc < cutoff)
+                        .OrderBy(x => x.BucketStartUtc)
+                        .Take(BatchSize)
+                        .Select(x => x.Id)
+                        .ToListAsync(ct)
+                        .ConfigureAwait(false);
+
+                    if (ids.Count == 0)
+                    {
+                        await tx.CommitAsync(ct).ConfigureAwait(false);
+                        batchDeleted = 0;
+                        return;
+                    }
+
+                    batchDeleted = await _db.LicenseUsageSnapshots
+                        .Where(x => ids.Contains(x.Id))
+                        .ExecuteDeleteAsync(ct)
+                        .ConfigureAwait(false);
+
                     await tx.CommitAsync(ct).ConfigureAwait(false);
-                    break;
-                }
+                }).ConfigureAwait(false);
 
-                lastBatch = await _db.LicenseUsageSnapshots
-                    .Where(x => ids.Contains(x.Id))
-                    .ExecuteDeleteAsync(ct)
-                    .ConfigureAwait(false);
-
-                await tx.CommitAsync(ct).ConfigureAwait(false);
+                lastBatch = batchDeleted;
                 totalDeleted += lastBatch;
                 ct.ThrowIfCancellationRequested();
             } while (lastBatch == BatchSize);

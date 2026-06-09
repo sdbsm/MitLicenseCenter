@@ -52,13 +52,26 @@ internal sealed partial class AuditRetentionJob : IAuditRetentionJob
             int lastBatch;
             do
             {
-                await using var tx = await _db.Database
-                    .BeginTransactionAsync(ct)
-                    .ConfigureAwait(false);
-                lastBatch = await _db.Database.ExecuteSqlInterpolatedAsync(
-                    $"DELETE TOP (5000) FROM dbo.AuditLogs WHERE [Timestamp] < {cutoff}",
-                    ct).ConfigureAwait(false);
-                await tx.CommitAsync(ct).ConfigureAwait(false);
+                // MLC-074: при включённом EnableRetryOnFailure (SqlServerRetryingExecutionStrategy)
+                // ручная BeginTransactionAsync вне стратегии бросает "...does not support
+                // user-initiated transactions". Оборачиваем ОДИН батч (begin→delete→commit) в
+                // CreateExecutionStrategy().ExecuteAsync — стратегия повторяет батч как
+                // ретраибл-юнит. Внешний do-while (накопление totalDeleted) остаётся снаружи:
+                // каждый батч — отдельная ретраибл-транзакция, commit-per-batch сохранён.
+                var batchDeleted = 0;
+                var strategy = _db.Database.CreateExecutionStrategy();
+                await strategy.ExecuteAsync(async () =>
+                {
+                    await using var tx = await _db.Database
+                        .BeginTransactionAsync(ct)
+                        .ConfigureAwait(false);
+                    batchDeleted = await _db.Database.ExecuteSqlInterpolatedAsync(
+                        $"DELETE TOP (5000) FROM dbo.AuditLogs WHERE [Timestamp] < {cutoff}",
+                        ct).ConfigureAwait(false);
+                    await tx.CommitAsync(ct).ConfigureAwait(false);
+                }).ConfigureAwait(false);
+
+                lastBatch = batchDeleted;
                 totalDeleted += lastBatch;
                 ct.ThrowIfCancellationRequested();
             } while (lastBatch == BatchSize);
