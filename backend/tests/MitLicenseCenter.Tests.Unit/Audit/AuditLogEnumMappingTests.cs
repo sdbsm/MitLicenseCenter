@@ -47,6 +47,11 @@ public sealed class AuditLogEnumMappingTests
     [InlineData(AuditActionType.AdminLoggedIn, 100)]
     [InlineData(AuditActionType.AdminLoggedOut, 101)]
     [InlineData(AuditActionType.AdminPasswordChanged, 102)]
+    [InlineData(AuditActionType.BackupRequested, 510)]
+    [InlineData(AuditActionType.BackupSucceeded, 511)]
+    [InlineData(AuditActionType.BackupFailed, 512)]
+    [InlineData(AuditActionType.BackupDeleted, 513)]
+    [InlineData(AuditActionType.BackupsPurged, 514)]
     public void AuditActionType_int_values_are_stable(AuditActionType action, int expected)
     {
         ((int)action).Should().Be(expected);

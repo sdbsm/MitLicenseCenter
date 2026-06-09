@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using MitLicenseCenter.Application.Auditing;
+using MitLicenseCenter.Application.Backups;
 using MitLicenseCenter.Application.Clusters;
 using MitLicenseCenter.Application.Discovery;
 using MitLicenseCenter.Application.Identity;
@@ -17,6 +18,7 @@ using MitLicenseCenter.Application.Reporting;
 using MitLicenseCenter.Application.Sessions;
 using MitLicenseCenter.Application.Settings;
 using MitLicenseCenter.Infrastructure.Audit;
+using MitLicenseCenter.Infrastructure.Backups;
 using MitLicenseCenter.Infrastructure.Clusters;
 using MitLicenseCenter.Infrastructure.Diagnostics;
 using MitLicenseCenter.Infrastructure.Discovery;
@@ -159,6 +161,13 @@ public static class DependencyInjection
         services.AddSingleton<IPerfRecordingService, PerfRecordingService>();
         services.AddSingleton<PerfRecordingSamplingService>();
         services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<PerfRecordingSamplingService>());
+
+        // On-demand бэкап баз SQL (MLC-076, ADR-27): весь безопасный цикл одной операции
+        // (sysadmin-проверка → оценка → место → BACKUP COPY_ONLY → VERIFYONLY → keep-latest).
+        // Чистый ADO.NET (как SqlPerformanceProbe) — НЕ Windows-only, без #pragma CA1416.
+        // Stateless → singleton; строку наследует из ConnectionStrings:Default. В тестах —
+        // FakeSqlBackupService (реальный адаптер ходит в SQL, integration-only).
+        services.AddSingleton<ISqlBackupService, SqlBackupAdapter>();
 
         // Публикация через webinst.exe (MLC-045, ADR-20). Scoped — читает ISettingsSnapshot;
         // запускает процесс webinst версии платформы из публикации.
