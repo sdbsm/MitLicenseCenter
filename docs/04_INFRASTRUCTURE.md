@@ -112,6 +112,9 @@ Runtime configuration lives in `dbo.Settings`. The catalog is the single source 
 | `Audit.RetentionDays` | no | Number | `365` | [30, 3650] | `AuditRetentionJob` (daily 03:00 UTC) |
 | `LicenseUsage.RetentionDays` | no | Number | `365` | [30, 3650] | `LicenseUsageRetentionJob` (daily 03:30 UTC) |
 | `Performance.ProcessFamilyMap` | no | Text | `OneC=rphost,ragent,rmngr,ras;Mssql=sqlservr;OsUpdate=TiWorker,TrustedInstaller,wuauclt,usoclient,MoUsoCoreWorker;Antivirus=MsMpEng,NisSrv` | `Семья=маска,…;…`; empty → default | `OneCHostMetricsProbe` (process→family attribution — MLC-064) |
+| `Performance.RecordingSampleIntervalSeconds` | no | Number | `15` | [5, 60] | `PerfRecordingSamplingService` tick (recording sampling — MLC-070, ADR-26) |
+| `Performance.RecordingMaxDurationMinutes` | no | Number | `60` | [1, 1440] | recording auto-stop by duration (whichever limit first — MLC-070) |
+| `Performance.RecordingMaxSamples` | no | Number | `1000` | [10, 100000] | recording auto-stop by sample count (whichever limit first — MLC-070) |
 | `Backup.FolderPath` | no | Path | — *(no seeded default — install-specific; backup is unavailable until set, like `OneC.RAS.ExePath`)* | local SQL-host drive (`D:\Backups`) | `SqlBackupAdapter` (backup root; per-database subfolders — ADR-27) |
 | `Backup.TtlHours` | no | Number | `24` | [1, 8760] | backup file retention window (ADR-27) |
 | `Backup.MaxParallel` | no | Number | `2` | [1, 8] | backup queue concurrency cap (ADR-27) |
