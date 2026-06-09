@@ -92,6 +92,39 @@ public sealed class LicenseUsageRetentionJobTests
         verify.LicenseUsageSnapshots.Count().Should().Be(1);
     }
 
+    // MLC-074 (регресс): на проде включён EnableRetryOnFailure
+    // (DependencyInjection.cs → SqlServerRetryingExecutionStrategy). Джоба открывала
+    // транзакцию вручную (BeginTransactionAsync) вне CreateExecutionStrategy().ExecuteAsync,
+    // что на ретраящей стратегии бросает "...does not support user-initiated transactions"
+    // → телеметрия не чистилась. Тут навешиваем стратегию с RetriesOnFailure=true,
+    // воспроизводя прод-гард: до фикса RunAsync падал InvalidOperationException, после —
+    // удаляет штатно. Дефолтный SQLite (NonRetryingExecutionStrategy) этот путь не ловит.
+    [Fact]
+    public async Task Deletes_old_rows_under_a_retrying_execution_strategy()
+    {
+        using var sqlite = TestHelpers.SqliteTestDb.Create(
+            o => o.ExecutionStrategy(d => new TestHelpers.RetriesOnFailureExecutionStrategy(d)));
+        var settings = SettingsWithRetention(30);
+
+        var old1 = Snap(Now.AddDays(-40));
+        var keep1 = Snap(Now.AddDays(-1));
+        using (var seed = sqlite.NewContext())
+        {
+            seed.LicenseUsageSnapshots.AddRange(old1, keep1);
+            await seed.SaveChangesAsync();
+        }
+
+        using (var ctx = sqlite.NewContext())
+        {
+            await NewJob(ctx, settings).RunAsync(CancellationToken.None);
+        }
+
+        using var verify = sqlite.NewContext();
+        verify.LicenseUsageSnapshots.Select(x => x.Id).ToList()
+            .Should().BeEquivalentTo([keep1.Id],
+                "ретеншен отрабатывает и при ретраящей стратегии (MLC-074)");
+    }
+
     private static LicenseUsageRetentionJob NewJob(
         Infrastructure.Persistence.AppDbContext db, ISettingsSnapshot settings) =>
         new(db, settings, TestHelpers.FixedClock(Now), NullLogger<LicenseUsageRetentionJob>.Instance);

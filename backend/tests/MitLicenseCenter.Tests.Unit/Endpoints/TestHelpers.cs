@@ -4,6 +4,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Storage;
 using MitLicenseCenter.Application.Auditing;
 using MitLicenseCenter.Domain.Audit;
 using MitLicenseCenter.Infrastructure.Persistence;
@@ -48,11 +49,25 @@ internal static class TestHelpers
         }
 
         public static SqliteTestDb Create(params IInterceptor[] interceptors)
+            => CreateCore(configureSqlite: null, interceptors);
+
+        // MLC-074: позволяет навесить на SQLite-контекст кастомную execution strategy
+        // (напр. RetriesOnFailure=true), чтобы воспроизвести прод-гард
+        // SqlServerRetryingExecutionStrategy, который SQLite-по-умолчанию
+        // (NonRetryingExecutionStrategy) не даёт проверить.
+        public static SqliteTestDb Create(
+            Action<SqliteDbContextOptionsBuilder> configureSqlite,
+            params IInterceptor[] interceptors)
+            => CreateCore(configureSqlite, interceptors);
+
+        private static SqliteTestDb CreateCore(
+            Action<SqliteDbContextOptionsBuilder>? configureSqlite,
+            IInterceptor[] interceptors)
         {
             var connection = new SqliteConnection("DataSource=:memory:;Foreign Keys=True");
             connection.Open();
             var builder = new DbContextOptionsBuilder<AppDbContext>()
-                .UseSqlite(connection)
+                .UseSqlite(connection, sqlite => configureSqlite?.Invoke(sqlite))
                 .ReplaceService<IModelCustomizer, SqliteModelCustomizer>();
             if (interceptors.Length > 0)
             {
@@ -170,5 +185,39 @@ internal static class TestHelpers
         private readonly DateTimeOffset _now;
         public FixedTimeProvider(DateTimeOffset now) => _now = now;
         public override DateTimeOffset GetUtcNow() => _now;
+    }
+
+    // MLC-074: тест-дубль ретраящей execution strategy. Прод включает
+    // EnableRetryOnFailure → SqlServerRetryingExecutionStrategy, у которой
+    // RetriesOnFailure=true; на такой стратегии ручной BeginTransaction вне
+    // CreateExecutionStrategy().ExecuteAsync бросает "...does not support
+    // user-initiated transactions" (CoreStrings.ExecutionStrategyExistingTransaction).
+    // SQLite по умолчанию использует NonRetryingExecutionStrategy (RetriesOnFailure=false),
+    // поэтому штатные тесты ретеншена дыру не ловят (дефект класса MLC-008).
+    // maxRetryCount>0 → RetriesOnFailure=true; ShouldRetryOn=>false — гард активен,
+    // но реальные исключения наружу не глотаются повторами.
+    //
+    // onFirstExecution (опц.) вызывается на каждом запуске стратегии — нужен
+    // AuditRetentionJob-тесту: его raw `ExecuteSql` обходит стратегию (идёт прямо в
+    // RelationalCommand), поэтому до фикса конфигурированная стратегия не вызывается
+    // НИ разу; после фикса батч обёрнут в CreateExecutionStrategy().ExecuteAsync →
+    // счётчик > 0. Это и есть дискриминатор бага для raw-SQL-джобы.
+    public sealed class RetriesOnFailureExecutionStrategy : ExecutionStrategy
+    {
+        private readonly Action? _onFirstExecution;
+
+        public RetriesOnFailureExecutionStrategy(
+            ExecutionStrategyDependencies dependencies,
+            Action? onFirstExecution = null)
+            : base(dependencies, maxRetryCount: 3, maxRetryDelay: TimeSpan.Zero)
+            => _onFirstExecution = onFirstExecution;
+
+        protected override bool ShouldRetryOn(Exception exception) => false;
+
+        protected override void OnFirstExecution()
+        {
+            _onFirstExecution?.Invoke();
+            base.OnFirstExecution();
+        }
     }
 }
