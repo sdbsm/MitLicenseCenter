@@ -194,6 +194,7 @@ app.MapSettingsEndpoints(versionSet);
 app.MapDashboardEndpoints(versionSet);
 app.MapReportsEndpoints(versionSet);
 app.MapPerformanceEndpoints(versionSet);
+app.MapBackupsEndpoints(versionSet);
 app.MapDiscoveryEndpoints(versionSet);
 
 // MLC-012 — Swagger UI (/api/docs) раскрывает всю карту API. В Development отдаётся
@@ -249,6 +250,14 @@ RecurringJob.AddOrUpdate<ILicenseUsageRetentionJob>(
     "license-usage-retention",
     j => j.RunAsync(CancellationToken.None),
     "30 3 * * *");
+
+// Backup retention (MLC-077, ADR-27): ежедневно в 03:15 UTC — смещён от 03:00
+// audit-retention и 03:30 license-usage, чтобы ночные housekeeping-джобы не
+// пересекались. TTL — Settings.Backup.TtlHours; cadence фиксирован.
+RecurringJob.AddOrUpdate<IBackupRetentionJob>(
+    "backup-retention",
+    j => j.RunAsync(CancellationToken.None),
+    "15 3 * * *");
 
 // Fail-fast bootstrap. Миграции и сидинг выполняются СИНХРОННО до открытия приёма
 // трафика (до app.RunAsync()), каждый в собственном DI-scope внутри сидера. Порядок

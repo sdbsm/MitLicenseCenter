@@ -169,6 +169,15 @@ public static class DependencyInjection
         // FakeSqlBackupService (реальный адаптер ходит в SQL, integration-only).
         services.AddSingleton<ISqlBackupService, SqlBackupAdapter>();
 
+        // Оркестратор очереди бэкапов (MLC-077, ADR-27). Singleton — держит in-memory набор
+        // выполняющихся пар server+db (замок-на-базу) и wake-сигнал насоса между запросами;
+        // БД и scoped IAuditLogger берёт через IServiceScopeFactory (паттерн
+        // PerfRecordingService). Фоновый BackupPumpService тикает по wake-или-таймауту и
+        // зовёт PumpOnceAsync; на старте закрывает осиротевшие Running как Interrupted.
+        services.AddSingleton<IBackupOrchestrator, BackupOrchestrator>();
+        services.AddSingleton<BackupPumpService>();
+        services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<BackupPumpService>());
+
         // Публикация через webinst.exe (MLC-045, ADR-20). Scoped — читает ISettingsSnapshot;
         // запускает процесс webinst версии платформы из публикации.
         services.AddScoped<IWebinstPublisher, OneCWebinstPublisher>();
@@ -223,6 +232,10 @@ public static class DependencyInjection
 
         // License usage retention (MLC-048): scoped (DbContext), CRON фиксирован 03:30 daily.
         services.AddScoped<ILicenseUsageRetentionJob, LicenseUsageRetentionJob>();
+
+        // Backup retention (MLC-077, ADR-27): scoped (DbContext + IAuditLogger), CRON
+        // фиксирован 03:15 daily; TTL настраивается через Settings.Backup.TtlHours.
+        services.AddScoped<IBackupRetentionJob, BackupRetentionJob>();
 
         // Hot-tier polling: BackgroundService для sub-minute hot-poll (Hangfire
         // CRON minimum = 1 мин, а нам нужно 3–5s). См. ADR-6.1.
