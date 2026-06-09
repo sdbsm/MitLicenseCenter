@@ -389,6 +389,15 @@ differential base → не ломает внешнюю дифф-цепочку),
   рендерятся новыми именами), дополнить union + `AUDIT_ACTION_TYPES`. Объём XS. В объём `MLC-078` не входило
   (не бэкап-слоты) — молча не чинилось. Status: **Open**.
 
+- **[Кандидат] Флейк CI: `BackupOrchestratorTests.PumpOnce_clamps_max_parallel_to_definition_range`** ·
+  Testing · Severity Low · `backend/tests/MitLicenseCenter.Tests.Unit/Backups/BackupOrchestratorTests.cs`.
+  На CI PR #61 (код бэкенда не менялся — frontend+docs) кейс `(configured: 99, databases: 9, expectedRunning: 8)`
+  упал в `DrainAsync`: «Условие не наступило за 5 секунд: все выполняющиеся бэкапы должны завершиться перед
+  Dispose» (19с на тест); на том же SHA параллельный прогон и перезапуск зелёные → таймаут дренажа 5с тесен
+  для медленного windows-раннера с 8 параллельными фейк-бэкапами. Родственник гонки, уже чиненной в MLC-077
+  (коммит 36ef47f — «ждать терминальный статус, не Running»). Лечение: поднять таймаут `WaitUntilAsync`/дренажа
+  (5с → 30с — тест и так ждёт условие, зелёный путь не замедлится). Объём XS. Status: **Open**.
+
 ---
 
 ## Открытые опции (deferred — не активные задачи)
