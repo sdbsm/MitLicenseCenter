@@ -27,6 +27,11 @@ export type AuditActionType =
   | "ClusterAdapterCircuitClosed"
   | "SettingChanged"
   | "AuditLogsPurged"
+  | "BackupRequested"
+  | "BackupSucceeded"
+  | "BackupFailed"
+  | "BackupDeleted"
+  | "BackupsPurged"
   | "IisApplicationPoolRecycled"
   | "IisApplicationPoolStarted"
   | "IisApplicationPoolStopped"
@@ -60,6 +65,11 @@ export const AUDIT_ACTION_TYPES: readonly AuditActionType[] = [
   "LimitChanged",
   "SettingChanged",
   "AuditLogsPurged",
+  "BackupRequested",
+  "BackupSucceeded",
+  "BackupFailed",
+  "BackupDeleted",
+  "BackupsPurged",
   "IisApplicationPoolRecycled",
   "IisApplicationPoolStarted",
   "IisApplicationPoolStopped",

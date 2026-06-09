@@ -9,6 +9,7 @@ import { PaginationBar } from "@/components/PaginationBar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { useMe } from "@/features/auth/useAuth";
+import { BackupsDialog } from "@/features/backups/BackupsDialog";
 import { DeleteInfobaseDialog } from "@/features/infobases/DeleteInfobaseDialog";
 import { InfobaseFormDialog } from "@/features/infobases/InfobaseFormDialog";
 import { infobaseColumnCount } from "@/features/infobases/infobaseFormat";
@@ -44,6 +45,7 @@ export function TenantDetailPage() {
   const [editing, setEditing] = useState<InfobaseListItem | null>(null);
   const [deleting, setDeleting] = useState<InfobaseListItem | null>(null);
   const [reassigning, setReassigning] = useState<InfobaseListItem | null>(null);
+  const [backupsFor, setBackupsFor] = useState<InfobaseListItem | null>(null);
 
   const tenants = useMemo(() => tenantsData?.items ?? [], [tenantsData]);
 
@@ -173,6 +175,7 @@ export function TenantDetailPage() {
                       onEdit={handleOpenEdit}
                       onDelete={setDeleting}
                       onReassign={tenants.length > 1 ? setReassigning : undefined}
+                      onBackups={setBackupsFor}
                     />
                   ))}
           </TableBody>
@@ -211,6 +214,14 @@ export function TenantDetailPage() {
         }}
         infobase={reassigning}
         tenants={tenants}
+      />
+      <BackupsDialog
+        key={backupsFor?.id ?? "no-backups"}
+        open={backupsFor !== null}
+        onOpenChange={(open) => {
+          if (!open) setBackupsFor(null);
+        }}
+        infobase={backupsFor}
       />
     </div>
   );

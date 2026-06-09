@@ -1,4 +1,10 @@
-import { ArrowRightLeftIcon, MoreHorizontalIcon, PencilIcon, Trash2Icon } from "lucide-react";
+import {
+  ArrowRightLeftIcon,
+  DatabaseBackupIcon,
+  MoreHorizontalIcon,
+  PencilIcon,
+  Trash2Icon,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,6 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatInfobaseDateTime, statusBadgeClass } from "./infobaseFormat";
 import type { InfobaseListItem } from "./types";
 
@@ -25,7 +32,7 @@ export function InfobaseTableHeader({ showTenant = false }: { showTenant?: boole
         <TableHead>{t("infobases.fields.status")}</TableHead>
         <TableHead>{t("infobases.fields.publication")}</TableHead>
         <TableHead>{t("infobases.fields.updatedAt")}</TableHead>
-        <TableHead className="w-10" />
+        <TableHead className="w-20" />
       </TableRow>
     </TableHeader>
   );
@@ -40,6 +47,9 @@ interface InfobaseRowProps {
   onDelete: (item: InfobaseListItem) => void;
   /** Когда передано — в меню появляется пункт «Перенести в другого клиента». */
   onReassign?: (item: InfobaseListItem) => void;
+  /** Открывает диалог бэкапов базы (MLC-078). Кнопка видна обеим ролям — запуск
+   *  бэкапа доступен Viewer (ADR-27), поэтому она НЕ в admin-дропдауне. */
+  onBackups: (item: InfobaseListItem) => void;
 }
 
 /** Строка таблицы инфобазы, общая для списка баз и карточки клиента. */
@@ -50,6 +60,7 @@ export function InfobaseRow({
   onEdit,
   onDelete,
   onReassign,
+  onBackups,
 }: InfobaseRowProps) {
   const { t } = useTranslation();
   return (
@@ -75,32 +86,50 @@ export function InfobaseRow({
         {formatInfobaseDateTime(item.updatedAt ?? item.createdAt)}
       </TableCell>
       <TableCell className="text-right">
-        {isAdmin && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="size-8">
-                <MoreHorizontalIcon className="size-4" />
-                <span className="sr-only">{t("common.details")}</span>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onSelect={() => onEdit(item)}>
-                <PencilIcon className="size-4" />
-                {t("common.edit")}
-              </DropdownMenuItem>
-              {onReassign && (
-                <DropdownMenuItem onSelect={() => onReassign(item)}>
-                  <ArrowRightLeftIcon className="size-4" />
-                  {t("infobases.reassign.action")}
+        <div className="flex items-center justify-end gap-0.5">
+          <TooltipProvider delayDuration={150}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-8"
+                  onClick={() => onBackups(item)}
+                >
+                  <DatabaseBackupIcon className="size-4" />
+                  <span className="sr-only">{t("backups.rowAction")}</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t("backups.rowAction")}</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          {isAdmin && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="size-8">
+                  <MoreHorizontalIcon className="size-4" />
+                  <span className="sr-only">{t("common.details")}</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={() => onEdit(item)}>
+                  <PencilIcon className="size-4" />
+                  {t("common.edit")}
                 </DropdownMenuItem>
-              )}
-              <DropdownMenuItem variant="destructive" onSelect={() => onDelete(item)}>
-                <Trash2Icon className="size-4" />
-                {t("common.delete")}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
+                {onReassign && (
+                  <DropdownMenuItem onSelect={() => onReassign(item)}>
+                    <ArrowRightLeftIcon className="size-4" />
+                    {t("infobases.reassign.action")}
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem variant="destructive" onSelect={() => onDelete(item)}>
+                  <Trash2Icon className="size-4" />
+                  {t("common.delete")}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
       </TableCell>
     </TableRow>
   );

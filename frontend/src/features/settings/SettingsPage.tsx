@@ -51,6 +51,15 @@ const SECTIONS: { titleKey: string; keys: string[] }[] = [
     titleKey: "settings.sections.retention",
     keys: ["Audit.RetentionDays", "LicenseUsage.RetentionDays"],
   },
+  {
+    titleKey: "settings.sections.backup",
+    keys: [
+      "Backup.FolderPath",
+      "Backup.TtlHours",
+      "Backup.MaxParallel",
+      "Backup.DiskSafetyMarginMb",
+    ],
+  },
 ];
 
 // Тип ввода + диапазон диктуем со страницы — backend всё равно валидирует
@@ -76,6 +85,12 @@ const FIELD_META: Record<
   "Drift.IntervalMinutes": { type: "number", min: 1, max: 60 },
   "Audit.RetentionDays": { type: "number", min: 30, max: 3650 },
   "LicenseUsage.RetentionDays": { type: "number", min: 30, max: 3650 },
+  // Диапазоны зеркалят SettingDefinitions (MLC-076): TtlHours 1..8760, MaxParallel 1..8,
+  // DiskSafetyMarginMb 0..1048576 — backend всё равно валидирует со своей стороны.
+  "Backup.FolderPath": { type: "text", placeholder: "D:\\Backups" },
+  "Backup.TtlHours": { type: "number", min: 1, max: 8760 },
+  "Backup.MaxParallel": { type: "number", min: 1, max: 8 },
+  "Backup.DiskSafetyMarginMb": { type: "number", min: 0, max: 1048576 },
 };
 
 export function SettingsPage() {
