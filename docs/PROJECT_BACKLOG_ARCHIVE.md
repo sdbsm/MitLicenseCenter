@@ -3824,3 +3824,29 @@ multi-node, UI-долги канона 06 (tanstack/recharts/ESLint-StatusBadge)
   (`MLC087`+`MLC088`) накатываются чисто. **Хвост-тест полноты** (`DatabaseServer` по `backend/src`
   вне миграций): остались только легитимные `DatabaseBackup.*` (entity/контракт/оркестратор/retention/
   AppDbContext-индекс) — ноль `Infobase.DatabaseServer`. Канон/ADR не трогались (финальный док-PR `MLC-091`).
+
+- **Live-прогон на стенде `MLC-087`+`MLC-088`** (2026-06-10, реальный SQL `Server=.`, sysadmin
+  подтверждён; БД стенда + DPAPI key ring забэкаплены в `F:\MlcStage2Backups\` ПЕРЕД прогоном —
+  recovery-point; страховочный тег `v1-pre-singlehost-stage2`). **NB:** прежняя БД стенда была
+  пересоздана `db-reset`'ом ещё на шаге «чистота миграций» (до бэкапа) — это штатный dev-DB, не
+  прод; бэкап взят с текущего (мигрированного) состояния. **Миграция значения ключа —
+  доказана replay'ем** (роллбэк до `MLC076` → `UPDATE Defaults.DatabaseServer='localhost\REPLAYTEST'`
+  → накат `MLC087` → `Sql.Server`='localhost\REPLAYTEST', значение цело, старый ключ исчез →
+  накат `MLC088`, колонка `Infobases.DatabaseServer` дропнута). **API e2e (реальный backend+SQL):**
+  логин admin; `GET /settings` — `Sql.Server` есть, `Defaults.DatabaseServer` нет; `GET
+  /discovery/databases` **без `server=`** → `Available:true`, список реальных БД (`MlcE2e_Alpha/Beta/
+  Gamma`+`bd1/mitpro/test`); создание базы POST **без поля `databaseServer`** → 201, в ответе и в
+  списке поля нет; правка (PUT, статус→Maintenance) — ок; бэкап `MlcE2e_Alpha` через UI-API → реальный
+  `.bak` 119.3 МБ на диске, статус Succeeded, в записи `server=localhost` (из настройки); пустой
+  `Sql.Server` → бэкап **409 `SQL_SERVER_NOT_CONFIGURED`** и `discovery/databases` `Available:false`
+  с подсказкой; **Viewer** (`stage2-viewer`): список без `databaseServer`, бэкап разрешён (ADR-27,
+  `requestedBy=stage2-viewer`), создание базы и правка настроек — 403. **UI (preview, Vite):** `/settings`
+  секция «SQL Server» рендерится с новой подписью + значением `localhost` + discovery-пикером; форма
+  «Новая инфобаза» — **без поля сервера**, пикер «Имя базы данных (SQL Server)» сразу отдаёт реальные БД
+  (подпись «сервер задаётся в „Параметрах"»); сеть: `GET /api/v1/discovery/databases` **без** `?server=`;
+  **консоль чистая** (0 warn/error). **Не прогнано и почему:** реальная webinst-публикация и проверка
+  публикации в IIS — статус «Ошибка проверки» (на стенде не задан `OneC.RAS.ExePath` и backend не
+  элевирован под IIS); это **не относится к `MLC-087/088`** (публикация адресует кластер `OneC.*`, не
+  SQL-сервер; RAS/webinst в этой сессии не менялись — `OneC.Cluster.Server` снимает `MLC-089`).
+  **E2e-артефакты стенда** (тенант «Stage2 E2E», инфобаза «Stage2 Alpha», `stage2-viewer`, бэкапы в
+  `F:\MlcStage2Backups`, `Sql.Server=localhost`, `Backup.FolderPath`) оставлены для проверки куратором.
