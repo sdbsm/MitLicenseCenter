@@ -17,15 +17,27 @@ export const INFOBASES_PAGE_SIZE = 25;
 const GUID_PATTERN =
   /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
-// Серверная пагинация (MLC-015). queryKey включает фильтр и page/pageSize; префикс
+// Серверная пагинация (MLC-015). queryKey включает фильтры и page/pageSize; префикс
 // остаётся `["infobases"]`, поэтому мутации инвалидируют все страницы/фильтры разом.
-export function useInfobases(tenantId?: string | null, page = 1, pageSize = INFOBASES_PAGE_SIZE) {
+// publishStatus (MLC-090) — фильтр по статусу публикации; пусто/null → без фильтра.
+export function useInfobases(
+  tenantId?: string | null,
+  publishStatus?: string | null,
+  page = 1,
+  pageSize = INFOBASES_PAGE_SIZE
+) {
   const qs = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
   if (tenantId) {
     qs.set("tenantId", tenantId);
   }
+  if (publishStatus) {
+    qs.set("publishStatus", publishStatus);
+  }
   return useQuery({
-    queryKey: [...infobasesQueryKey, { tenantId: tenantId ?? null, page, pageSize }],
+    queryKey: [
+      ...infobasesQueryKey,
+      { tenantId: tenantId ?? null, publishStatus: publishStatus ?? null, page, pageSize },
+    ],
     queryFn: () =>
       api(`/api/v1/infobases?${qs.toString()}`, { schema: infobaseListResponseSchema }),
     // Не моргаем скелетоном при смене страницы/фильтра — показываем предыдущие данные.
