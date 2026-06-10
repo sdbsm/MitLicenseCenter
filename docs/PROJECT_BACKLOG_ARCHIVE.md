@@ -3916,3 +3916,42 @@ multi-node, UI-долги канона 06 (tanstack/recharts/ESLint-StatusBadge)
   `Roles.Viewer` → путь роленезависим; отдельным логином Viewer не проверялся (пароль `stage2-viewer`
   в постановку сессии 2 не входил). **Live webinst (MLC-089) не прогонялся** — см. отчёт `MLC-089`
   (RAS не настроен/backend неэлевирован, постановка это допускает).
+
+- `MLC-091` (ST-E) — **финальный док-PR этапа 2** (канон + ADR) — Done (2026-06-10). Сессия 2 этапа 2,
+  **отдельный PR №2 после вливания PR кода** (squash `e0d7f7b`). Docs-only — кода не менял.
+  **Новый ADR-28 «Single-host topology — one host, one 1C cluster, one SQL instance»** (DECISIONS.md,
+  перед Locked Operational Constraints): фиксирует подтверждение пользователя 2026-06-10 и
+  формализует прежний Locked-констрейнт «Deployment topology — single-node»; перечисляет вычищенные
+  хвосты (§7 аудита) — `Sql.Server` единственный источник (колонка `Infobase.DatabaseServer` дропнута,
+  discovery без `server=`), `OneC.Cluster.Server` снят (адрес кластера webinst из `RAS.Endpoint`-хоста);
+  **Rejected** — держать generic мультисервер «на всякий»; **Locked** — любой возврат к мультихосту
+  требует revoke ADR-28 + ре-ревью адаптеров. **Затронутые ADR (без переписывания истории решений):**
+  ADR-17 (форма инфобазы) — добавлена **Update-нота**: поле SQL-сервера промотировано из UI-only
+  prefill в runtime-resolved global (`Sql.Server`) — это ровно тот revision-trigger, что ADR-17 сам
+  заложил («single-host подтверждён → revoke для поля»); ADR-28 supersedes ADR-17 для SQL-поля, два
+  других prefill-ключа (`IIS.DefaultSiteName`/`OneC.DefaultPlatformVersion`) остаются UI-only.
+  ADR-4 (публикации) — без правки тела, в ADR-28 отмечено, что изменился лишь источник `Srvr=`
+  (RAS-хост). **Канон present-tense:** `01_PROJECT_CONTEXT` — добавлен блок «Topology — single-host
+  (ADR-28)»; `03_DOMAIN_MODEL` — поле `Infobase.DatabaseServer` убрано (отмечено: инстанс в
+  `Sql.Server`, колонка дропнута MLC-088); `04_INFRASTRUCTURE` — webinst connstr из `RAS.Endpoint`,
+  каталог §4 синхронизирован (`Defaults.DatabaseServer`→`Sql.Server`, строка `OneC.Cluster.Server`
+  убрана → **24 ключа = `SettingDefinitions`**), абзац form-prefill переписан (Sql.Server —
+  single source, два UI-only ключа, секции «Значения по умолчанию» нет), discovery-контракт
+  (`databases` без `server=`, берёт `Sql.Server`); попутно `05_UI_REQUIREMENTS` — форма без
+  SQL-поля + **фильтр статуса публикации MLC-090** в таблице «Базы», секция «SQL Server» на
+  `Sql.Server`; `OPERATIONS` §публикации — адрес кластера из `RAS.Endpoint`. **[Doc divergence]
+  `Performance.Recording*`** (04 §4) — подтверждён **закрытым**: три ключа присутствуют в каталоге
+  (строки Recording*), каталог = `SettingDefinitions`. **Чистка Swagger/DataAnnotations discovery** —
+  выполнена ещё в MLC-087 (`GetDatabasesAsync` без query-параметра, комментарии present-tense,
+  DataAnnotations про server нет) → в MLC-091 правок не потребовала. **Две до-трековые мелочи:**
+  поллинг сеансов «~15s»→«~5s» (05 §2 + 06 §1; факт `useSessionsSnapshot` `refetchInterval: 5_000`,
+  MLC-044, согласован с hot ~4с); «Отключить администратора»→«Отключить пользователя» (06 §12 словарь
+  + §7 пример — раздел переименован в «Пользователи», действие в коде `users.actions.disable`=«Отключить»).
+  **ХВОСТ-ТЕСТ ПОЛНОТЫ** (`grep -E "DatabaseServer|Cluster.Server|sql-instances|server=" backend/src`,
+  вне миграций): все остатки **легитимны** — (1) `DatabaseBackup.DatabaseServer` — снимок сервера на
+  записи бэкапа, отдельная сущность (`BackupOrchestrator`, `BackupRetentionJob`, `AppDbContext`
+  Property+индекс, `DatabaseBackup.cs`, `BackupsContracts`, `BackupsEndpoints`); (2) `sql-instances` —
+  `DiscoveryEndpoints.GetSqlInstances` (пикер /settings); (3) `WebinstArgs.cs` — комментарий,
+  поясняющий снятие ключа. **Ноль** `Infobase.DatabaseServer`, **ноль** использования ключа
+  `OneC.Cluster.Server`, **ноль** `?server=` в discovery. **Секция трека в реестр-архив НЕ
+  перенесена** (закрытие трека — за куратором, per постановка). `NEXT TASK` не переставлялся.

@@ -68,6 +68,8 @@ Current infrastructure stack:
 - **DB:** MSSQL.
 - **Web Server:** IIS.
 
+**Topology — single-host (ADR-28).** The panel administers **one** Windows Server host that runs the .NET backend, IIS, the MSSQL instance, and the 1C cluster together: exactly **one 1C cluster** and **one SQL instance** holding all client databases. This is the confirmed final topology (operator decision, 2026-06-10), and the model carries no multi-server scaffolding — the SQL instance is one setting (`Sql.Server`), the cluster address derives from the RAS endpoint, and infobases store no per-base server. Splitting the topology (a separate SQL host, a multi-node cluster) requires revoking ADR-28 and re-reviewing every infrastructure adapter.
+
 # Multi-Tenant Model
 
 The platform must support true multi-tenant operation.
