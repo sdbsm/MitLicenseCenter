@@ -33,6 +33,7 @@ export function TenantDetailPage() {
   const [page, setPage] = useState(1);
   const { data, isLoading, isError, isFetching, refetch } = useInfobases(
     id,
+    null,
     page,
     INFOBASES_PAGE_SIZE
   );

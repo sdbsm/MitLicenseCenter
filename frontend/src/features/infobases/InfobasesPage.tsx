@@ -23,7 +23,11 @@ import { ChangePlatformDialog } from "@/features/publications/ChangePlatformDial
 import { IisManagementCard } from "@/features/publications/iis/IisManagementCard";
 import { PublicationsBulkBar } from "@/features/publications/PublicationsBulkBar";
 import { PublishPublicationDialog } from "@/features/publications/PublishPublicationDialog";
-import { toPublicationListItem, type PublicationListItem } from "@/features/publications/types";
+import {
+  toPublicationListItem,
+  type PublicationListItem,
+  type PublicationPublishStatus,
+} from "@/features/publications/types";
 import { useCheckStatus } from "@/features/publications/usePublications";
 import type { BulkItemState } from "@/features/publications/useBulkOperation";
 import { useAllTenants } from "@/features/tenants/useTenants";
@@ -37,6 +41,16 @@ import { INFOBASES_PAGE_SIZE, useInfobases } from "./useInfobases";
 
 const PAGE_SIZE = INFOBASES_PAGE_SIZE;
 const ALL_TENANTS = "__all__";
+const ALL_STATUSES = "__all__";
+
+// Порядок опций фильтра «Статус публикации» (MLC-090). Ориентир ценности —
+// быстро найти «всё, что не Published»: проблемные статусы идут первыми.
+const PUBLISH_STATUS_FILTERS: PublicationPublishStatus[] = [
+  "NotPublished",
+  "Error",
+  "Unknown",
+  "Published",
+];
 
 /**
  * Единая страница «Базы» (MLC-081): таблица инфобаз, обогащённая публикационными
@@ -60,15 +74,19 @@ export function InfobasesPage() {
     return map;
   }, [tenants]);
 
-  // Фильтр по клиенту живёт в URL (?tenantId=) — на отфильтрованный список ведут
-  // ссылки извне (колонка «Базы» в таблице клиентов, MLC-085).
+  // Фильтры живут в URL — на отфильтрованный список ведут ссылки извне (колонка
+  // «Базы» в таблице клиентов, MLC-085), а статус публикации (?publishStatus=, MLC-090)
+  // держим там же для консистентности и шаринга ссылкой.
   const [searchParams, setSearchParams] = useSearchParams();
   const tenantFilter = searchParams.get("tenantId") ?? ALL_TENANTS;
   const tenantIdParam = tenantFilter === ALL_TENANTS ? null : tenantFilter;
+  const statusFilter = searchParams.get("publishStatus") ?? ALL_STATUSES;
+  const publishStatusParam = statusFilter === ALL_STATUSES ? null : statusFilter;
 
   const [page, setPage] = useState(1);
   const { data, isLoading, isError, isFetching, refetch } = useInfobases(
     tenantIdParam,
+    publishStatusParam,
     page,
     PAGE_SIZE
   );
@@ -92,20 +110,38 @@ export function InfobasesPage() {
   const [bulkPublishOpen, setBulkPublishOpen] = useState(false);
   const [bulkPlatformOpen, setBulkPlatformOpen] = useState(false);
 
-  // Смена фильтра по клиенту возвращает на первую страницу — иначе можно «застрять»
-  // на несуществующей странице сильно меньшего отфильтрованного набора.
-  const changeTenantFilter = (value: string) => {
+  // Смена фильтра возвращает на первую страницу — иначе можно «застрять» на
+  // несуществующей странице сильно меньшего отфильтрованного набора. Значение-«всё»
+  // (ALL_TENANTS/ALL_STATUSES) убирает ключ из URL.
+  const changeFilterParam = (key: string, value: string, allSentinel: string) => {
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev);
-        if (value === ALL_TENANTS) next.delete("tenantId");
-        else next.set("tenantId", value);
+        if (value === allSentinel) next.delete(key);
+        else next.set(key, value);
         return next;
       },
       { replace: true }
     );
     setPage(1);
   };
+
+  const changeTenantFilter = (value: string) => changeFilterParam("tenantId", value, ALL_TENANTS);
+  const changeStatusFilter = (value: string) =>
+    changeFilterParam("publishStatus", value, ALL_STATUSES);
+  const resetFilters = () => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("tenantId");
+        next.delete("publishStatus");
+        return next;
+      },
+      { replace: true }
+    );
+    setPage(1);
+  };
+  const anyFilterActive = tenantFilter !== ALL_TENANTS || statusFilter !== ALL_STATUSES;
 
   const items = useMemo<InfobaseListItem[]>(() => data?.items ?? [], [data]);
   const total = data?.total ?? 0;
@@ -221,8 +257,21 @@ export function InfobasesPage() {
                 ))}
               </SelectContent>
             </Select>
-            {tenantFilter !== ALL_TENANTS && (
-              <Button variant="ghost" size="sm" onClick={() => changeTenantFilter(ALL_TENANTS)}>
+            <Select value={statusFilter} onValueChange={changeStatusFilter}>
+              <SelectTrigger className="w-56">
+                <SelectValue placeholder={t("infobases.filters.publishStatus")} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_STATUSES}>{t("infobases.filters.allStatuses")}</SelectItem>
+                {PUBLISH_STATUS_FILTERS.map((status) => (
+                  <SelectItem key={status} value={status}>
+                    {t(`infobases.filters.publishStatusOptions.${status}`)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {anyFilterActive && (
+              <Button variant="ghost" size="sm" onClick={resetFilters}>
                 {t("common.reset")}
               </Button>
             )}

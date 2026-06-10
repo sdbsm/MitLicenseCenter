@@ -3850,3 +3850,69 @@ multi-node, UI-долги канона 06 (tanstack/recharts/ESLint-StatusBadge)
   SQL-сервер; RAS/webinst в этой сессии не менялись — `OneC.Cluster.Server` снимает `MLC-089`).
   **E2e-артефакты стенда** (тенант «Stage2 E2E», инфобаза «Stage2 Alpha», `stage2-viewer`, бэкапы в
   `F:\MlcStage2Backups`, `Sql.Server=localhost`, `Backup.FolderPath`) оставлены для проверки куратором.
+
+- `MLC-089` (ST-C) — **удалить ключ `OneC.Cluster.Server`** (опись §7 п.3) — Done (2026-06-10).
+  Сессия 2 этапа 2 (PR кода, коммит №1). **Вводная single-host:** кластер 1С и RAS живут на одном
+  хосте, поэтому отдельный ключ адреса кластера для строки соединения webinst избыточен (`MLC-088`
+  уже отметил, что `ResolveClusterServer` берёт host из `RAS.Endpoint` при пустом
+  `OneC.Cluster.Server` — здесь снимается сам ключ). **Снято:** `SettingKey.OneCClusterServer` (const)
+  + запись каталога `SettingDefinitions` (whitelist) — ключ был и так скрыт из UI, FE не трогался.
+  **`ResolveClusterServer` (`Infrastructure/Publishing/WebinstArgs.cs`):** сигнатура сужена с
+  `(clusterServerSetting, rasEndpoint)` до `(rasEndpoint)` — деривирует host из `OneC.RAS.Endpoint`
+  (`host:port` → `host`, порт RAS для строки соединения с кластером не подходит), бросает
+  `InvalidOperationException` при пустом RAS; fallback-логика «явная настройка vs RAS» удалена.
+  Вызов в `OneCWebinstPublisher.PublishAsync` — без чтения `SettingKey.OneCClusterServer`. **Миграция**
+  `20260610191046_MLC089DropOneCClusterServerSetting` (структура `Settings` не менялась → EF сгенерил
+  пустой Up/Down, наполнен вручную; нормализована UTF-8 без BOM + LF; снапшот модели после нормализации
+  идентичен HEAD — модель не менялась): Up `DELETE FROM dbo.Settings WHERE [Key]='OneC.Cluster.Server'`
+  (чистит осиротевшую row; на свежей БД 0 строк — корректно), Down **roll-forward only** (`throw
+  NotSupportedException`, по образцу `DropIisServiceAccountSetting` — ключ снят с каталога, его
+  пересоздание не часть отката). **Юнит-тесты `WebinstArgsTests`** переведены на новую семантику:
+  `ResolveClusterServer` берёт host из RAS (с портом/без), бросает при пустом/blank RAS; старые тесты
+  «явная настройка приоритетнее» и `(null,null)` заменены. **Хвост-grep `Cluster.Server` по
+  `backend/src`** (вне миграции) → остались только комментарии в `WebinstArgs.cs`/`WebinstArgsTests.cs`,
+  ноль читателей ключа. **Live webinst НЕ прогнан** (как и в сессии 1, постановка это допускает):
+  `OneC.RAS.ExePath` на стенде не задан, backend неэлевирован — покрыто юнитами. Канон/ADR не
+  трогались (финальный док-PR `MLC-091`).
+
+- `MLC-090` (ST-D) — **фильтр «статус публикации»** (принятый кандидат с `MLC-081`) — Done (2026-06-10).
+  Сессия 2 этапа 2 (PR кода, коммит №2). **Backend:** параметр `publishStatus` в `GET /api/v1/infobases`
+  — **server-side фильтр на пагинации** (коррелированный `EXISTS` по `LastCheckStatus` публикации,
+  публикация 1:1 с инфобазой → счёт `Total` честный, фильтр до `Skip/Take`). Тип параметра — `string?`
+  с **ручным парсом** (`Enum.TryParse` + `Enum.IsDefined`), как `actionType` на `/audit`: гоча CLAUDE.md
+  — DataAnnotations в minimal API в runtime не валидируются, поэтому значение проверяется в эндпоинте,
+  мусор/out-of-range → `ValidationProblem` 400. `ListAsync` поднят `private`→`internal` (тестируемость)
+  + тип результата `Results<Ok<…>, ValidationProblem>`. **Swagger:** параметр виден как optional query
+  string (то же лечение, что `actionType`; отдельного механизма per-param описаний в SwaggerGen
+  проекта нет — XML/annotations не подключены, доп. инфра вне объёма трека). **FE:** UI-фильтр на
+  странице «Базы» рядом с фильтром клиента; **решение по URL-состоянию — статус в URL** (`?publishStatus=`,
+  как `?tenantId=`) для консистентности, deep-link и шаринга ссылкой; общий `changeFilterParam`
+  сбрасывает на 1-ю страницу, кнопка «Сбросить» чистит оба фильтра. Опции в порядке «проблемные
+  первыми» (Не опубликована / Ошибка проверки / Не проверялась / Опубликована) — ориентир ценности
+  «быстро найти всё, что не Published». `useInfobases(tenantId, publishStatus, page, pageSize)` —
+  параметр в query+queryKey (префикс `["infobases"]` цел, инвалидация всех фильтров); `TenantDetailPage`
+  обновлён под новую сигнатуру (`null` под статусом). i18n: `infobases.filters.publishStatus`/
+  `allStatuses`/`publishStatusOptions.*`. **Zod не тронут:** ответ API не меняется
+  (`publication.lastCheckStatus` уже отдавался) — схема-тест на omit-null не требуется. **Тесты:**
+  новый `InfobaseListFilterTests` (5: фильтр по статусу, без фильтра = все, композиция с `tenantId`,
+  мусор+out-of-range → 400, case-insensitive). `dotnet test` **589** зелёных, FE
+  `type-check`/`lint`/`test` (**333**) зелёные.
+
+- **Live-прогон на стенде `MLC-089`+`MLC-090`** (2026-06-10, реальный SQL `Server=.`, БД
+  `MitLicenseCenter`). **Бэкап ПЕРЕД миграцией** (recovery-point, поверх прошлого): БД
+  `MitLicenseCenter_20260610_stage2.bak` (COPY_ONLY) + DPAPI key ring (`%LocalAppData%\MitLicenseCenter\
+  keys`, 2 xml) → `F:\MlcStage2Backups\`. **Миграция `MLC089` накатана** на БД стенда (`ef database
+  update`, единственная Pending; 087/088 уже стояли); проверка `dbo.Settings`: `OneC.Cluster.Server`
+  — **0 строк** (удалён), `Sql.Server` — на месте. **MLC-090 API e2e (admin, реальный backend+SQL):**
+  `GET /infobases` без фильтра → 2 базы; `?publishStatus=Published` → только `mitpro`,
+  `?publishStatus=NotPublished` → только `Stage2 Alpha`, `Error`/`Unknown` → 0; невалидные
+  `?publishStatus=Garbage` и `=99` → **HTTP 400**; композиция `tenantId`+`publishStatus` — покрыта
+  юнитом. (Для наглядной дискриминации двум публикациям стенда временно проставлены разные статусы
+  через SQL — `LastCheckStatus` производное, самовосстановимо ближайшей проверкой IIS.) **MLC-090 UI
+  (Chrome, реальный SPA):** на «Базах» виден новый фильтр «Любой статус»; выбор «Опубликована» →
+  в таблице только `mitpro` + URL `?publishStatus=Published`; deep-link `?publishStatus=NotPublished`
+  → таблица = `Stage2 Alpha`, дропдаун гидратирован «Не опубликована», появилась кнопка «Сбросить».
+  **Viewer:** фильтр-`Select` рендерится **вне** гейта `isAdmin`, эндпоинт списка авторизован для
+  `Roles.Viewer` → путь роленезависим; отдельным логином Viewer не проверялся (пароль `stage2-viewer`
+  в постановку сессии 2 не входил). **Live webinst (MLC-089) не прогонялся** — см. отчёт `MLC-089`
+  (RAS не настроен/backend неэлевирован, постановка это допускает).

@@ -278,7 +278,15 @@
     },
     "filters": {
       "tenant": "Клиент",
-      "allTenants": "Все клиенты"
+      "allTenants": "Все клиенты",
+      "publishStatus": "Статус публикации",
+      "allStatuses": "Любой статус",
+      "publishStatusOptions": {
+        "Published": "Опубликована",
+        "NotPublished": "Не опубликована",
+        "Error": "Ошибка проверки",
+        "Unknown": "Не проверялась"
+      }
     },
     "fields": {
       "name": "Название",

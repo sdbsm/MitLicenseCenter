@@ -13,15 +13,12 @@ internal static class WebinstArgs
     public static string VirtualDirName(string virtualPath) =>
         (virtualPath ?? string.Empty).Trim().TrimStart('/').TrimEnd('/');
 
-    // Адрес кластера для строки соединения: явная настройка OneC.Cluster.Server,
-    // иначе host из OneC.RAS.Endpoint (host:port → host). Бросает, если ни того,
-    // ни другого нет — публиковать без адреса кластера нельзя.
-    public static string ResolveClusterServer(string? clusterServerSetting, string? rasEndpoint)
+    // Адрес кластера для строки соединения: host из OneC.RAS.Endpoint (host:port →
+    // host). Single-host (MLC-089): кластер и RAS на одном хосте, поэтому отдельный
+    // ключ OneC.Cluster.Server снят — адрес деривируется из RAS. Бросает, если RAS
+    // не задан: публиковать без адреса кластера нельзя.
+    public static string ResolveClusterServer(string? rasEndpoint)
     {
-        var explicitServer = (clusterServerSetting ?? string.Empty).Trim();
-        if (explicitServer.Length > 0)
-            return explicitServer;
-
         var endpoint = (rasEndpoint ?? string.Empty).Trim();
         if (endpoint.Length > 0)
         {
@@ -33,7 +30,7 @@ internal static class WebinstArgs
         }
 
         throw new InvalidOperationException(
-            "Не задан адрес 1С-кластера: укажите OneC.Cluster.Server или OneC.RAS.Endpoint в «Параметрах».");
+            "Не задан адрес 1С-кластера: укажите OneC.RAS.Endpoint в «Параметрах».");
     }
 
     // Строка соединения 1С для серверной ИБ: Srvr=<кластер>;Ref=<имя ИБ>;

@@ -34,13 +34,34 @@ public static partial class InfobasesEndpoints
         group.MapDelete("/{id:guid}", DeleteAsync).RequireAuthorization(Roles.Admin);
     }
 
-    private static async Task<Ok<InfobaseListResponse>> ListAsync(
+    internal static async Task<Results<Ok<InfobaseListResponse>, ValidationProblem>> ListAsync(
         AppDbContext db,
         [FromQuery] Guid? tenantId,
+        [FromQuery] string? publishStatus,
         [FromQuery] int? page,
         [FromQuery] int? pageSize,
         CancellationToken ct)
     {
+        // MLC-090: фильтр по статусу публикации (server-side, до пагинации — счёт честный).
+        // Гоча CLAUDE.md: DataAnnotations в minimal API не валидируются в runtime, поэтому
+        // значение enum'а проверяем руками (как actionType на /audit) и на мусор отвечаем 400.
+        PublicationPublishStatus? parsedPublishStatus = null;
+        if (!string.IsNullOrWhiteSpace(publishStatus))
+        {
+            if (Enum.TryParse<PublicationPublishStatus>(publishStatus, ignoreCase: true, out var parsed)
+                && Enum.IsDefined(parsed))
+            {
+                parsedPublishStatus = parsed;
+            }
+            else
+            {
+                return TypedResults.ValidationProblem(new Dictionary<string, string[]>(StringComparer.Ordinal)
+                {
+                    [nameof(publishStatus)] = ["Неизвестный статус публикации."],
+                });
+            }
+        }
+
         var p = page is > 0 ? page.Value : 1;
         var ps = pageSize is > 0 ? Math.Min(pageSize.Value, MaxPageSize) : DefaultPageSize;
 
@@ -48,6 +69,12 @@ public static partial class InfobasesEndpoints
         if (tenantId is { } tid)
         {
             baseQuery = baseQuery.Where(x => x.TenantId == tid);
+        }
+        if (parsedPublishStatus is { } status)
+        {
+            // Публикация 1:1 с инфобазой — коррелированный EXISTS по статусу её проверки.
+            baseQuery = baseQuery.Where(x =>
+                db.Publications.Any(pub => pub.InfobaseId == x.Id && pub.LastCheckStatus == status));
         }
 
         var orderedQuery = baseQuery.OrderBy(x => x.Name).ThenBy(x => x.Id);
