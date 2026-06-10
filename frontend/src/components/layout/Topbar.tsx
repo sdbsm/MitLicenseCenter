@@ -1,8 +1,16 @@
-import { LogOutIcon, UserIcon } from "lucide-react";
+import { useState } from "react";
+import { KeyRoundIcon, LogOutIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,6 +22,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useLogout, useMe } from "@/features/auth/useAuth";
+import { ChangePasswordForm } from "@/features/profile/ChangePasswordForm";
 import { ThemeToggle } from "./ThemeToggle";
 
 const ENV_LABELS: Record<string, string> = {
@@ -27,11 +36,18 @@ export function Topbar() {
   const navigate = useNavigate();
   const { data: me } = useMe();
   const logout = useLogout();
+  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
 
   const envMode = import.meta.env.MODE;
   const envLabel = ENV_LABELS[envMode] ?? envMode;
   const userName = me?.userName ?? "";
   const initials = userName ? userName.slice(0, 2).toUpperCase() : "··";
+  // Роль под логином в дропдауне (MLC-084: страницы /profile больше нет, это
+  // единственное место, где пользователь видит свою роль). Метки — из словаря
+  // раздела «Пользователи»; незнакомая роль показывается сырым именем.
+  const roleLabel = (me?.roles ?? [])
+    .map((role) => t(`users.roles.${role}`, { defaultValue: role }))
+    .join(", ");
 
   const onLogout = async () => {
     await logout.mutateAsync();
@@ -67,13 +83,13 @@ export function Topbar() {
             <DropdownMenuLabel className="font-normal">
               <div className="flex flex-col gap-0.5">
                 <span className="text-sm font-medium">{userName}</span>
-                <span className="text-muted-foreground text-xs">{t("auth.signedIn")}</span>
+                <span className="text-muted-foreground text-xs">{roleLabel || "—"}</span>
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={() => navigate("/profile")}>
-              <UserIcon aria-hidden="true" />
-              {t("nav.profile")}
+            <DropdownMenuItem onSelect={() => setPasswordDialogOpen(true)}>
+              <KeyRoundIcon aria-hidden="true" />
+              {t("profile.password.title")}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={onLogout} disabled={logout.isPending}>
@@ -83,6 +99,16 @@ export function Topbar() {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      <Dialog open={passwordDialogOpen} onOpenChange={setPasswordDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("profile.password.title")}</DialogTitle>
+            <DialogDescription>{t("profile.password.subtitle")}</DialogDescription>
+          </DialogHeader>
+          <ChangePasswordForm showReset={false} onSuccess={() => setPasswordDialogOpen(false)} />
+        </DialogContent>
+      </Dialog>
     </header>
   );
 }

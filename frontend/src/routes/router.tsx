@@ -19,9 +19,6 @@ const LoginPage = lazy(() =>
 const DashboardPage = lazy(() =>
   import("@/features/dashboard/DashboardPage").then((m) => ({ default: m.DashboardPage }))
 );
-const ProfilePage = lazy(() =>
-  import("@/features/profile/ProfilePage").then((m) => ({ default: m.ProfilePage }))
-);
 const TenantsPage = lazy(() =>
   import("@/features/tenants/TenantsPage").then((m) => ({ default: m.TenantsPage }))
 );
@@ -67,7 +64,6 @@ export const router = createBrowserRouter([
     ),
     children: [
       { index: true, element: <DashboardPage /> },
-      { path: "profile", element: <ProfilePage /> },
       { path: "tenants", element: <TenantsPage /> },
       { path: "tenants/:id", element: <TenantDetailPage /> },
       { path: "infobases", element: <InfobasesPage /> },

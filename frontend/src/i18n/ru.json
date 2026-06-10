@@ -26,7 +26,7 @@
     }
   },
   "nav": {
-    "dashboard": "Главная",
+    "dashboard": "Обзор",
     "sessions": "Сеансы",
     "tenants": "Клиенты",
     "infobases": "Базы",
@@ -35,10 +35,9 @@
     "audit": "Аудит",
     "users": "Пользователи",
     "settings": "Параметры",
-    "profile": "Профиль",
     "groups": {
-      "operations": "Операции",
-      "configuration": "Конфигурация",
+      "monitoring": "Мониторинг",
+      "management": "Управление",
       "system": "Система"
     }
   },
@@ -56,7 +55,6 @@
     "signIn": "Войти",
     "signingIn": "Вход…",
     "signOut": "Выйти",
-    "signedIn": "Вы вошли в систему",
     "invalidCredentials": "Неверное имя пользователя или пароль.",
     "userNameRequired": "Укажите имя пользователя.",
     "passwordRequired": "Укажите пароль.",
@@ -101,15 +99,7 @@
     }
   },
   "profile": {
-    "title": "Профиль",
-    "subtitle": "Учётные данные администратора и смена пароля.",
     "passwordChanged": "Пароль обновлён.",
-    "account": {
-      "title": "Учётные данные",
-      "subtitle": "Информация о текущем пользователе.",
-      "userName": "Логин",
-      "roles": "Роли"
-    },
     "password": {
       "title": "Смена пароля",
       "subtitle": "Используется для входа в панель управления.",
@@ -899,10 +889,11 @@
       "AdminLoggedIn": "Вход администратора",
       "AdminLoggedOut": "Выход администратора",
       "AdminPasswordChanged": "Смена пароля",
-      "AdminCreated": "Учётная запись создана",
-      "AdminDisabled": "Учётная запись отключена",
-      "AdminPasswordReset": "Пароль сброшен",
-      "AdminEnabled": "Учётная запись включена",
+      "UserCreated": "Учётная запись создана",
+      "UserDisabled": "Учётная запись отключена",
+      "UserPasswordReset": "Пароль сброшен",
+      "UserEnabled": "Учётная запись включена",
+      "UserRoleChanged": "Роль изменена",
       "SessionKilled": "Сеанс завершён",
       "LimitChanged": "Лимит изменён",
       "ClusterAdapterCircuitOpened": "Цепь к 1С разомкнута",
