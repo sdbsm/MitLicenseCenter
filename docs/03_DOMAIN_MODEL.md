@@ -17,8 +17,7 @@ Represents a specific 1C database assigned to a Tenant.
 - `TenantId` (Guid, FK) — `ON DELETE RESTRICT`. Удаление tenant'а блокируется guard'ом endpoint'а (`409 Conflict`, `code: TENANT_HAS_INFOBASES`) до того, как SQL поднимет FK violation. Привязка задаётся при создании; сменить владельца можно только явным `POST /api/v1/infobases/{id}/reassign` (PUT/форма редактирования клиента не меняют).
 - `Name` (String, ≤200): Friendly name for the UI. Unique **per tenant** — composite index `IX_Infobases_TenantId_Name`. Два разных клиента могут иметь одноимённые инфобазы; внутри клиента — нет.
 - `ClusterInfobaseId` (Guid): The internal ID of this base inside the 1C Cluster. Globally **unique** — `IX_Infobases_ClusterInfobaseId`. Одна база кластера принадлежит ровно одному клиенту; повторная привязка (к тому же или другому клиенту) отклоняется `409 INFOBASE_ALREADY_ASSIGNED`. Форма добавления/редактирования показывает все базы кластера и проверяет занятость выбранной точечно через `GET /api/v1/infobases/cluster-id-availability` (см. API-контракты ниже) — без выгрузки всего списка инфобаз.
-- `DatabaseServer` (String, ≤200): SQL Server instance name.
-- `DatabaseName` (String, ≤200): SQL Database name.
+- `DatabaseName` (String, ≤200): SQL Database name. The SQL **instance** is not stored per-base — single-host (ADR-28) keeps one instance in `Settings.Sql.Server`; the dropped `DatabaseServer` column (MLC-088) used to duplicate it on every row.
 - `Status` (Enum `InfobaseStatus`): `Active=0`, `Maintenance=1`, `Suspended=2`. Сохраняется как `int` (`HasConversion<int>`), на wire идёт строкой через `JsonStringEnumConverter`. Int-значения заморожены.
 - `CreatedAt` (DateTimeUtc).
 - `UpdatedAt` (DateTimeUtc, Nullable): обновляется в PUT-handler'е.

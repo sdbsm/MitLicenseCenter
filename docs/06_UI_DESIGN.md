@@ -9,7 +9,7 @@ The component library is locked to **shadcn/ui** (see ADR-11). This document fil
 - **Admin tool, not consumer product.** Density first, decoration second. Operators spend hours per day here — wasted vertical space is a productivity tax.
 - **Read at a glance.** Status of every object (Tenant, Infobase, Publication, Session) must be readable without clicking through. Color + icon + label, in that order of redundancy.
 - **Destructive actions are loud.** Kill Session, Reconcile, Delete, Disable Admin — these are red, confirmed in a modal, and audited. Never wired to a single-click button.
-- **Real-time is honest.** Data refreshes via polling (~15s on the Sessions Monitor). The UI never lies about freshness — every live view shows when it last updated and visibly indicates a stale state.
+- **Real-time is honest.** Data refreshes via polling (~5s on the Sessions Monitor, aligned with the hot cadence — MLC-044). The UI never lies about freshness — every live view shows when it last updated and visibly indicates a stale state.
 - **Desktop-first.** Target resolution baseline `1366×768` (lowest realistic admin workstation); design works up to `2560×1440`. Mobile is not a target in v1; layouts may break gracefully on narrow screens but no effort is spent.
 
 ## 2. Stack (locked alongside Shadcn)
@@ -93,7 +93,7 @@ Anything that kills a session, recycles an IIS pool, restarts a site, runs `iisr
 
 - **Always** triggers a shadcn `AlertDialog` (not `Dialog` — the variant is important — focus traps and the destructive default).
 - **Default focused button is "Отмена".** Never the destructive option. This is the one rule that prevents the "I hit Enter by reflex and killed prod" class of incident.
-- **The destructive button uses `variant="destructive"`** (red), labelled with the verb in imperative ("Завершить сеанс", "Согласовать", "Отключить администратора"). Never just "ОК".
+- **The destructive button uses `variant="destructive"`** (red), labelled with the verb in imperative ("Завершить сеанс", "Согласовать", "Отключить пользователя"). Never just "ОК".
 - **Modal copy is concrete, not generic.** Bad: "Вы уверены?". Good: "Сеанс пользователя ИВАНОВ И.И. в базе УТ-Демо будет немедленно завершён. Несохранённые данные пользователя будут потеряны."
 - **For high-impact actions** (Delete Tenant, webinst (re)publish) — require typing a confirmation token (the object's name) before the destructive button enables. shadcn doesn't ship this; we build it as a small wrapper around `AlertDialog` (`PublishPublicationDialog`).
 - **IIS lifecycle operations** (recycle / stop a pool, stop / restart a site, `iisreset` restart/stop — MLC-047) use a plain `AlertDialog` confirm (`IisConfirmDialog`) **without** a typed token — frequent operational actions where typing a token each time is friction; the server-side `Confirm=true` gate (recycle / reset / stop) is the backstop against an accidental call. `start` (pool/site/server) is one-click recovery, no dialog.
@@ -173,7 +173,7 @@ Use these exact phrasings throughout the UI for consistency. **Do not invent syn
 | Terminate session | Завершить сеанс |
 | Reconcile publication | Согласовать состояние |
 | Check drift now | Проверить сейчас |
-| Disable administrator | Отключить администратора |
+| Disable user | Отключить пользователя |
 | Reset password | Сбросить пароль |
 | Assign infobase | Назначить базу |
 | Suspend tenant | Приостановить клиента |
