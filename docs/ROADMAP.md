@@ -20,13 +20,6 @@ Operator concerns (backup, network-edge auth) are documented in `OPERATIONS.md`.
 
 ## Backlog / deferred
 
-- **UX-трек, этап 2: single-host бек-чистка** — gated. Этап 1 (`MLC-081..086`, frontend-only)
-  выполнен 2026-06-10; этап 2 = бек-хвосты по описи §7 аудита (`.claude/plans/ux-audit-single-host.md`:
-  колонка `Infobase.DatabaseServer`, параметр `server=` discovery, ключ `OneC.Cluster.Server`,
-  переименование `Defaults.DatabaseServer`, сужение discovery-интерфейсов) + ADR «Single-host
-  topology» + правка канона 01/03/04 + кандидаты из архивной секции трека. Триггер: пользователь
-  пожил с новым UI и подтвердил single-host окончательно. До этого single-host в ADR не фиксируется
-  (тег отката `v1-pre-ux-redesign`).
 - **RAS Strategy B** — replace `rac.exe`-per-cycle with a long-lived TCP socket on 1545. The cross-call cluster-UUID cache (MLC-041) already roughly halved the steady-state spawn rate (the kill path and hot polling now cost ~1 spawn each), so the ≤26 procs/min budget has comfortable headroom; this further optimization stays gated on real-world latency measurement.
 - **Multi-cluster / multi-node topology** — every adapter currently assumes single-node; opening this up requires re-reviewing each adapter and the single-node operational constraint.
 - **UI: заспечено в `05`/`06`, но не построено в v1.** Дизайн-канон описывает эти фичи, код их пока не реализует (каждое место помечено «не в v1» по месту в `05_UI_REQUIREMENTS.md` / `06_UI_DESIGN.md`):
