@@ -26,6 +26,7 @@ public sealed class AppDbContext : IdentityDbContext<AppUser, AppRole, Guid>
     public DbSet<PerfRecording> PerfRecordings => Set<PerfRecording>();
     public DbSet<PerfRecordingSample> PerfRecordingSamples => Set<PerfRecordingSample>();
     public DbSet<DatabaseBackup> DatabaseBackups => Set<DatabaseBackup>();
+    public DbSet<HiddenClusterInfobase> HiddenClusterInfobases => Set<HiddenClusterInfobase>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -226,6 +227,20 @@ public sealed class AppDbContext : IdentityDbContext<AppUser, AppRole, Guid>
             // Дорога насоса (MLC-077): «есть ли Queued/Running для этой пары server+db» +
             // выборка самой старой Queued.
             e.HasIndex(x => new { x.DatabaseServer, x.DatabaseName, x.Status });
+        });
+
+        builder.Entity<HiddenClusterInfobase>(e =>
+        {
+            // MLC-092: игнор-лист «нераспределённых» баз кластера. PK — ClusterInfobaseId
+            // (одна запись на базу, без суррогатного Id). Без FK: база кластера панели
+            // не принадлежит — это снапшот решения оператора «служебная, не показывать».
+            // Name — снапшот для рендера блока «Скрытые» без обращения к RAS; длина 200 —
+            // как Infobase.Name. HiddenBy — как Initiator аудита (256).
+            e.ToTable("HiddenClusterInfobases", "dbo");
+            e.HasKey(x => x.ClusterInfobaseId);
+            e.Property(x => x.Name).IsRequired().HasMaxLength(200);
+            e.Property(x => x.HiddenAtUtc).IsRequired();
+            e.Property(x => x.HiddenBy).IsRequired().HasMaxLength(256);
         });
 
         builder.Entity<SettingEntry>(e =>

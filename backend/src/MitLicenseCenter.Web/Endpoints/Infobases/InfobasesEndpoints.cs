@@ -233,6 +233,16 @@ public static partial class InfobasesEndpoints
         };
         ApplyPublicationFields(publication, request.Publication);
 
+        // MLC-092: заведённая база перестаёт быть «нераспределённой» по определению —
+        // её запись игнор-листа (если оператор раньше скрывал базу) удаляется тем же
+        // SaveChanges, мусор в HiddenClusterInfobases не копим.
+        var hiddenEntry = await db.HiddenClusterInfobases
+            .FirstOrDefaultAsync(h => h.ClusterInfobaseId == request.ClusterInfobaseId, ct).ConfigureAwait(false);
+        if (hiddenEntry is not null)
+        {
+            db.HiddenClusterInfobases.Remove(hiddenEntry);
+        }
+
         // Инфобаза + публикация — один aggregate, попадают в БД одним SaveChanges.
         db.Infobases.Add(infobase);
         db.Publications.Add(publication);

@@ -4023,3 +4023,68 @@ multi-node, UI-долги канона 06 (tanstack/recharts/ESLint-StatusBadge)
 **Примечание о CI:** на момент сессии 2 GitHub Actions не стартовал джобы (биллинг аккаунта,
 «payments failed») — PR #80/#81 влиты `--admin` с подтверждения пользователя; источник правды —
 локальные прогоны (BE 589/589, FE 333, type-check, lint — зелёные).
+
+## Трек «Нераспределённые базы: discovery-first добавление» — отчёты задач (пополняется по мере закрытия)
+
+- `MLC-092` (UB-A) — **endpoint нераспределённых баз + игнор-лист (backend)** — Done (2026-06-11).
+  Сессия 1 трека (один PR кода BE). **Доменная модель:** сущность `HiddenClusterInfobase`
+  (`Domain/Infobases/`) — игнор-лист служебных баз кластера: `ClusterInfobaseId` (PK, без
+  суррогатного Id), `Name` (снапшот имени на момент скрытия — блок «Скрытые» рендерится из БД
+  даже при недоступном RAS), `HiddenAtUtc`, `HiddenBy`. EF-конфигурация inline в
+  `AppDbContext.OnModelCreating` (`nvarchar(200)`/`nvarchar(256)`, **без FK** — база кластера
+  панели не принадлежит). **Миграция** `20260610212042_MLC092HiddenClusterInfobases` — reversible
+  (Up `CreateTable` + PK, Down `DropTable`), файлы нормализованы (UTF-8 без BOM + LF, гоча CLAUDE.md).
+  **Endpoint** `GET /api/v1/infobases/unassigned` (новый слайс `UnassignedInfobasesEndpoints`,
+  Admin-only): `IClusterClient` инжектится напрямую (прецедент `DiscoveryEndpoints`, ADR-20 —
+  интерфейс-адаптер, не `rac.exe`). Diff = снапшот RAS **минус** заведённые `Infobase.ClusterInfobaseId`
+  **минус** скрытые. Ответ `{ Items[], HiddenItems[], Available, Error, CheckedAtUtc }`; элемент
+  Items = `{ ClusterInfobaseId, Name, Description }`, HiddenItems плюс `HiddenAtUtc`/`HiddenBy`.
+  **Серверный TTL-кэш** (`UnassignedInfobasesCache`, singleton по образцу `ClusterUuidCache` MLC-041):
+  кэшируется **только снапшот RAS** вместе с `CheckedAtUtc` фактического опроса, TTL **60 с**
+  (константа `UnassignedInfobasesCache.Ttl`, НЕ ключ настроек); `?refresh=true` — мимо кэша.
+  **Diff (заведённые/скрытые) считается на каждый запрос** — create/hide/unhide видны сразу, не
+  ждут истечения TTL (тест `Diff_is_not_cached_hide_is_visible_immediately`). RAS недоступен
+  (`Available:false` от адаптера ИЛИ исключение) → `Available:false` + санитизированный русский
+  Error (сырой stderr `rac.exe` — только в журнал, source-gen logger; паттерн discovery MLC-009),
+  не пустой список; отмена (`OperationCanceledException`) пробрасывается. Неуспешный снапшот тоже
+  кэшируется на TTL (выравнивает нагрузку на RAS при сбое). **Mutations** (Admin-only):
+  `POST …/{clusterInfobaseId}/hide` (body — `Name`-снапшот, длина 200 проверяется руками — гоча
+  minimal API: DataAnnotations в runtime не валидируются), `DELETE …/{clusterInfobaseId}/hide`.
+  **Гарды:** hide заведённой в панель базы → 409 `UNASSIGNED_ALREADY_ASSIGNED`; повторный hide → 409
+  `UNASSIGNED_ALREADY_HIDDEN` (+ uniqueness-backstop по `PK_HiddenClusterInfobases` — новое значение
+  `UniqueIndexViolation.HiddenClusterInfobasePk`); unhide несуществующей → 404; пустое/слишком длинное
+  имя → 400. **Аудит:** `UnassignedInfobaseHidden = 14`, `UnassignedInfobaseUnhidden = 15` (группа
+  Infobase, int **заморожены**), server-scope (`TenantId = null` — база ещё не принадлежит клиенту),
+  через `HttpContext.AuditAsync` + формулировки в `AuditDescriptions`. **Чистка игнор-листа** в
+  `InfobasesEndpoints.CreateAsync`: при создании Infobase с `ClusterInfobaseId` из игнор-листа строка
+  удаляется тем же `SaveChanges` (заведённая база перестала быть «нераспределённой»). Регистрация —
+  `Program.cs` (`AddSingleton<UnassignedInfobasesCache>` + `MapUnassignedInfobasesEndpoints`).
+  **Тесты** (`UnassignedInfobasesEndpointsTests` 17 + `UnassignedInfobasesAuthorizationTests` 3):
+  diff (исключение заведённых/скрытых), кэш (повтор в TTL — 1 опрос; истёкший TTL — 2; refresh
+  обходит; неуспех кэшируется), `Available:false` без утечки имени сервера/сырого stderr/исключения,
+  отмена пробрасывается, hide пишет строку+аудит-14, hide заведённой→409, двойной hide→409, пустое
+  имя→400, имя >200→400, unhide пишет аудит-15, unhide unknown→404, чистка при создании, Admin-only
+  на всех трёх маршрутах (метаданные политики). `dotnet test` **610/610** зелёных локально
+  (CI красный по биллингу — известно, не чиним). **Канон/ADR не трогались** — отдельный PR `MLC-094`
+  после вливания `MLC-093` (FE).
+
+- **Live-прогон на стенде `MLC-092`** (2026-06-11, реальный SQL `Server=.`, БД `MitLicenseCenter`,
+  реальный RAS — на стенде доступен, отдал 2 нераспределённые базы кластера `bd1`/`test`).
+  **Бэкап ПЕРЕД миграцией** (COPY_ONLY, recovery-point): `MitLicenseCenter_20260611_pre-mlc092.bak`
+  → `F:\MlcStage2Backups\`. **Миграция накатана** (`ef database update`, единственная Pending);
+  схема `dbo.HiddenClusterInfobases`: `ClusterInfobaseId uniqueidentifier NOT NULL` (PK),
+  `Name nvarchar(200)`, `HiddenAtUtc datetime2`, `HiddenBy nvarchar(256)`; запись в
+  `__EFMigrationsHistory`. **Аутентифицированный API e2e под admin** (пароль сброшен
+  `reset-admin.ps1 -Unlock` с разрешения пользователя 2026-06-11, новое значение — в памяти
+  `dev-stand-admin-credentials`; запрет на сброс снят): `GET /infobases/unassigned` → `available:true`,
+  2 базы в `items`, **`description` опущено** (null-omit, подтверждает контракт для FE-Zod `.nullish()`);
+  `hide bd1` → 204, `GET` → bd1 ушёл в `hiddenItems` (`hiddenBy:admin`, `hiddenAtUtc`), `items` −1,
+  **`checkedAtUtc` не изменился** (diff живой поверх кэша снапшота); повторный `hide` → 409
+  `UNASSIGNED_ALREADY_HIDDEN`; пустое имя → 400; `unhide` несуществующей → 404; `unhide bd1` → 204,
+  `?refresh=true` → bd1 вернулся в `items`, новый `checkedAtUtc` (обход кэша). **Чистка игнор-листа:**
+  `hide test` → завёл инфобазу с `clusterInfobaseId=test` (201) → `test` пропала и из `items` (заведена),
+  и из `hiddenItems` (строка игнор-листа удалена в `CreateAsync`); `hide` уже заведённой `test` → 409
+  `UNASSIGNED_ALREADY_ASSIGNED`. **Аудит:** в `dbo.AuditLogs` — строки `ActionType=14`/`15`,
+  `Initiator=admin`, `TenantId=NULL` (server-scope), русские формулировки. **Без cookie** все три
+  маршрута → 401 (Admin-гейт). **Уборка:** тестовая инфобаза удалена, `HiddenClusterInfobases` = 0 строк,
+  обе базы снова нераспределены — стенд в исходном состоянии (immutable-аудит 14/15 сохранён by design).

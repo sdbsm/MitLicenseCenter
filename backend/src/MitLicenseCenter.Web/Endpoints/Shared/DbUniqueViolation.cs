@@ -10,9 +10,10 @@ namespace MitLicenseCenter.Web.Endpoints;
 internal enum UniqueIndexViolation
 {
     None,
-    InfobaseClusterId,   // IX_Infobases_ClusterInfobaseId (глобальная уникальность базы кластера)
-    InfobaseTenantName,  // IX_Infobases_TenantId_Name (имя инфобазы уникально в пределах клиента)
-    TenantName,          // IX_Tenants_Name (имя клиента уникально глобально)
+    InfobaseClusterId,        // IX_Infobases_ClusterInfobaseId (глобальная уникальность базы кластера)
+    InfobaseTenantName,       // IX_Infobases_TenantId_Name (имя инфобазы уникально в пределах клиента)
+    TenantName,               // IX_Tenants_Name (имя клиента уникально глобально)
+    HiddenClusterInfobasePk,  // PK_HiddenClusterInfobases (повторный hide базы кластера, MLC-092)
 }
 
 // Распознаёт нарушение уникального индекса в DbUpdateException и сообщает, какой
@@ -48,6 +49,12 @@ internal static class DbUniqueViolation
         if (message.Contains("IX_Tenants_Name", StringComparison.Ordinal))
         {
             return UniqueIndexViolation.TenantName;
+        }
+        // MLC-092: у игнор-листа уникальность несёт сам PK (ClusterInfobaseId) — SQL Server
+        // кладёт имя нарушенного constraint'а в текст так же, как имя индекса.
+        if (message.Contains("PK_HiddenClusterInfobases", StringComparison.Ordinal))
+        {
+            return UniqueIndexViolation.HiddenClusterInfobasePk;
         }
         return UniqueIndexViolation.None;
     }
