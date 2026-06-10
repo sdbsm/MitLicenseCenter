@@ -84,7 +84,6 @@ export function InfobaseTableHeader({
         )}
         <TableHead>{t("infobases.fields.name")}</TableHead>
         {showTenant && <TableHead>{t("infobases.fields.tenant")}</TableHead>}
-        <TableHead>{t("infobases.fields.databaseServer")}</TableHead>
         <TableHead>{t("infobases.fields.status")}</TableHead>
         <TableHead>{t("infobases.fields.publication")}</TableHead>
         <TableHead className="w-32">{t("infobases.fields.platformVersion")}</TableHead>
@@ -158,7 +157,6 @@ export function InfobaseRow({
         {tenantName !== undefined && (
           <TableCell className="text-muted-foreground">{tenantName}</TableCell>
         )}
-        <TableCell className="text-muted-foreground tabular-nums">{item.databaseServer}</TableCell>
         <TableCell>
           <Badge className={statusBadgeClass(item.status)}>
             {t(`infobases.status.${item.status}`)}

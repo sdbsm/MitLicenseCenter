@@ -11,7 +11,6 @@ import {
   useDatabases,
   useIisSites,
   usePlatformVersions,
-  useSqlInstances,
 } from "@/features/discovery/useDiscovery";
 import type { Tenant } from "@/features/tenants/types";
 import type { CreateInfobaseInput, InfobaseListItem, UpdateInfobaseInput } from "./types";
@@ -24,7 +23,8 @@ type FormValues = InfobaseFormValues;
 
 // Поля, которые живут в свёрнутом блоке «Дополнительно». Если валидация падает
 // на одном из них, блок надо раскрыть, иначе пользователь не увидит ошибку.
-const ADVANCED_ERROR_KEYS = new Set(["name", "databaseServer", "status", "publication"]);
+// databaseServer здесь нет — поле скрытое (MLC-082), его ошибка показывается toast'ом.
+const ADVANCED_ERROR_KEYS = new Set(["name", "status", "publication"]);
 
 interface UseInfobaseFormArgs {
   open: boolean;
@@ -36,7 +36,10 @@ interface UseInfobaseFormArgs {
 
 // MLC-023 — вся не-презентационная логика формы инфобазы (схема, defaultValues, prefill
 // настроек, touched-рефы автоподстановки, discovery, точечная проверка занятости, submit,
-// маппинг 409). InfobaseFormDialog остаётся тонким вью поверх этого хука. Поведение 1:1.
+// маппинг 409). InfobaseFormDialog остаётся тонким вью поверх этого хука.
+// MLC-082 (single-host): сервер СУБД в форме не показывается. databaseServer — скрытое
+// поле: при создании — из настройки Defaults.DatabaseServer, при редактировании —
+// текущее значение базы (правка не мигрирует сервер молча). Контракт API прежний.
 export function useInfobaseForm({
   open,
   onOpenChange,
@@ -126,15 +129,15 @@ export function useInfobaseForm({
   });
 
   // Discovery: тянем списки, пока диалог открыт (ленивая загрузка по `open`).
+  // Список БД дёргается сразу с сервером из скрытого поля (настройка/значение базы) —
+  // двухшаговый выбор «сначала сервер, потом база» исчез (MLC-082).
   const infobasesQuery = useClusterInfobases(open);
   const sitesQuery = useIisSites(open);
-  const sqlInstancesQuery = useSqlInstances(open);
   const databasesQuery = useDatabases(watchedDatabaseServer ?? "", open);
   const platformVersionsQuery = usePlatformVersions(open);
 
   const infobasesState = toDiscoveryState(infobasesQuery);
   const sitesState = toDiscoveryState(sitesQuery);
-  const sqlInstancesState = toDiscoveryState(sqlInstancesQuery);
   const databasesState = toDiscoveryState(databasesQuery);
   const platformVersionsState = toDiscoveryState(platformVersionsQuery);
 
@@ -174,10 +177,6 @@ export function useInfobaseForm({
   const siteOptions = (sitesQuery.data?.items ?? []).map((s) => ({
     value: s.siteName,
     label: s.siteName,
-  }));
-  const sqlInstanceOptions = (sqlInstancesQuery.data?.items ?? []).map((s) => ({
-    value: s,
-    label: s,
   }));
   const databaseOptions = (databasesQuery.data?.items ?? []).map((d) => ({
     value: d,
@@ -282,6 +281,11 @@ export function useInfobaseForm({
       }
     },
     (errors) => {
+      // databaseServer — скрытое поле: его ошибку (настройка Defaults.DatabaseServer
+      // не задана) пользователь в форме не увидит — показываем toast с подсказкой.
+      if (errors.databaseServer) {
+        toast.error(t("infobases.errors.databaseServerNotConfigured"));
+      }
       // Раскрываем «Дополнительно», если ошибка валидации в одном из его полей.
       if (Object.keys(errors).some((k) => ADVANCED_ERROR_KEYS.has(k))) {
         setAdvancedOpen(true);
@@ -306,9 +310,6 @@ export function useInfobaseForm({
     databasesState,
     refetchDatabases: () => void databasesQuery.refetch(),
     // discovery — блок «Дополнительно»
-    sqlInstanceOptions,
-    sqlInstancesState,
-    refetchSqlInstances: () => void sqlInstancesQuery.refetch(),
     siteOptions,
     sitesState,
     refetchSites: () => void sitesQuery.refetch(),

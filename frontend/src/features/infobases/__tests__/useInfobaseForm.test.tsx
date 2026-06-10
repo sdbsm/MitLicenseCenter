@@ -16,9 +16,15 @@ vi.mock("@/lib/api", async (importOriginal) => {
   return { ...actual, api: vi.fn() };
 });
 
+vi.mock("sonner", () => ({
+  toast: { success: vi.fn(), error: vi.fn() },
+}));
+
 import { api } from "@/lib/api";
+import { toast } from "sonner";
 
 const mockedApi = vi.mocked(api);
+const mockedToastError = vi.mocked(toast.error);
 
 const tenant: Tenant = {
   id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
@@ -63,9 +69,9 @@ const settingsCatalog = [
   { key: "IIS.DefaultSiteName", value: "My Site" },
 ];
 
-function mockApi() {
+function mockApi(catalog: { key: string; value: string }[] = settingsCatalog) {
   mockedApi.mockImplementation((path: string) => {
-    if (path === "/api/v1/settings") return Promise.resolve(settingsCatalog);
+    if (path === "/api/v1/settings") return Promise.resolve(catalog);
     if (path.startsWith("/api/v1/infobases/cluster-id-availability")) {
       return Promise.resolve({ taken: false, takenByTenantName: null });
     }
@@ -131,6 +137,36 @@ describe("useInfobaseForm", () => {
     expect(result.current.form.getValues("publication.virtualPath")).toBe("/acme-bp");
     expect(result.current.form.getValues("publication.physicalPathOverride")).toBe(
       "C:\\inetpub\\wwwroot\\acme_bp"
+    );
+  });
+
+  it("create: настройка Defaults.DatabaseServer не задана → submit блокируется с toast-подсказкой", async () => {
+    // MLC-082 — сервер СУБД в форме не показывается; databaseServer — скрытое поле из
+    // настройки. Если настройка пуста, zod-ошибка падает на невидимое поле — пользователь
+    // должен увидеть toast с отсылкой в «Параметры», а запрос не должен уходить в сеть.
+    mockedApi.mockReset();
+    mockApi(settingsCatalog.filter((s) => s.key !== "Defaults.DatabaseServer"));
+    const { result } = renderForm(null);
+
+    await waitFor(() =>
+      expect(result.current.form.getValues("publication.platformVersion")).toBe("8.3.99.1")
+    );
+    act(() => {
+      result.current.form.setValue("name", "База");
+      result.current.form.setValue("clusterInfobaseId", "dddddddd-dddd-dddd-dddd-dddddddddddd");
+      result.current.form.setValue("databaseName", "acme");
+      result.current.form.setValue("publication.virtualPath", "/acme");
+    });
+
+    await act(() => result.current.onSubmit());
+
+    expect(result.current.form.getValues("databaseServer")).toBe("");
+    expect(mockedToastError).toHaveBeenCalledWith(
+      "Сервер СУБД не задан. Укажите его в «Параметрах»."
+    );
+    expect(mockedApi).not.toHaveBeenCalledWith(
+      "/api/v1/infobases",
+      expect.objectContaining({ method: "POST" })
     );
   });
 
