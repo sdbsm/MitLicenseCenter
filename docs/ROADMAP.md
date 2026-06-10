@@ -28,6 +28,8 @@ Operator concerns (backup, network-edge auth) are documented in `OPERATIONS.md`.
   наблюдательным механизмом — `MissingItems` в ответе `/infobases/unassigned` (обратный diff
   по тому же кэшу RAS, только при `Available:true`) + красная метка «Не найдена в кластере» и
   баннер на «Базах». Read-only наблюдение, без auto-fix (дух ADR-4), без миграций/мутаций.
+  Отложенная опция: серверный фильтр таблицы «Базы» по метке «не найдена в кластере»
+  (потребует join снапшота RAS в списочный запрос) — брать по запросу оператора.
 - **RAS Strategy B** — replace `rac.exe`-per-cycle with a long-lived TCP socket on 1545. The cross-call cluster-UUID cache (MLC-041) already roughly halved the steady-state spawn rate (the kill path and hot polling now cost ~1 spawn each), so the ≤26 procs/min budget has comfortable headroom; this further optimization stays gated on real-world latency measurement.
 - **Multi-cluster / multi-node topology** — every adapter currently assumes single-node; opening this up requires re-reviewing each adapter and the single-node operational constraint.
 - **UI: заспечено в `05`/`06`, но не построено в v1.** Дизайн-канон описывает эти фичи, код их пока не реализует (каждое место помечено «не в v1» по месту в `05_UI_REQUIREMENTS.md` / `06_UI_DESIGN.md`):
