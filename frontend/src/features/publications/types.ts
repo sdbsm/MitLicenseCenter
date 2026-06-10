@@ -1,3 +1,5 @@
+import type { InfobaseListItem } from "@/features/infobases/types";
+
 export type PublicationPublishStatus = "Unknown" | "Published" | "NotPublished" | "Error";
 export type PublicationSource = "Unknown" | "Webinst" | "Configurator";
 
@@ -22,30 +24,24 @@ export interface PublicationStatusResponse {
   details: string | null;
 }
 
-export interface PublicationsBackendListItem {
-  id: string;
-  tenantId: string;
-  tenantName: string;
-  name: string;
-  publication: {
-    id: string;
-    infobaseId: string;
-    siteName: string;
-    virtualPath: string;
-    platformVersion: string;
-    source: PublicationSource;
-    physicalPathOverride: string | null;
-    createdAt: string;
-    updatedAt: string | null;
-    lastCheckStatus: PublicationPublishStatus;
-    lastCheckAt: string | null;
-    lastCheckDetails: string | null;
+/**
+ * Плоское представление публикации из строки списка инфобаз (MLC-081): после слияния
+ * страниц источник данных один — `GET /api/v1/infobases`, а диалоги публикации/смены
+ * платформы и bulk-операции продолжают работать с `PublicationListItem`.
+ */
+export function toPublicationListItem(item: InfobaseListItem): PublicationListItem {
+  return {
+    id: item.publication.id,
+    infobaseId: item.id,
+    infobaseName: item.name,
+    tenantId: item.tenantId,
+    tenantName: item.tenantName,
+    siteName: item.publication.siteName,
+    virtualPath: item.publication.virtualPath,
+    platformVersion: item.publication.platformVersion,
+    source: item.publication.source,
+    lastCheckStatus: item.publication.lastCheckStatus,
+    lastCheckAt: item.publication.lastCheckAt ?? null,
+    lastCheckDetails: item.publication.lastCheckDetails ?? null,
   };
-}
-
-export interface PublicationsBackendListResponse {
-  items: PublicationsBackendListItem[];
-  total: number;
-  page: number;
-  pageSize: number;
 }

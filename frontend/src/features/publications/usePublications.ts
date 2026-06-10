@@ -1,41 +1,11 @@
-import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useInvalidatingMutation } from "@/lib/useInvalidatingMutation";
-import type {
-  PublicationListItem,
-  PublicationStatusResponse,
-  PublicationsBackendListResponse,
-} from "./types";
+import { infobasesQueryKey } from "@/features/infobases/useInfobases";
+import type { PublicationStatusResponse } from "./types";
 
-export const publicationsQueryKey = ["publications"] as const;
-
-function flatten(response: PublicationsBackendListResponse): PublicationListItem[] {
-  return response.items.map((item) => ({
-    id: item.publication.id,
-    infobaseId: item.id,
-    infobaseName: item.name,
-    tenantId: item.tenantId,
-    tenantName: item.tenantName,
-    siteName: item.publication.siteName,
-    virtualPath: item.publication.virtualPath,
-    platformVersion: item.publication.platformVersion,
-    source: item.publication.source,
-    lastCheckStatus: item.publication.lastCheckStatus,
-    lastCheckAt: item.publication.lastCheckAt,
-    lastCheckDetails: item.publication.lastCheckDetails,
-  }));
-}
-
-export function usePublications() {
-  return useQuery({
-    queryKey: publicationsQueryKey,
-    queryFn: () => api<PublicationsBackendListResponse>("/api/v1/infobases?page=1&pageSize=200"),
-    select: flatten,
-    refetchInterval: 60_000,
-    refetchOnWindowFocus: true,
-    placeholderData: (prev) => prev,
-  });
-}
+// MLC-081: отдельного списка публикаций больше нет — данные публикаций живут во
+// вложенном объекте строки списка инфобаз, поэтому мутации инвалидируют ["infobases"]
+// (префикс покрывает все страницы/фильтры серверной пагинации).
 
 // Read-only проверка факта публикации в IIS. Возвращает свежий статус и
 // инвалидирует список (статус уже записан на сервере).
@@ -45,7 +15,7 @@ export function useCheckStatus() {
       api<PublicationStatusResponse>(`/api/v1/publications/${publicationId}/check`, {
         method: "POST",
       }),
-    invalidate: () => [publicationsQueryKey],
+    invalidate: () => [infobasesQueryKey],
   });
 }
 
@@ -58,7 +28,7 @@ export function usePublish() {
         method: "POST",
         body: { confirm: vars.confirm },
       }),
-    invalidate: () => [publicationsQueryKey],
+    invalidate: () => [infobasesQueryKey],
   });
 }
 
@@ -70,6 +40,6 @@ export function useChangePlatform() {
         method: "POST",
         body: { platformVersion: vars.platformVersion },
       }),
-    invalidate: () => [publicationsQueryKey],
+    invalidate: () => [infobasesQueryKey],
   });
 }

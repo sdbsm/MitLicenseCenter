@@ -354,10 +354,12 @@ public sealed class BackupOrchestratorTests
         }
 
         // Терминальные состояния пишет фоновая задача бэкапа (вне тика насоса) — дожидаемся
-        // поллингом с потолком, чтобы зависший тест падал с внятным сообщением.
+        // поллингом с потолком, чтобы зависший тест падал с внятным сообщением. Потолок 30с —
+        // запас под медленный CI-раннер (MLC-080: 5с флейкнул на windows-latest, PR #61);
+        // зелёный путь не замедляется — ожидание выходит по условию.
         public async Task WaitUntilAsync(Func<AppDbContext, Task<bool>> condition, string because)
         {
-            var deadline = DateTime.UtcNow.AddSeconds(5);
+            var deadline = DateTime.UtcNow.AddSeconds(30);
             while (DateTime.UtcNow < deadline)
             {
                 if (await QueryAsync(condition))
@@ -368,7 +370,7 @@ public sealed class BackupOrchestratorTests
                 await Task.Delay(10);
             }
 
-            throw new XunitException($"Условие не наступило за 5 секунд: {because}");
+            throw new XunitException($"Условие не наступило за 30 секунд: {because}");
         }
 
         // Открыть ворота и дождаться, пока не останется Running — иначе Dispose уничтожит

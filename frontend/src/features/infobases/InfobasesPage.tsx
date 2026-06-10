@@ -13,8 +13,18 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useMe } from "@/features/auth/useAuth";
 import { BackupsDialog } from "@/features/backups/BackupsDialog";
+import { BulkChangePlatformDialog } from "@/features/publications/BulkChangePlatformDialog";
+import { BulkPublishDialog } from "@/features/publications/BulkPublishDialog";
+import { ChangePlatformDialog } from "@/features/publications/ChangePlatformDialog";
+import { IisManagementCard } from "@/features/publications/iis/IisManagementCard";
+import { PublicationsBulkBar } from "@/features/publications/PublicationsBulkBar";
+import { PublishPublicationDialog } from "@/features/publications/PublishPublicationDialog";
+import { toPublicationListItem, type PublicationListItem } from "@/features/publications/types";
+import { useCheckStatus } from "@/features/publications/usePublications";
+import type { BulkItemState } from "@/features/publications/useBulkOperation";
 import { useAllTenants } from "@/features/tenants/useTenants";
 import { DeleteInfobaseDialog } from "./DeleteInfobaseDialog";
 import { groupByTenant } from "./grouping";
@@ -29,6 +39,11 @@ const PAGE_SIZE = INFOBASES_PAGE_SIZE;
 const ALL_TENANTS = "__all__";
 type ViewMode = "flat" | "grouped";
 
+/**
+ * Единая страница «Базы» (MLC-081): таблица инфобаз, обогащённая публикационными
+ * колонками и операциями (бывшая страница «Публикации» влита сюда), плюс вкладка
+ * «IIS» с управлением пулами/сайтами/iisreset (MLC-047).
+ */
 export function InfobasesPage() {
   const { t } = useTranslation();
   const { data: me } = useMe();
@@ -61,6 +76,19 @@ export function InfobasesPage() {
   const [deleting, setDeleting] = useState<InfobaseListItem | null>(null);
   const [reassigning, setReassigning] = useState<InfobaseListItem | null>(null);
   const [backupsFor, setBackupsFor] = useState<InfobaseListItem | null>(null);
+
+  // MLC-081: операции с публикацией строки (бывшая страница «Публикации»).
+  const [checkingId, setCheckingId] = useState<string | null>(null);
+  const [publishTarget, setPublishTarget] = useState<PublicationListItem | null>(null);
+  const [platformTarget, setPlatformTarget] = useState<PublicationListItem | null>(null);
+  const checkStatus = useCheckStatus();
+
+  // MLC-046/081: множественный выбор для bulk-операций. Список серверно пагинирован,
+  // поэтому храним сами объекты (id публикации → строка): выбор переживает листание
+  // страниц и смену фильтра, объекты со «спрятанных» страниц остаются доступны диалогам.
+  const [selected, setSelected] = useState<Map<string, PublicationListItem>>(new Map());
+  const [bulkPublishOpen, setBulkPublishOpen] = useState(false);
+  const [bulkPlatformOpen, setBulkPlatformOpen] = useState(false);
 
   // Смена фильтра по клиенту возвращает на первую страницу — иначе можно «застрять»
   // на несуществующей странице сильно меньшего отфильтрованного набора.
@@ -98,7 +126,68 @@ export function InfobasesPage() {
     setFormOpen(true);
   };
 
+  const handleCheck = async (publication: PublicationListItem) => {
+    setCheckingId(publication.id);
+    try {
+      await checkStatus.mutateAsync(publication.id);
+      toast.success(t("publications.toasts.checkCompleted"));
+    } catch {
+      toast.error(t("errors.generic"));
+    } finally {
+      setCheckingId(null);
+    }
+  };
+
+  const toggleSelect = (item: InfobaseListItem, checked: boolean) =>
+    setSelected((prev) => {
+      const next = new Map(prev);
+      if (checked) next.set(item.publication.id, toPublicationListItem(item));
+      else next.delete(item.publication.id);
+      return next;
+    });
+
+  // «Выбрать все» оперирует строками текущей страницы.
+  const toggleAll = (checked: boolean) =>
+    setSelected((prev) => {
+      const next = new Map(prev);
+      for (const item of items) {
+        if (checked) next.set(item.publication.id, toPublicationListItem(item));
+        else next.delete(item.publication.id);
+      }
+      return next;
+    });
+
+  const clearSelection = () => setSelected(new Map());
+
+  // После прогона снимаем успешные из выделения — упавшие/пропущенные остаются для повтора.
+  const deselectSucceeded = (states: BulkItemState[]) =>
+    setSelected((prev) => {
+      const next = new Map(prev);
+      for (const s of states) if (s.status === "ok") next.delete(s.id);
+      return next;
+    });
+
+  const selectedPublications = useMemo(() => Array.from(selected.values()), [selected]);
+
+  const allSelected = items.length > 0 && items.every((i) => selected.has(i.publication.id));
+  const someSelected = items.some((i) => selected.has(i.publication.id));
+  const headerChecked: boolean | "indeterminate" = allSelected
+    ? true
+    : someSelected
+      ? "indeterminate"
+      : false;
+
   const isEmpty = !isLoading && !isError && items.length === 0;
+
+  // Публикационные операции и выделение передаются только админу; Viewer видит
+  // read-only таблицу (бэкапы доступны обеим ролям, ADR-27).
+  const rowPublicationProps = isAdmin
+    ? {
+        onCheck: (p: PublicationListItem) => void handleCheck(p),
+        onPublish: setPublishTarget,
+        onChangePlatform: setPlatformTarget,
+      }
+    : {};
 
   return (
     <div className="space-y-6">
@@ -115,159 +204,202 @@ export function InfobasesPage() {
         )}
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <Select value={tenantFilter} onValueChange={changeTenantFilter}>
-          <SelectTrigger className="w-72">
-            <SelectValue placeholder={t("infobases.filters.tenant")} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL_TENANTS}>{t("infobases.filters.allTenants")}</SelectItem>
-            {tenants.map((tenant) => (
-              <SelectItem key={tenant.id} value={tenant.id}>
-                {tenant.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {tenantFilter !== ALL_TENANTS && (
-          <Button variant="ghost" size="sm" onClick={() => changeTenantFilter(ALL_TENANTS)}>
-            {t("common.reset")}
-          </Button>
-        )}
-        <div className="ml-auto inline-flex rounded-md border p-0.5">
-          <Button
-            variant={viewMode === "flat" ? "secondary" : "ghost"}
-            size="sm"
-            onClick={() => setViewMode("flat")}
-          >
-            {t("infobases.view.flat")}
-          </Button>
-          <Button
-            variant={viewMode === "grouped" ? "secondary" : "ghost"}
-            size="sm"
-            onClick={() => setViewMode("grouped")}
-          >
-            {t("infobases.view.grouped")}
-          </Button>
-        </div>
-      </div>
+      <Tabs defaultValue="bases">
+        <TabsList>
+          <TabsTrigger value="bases">{t("infobases.tabs.bases")}</TabsTrigger>
+          <TabsTrigger value="iis">{t("infobases.tabs.iis")}</TabsTrigger>
+        </TabsList>
 
-      {isError && (
-        <div className="border-destructive/40 bg-destructive/5 rounded-md border p-4 text-sm">
-          <p className="font-medium">{t("infobases.errors.loadFailed")}</p>
-          <Button
-            variant="link"
-            className="px-0"
-            onClick={() => {
-              void refetch().then((r) => {
-                if (r.isSuccess) toast.success(t("common.refresh"));
-              });
-            }}
-          >
-            {t("common.refresh")}
-          </Button>
-        </div>
-      )}
-
-      {isEmpty ? (
-        <div className="rounded-md border">
-          <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
-            <DatabaseIcon className="text-muted-foreground size-8" />
-            <div className="space-y-1">
-              <p className="font-medium">{t("infobases.empty.title")}</p>
-              <p className="text-muted-foreground text-sm">
-                {tenants.length === 0
-                  ? t("infobases.empty.noTenantsHint")
-                  : t("infobases.empty.hint")}
-              </p>
-            </div>
-            {isAdmin && tenants.length > 0 && (
-              <Button size="sm" onClick={handleOpenCreate}>
-                <PlusIcon className="size-4" />
-                {t("infobases.actions.add")}
+        <TabsContent value="bases" className="space-y-6">
+          <div className="flex flex-wrap items-center gap-3">
+            <Select value={tenantFilter} onValueChange={changeTenantFilter}>
+              <SelectTrigger className="w-72">
+                <SelectValue placeholder={t("infobases.filters.tenant")} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_TENANTS}>{t("infobases.filters.allTenants")}</SelectItem>
+                {tenants.map((tenant) => (
+                  <SelectItem key={tenant.id} value={tenant.id}>
+                    {tenant.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {tenantFilter !== ALL_TENANTS && (
+              <Button variant="ghost" size="sm" onClick={() => changeTenantFilter(ALL_TENANTS)}>
+                {t("common.reset")}
               </Button>
             )}
+            <div className="ml-auto inline-flex rounded-md border p-0.5">
+              <Button
+                variant={viewMode === "flat" ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => setViewMode("flat")}
+              >
+                {t("infobases.view.flat")}
+              </Button>
+              <Button
+                variant={viewMode === "grouped" ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => setViewMode("grouped")}
+              >
+                {t("infobases.view.grouped")}
+              </Button>
+            </div>
           </div>
-        </div>
-      ) : viewMode === "grouped" && !isLoading ? (
-        <div className="space-y-3">
-          {groups.map((group) => {
-            const isCollapsed = collapsed.has(group.tenantId);
-            return (
-              <div key={group.tenantId} className="rounded-md border">
-                <button
-                  type="button"
-                  onClick={() => toggleGroup(group.tenantId)}
-                  aria-expanded={!isCollapsed}
-                  className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-medium"
-                >
-                  <ChevronDownIcon
-                    className={`size-4 transition-transform ${isCollapsed ? "-rotate-90" : ""}`}
-                  />
-                  <span>{group.tenantName}</span>
-                  <span className="text-muted-foreground tabular-nums">({group.items.length})</span>
-                </button>
-                {!isCollapsed && (
-                  <Table>
-                    <InfobaseTableHeader />
-                    <TableBody>
-                      {group.items.map((item) => (
+
+          {isError && (
+            <div className="border-destructive/40 bg-destructive/5 rounded-md border p-4 text-sm">
+              <p className="font-medium">{t("infobases.errors.loadFailed")}</p>
+              <Button
+                variant="link"
+                className="px-0"
+                onClick={() => {
+                  void refetch().then((r) => {
+                    if (r.isSuccess) toast.success(t("common.refresh"));
+                  });
+                }}
+              >
+                {t("common.refresh")}
+              </Button>
+            </div>
+          )}
+
+          {isAdmin && selected.size > 0 && (
+            <PublicationsBulkBar
+              count={selected.size}
+              onPublish={() => setBulkPublishOpen(true)}
+              onChangePlatform={() => setBulkPlatformOpen(true)}
+              onClear={clearSelection}
+            />
+          )}
+
+          {isEmpty ? (
+            <div className="rounded-md border">
+              <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
+                <DatabaseIcon className="text-muted-foreground size-8" />
+                <div className="space-y-1">
+                  <p className="font-medium">{t("infobases.empty.title")}</p>
+                  <p className="text-muted-foreground text-sm">
+                    {tenants.length === 0
+                      ? t("infobases.empty.noTenantsHint")
+                      : t("infobases.empty.hint")}
+                  </p>
+                </div>
+                {isAdmin && tenants.length > 0 && (
+                  <Button size="sm" onClick={handleOpenCreate}>
+                    <PlusIcon className="size-4" />
+                    {t("infobases.actions.add")}
+                  </Button>
+                )}
+              </div>
+            </div>
+          ) : viewMode === "grouped" && !isLoading ? (
+            <div className="space-y-3">
+              {groups.map((group) => {
+                const isCollapsed = collapsed.has(group.tenantId);
+                return (
+                  <div key={group.tenantId} className="rounded-md border">
+                    <button
+                      type="button"
+                      onClick={() => toggleGroup(group.tenantId)}
+                      aria-expanded={!isCollapsed}
+                      className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-medium"
+                    >
+                      <ChevronDownIcon
+                        className={`size-4 transition-transform ${isCollapsed ? "-rotate-90" : ""}`}
+                      />
+                      <span>{group.tenantName}</span>
+                      <span className="text-muted-foreground tabular-nums">
+                        ({group.items.length})
+                      </span>
+                    </button>
+                    {!isCollapsed && (
+                      <Table>
+                        <InfobaseTableHeader />
+                        <TableBody>
+                          {group.items.map((item) => (
+                            <InfobaseRow
+                              key={item.id}
+                              item={item}
+                              isAdmin={isAdmin}
+                              onEdit={handleOpenEdit}
+                              onDelete={setDeleting}
+                              onReassign={tenants.length > 1 ? setReassigning : undefined}
+                              onBackups={setBackupsFor}
+                              isChecking={checkingId === item.publication.id}
+                              {...rowPublicationProps}
+                            />
+                          ))}
+                        </TableBody>
+                      </Table>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="rounded-md border">
+              <Table>
+                <InfobaseTableHeader
+                  showTenant
+                  selection={
+                    isAdmin
+                      ? {
+                          checked: headerChecked,
+                          onToggleAll: toggleAll,
+                          disabled: items.length === 0,
+                        }
+                      : undefined
+                  }
+                />
+                <TableBody>
+                  {isLoading
+                    ? Array.from({ length: 4 }).map((_, idx) => (
+                        <TableRow key={`skeleton-${idx}`}>
+                          {Array.from({ length: infobaseColumnCount(true, isAdmin) }).map(
+                            (__, cidx) => (
+                              <TableCell key={cidx}>
+                                <Skeleton className="h-4 w-24" />
+                              </TableCell>
+                            )
+                          )}
+                        </TableRow>
+                      ))
+                    : items.map((item) => (
                         <InfobaseRow
                           key={item.id}
                           item={item}
+                          tenantName={tenantNameById.get(item.tenantId) ?? item.tenantName}
                           isAdmin={isAdmin}
                           onEdit={handleOpenEdit}
                           onDelete={setDeleting}
                           onReassign={tenants.length > 1 ? setReassigning : undefined}
                           onBackups={setBackupsFor}
+                          isChecking={checkingId === item.publication.id}
+                          selected={selected.has(item.publication.id)}
+                          onToggleSelect={isAdmin ? toggleSelect : undefined}
+                          {...rowPublicationProps}
                         />
                       ))}
-                    </TableBody>
-                  </Table>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="rounded-md border">
-          <Table>
-            <InfobaseTableHeader showTenant />
-            <TableBody>
-              {isLoading
-                ? Array.from({ length: 4 }).map((_, idx) => (
-                    <TableRow key={`skeleton-${idx}`}>
-                      {Array.from({ length: infobaseColumnCount(true) }).map((__, cidx) => (
-                        <TableCell key={cidx}>
-                          <Skeleton className="h-4 w-24" />
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  ))
-                : items.map((item) => (
-                    <InfobaseRow
-                      key={item.id}
-                      item={item}
-                      tenantName={tenantNameById.get(item.tenantId) ?? item.tenantName}
-                      isAdmin={isAdmin}
-                      onEdit={handleOpenEdit}
-                      onDelete={setDeleting}
-                      onReassign={tenants.length > 1 ? setReassigning : undefined}
-                      onBackups={setBackupsFor}
-                    />
-                  ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+                </TableBody>
+              </Table>
+            </div>
+          )}
 
-      <PaginationBar
-        page={currentPage}
-        pageSize={PAGE_SIZE}
-        total={total}
-        onPageChange={setPage}
-        isFetching={isFetching && !isLoading}
-      />
+          <PaginationBar
+            page={currentPage}
+            pageSize={PAGE_SIZE}
+            total={total}
+            onPageChange={setPage}
+            isFetching={isFetching && !isLoading}
+          />
+        </TabsContent>
+
+        <TabsContent value="iis">
+          <IisManagementCard isAdmin={isAdmin} />
+        </TabsContent>
+      </Tabs>
 
       <InfobaseFormDialog
         key={editing?.id ?? "create"}
@@ -302,6 +434,39 @@ export function InfobasesPage() {
         }}
         infobase={backupsFor}
       />
+
+      {isAdmin && (
+        <>
+          <PublishPublicationDialog
+            key={`publish-${publishTarget?.id ?? "new"}`}
+            open={publishTarget !== null}
+            onOpenChange={(open) => {
+              if (!open) setPublishTarget(null);
+            }}
+            publication={publishTarget}
+          />
+          <ChangePlatformDialog
+            key={`platform-${platformTarget?.id ?? "new"}`}
+            open={platformTarget !== null}
+            onOpenChange={(open) => {
+              if (!open) setPlatformTarget(null);
+            }}
+            publication={platformTarget}
+          />
+          <BulkPublishDialog
+            open={bulkPublishOpen}
+            onOpenChange={setBulkPublishOpen}
+            publications={selectedPublications}
+            onRunComplete={deselectSucceeded}
+          />
+          <BulkChangePlatformDialog
+            open={bulkPlatformOpen}
+            onOpenChange={setBulkPlatformOpen}
+            publications={selectedPublications}
+            onRunComplete={deselectSucceeded}
+          />
+        </>
+      )}
     </div>
   );
 }

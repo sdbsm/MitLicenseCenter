@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useInvalidatingMutation } from "@/lib/useInvalidatingMutation";
-import { publicationsQueryKey } from "../usePublications";
+import { infobasesQueryKey } from "@/features/infobases/useInfobases";
 import type {
   IisAppPool,
   IisDiscoveryResponse,
@@ -12,7 +12,7 @@ import type {
 
 // MLC-047 (ADR-24): хуки управления жизненным циклом IIS. Discovery (пулы/сайты) +
 // мутации recycle/start/stop/restart/iisreset. После мутации инвалидируем discovery
-// (бейджи состояний) и список публикаций (iisreset/stop меняют их статус).
+// (бейджи состояний) и список инфобаз (iisreset/stop меняют статус публикаций в нём).
 export const iisServerQueryKey = ["iis", "server"] as const;
 export const iisPoolsQueryKey = ["iis", "pools"] as const;
 export const iisSitesQueryKey = ["iis", "sites"] as const;
@@ -21,7 +21,7 @@ const invalidateIis = () => [
   iisServerQueryKey,
   iisPoolsQueryKey,
   iisSitesQueryKey,
-  publicationsQueryKey,
+  infobasesQueryKey,
 ];
 
 // Состояние IIS в целом (служба W3SVC) — для бейджа и кнопки-переключателя stop/start.

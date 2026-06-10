@@ -3,7 +3,6 @@ import {
   Building2Icon,
   DatabaseIcon,
   GaugeIcon,
-  GlobeIcon,
   LineChartIcon,
   MonitorPlayIcon,
   ScrollTextIcon,
@@ -45,7 +44,6 @@ export function Sidebar() {
             <SidebarMenu>
               <NavLinkItem to="/" end icon={GaugeIcon} label={t("nav.dashboard")} />
               <NavLinkItem to="/sessions" icon={MonitorPlayIcon} label={t("nav.sessions")} />
-              <NavLinkItem to="/publications" icon={GlobeIcon} label={t("nav.publications")} />
               <NavLinkItem to="/reports" icon={LineChartIcon} label={t("nav.reports")} />
               <NavLinkItem to="/performance" icon={ActivityIcon} label={t("nav.performance")} />
             </SidebarMenu>
