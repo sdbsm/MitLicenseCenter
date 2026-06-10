@@ -4175,3 +4175,80 @@ multi-node, UI-долги канона 06 (tanstack/recharts/ESLint-StatusBadge)
   физически RAS на стенде не останавливался, чтобы не трогать живой кластер. **Уборка:**
   `hiddenItems` пуст, обе базы снова нераспределены, своих инфобаз не создавал — стенд в исходном
   состоянии (immutable-аудит 14/15 сохранён by design).
+
+## Трек «Нераспределённые базы: discovery-first добавление» — секция реестра (закрыт 2026-06-11, перенесено из PROJECT_BACKLOG.md)
+
+**Вводная.** Базы кластера 1С, не заведённые в панель, невидимы оператору, а их сеансы
+молча отбрасываются реконсиляцией (`ReconciliationJob` пропускает несовпавшие
+`ClusterInfobaseId`) и **не считаются ни в чей лимит лицензий**. Трек делает их видимыми
+(баннер-счётчик на «Базах»), разбираемыми (диалог: назначить клиенту / скрыть служебную)
+и переводит «Добавить базу» на discovery-first флоу. Слепая зона «обратного дрейфа»
+(база удалена из кластера, но жива в панели) — **не в этом треке**; обязательность её
+решения зафиксирована в `ROADMAP.md` («Дрейф панель↔кластер»). Полная спека трека +
+макет — план-файл `C:\Users\andre\.claude\plans\glittery-floating-turtle.md`.
+
+**Решения куратора (2026-06-11, не пересматривались):**
+- `Infobase.TenantId` остаётся NOT NULL — состояния «база без клиента» в панели нет;
+  «назначить» = создание через существующую форму с префиллом.
+- `GET /api/v1/infobases/unassigned` (Admin-only): diff `IClusterClient.ListInfobasesAsync()`
+  минус заведённые `ClusterInfobaseId` минус скрытые. Ответ
+  `{ Items[], HiddenItems[], Available, Error, CheckedAtUtc }`; RAS недоступен →
+  `Available:false` (не пустой список), ошибка санитизируется (паттерн discovery).
+- Кэш серверный, TTL **60 с** (константа, НЕ ключ настроек); `?refresh=true` — мимо кэша.
+- Игнор-лист: таблица `HiddenClusterInfobases` (`ClusterInfobaseId` PK, `Name`-снапшот,
+  `HiddenAtUtc`, `HiddenBy`); `POST/DELETE /api/v1/infobases/unassigned/{id}/hide`.
+  Гарды: hide заведённой → 409; повторный hide → 409; unhide несуществующей → 404;
+  создание Infobase с `ClusterInfobaseId` из игнор-листа — строку удалить.
+- Аудит: `UnassignedInfobaseHidden = 14`, `UnassignedInfobaseUnhidden = 15` (группа
+  Infobase; int заморожены).
+- UI Admin-only (Viewer не видит ничего нового, endpoint закрыт); строго канон 06:
+  shadcn-only, lucide (`AlertTriangle`), семантика `warning`, словарь §12 («Назначить»,
+  не «Завести»), `<RelativeTime>`-свежесть. Баннер на «Базах» только при
+  `available && count > 0`. «Добавить базу» = discovery-first **только на «Базах»**
+  (fallback «Ввести вручную»; при `available:false` — сразу форма); `/tenants/:id` не трогать.
+- Валидация инфобаз и каталог настроек **не менялись**.
+
+**Ограничения трека (входили в каждую постановку):** каждая задача оставляет панель
+полностью рабочей; объём строго по постановке, без попутных рефакторингов; миграции
+нормализовать (UTF-8 без BOM + LF); обе роли проверяются; live-прогон на стенде;
+найденные кандидаты — записью в реестр, не в тот же ход.
+
+**Темп исполнения:** две сессии — сессия 1 = `MLC-092` (PR кода BE, #85), сессия 2 =
+`MLC-093` (PR кода FE, #87) → после вливания `MLC-094` (PR канона+ADR, #88).
+Постановочные PR куратора: #84 (открытие трека), #86 (NEXT TASK на финал).
+
+**Задачи трека (Done-строки на момент закрытия, дословно; полные отчёты — секция «отчёты задач» выше):**
+
+- `MLC-092` (UB-A) · Backend · M · **Done (2026-06-11)** — endpoint unassigned + игнор-лист
+  (BE). Сущность `HiddenClusterInfobase` + reversible-миграция; `GET …/unassigned`
+  (diff − заведённые − скрытые; серверный TTL-кэш 60 с, `refresh=true`); `POST/DELETE …/hide`
+  + гарды (409/404/400) + аудит 14/15; чистка игнор-листа в `CreateAsync`. `dotnet test`
+  610 зелёных; миграция на стенде, бэкап `MitLicenseCenter_20260611_pre-mlc092.bak`.
+  Полный отчёт + live — в `PROJECT_BACKLOG_ARCHIVE.md`. **Гочи для `MLC-093` (FE):**
+  ① ответ — `{ Items[], HiddenItems[], Available, Error, CheckedAtUtc }`; `Items` =
+  `{ clusterInfobaseId, name, description }` (**`description` nullable** — API опускает
+  null-поля: Zod `.nullish()`, урок MLC-067/071), `HiddenItems` плюс `hiddenAtUtc`/`hiddenBy`.
+  ② `available:false` ⇒ `Items` пуст, но `HiddenItems` приходят (блок «Скрытые» рендерить
+  всегда); баннер прятать при `!available || items.length===0`. ③ Серверный кэш — главный
+  (малый `staleTime`); `?refresh=true` для кнопки «Обновить»; инвалидировать query после
+  create/hide/unhide. ④ hide шлёт `{ name }`-снапшот в body; коды конфликтов —
+  `UNASSIGNED_ALREADY_ASSIGNED`/`UNASSIGNED_ALREADY_HIDDEN` (409), unhide unknown → 404.
+  ⑤ Весь слайс Admin-only (Viewer → 401/403) — баннер/диалог под гейтом `isAdmin`.
+- `MLC-093` (UB-B) · Frontend · M · **Done (2026-06-11)** — баннер + диалог + discovery-first
+  добавление (FE). Хук `useUnassignedInfobases` (серверный TTL-кэш главный, малый staleTime;
+  `?refresh=true` мимо кэша через ref-флаг; hide/unhide + инвалидация; Zod-схема с
+  `omittable(description)`); `UnassignedBanner` (warning amber, `AlertTriangle`, счётчик +
+  `<RelativeTime>` «Проверено», «Обновить»/«Разобрать»; рендер при `available && count>0`);
+  `UnassignedInfobasesDialog` (строка = имя + UUID-моно; «Назначить»/«Скрыть»; свёрнутый
+  «Скрытые: N» с «Вернуть»; пустое §6/§9; футер «Ввести вручную» + свежесть); префилл
+  `InfobaseFormDialog`/`useInfobaseForm` (props `prefill` + guess `databaseName`); «Добавить»
+  discovery-first c fallback (только «Базы»; `/tenants/:id` не тронут). i18n §12.
+  **347/347 Vitest** + type-check + lint зелёные. PR #87 влит. Полный отчёт — в архиве.
+- `MLC-094` (UB-C) · Docs · S · **Done (2026-06-11)** — канон + ADR отдельным PR. **ADR-29
+  «Discovery-first infobase adding + cluster-base ignore-list»** (rejected: nullable
+  `TenantId`, фоновый снапшот-джоб, ключ TTL; связь ADR-4 read-only / ADR-16); канон `03`
+  (сущность `HiddenClusterInfobase`, enum 14/15, 409-коды, биндинг), `04` (endpoint+кэш 60с+
+  аудит), `05` §3.2/§3.3 (баннер/диалог/флоу; `/tenants/:id` прежний), `06` §10 (иконки
+  `EyeOff`/`RotateCcw`) + §12 (словарь «Разобрать»/«Скрыть»/«Вернуть»/«Ввести вручную»,
+  фраза «Проверено N сек назад»), `ROADMAP` направление (а) закрыто / (б) обязательно.
+  Present-tense. Полный отчёт — в архиве.
