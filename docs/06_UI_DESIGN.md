@@ -22,7 +22,7 @@ The component library is locked to **shadcn/ui** (see ADR-11). This document fil
 | Data tables | shadcn `Table` rendered directly (hand-rolled `.map()` + a shared `PaginationBar`). `@tanstack/react-table` is a declared dependency but **not used in v1** — there is no headless sort/filter/visibility state yet. |
 | Forms | **react-hook-form** + **zod** for validation |
 | Toasts / notifications | **sonner** (shadcn default) |
-| Charts | `recharts` is wired on the License-Usage Reports page (`/reports`, `features/reports/`) — a time-series `ComposedChart` (filled-area peak + average/limit lines) in a `ResponsiveContainer`. Isolated into its own vendor chunk (`charts`, see `vite.config.ts`) so it (and its d3/redux load) stays out of the shared `vendor` chunk and keeps every chunk under the 500 kB budget. The Dashboard still renders metrics with `Card` + `Progress` (no chart there). |
+| Charts | `recharts` is wired on the License-Usage Reports page (`/reports`, `features/reports/`) — a time-series `ComposedChart` (filled-area peak + average/limit lines) in a `ResponsiveContainer`. Isolated into its own vendor chunk (`charts`, see `vite.config.ts`) so it (and its d3/redux load) stays out of the shared `vendor` chunk and keeps every chunk under the 500 kB budget. The Dashboard renders its KPI cards and host-health gauges with `Card` + `Progress` (`MetricGauge`) — no chart there. |
 | Date formatting | **date-fns** + `date-fns/locale/ru` |
 | i18n | **react-i18next**, single `ru.json` (see `01_PROJECT_CONTEXT.md`) |
 
@@ -44,7 +44,7 @@ Semantic colors map 1:1 to states across the entire app. **Same status, same col
 
 **Status badge component** (`<StatusBadge variant="...">`) is the single way to render any status anywhere — never inline `<span className="bg-green...">`. This is a convention upheld by review; there is **no ESLint rule enforcing it** in v1.
 
-**Saturation gauges** (Performance section, §3.8 of `05_UI_REQUIREMENTS.md`) reuse this same semantic mapping for their OK/Warn/Crit state — `success`/`warning`/`danger` tint the gauge bar and value. There is **no radial gauge** in the kit; gauges are built on the linear `Progress` primitive (`MetricGauge`), tinted by targeting the indicator slot. The state reflects **resource saturation** (queue / latency / paging), not raw utilization — so a low-percent but queue-saturated CPU still shows amber/red.
+**Saturation gauges** (Performance section, §3.8 of `05_UI_REQUIREMENTS.md`) reuse this same semantic mapping for their OK/Warn/Crit state — `success`/`warning`/`danger` tint the gauge bar and value. There is **no radial gauge** in the kit; gauges are built on the linear `Progress` primitive (`MetricGauge`), tinted by targeting the indicator slot. The state reflects **resource saturation** (queue / latency / paging), not raw utilization — so a low-percent but queue-saturated CPU still shows amber/red. The dashboard's host-health card (§3.1 of `05_UI_REQUIREMENTS.md`) reuses `MetricGauge` with the same thresholds and «измеряю…» semantics — same resource, same colour, both screens.
 
 ## 4. Typography
 
@@ -68,20 +68,20 @@ Semantic colors map 1:1 to states across the entire app. **Same status, same col
 └──────────────┴─────────────────────────────────────┘
 ```
 
-- **Sidebar:** shadcn `Sidebar` component, collapsible to icons. Sections grouped by domain — `Operations` (Dashboard, Sessions, Publications, Reports, **Быстродействие** — `Activity` icon, `Viewer`-readable; see §3.8 of `05_UI_REQUIREMENTS.md`), `Configuration` (Tenants, Infobases), `System` (Audit, **Пользователи** — admin-only, `UsersRound` icon; Settings — admin-only; Profile). The «Пользователи» entry is gated on the `Admin` role (a Viewer never sees it) and routes to `/users` (see §3.7 of `05_UI_REQUIREMENTS.md`).
+- **Sidebar:** shadcn `Sidebar` component, collapsible to icons. **Eight items**: **«Обзор»** (the dashboard, ungrouped at the top), then three domain groups — **«Мониторинг»** (Сеансы; **Быстродействие** — `Activity` icon, `Viewer`-readable, see §3.8 of `05_UI_REQUIREMENTS.md`; Отчёты), **«Управление»** (Клиенты, **Базы** — infobases + publications, see §3.3), **«Система»** (Аудит; **Пользователи** — admin-only, `UsersRound` icon, routes to `/users`, a Viewer never sees it; Параметры — admin-only). There is no «Профиль» nav item — the account lives in the **topbar user menu** (login + role, «Смена пароля» as a dialog, «Выйти»).
 - **Content area uses full available width.** Admin tables benefit from horizontal real estate; do not centre-cap to `max-w-7xl` like marketing sites do.
 - **Page header** in every content view: title (h1), subtitle/description (muted), and primary action button(s) top-right.
 - **No breadcrumbs in v1.** Two-level nav (sidebar group → page) is shallow enough.
 
 ## 6. Tables (the dominant pattern)
 
-Sessions, Audit, Infobases, Publications — all tables (and the future Administrators screen will follow the same pattern). Single canonical pattern:
+Sessions, Audit, Clients, «Базы», Users — all tables. Single canonical pattern:
 
 - **Built on:** shadcn `Table` rendered directly. Sort/filter/pagination are hand-managed in component state; `@tanstack/react-table` is **not used in v1**.
 - **Density:** compact (`text-sm`, `py-2` rows), fixed. There is **no density toggle** in v1 (no localStorage preference).
-- **Filter bar above the table:** free-text search left, segmented status filter centre, date-range right. Filter state lives in component state only — it is **not serialized to URL query params** in v1, so filtered views are not shareable by link.
+- **Filter bar above the table:** free-text search left, segmented status filter centre, date-range right. Filter state generally lives in component state; two filters are serialized to URL query params so the filtered view is linkable — the «Базы» client filter (`/infobases?tenantId=…`, the target of the «Базы» count link in the tenants table) and the audit action-type filter (`?actionType=`). Other filtered views are not shareable by link.
 - **Column visibility:** columns are fixed; there is **no column-visibility menu** in v1.
-- **Pagination:** server-side for every list backed by a paged endpoint — Audit, Clients, Infobases (and the per-client infobase list on the tenant drill-down). Each fetches one page via `?page=&pageSize=` and renders the `{ items, total, page, pageSize }` envelope; a shared `PaginationBar` (range summary `«from–to из total»` + page-number links) shows only when `total > pageSize`, and a previous page stays on screen while the next loads (no skeleton flash). Audit offers a `25 / 50 / 100` page-size selector; the Clients/Infobases lists use a fixed page size of 25. The «По клиенту» grouping toggle groups the **current page** of infobases.
+- **Pagination:** server-side for every list backed by a paged endpoint — Audit, Clients, Infobases (and the per-client infobase list on the tenant drill-down). Each fetches one page via `?page=&pageSize=` and renders the `{ items, total, page, pageSize }` envelope; a shared `PaginationBar` (range summary `«from–to из total»` + page-number links) shows only when `total > pageSize`, and a previous page stays on screen while the next loads (no skeleton flash). Audit offers a `25 / 50 / 100` page-size selector; the Clients/Infobases lists use a fixed page size of 25.
 - **Sticky header** when scrolling.
 - **Row hover** highlights the row; click does NOT navigate (avoids accidents). Navigation is via an explicit `<ChevronRight>` icon column or an action menu.
 - **Action menu per row** (`...` button → shadcn `DropdownMenu`) for row-level actions. Bulk actions (rare in this product) sit above the table only when at least one row is selected.
