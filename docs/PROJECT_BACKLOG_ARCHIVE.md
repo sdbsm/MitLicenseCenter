@@ -4088,3 +4088,90 @@ multi-node, UI-долги канона 06 (tanstack/recharts/ESLint-StatusBadge)
   `Initiator=admin`, `TenantId=NULL` (server-scope), русские формулировки. **Без cookie** все три
   маршрута → 401 (Admin-гейт). **Уборка:** тестовая инфобаза удалена, `HiddenClusterInfobases` = 0 строк,
   обе базы снова нераспределены — стенд в исходном состоянии (immutable-аудит 14/15 сохранён by design).
+
+- `MLC-093` (UB-B) — **баннер нераспределённых баз + диалог разбора + discovery-first
+  добавление (frontend)** — Done (2026-06-11). Сессия 2 трека, PR #87 кода FE. **Хук + типы**
+  (`features/infobases/unassigned/`): `useUnassignedInfobases` — TanStack-query на
+  `GET /api/v1/infobases/unassigned`, серверный TTL-кэш (MLC-092) — главный (малый `staleTime`
+  10 c); кнопка «Обновить» бьёт мимо кэша через `?refresh=true` (флаг в `useRef`, сбрасывается
+  после первого опроса, чтобы фоновые инвалидации шли по кэшу, а не дёргали RAS);
+  `useHideUnassignedInfobase`/`useUnhideUnassignedInfobase` через `useInvalidatingMutation` с
+  инвалидацией ключа `["infobases","unassigned"]` (под префиксом `["infobases"]` — create/update/
+  delete prefix-матчем тоже его задевают, заведённая база уходит из списка сразу). Zod-схема с
+  `omittable(description)` — API опускает null-поля (урок MLC-067/071), `description` базы
+  кластера nullable. **Баннер** (`UnassignedBanner`): warning-семантика (amber, 06 §3; иконка
+  `AlertTriangle`), счётчик (плюрализация ru `_one/_few/_many`) + свежесть `<RelativeTime>`
+  («Проверено N сек назад», тултип — точное время, 06 §8) + «Обновить»/«Разобрать»; родитель
+  рендерит строго при `isAdmin && available && count>0` (ложного нуля нет). **Диалог**
+  (`UnassignedInfobasesDialog`): обычный `Dialog` (действия обратимы, `AlertDialog` не нужен —
+  06 §7); строка = имя + UUID-моноширинный (06 §4) + опц. описание; действия «Назначить»
+  (→ форма с префиллом) и «Скрыть» (`EyeOff`, в игнор-лист без подтверждения); свёрнутый блок
+  «Скрытые: N» с «Вернуть» (`RotateCcw`) — рендерится всегда, даже при `available:false` (из
+  БД-снапшота); пустое состояние «Все базы разобраны» (06 §6/§9); при `available:false` —
+  заметка о недоступном RAS; футер: «Ввести вручную» (fallback на пустую форму) + свежесть +
+  «Обновить»; конфликты hide (`UNASSIGNED_ALREADY_ASSIGNED`/`UNASSIGNED_ALREADY_HIDDEN`) через
+  `matchConflictCode` → тост. **Префилл** (`InfobaseFormDialog`/`useInfobaseForm`): новый prop
+  `prefill` (по образцу `defaultTenantId`) — предвыбор базы кластера (UUID, тот же источник, что
+  пикер) + имя как название; best-effort угадывание `databaseName` одноразовым эффектом, когда
+  подъедет discovery БД (exact case-insensitive по `useDatabases` → штатная деривация virtual/
+  physical path); ключ формы включает `prefill.clusterInfobaseId` (remount на каждое «Назначить»).
+  **Страница «Базы»**: баннер между фильтрами и таблицей; «Добавить инфобазу» = discovery-first
+  (`handleOpenAdd`: при `available` → диалог разбора, иначе сразу пустая форма — поведение не
+  деградирует); query `enabled` только админу; диалог под гейтом `isAdmin`. `/tenants/:id` не
+  тронут. i18n `ru.json`: словарь §12 («Назначить»/«Скрыть»/«Вернуть»/«Разобрать»/«Ввести
+  вручную»), баннер/диалог/подзаголовок про лимиты/ошибки. **Тесты Vitest**: `UnassignedBanner`
+  (счётчик+свежесть, колбэки); `UnassignedInfobasesDialog` (назначить→onAssign, скрыть→POST
+  hide со снапшотом, блок скрытых раскрывается+вернуть→DELETE, «Ввести вручную»→fallback, пустое
+  состояние, `available:false`+блок скрытых); `InfobasesPage` гейтинг баннера (показ при
+  admin+available+count>0; скрыт при count=0/`available:false`/Viewer); префилл (UUID + guess
+  имени БД). **347/347 зелёных** локально, `type-check` + `lint` чисты (CI красный по биллингу —
+  известно, не чиним). Канон/ADR не трогались — отдельный PR `MLC-094`.
+
+- `MLC-094` (UB-C) — **канон + ADR-29 (docs)** — Done (2026-06-11). Сессия 2 трека, отдельный
+  PR канона после вливания `MLC-093`. **ADR-29 «Discovery-first infobase adding + cluster-base
+  ignore-list»** (`DECISIONS.md`, формат как ADR-27/28): решение (баннер/диалог/discovery-first
+  default-флоу; `Infobase.TenantId` остаётся NOT NULL — «назначить» = обычный create с префиллом;
+  read-endpoint diff RAS−заведённые−скрытые; серверный TTL-кэш 60 c как код-константа; таблица
+  игнор-листа; аудит 14/15; UI Admin-only); **rejected** — nullable `TenantId` (ветка null-tenant
+  через лицензирование/сеансы/запросы ради состояния, эквивалентного «ещё не создана»), фоновый
+  снапшот-джоб (always-on store + вторая поверхность дрейфа для вопроса, на который отвечает
+  кэш-опрос — резон ADR-26 «live needs no history»), ключ настройки для TTL (60 c — тюнинг-
+  константа, каталог whitelist-only); **связь ADR-4** (read-only наблюдение, без auto-fix — панель
+  показывает дрейф и даёт оператору разобрать, не правит кластер) и **ADR-16** (чтение кластера
+  только через единственный RAS-адаптер). Обратная зона (б) явно вне трека. **Канон present-tense
+  без changelog**: `03_DOMAIN_MODEL` — новая сущность §8 `HiddenClusterInfobase` (PK
+  `ClusterInfobaseId`, `Name`-снапшот, без FK; чистка при создании Infobase), enum `ActionType`
+  14/15 (группа Infobase 10–15, frozen), frozen-список enum-стабильности, 409-коды
+  `UNASSIGNED_ALREADY_ASSIGNED`/`UNASSIGNED_ALREADY_HIDDEN`, биндинг-контракт эндпоинтов;
+  `04_INFRASTRUCTURE` — подсекция «Unassigned cluster bases» под «1C Cluster Integration» (diff,
+  TTL-кэш 60 c только снапшота + diff на каждый запрос, honest degraded `Available:false`,
+  мутации hide/unhide + гарды + аудит); `05_UI_REQUIREMENTS` §3.3 (баннер/диалог/discovery-first
+  «Добавить базу» с fallback и деградацией; Admin-only) + §3.2 (пометка: на `/tenants/:id` флоу
+  прежний); `06_UI_DESIGN` §10 (иконки `EyeOff`/`RotateCcw`) + §12 (domain-словарь «Разобрать»/
+  «Скрыть»/«Вернуть»/«Ввести вручную»; фраза «Проверено N сек назад»); `ROADMAP` — в «Дрейф
+  панель↔кластер» направление (а) помечено **закрытым** треком (ADR-29), (б) — **обязательным**.
+  Валидация инфобаз и каталог настроек не трогались.
+
+- **Live-прогон на стенде `MLC-093`/`MLC-094`** (2026-06-11, реальный backend :5080 + RAS
+  доступен, FE Vite :5174 с прокси на API; стенд отдал 2 нераспределённые базы `bd1`/`test`).
+  **FE под Admin** (вход через форму, креды из памяти `dev-stand-admin-credentials`): на «Базах»
+  **баннер** между фильтрами и таблицей — «2 базы кластера не заведены в панель — их сеансы не
+  считаются в лимиты. · Проверено N секунд назад · Обновить · Разобрать» (реальное число баз
+  стенда). **«Разобрать»** открывает диалог «Нераспределённые базы кластера»: 2 строки имя +
+  моноширинный UUID + «Скрыть»/«Назначить»; футер «Ввести вручную» + «Обновить». **«Назначить»**
+  для `bd1` → форма «Новая инфобаза» с **префиллом**: клиент `mtpro`, база кластера предвыбрана
+  `bd1`, **имя БД угадано `bd1`** (exact case-insensitive из discovery) — форма не сабмитилась,
+  чтобы не плодить артефакты на стенде (полный цикл create→строка в таблице→счётчик −1 проверен в
+  live `MLC-092`). **API под admin-cookie**: `?refresh=true` даёт новый `checkedAtUtc` (22:22:47→
+  22:23:05, опрос мимо кэша) при неизменном кэш-времени без флага; `hide bd1` → 204 → `bd1` в
+  `hiddenItems` (`hiddenBy:admin`), `items` −1; повторный `hide` → 409 `UNASSIGNED_ALREADY_HIDDEN`
+  (рус. detail); пустое имя → 400 (рус.); `unhide` несуществующей → 404; `unhide bd1` → 204, после
+  `?refresh=true` `bd1` вернулась в `items`. **Аудит** `dbo.AuditLogs`: строки
+  `UnassignedInfobaseHidden`/`UnassignedInfobaseUnhidden` (=14/15), initiator `admin`, рус.
+  формулировки. **Гейт**: без cookie все маршруты → 401 (Admin-only `RequireAuthorization`);
+  Viewer→403 покрыт `UnassignedInfobasesAuthorizationTests` (BE) + гейтинг баннера для Viewer —
+  Vitest. **`available:false`-ветка** (RAS остановлен → баннер исчезает, «Добавить» открывает
+  ручную форму, диалог показывает заметку о недоступном RAS + «Ввести вручную») покрыта Vitest;
+  физически RAS на стенде не останавливался, чтобы не трогать живой кластер. **Уборка:**
+  `hiddenItems` пуст, обе базы снова нераспределены, своих инфобаз не создавал — стенд в исходном
+  состоянии (immutable-аудит 14/15 сохранён by design).
