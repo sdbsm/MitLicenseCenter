@@ -8,13 +8,16 @@ import { DatabaseServerField } from "./DatabaseServerField";
 import type { SettingDescriptor } from "./types";
 import { useSettings } from "./useSettings";
 
-// Раскладка секций /settings (MLC-055). Подключение к 1С / RAS объединяет креды
-// rac.exe (--cluster-user/--cluster-pwd, ADR-3.3), порт RAS (OneC.RAS.Endpoint →
-// RasPortField) и единый пикер платформы (OneC.RAS.ExePath + OneC.DefaultPlatformVersion
-// → PlatformPicker, версия в SECTIONS отдельно не перечисляется — её ведёт пикер).
-// Учёт лицензий вынесен отдельно (whitelist app-id). «Значения по умолчанию» теперь
-// только сервер БД + сайт IIS (версия платформы переехала в пикер). «Хранение данных»
-// объединяет два окна ретенции — аудит и историю использования лицензий для /reports.
+// Раскладка секций /settings (MLC-055, перегруппировка MLC-083). Подключение к 1С / RAS
+// объединяет креды rac.exe (--cluster-user/--cluster-pwd, ADR-3.3), порт RAS
+// (OneC.RAS.Endpoint → RasPortField) и единый пикер платформы (OneC.RAS.ExePath +
+// OneC.DefaultPlatformVersion → PlatformPicker, версия в SECTIONS отдельно не
+// перечисляется — её ведёт пикер). «SQL Server» — единственное место, где задан
+// SQL-инстанс (Defaults.DatabaseServer; ключ настройки исторический, переименование —
+// бек-этап 2): формы баз берут значение отсюда, «дефолтом для форм» он больше не
+// называется. Сайт IIS живёт в секции «Публикации IIS» рядом с корневой папкой.
+// «Хранение данных» объединяет два окна ретенции — аудит и историю использования
+// лицензий для /reports.
 const SECTIONS: { titleKey: string; keys: string[] }[] = [
   {
     titleKey: "settings.sections.cluster",
@@ -26,16 +29,16 @@ const SECTIONS: { titleKey: string; keys: string[] }[] = [
     ],
   },
   {
+    titleKey: "settings.sections.sql",
+    keys: ["Defaults.DatabaseServer"],
+  },
+  {
     titleKey: "settings.sections.license",
     keys: ["OneC.LicenseConsumingAppIds"],
   },
   {
     titleKey: "settings.sections.iis",
-    keys: ["IIS.DefaultVrdRoot"],
-  },
-  {
-    titleKey: "settings.sections.defaults",
-    keys: ["Defaults.DatabaseServer", "IIS.DefaultSiteName"],
+    keys: ["IIS.DefaultVrdRoot", "IIS.DefaultSiteName"],
   },
   {
     titleKey: "settings.sections.polling",
