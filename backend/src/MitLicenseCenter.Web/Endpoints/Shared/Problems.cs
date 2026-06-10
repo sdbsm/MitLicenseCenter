@@ -56,6 +56,11 @@ public static class ProblemCodes
     // MLC-088 (single-host) — SQL-инстанс (настройка Sql.Server) не задан: бэкап брать
     // не с чего (сервер БД больше не хранится per-база).
     public const string SqlServerNotConfigured = "SQL_SERVER_NOT_CONFIGURED";
+
+    // MLC-092 — игнор-лист «нераспределённых» баз кластера: нельзя скрыть базу,
+    // уже заведённую в панель / уже скрытую.
+    public const string UnassignedAlreadyAssigned = "UNASSIGNED_ALREADY_ASSIGNED";
+    public const string UnassignedAlreadyHidden = "UNASSIGNED_ALREADY_HIDDEN";
 }
 
 public static class Problems
@@ -241,6 +246,21 @@ public static class Problems
             ProblemCodes.BackupDeleteFailed,
             "Не удалось удалить файл бэкапа",
             "Файл бэкапа удалить не удалось — запись сохранена. Технические подробности записаны в журнал сервера.");
+
+    // MLC-092 — скрывать можно только «нераспределённую» базу: заведённая в панель
+    // в списке разбора не появляется, hide для неё — устаревшее состояние клиента.
+    public static ProblemDetails UnassignedAlreadyAssigned() =>
+        Conflict(
+            ProblemCodes.UnassignedAlreadyAssigned,
+            "База уже заведена",
+            "Эта база кластера уже заведена в панель — скрывать её не нужно. Обновите список.");
+
+    // MLC-092 — повторный hide: запись игнор-листа уже существует.
+    public static ProblemDetails UnassignedAlreadyHidden() =>
+        Conflict(
+            ProblemCodes.UnassignedAlreadyHidden,
+            "База уже скрыта",
+            "Эта база кластера уже скрыта. Обновите список.");
 
     // 404 для несуществующей учётки. Не 409, поэтому отдельный helper со Status=404 и
     // machine-readable code (frontend сопоставляет код, как и с конфликтами).

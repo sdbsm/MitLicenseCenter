@@ -14,6 +14,12 @@ public enum AuditActionType
     InfobaseDeleted = 12,
     InfobaseReassigned = 13,
 
+    // Игнор-лист «нераспределённых» баз кластера (MLC-092): скрытие служебной базы
+    // из списка разбора и её возврат. Server-scope (TenantId не пишется — база ещё
+    // не принадлежит клиенту). int 14/15 продолжают группу Infobase 10..13.
+    UnassignedInfobaseHidden = 14,
+    UnassignedInfobaseUnhidden = 15,
+
     PublicationCreated = 20,
     PublicationUpdated = 21,
     PublicationDeleted = 22,

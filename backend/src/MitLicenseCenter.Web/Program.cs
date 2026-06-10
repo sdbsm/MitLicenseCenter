@@ -59,6 +59,10 @@ builder.Services.AddProblemDetails(options =>
 // hot-path ридерами. AddInfrastructure его не регистрирует — кэш живёт в Web-слое.
 builder.Services.AddMemoryCache();
 
+// MLC-092: singleton-кэш снапшота опроса RAS для GET /infobases/unassigned
+// (TTL 60 с — константа, refresh=true мимо кэша). Живёт в Web-слое, как IMemoryCache.
+builder.Services.AddSingleton<UnassignedInfobasesCache>();
+
 // Cookie auth tuned for an SPA (401 JSON, not 302 redirect).
 builder.Services
     .AddAuthentication(IdentityConstants.ApplicationScheme)
@@ -186,6 +190,7 @@ app.MapHealthEndpoints(versionSet);
 app.MapUsersEndpoints(versionSet);
 app.MapTenantsEndpoints(versionSet);
 app.MapInfobasesEndpoints(versionSet);
+app.MapUnassignedInfobasesEndpoints(versionSet);
 app.MapPublicationsEndpoints(versionSet);
 app.MapIisEndpoints(versionSet);
 app.MapAuditEndpoints(versionSet);

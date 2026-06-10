@@ -32,6 +32,13 @@ internal static class AuditDescriptions
     public static string InfobaseReassigned(string name, string sourceName, string targetName, string initiator) =>
         $"Инфобаза «{name}» перенесена от клиента «{sourceName}» к клиенту «{targetName}» администратором {initiator}.";
 
+    // ── Игнор-лист «нераспределённых» баз кластера (MLC-092) ───────────────────────
+    public static string UnassignedInfobaseHidden(string name, string initiator) =>
+        $"База кластера «{name}» скрыта из списка нераспределённых администратором {initiator}.";
+
+    public static string UnassignedInfobaseUnhidden(string name, string initiator) =>
+        $"База кластера «{name}» возвращена в список нераспределённых администратором {initiator}.";
+
     // ── Публикации в составе агрегата Infobase ─────────────────────────────────────
     public static string PublicationCreatedForInfobase(string label, string infobaseName, string initiator) =>
         $"Публикация «{label}» создана для инфобазы «{infobaseName}» администратором {initiator}.";
