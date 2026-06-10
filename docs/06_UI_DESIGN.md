@@ -182,6 +182,7 @@ Use these exact phrasings throughout the UI for consistency. **Do not invent syn
 | Hide from unassigned | Скрыть |
 | Restore (un-hide) base | Вернуть |
 | Enter base manually | Ввести вручную |
+| Show missing-from-cluster bases | Показать |
 | Suspend tenant | Приостановить клиента |
 
 ### Statuses
@@ -193,6 +194,7 @@ Use these exact phrasings throughout the UI for consistency. **Do not invent syn
 | InSync | Соответствует |
 | Drift | Расхождение |
 | Missing | Отсутствует |
+| Not found in cluster | Не найдена в кластере |
 | Error | Ошибка |
 | Healthy | В норме |
 | RAS Healthy | OK |
