@@ -3746,3 +3746,107 @@ namespaces — триггер по размеру файла), `MLC-073` (пол
 постановка в архиве). **Живут в ROADMAP, не в реестре:** RAS Strategy B (`MLC-036`),
 multi-node, UI-долги канона 06 (tanstack/recharts/ESLint-StatusBadge), PERF-08+ (индекс
 перф-трека). **Этап 2 UX-трека** — gated, добавлен в ROADMAP «Backlog / deferred».
+
+---
+
+## Трек «UX-пересборка, этап 2: single-host бек-чистка» — отчёты задач
+
+- `MLC-087` (ST-A) — **SQL-инстанс: настройка `Sql.Server` — единственный источник** (опись §7
+  п.2/4/5) — Done (2026-06-10). Сессия 1 этапа 2 (объединённая с `MLC-088`, один PR, коммиты
+  раздельно — это коммит №1). **Переименование ключа `Defaults.DatabaseServer` → `Sql.Server`:**
+  `SettingKey.SqlServer` + запись каталога `SettingDefinitions` (whitelist; описание «SQL-инстанс,
+  на котором живут базы клиентов»; без сидируемого дефолта — зависит от инсталляции, паттерн
+  `OneC.RAS.ExePath`); сидер (идемпотентный) на свежей БД создаёт строку под новым ключом.
+  **Миграция значения** `20260610173315_MLC087RenameSqlServerSetting` — data-only (структура
+  таблицы `Settings` не менялась → EF сгенерил пустой Up/Down, наполнен вручную): `UPDATE dbo.Settings
+  SET [Key]='Sql.Server', [Description]=… WHERE [Key]='Defaults.DatabaseServer'` — **значение
+  сохраняется** (не пересоздание); reversible (Down — симметричный UPDATE назад); на свежей БД
+  затрагивает 0 строк (сеется позже под новым ключом) — корректно. Файлы миграции нормализованы
+  (UTF-8 без BOM + LF; снапшот после нормализации идентичен HEAD — модель не менялась). **`GET
+  /discovery/databases`:** убран query-параметр `server` — сервер берётся из настройки `Sql.Server`
+  на бекенде через `ISettingsSnapshot`; пустая настройка → `Available:false` + текст «Сервер СУБД не
+  задан. Укажите его в разделе „Параметры“» (форма уходит в ручной ввод имени БД). **Контракт
+  сужен:** `ISqlDatabaseDiscovery.ListDatabasesAsync(CancellationToken)` — без параметра сервера;
+  реализация `SqlDatabaseDiscovery` инжектит `ISettingsSnapshot`, читает `Sql.Server`,
+  `ArgumentException.ThrowIfNullOrWhiteSpace` как defense-in-depth (эндпоинт гейтит до вызова).
+  Сервер-резолюция read'ится в двух местах (эндпоинт — для точного сообщения-гейта; сервис — для
+  использования) — кэшированный снапшот, дубль-чтение ничтожно, каждый слой самодостаточен. `GET
+  /discovery/sql-instances` и `ISqlInstanceDiscovery.FindLocalInstances()` (у него параметра сервера
+  и не было — localhost-only) **не тронуты** — кормят пикер на /settings. **FE:** `useDatabases(enabled)`
+  без `server`/`?server=` (queryKey `["discovery","databases"]`); `useInfobaseForm` — `useDatabases(open)`,
+  `watchedDatabaseServer` снят из watch (скрытое поле `databaseServer` ещё живо — убирает `MLC-088`),
+  prefill читает `Sql.Server`; `InfobaseFormDialog` — снят `disabledHint` поля «Имя БД» (всегда
+  доступно, бекенд решает по `Available`); `/settings` секция «SQL Server» — `SECTIONS`/`FIELD_META`/
+  спец-рендер `DatabaseServerField` и i18n `labels`/`hints` перевешены на ключ `Sql.Server` (пикер
+  локальных SQL-инстансов цел). **Тесты:** `DiscoveryEndpointsTests` — мок `ISettingsSnapshot` отдаёт
+  `Sql.Server`; пустая настройка → `Available:false` без вызова discovery; cancellation пробрасывается;
+  `ListDatabasesAsync(ct)` без сервера. `DefaultPrefillCatalogTests` — `SettingKey.SqlServer` в
+  каталоге, non-secret text, без дефолта. FE `useDiscovery.test` — фетч без `?server=`. `dotnet test`
+  583 зелёных, FE `type-check`/`lint`/`test` (333) зелёные; `db-reset` — миграции накатываются чисто
+  (включая `MLC087`). **Скрытое поле `databaseServer` формы и контракт API на этом шаге сохранены**
+  (объём `MLC-088`). Канон не трогался (этап 2 → финальный док-PR `MLC-091`).
+
+- `MLC-088` (ST-B) — **колонка `Infobase.DatabaseServer` удалена** (опись §7 п.1, решение куратора
+  «чисто») — Done (2026-06-10). Сессия 1 этапа 2 (коммит №2, опирается на ключ `Sql.Server` из
+  `MLC-087`). **Дроп колонки:** доменная сущность `Infobase` без `DatabaseServer`; EF-конфиг
+  (`AppDbContext`) — снято `Property(x => x.DatabaseServer)` для Infobase (у `DatabaseBackup` —
+  оставлено). Миграция `20260610175039_MLC088DropInfobaseDatabaseServer` (EF-сгенерённая,
+  нормализована BOM/LF): Up `DropColumn`, Down `AddColumn nvarchar(200) NOT NULL DEFAULT ''`
+  (значения во всех строках одинаковы и восстановимы из настройки `Sql.Server` — потери нет, см.
+  решение куратора). **Хвост-grep `Infobase.DatabaseServer` по бекенду → единственный читатель
+  колонки:** `BackupsEndpoints.StartAsync` (постановка бэкапа в очередь) — переключён с
+  `infobase.DatabaseServer` на `settings.GetString(SettingKey.SqlServer)`; пустая настройка → новый
+  409 `SQL_SERVER_NOT_CONFIGURED` (`ProblemCodes` + `Problems.SqlServerNotConfigured`, по образцу
+  `BackupFolderNotConfigured`) до постановки. **Что НЕ тронуто (перечень из отчёта):**
+  `DatabaseBackup.DatabaseServer` — это **отдельная** колонка (снимок сервера на записи бэкапа,
+  используется в running-замке/retention/отображении), живёт самостоятельно; публикации/webinst
+  адресуют **кластер 1С** (`OneC.Cluster.Server`/`RAS.Endpoint`), не SQL-сервер; отчёты (`/reports`)
+  и перф-проба (`SqlPerformanceProbe`) колонку инфобазы не читали (перф/бэкап коннектятся через
+  `ConnectionStrings:Default`). **Контракты:** `databaseServer` убран из `InfobaseResponse`/
+  `InfobaseListItemResponse`/`CreateInfobaseRequest`/`UpdateInfobaseRequest` + маппинга `ToResponse`
+  + проекции списка + create/update entity-присвоений + хелпера `ValidateInfobase`. **Валидация —
+  обе стороны:** `InfobaseValidationRules.DatabaseServerMaxLength` снят ↔ FE `validation.ts`
+  (`DATABASE_SERVER_MAX_LENGTH` + zod-поле `databaseServer`) снят; parity-тесты (`InfobasesValidationTests`
+  ↔ `validation.test.ts`) обновлены. **FE-форма:** скрытое поле `databaseServer` убрано целиком из
+  `useInfobaseForm` (defaultValues create+edit, settings-эффект, оба submit-input'а, `defaultDatabaseServer`),
+  **toast-гейт «Сервер СУБД не задан» удалён** — создание базы больше не шлёт сервер. **Где теперь
+  живёт сообщение о пустой настройке** (переосмыслено per постановка): на **discovery имён БД**
+  (`Available:false` + текст из `MLC-087`, форма показывает ручной ввод) и на **бэкапе** (409 на BE);
+  в форме сообщения нет — поля сервера нет. `types.ts` (`infobaseSchema`/`CreateInfobaseInput`/
+  `UpdateInfobaseInput`), `BackupsDialog` (подзаголовок без `{{server}}` — сервер один на панель,
+  per-base показ — рудимент мульти-сервера) + i18n; орфанные i18n-ключи (`databaseServerRequired`/
+  `databaseServerNotConfigured`/`discovery.databaseServerMissing`) удалены. Деталь из `MLC-082` «правка
+  не мигрирует сервер базы молча» — **вопрос исчез** (колонки нет, нечего мигрировать). **Тесты:**
+  perf-harness seed + ~15 тестовых фикстур `Infobase`/request очищены от `DatabaseServer` (бэкап-фикстуры
+  `DatabaseBackup` не тронуты); `BackupsEndpointsTests` — `ConfiguredSettings` отдаёт `Sql.Server="SQL01"`,
+  оркестратор-стабы матчат значение настройки, +тест «пустой Sql.Server → 409 SQL_SERVER_NOT_CONFIGURED».
+  `dotnet test` 584 зелёных, FE `type-check`/`lint`/`test` (333) зелёные; `db-reset` — обе миграции
+  (`MLC087`+`MLC088`) накатываются чисто. **Хвост-тест полноты** (`DatabaseServer` по `backend/src`
+  вне миграций): остались только легитимные `DatabaseBackup.*` (entity/контракт/оркестратор/retention/
+  AppDbContext-индекс) — ноль `Infobase.DatabaseServer`. Канон/ADR не трогались (финальный док-PR `MLC-091`).
+
+- **Live-прогон на стенде `MLC-087`+`MLC-088`** (2026-06-10, реальный SQL `Server=.`, sysadmin
+  подтверждён; БД стенда + DPAPI key ring забэкаплены в `F:\MlcStage2Backups\` ПЕРЕД прогоном —
+  recovery-point; страховочный тег `v1-pre-singlehost-stage2`). **NB:** прежняя БД стенда была
+  пересоздана `db-reset`'ом ещё на шаге «чистота миграций» (до бэкапа) — это штатный dev-DB, не
+  прод; бэкап взят с текущего (мигрированного) состояния. **Миграция значения ключа —
+  доказана replay'ем** (роллбэк до `MLC076` → `UPDATE Defaults.DatabaseServer='localhost\REPLAYTEST'`
+  → накат `MLC087` → `Sql.Server`='localhost\REPLAYTEST', значение цело, старый ключ исчез →
+  накат `MLC088`, колонка `Infobases.DatabaseServer` дропнута). **API e2e (реальный backend+SQL):**
+  логин admin; `GET /settings` — `Sql.Server` есть, `Defaults.DatabaseServer` нет; `GET
+  /discovery/databases` **без `server=`** → `Available:true`, список реальных БД (`MlcE2e_Alpha/Beta/
+  Gamma`+`bd1/mitpro/test`); создание базы POST **без поля `databaseServer`** → 201, в ответе и в
+  списке поля нет; правка (PUT, статус→Maintenance) — ок; бэкап `MlcE2e_Alpha` через UI-API → реальный
+  `.bak` 119.3 МБ на диске, статус Succeeded, в записи `server=localhost` (из настройки); пустой
+  `Sql.Server` → бэкап **409 `SQL_SERVER_NOT_CONFIGURED`** и `discovery/databases` `Available:false`
+  с подсказкой; **Viewer** (`stage2-viewer`): список без `databaseServer`, бэкап разрешён (ADR-27,
+  `requestedBy=stage2-viewer`), создание базы и правка настроек — 403. **UI (preview, Vite):** `/settings`
+  секция «SQL Server» рендерится с новой подписью + значением `localhost` + discovery-пикером; форма
+  «Новая инфобаза» — **без поля сервера**, пикер «Имя базы данных (SQL Server)» сразу отдаёт реальные БД
+  (подпись «сервер задаётся в „Параметрах"»); сеть: `GET /api/v1/discovery/databases` **без** `?server=`;
+  **консоль чистая** (0 warn/error). **Не прогнано и почему:** реальная webinst-публикация и проверка
+  публикации в IIS — статус «Ошибка проверки» (на стенде не задан `OneC.RAS.ExePath` и backend не
+  элевирован под IIS); это **не относится к `MLC-087/088`** (публикация адресует кластер `OneC.*`, не
+  SQL-сервер; RAS/webinst в этой сессии не менялись — `OneC.Cluster.Server` снимает `MLC-089`).
+  **E2e-артефакты стенда** (тенант «Stage2 E2E», инфобаза «Stage2 Alpha», `stage2-viewer`, бэкапы в
+  `F:\MlcStage2Backups`, `Sql.Server=localhost`, `Backup.FolderPath`) оставлены для проверки куратором.

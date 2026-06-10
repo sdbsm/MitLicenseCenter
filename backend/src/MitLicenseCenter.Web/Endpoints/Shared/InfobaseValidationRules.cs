@@ -12,7 +12,6 @@ public static partial class InfobaseValidationRules
 {
     // Max-длины полей (совпадают с nvarchar-констрейнтами БД и DTO-аннотациями).
     public const int NameMaxLength = 200;
-    public const int DatabaseServerMaxLength = 200;
     public const int DatabaseNameMaxLength = 200;
     public const int SiteNameMaxLength = 200;
     public const int VirtualPathMaxLength = 200;

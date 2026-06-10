@@ -41,7 +41,6 @@ const infobase = {
   tenantId: tenant.id,
   name: "База 1",
   clusterInfobaseId: "dddddddd-dddd-dddd-dddd-dddddddddddd",
-  databaseServer: "sql-01",
   databaseName: "acme",
   status: "Active",
   createdAt: "2026-01-01T00:00:00Z",
@@ -64,7 +63,7 @@ const infobase = {
 } as InfobaseListItem;
 
 const settingsCatalog = [
-  { key: "Defaults.DatabaseServer", value: "sql-default" },
+  { key: "Sql.Server", value: "sql-default" },
   { key: "OneC.DefaultPlatformVersion", value: "8.3.99.1" },
   { key: "IIS.DefaultSiteName", value: "My Site" },
 ];
@@ -106,12 +105,11 @@ describe("useInfobaseForm", () => {
     expect(result.current.isEdit).toBe(false);
     expect(result.current.pending).toBe(false);
     // На mount'е настроек ещё нет — поле пустое.
-    expect(result.current.form.getValues("databaseServer")).toBe("");
+    expect(result.current.form.getValues("publication.platformVersion")).toBe("");
 
     await waitFor(() =>
-      expect(result.current.form.getValues("databaseServer")).toBe("sql-default")
+      expect(result.current.form.getValues("publication.platformVersion")).toBe("8.3.99.1")
     );
-    expect(result.current.form.getValues("publication.platformVersion")).toBe("8.3.99.1");
     expect(result.current.form.getValues("publication.siteName")).toBe("My Site");
   });
 
@@ -119,13 +117,13 @@ describe("useInfobaseForm", () => {
     const { result } = renderForm(infobase);
 
     expect(result.current.isEdit).toBe(true);
-    expect(result.current.form.getValues("databaseServer")).toBe("sql-01");
+    expect(result.current.form.getValues("databaseName")).toBe("acme");
     expect(result.current.form.getValues("publication.siteName")).toBe("Default Web Site");
 
     // Дать настройкам/точечной проверке резолвиться — значения должны остаться прежними.
     await waitFor(() => expect(mockedApi).toHaveBeenCalled());
     await Promise.resolve();
-    expect(result.current.form.getValues("databaseServer")).toBe("sql-01");
+    expect(result.current.form.getValues("databaseName")).toBe("acme");
     expect(result.current.form.getValues("publication.siteName")).toBe("Default Web Site");
   });
 
@@ -140,12 +138,12 @@ describe("useInfobaseForm", () => {
     );
   });
 
-  it("create: настройка Defaults.DatabaseServer не задана → submit блокируется с toast-подсказкой", async () => {
-    // MLC-082 — сервер СУБД в форме не показывается; databaseServer — скрытое поле из
-    // настройки. Если настройка пуста, zod-ошибка падает на невидимое поле — пользователь
-    // должен увидеть toast с отсылкой в «Параметры», а запрос не должен уходить в сеть.
+  it("create: сервер СУБД формой не запрашивается — submit проходит без настройки Sql.Server", async () => {
+    // MLC-088 — сервер СУБД убран из формы и контракта (SQL-инстанс задаётся одной
+    // настройкой Sql.Server, читается на бекенде). Незаданная настройка форму не блокирует:
+    // submit уходит в сеть без поля сервера, никакого toast-гейта.
     mockedApi.mockReset();
-    mockApi(settingsCatalog.filter((s) => s.key !== "Defaults.DatabaseServer"));
+    mockApi(settingsCatalog.filter((s) => s.key !== "Sql.Server"));
     const { result } = renderForm(null);
 
     await waitFor(() =>
@@ -160,14 +158,11 @@ describe("useInfobaseForm", () => {
 
     await act(() => result.current.onSubmit());
 
-    expect(result.current.form.getValues("databaseServer")).toBe("");
-    expect(mockedToastError).toHaveBeenCalledWith(
-      "Сервер СУБД не задан. Укажите его в «Параметрах»."
-    );
-    expect(mockedApi).not.toHaveBeenCalledWith(
-      "/api/v1/infobases",
-      expect.objectContaining({ method: "POST" })
-    );
+    expect(mockedToastError).not.toHaveBeenCalled();
+    const postCall = mockedApi.mock.calls.find(([path]) => path === "/api/v1/infobases");
+    expect(postCall).toBeDefined();
+    expect(postCall![1]).toMatchObject({ method: "POST" });
+    expect(postCall![1]?.body).not.toHaveProperty("databaseServer");
   });
 
   it("create: после ручной правки virtualPath автоподстановка пути отключается точечно", () => {

@@ -99,7 +99,7 @@ public sealed class HotEnforcementMeasurementTests
 
         var db = TestHelpers.NewInMemoryDb($"measure-{Guid.NewGuid():N}");
         db.Tenants.Add(new Tenant { Id = tenantId, Name = tenantName, MaxConcurrentLicenses = Limit, IsActive = true, CreatedAt = baseTime });
-        db.Infobases.Add(new Infobase { Id = Guid.NewGuid(), TenantId = tenantId, Name = infobaseName, ClusterInfobaseId = clusterInfobaseId, DatabaseServer = "sql", DatabaseName = "db", CreatedAt = baseTime });
+        db.Infobases.Add(new Infobase { Id = Guid.NewGuid(), TenantId = tenantId, Name = infobaseName, ClusterInfobaseId = clusterInfobaseId, DatabaseName = "db", CreatedAt = baseTime });
         await db.SaveChangesAsync();
 
         // Снимок уже знает маппинг IB→tenant (tenant hot → cold промоутил его ранее).

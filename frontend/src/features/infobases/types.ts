@@ -24,7 +24,6 @@ export const infobaseSchema = z.object({
   tenantId: z.string(),
   name: z.string(),
   clusterInfobaseId: z.string(),
-  databaseServer: z.string(),
   databaseName: z.string(),
   status: infobaseStatusSchema,
   createdAt: z.string(),
@@ -70,7 +69,6 @@ export interface CreateInfobaseInput {
   tenantId: string;
   name: string;
   clusterInfobaseId: string;
-  databaseServer: string;
   databaseName: string;
   status: InfobaseStatus;
   publication: PublicationInput;
@@ -79,7 +77,6 @@ export interface CreateInfobaseInput {
 export interface UpdateInfobaseInput {
   name: string;
   clusterInfobaseId: string;
-  databaseServer: string;
   databaseName: string;
   status: InfobaseStatus;
   publication: PublicationInput;

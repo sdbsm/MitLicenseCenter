@@ -75,14 +75,13 @@ public static class SettingDefinitions
                 Description: "Адрес 1С-кластера для публикации через webinst (строка соединения Srvr=…;Ref=…). Формат host или host:port. Пусто → берётся host из OneC.RAS.Endpoint.",
                 Kind: SettingValueKind.Text),
 
-            // Дефолты формы добавления инфобазы — подставляются как значения по
-            // умолчанию в новую базу, чтобы не вводить одинаковое каждый раз.
-            // На бекенде не используются (форма-only), но живут в общем каталоге
-            // настроек, чтобы их можно было задать через UI «Параметры».
-            [SettingKey.DefaultsDatabaseServer] = new(
-                SettingKey.DefaultsDatabaseServer,
+            // Единственное место, где задан SQL-инстанс, на котором живут базы клиентов
+            // (single-host, MLC-087): discovery имён БД и форма инфобазы берут сервер
+            // отсюда. На бекенде читается discovery'ем и постановкой бэкапа в очередь.
+            [SettingKey.SqlServer] = new(
+                SettingKey.SqlServer,
                 IsSecret: false,
-                Description: "SQL-сервер по умолчанию для новых инфобаз (например, sql.local или (local)).",
+                Description: "SQL-инстанс, на котором живут базы клиентов (например, sql.local или (local)).",
                 Kind: SettingValueKind.Text),
 
             [SettingKey.IisDefaultSiteName] = new(

@@ -8,7 +8,7 @@ import { useSqlInstances, toDiscoveryState } from "@/features/discovery/useDisco
 import type { SettingDescriptor } from "./types";
 import { useUpdateSetting } from "./useSettings";
 
-// MLC-056 — поле «Сервер СУБД по умолчанию» (Defaults.DatabaseServer): пикер
+// MLC-056 — поле SQL-инстанса (Sql.Server, переименован в MLC-087): пикер
 // локальных SQL-инстансов (GET /discovery/sql-instances) с ручным fallback.
 // Зеркалит VersionEscapeField из PlatformPicker: локальный draft + явный Save +
 // ресинк при внешней мутации. DiscoveryField.onChange срабатывает на каждый keystroke

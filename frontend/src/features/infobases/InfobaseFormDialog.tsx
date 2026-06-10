@@ -70,7 +70,6 @@ export function InfobaseFormDialog({
     platformVersionOptions,
     platformVersionsState,
     refetchPlatformVersions,
-    watchedDatabaseServer,
     computedDefaultPath,
     handleClusterChange,
     handleDatabaseNameChange,
@@ -160,11 +159,6 @@ export function InfobaseFormDialog({
                       error={databasesState.error}
                       onRefresh={refetchDatabases}
                       manualPlaceholder={t("infobases.form.databaseNamePlaceholder")}
-                      disabledHint={
-                        (watchedDatabaseServer ?? "").trim()
-                          ? null
-                          : t("discovery.databaseServerMissing")
-                      }
                     />
                   </FormControl>
                   <FormDescription>{t("infobases.form.databaseNameSubsystemHint")}</FormDescription>

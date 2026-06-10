@@ -52,6 +52,10 @@ public static class ProblemCodes
     public const string BackupActive = "BACKUP_ACTIVE";
     public const string BackupFolderNotConfigured = "BACKUP_FOLDER_NOT_CONFIGURED";
     public const string BackupDeleteFailed = "BACKUP_DELETE_FAILED";
+
+    // MLC-088 (single-host) — SQL-инстанс (настройка Sql.Server) не задан: бэкап брать
+    // не с чего (сервер БД больше не хранится per-база).
+    public const string SqlServerNotConfigured = "SQL_SERVER_NOT_CONFIGURED";
 }
 
 public static class Problems
@@ -221,6 +225,14 @@ public static class Problems
             ProblemCodes.BackupFolderNotConfigured,
             "Папка бэкапов не настроена",
             "Корневая папка для бэкапов не задана. Укажите настройку Backup.FolderPath в разделе «Параметры».");
+
+    // MLC-088 (single-host) — SQL-инстанс не задан: сервер БД больше не хранится per-база,
+    // бэкап берёт его из настройки Sql.Server. Честное «не настроено» вместо провала адаптера.
+    public static ProblemDetails SqlServerNotConfigured() =>
+        Conflict(
+            ProblemCodes.SqlServerNotConfigured,
+            "SQL-сервер не настроен",
+            "SQL-инстанс не задан. Укажите настройку «SQL Server» в разделе «Параметры».");
 
     // MLC-077 — server-side удаление .bak не удалось: запись о бэкапе сохранена, чтобы файл
     // не осиротел невидимым. Технические детали — в журнале сервера (адаптер never-throws).

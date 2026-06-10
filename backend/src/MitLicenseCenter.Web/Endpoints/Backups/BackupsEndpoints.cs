@@ -69,9 +69,9 @@ public static class BackupsEndpoints
         return summary is null ? TypedResults.NotFound() : TypedResults.Ok(summary);
     }
 
-    // Постановка бэкапа в очередь (Viewer — операторская кнопка, ADR-27). Пара server+db
-    // снимается с инфобазы; дубль активной базы → 409 BACKUP_ACTIVE; незаданная папка →
-    // честный 409 BACKUP_FOLDER_NOT_CONFIGURED ещё до постановки.
+    // Постановка бэкапа в очередь (Viewer — операторская кнопка, ADR-27). Имя БД снимается
+    // с инфобазы, SQL-инстанс — из настройки Sql.Server (single-host, MLC-088); дубль
+    // активной базы → 409 BACKUP_ACTIVE; незаданная папка/сервер → честный 409 ещё до постановки.
     internal static async Task<Results<Created<BackupSummary>, NotFound, Conflict<ProblemDetails>>> StartAsync(
         StartBackupRequest request,
         [FromServices] IBackupOrchestrator orchestrator,
@@ -96,8 +96,15 @@ public static class BackupsEndpoints
             return TypedResults.Conflict(Problems.BackupFolderNotConfigured());
         }
 
+        // Сервер БД — единый SQL-инстанс из настройки (MLC-088), не per-база.
+        var sqlServer = settings.GetString(SettingKey.SqlServer);
+        if (string.IsNullOrWhiteSpace(sqlServer))
+        {
+            return TypedResults.Conflict(Problems.SqlServerNotConfigured());
+        }
+
         var result = await orchestrator.RequestAsync(
-            infobase.Id, infobase.DatabaseServer, infobase.DatabaseName,
+            infobase.Id, sqlServer, infobase.DatabaseName,
             httpContext.ResolveInitiator(), ct).ConfigureAwait(false);
 
         if (result.Outcome == BackupRequestOutcome.AlreadyActive)

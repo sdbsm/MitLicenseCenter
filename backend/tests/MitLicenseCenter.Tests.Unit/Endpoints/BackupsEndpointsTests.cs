@@ -105,6 +105,29 @@ public sealed class BackupsEndpointsTests
     }
 
     [Fact]
+    public async Task Start_without_configured_sql_server_returns_conflict()
+    {
+        // MLC-088: сервер БД больше не хранится per-база — без настройки Sql.Server бэкап
+        // брать не с чего; честный 409 до постановки в очередь (папка задана, сервер нет).
+        using var db = TestHelpers.NewInMemoryDb();
+        var infobase = NewInfobase();
+        db.Infobases.Add(infobase);
+        await db.SaveChangesAsync();
+        var orchestrator = Substitute.For<IBackupOrchestrator>();
+        var settings = Substitute.For<ISettingsSnapshot>();
+        settings.GetString(SettingKey.BackupFolderPath).Returns(@"D:\Backups"); // Sql.Server → null
+
+        var result = await BackupsEndpoints.StartAsync(
+            new StartBackupRequest(infobase.Id), orchestrator, settings, db,
+            new TestHelpers.CapturingAuditLogger(), TestHelpers.NewHttpContext(), CancellationToken.None);
+
+        var conflict = result.Result.Should().BeOfType<Conflict<ProblemDetails>>().Subject;
+        conflict.Value!.Extensions["code"].Should().Be(ProblemCodes.SqlServerNotConfigured);
+        await orchestrator.DidNotReceiveWithAnyArgs()
+            .RequestAsync(default, default!, default!, default!, default);
+    }
+
+    [Fact]
     public async Task Start_when_database_already_active_returns_conflict_without_audit()
     {
         using var db = TestHelpers.NewInMemoryDb();
@@ -112,7 +135,7 @@ public sealed class BackupsEndpointsTests
         db.Infobases.Add(infobase);
         await db.SaveChangesAsync();
         var orchestrator = Substitute.For<IBackupOrchestrator>();
-        orchestrator.RequestAsync(infobase.Id, infobase.DatabaseServer, infobase.DatabaseName,
+        orchestrator.RequestAsync(infobase.Id, "SQL01", infobase.DatabaseName,
                 Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new BackupRequestResult(BackupRequestOutcome.AlreadyActive, Guid.NewGuid()));
         var audit = new TestHelpers.CapturingAuditLogger();
@@ -137,7 +160,7 @@ public sealed class BackupsEndpointsTests
         db.DatabaseBackups.Add(Row(infobase.Id, infobase.DatabaseName, BackupStatus.Queued, Now, backupId));
         await db.SaveChangesAsync();
         var orchestrator = Substitute.For<IBackupOrchestrator>();
-        orchestrator.RequestAsync(infobase.Id, infobase.DatabaseServer, infobase.DatabaseName,
+        orchestrator.RequestAsync(infobase.Id, "SQL01", infobase.DatabaseName,
                 "operator", Arg.Any<CancellationToken>())
             .Returns(new BackupRequestResult(BackupRequestOutcome.Queued, backupId));
         var audit = new TestHelpers.CapturingAuditLogger();
@@ -262,6 +285,8 @@ public sealed class BackupsEndpointsTests
     {
         var settings = Substitute.For<ISettingsSnapshot>();
         settings.GetString(SettingKey.BackupFolderPath).Returns(@"D:\Backups");
+        // MLC-088: сервер БД — единый SQL-инстанс из настройки (не per-база).
+        settings.GetString(SettingKey.SqlServer).Returns("SQL01");
         return settings;
     }
 
@@ -271,7 +296,6 @@ public sealed class BackupsEndpointsTests
         TenantId = Guid.NewGuid(),
         Name = "Acme",
         ClusterInfobaseId = Guid.NewGuid(),
-        DatabaseServer = "SQL01",
         DatabaseName = "acme_db",
         CreatedAt = Now,
     };

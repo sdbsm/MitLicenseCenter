@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Extensions.Logging.Abstractions;
 using MitLicenseCenter.Application.Discovery;
 using MitLicenseCenter.Application.Publishing;
+using MitLicenseCenter.Application.Settings;
+using MitLicenseCenter.Domain.Settings;
 using MitLicenseCenter.Web.Endpoints;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
@@ -16,17 +18,25 @@ namespace MitLicenseCenter.Tests.Unit.Endpoints;
 // «ошибку discovery», а пробрасывается.
 public sealed class DiscoveryEndpointsTests
 {
+    // Сервер берётся из настройки Sql.Server (single-host, MLC-087); снапшот мокаем.
+    private static ISettingsSnapshot SettingsWithSqlServer(string? server)
+    {
+        var settings = Substitute.For<ISettingsSnapshot>();
+        settings.GetString(SettingKey.SqlServer).Returns(server);
+        return settings;
+    }
+
     [Fact]
     public async Task GetDatabases_on_exception_returns_unavailable_without_raw_message()
     {
         const string secret = "Login failed for user 'sa' on server SQLPROD01\\MSSQL.";
         var discovery = Substitute.For<ISqlDatabaseDiscovery>();
-        discovery.ListDatabasesAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        discovery.ListDatabasesAsync(Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException(secret));
 
         var result = await DiscoveryEndpoints.GetDatabasesAsync(
-            "SQLPROD01",
             discovery,
+            SettingsWithSqlServer("SQLPROD01"),
             NullLoggerFactory.Instance,
             CancellationToken.None);
 
@@ -40,31 +50,31 @@ public sealed class DiscoveryEndpointsTests
     }
 
     [Fact]
-    public async Task GetDatabases_blank_server_returns_unavailable_without_calling_discovery()
+    public async Task GetDatabases_unset_setting_returns_unavailable_without_calling_discovery()
     {
         var discovery = Substitute.For<ISqlDatabaseDiscovery>();
 
         var result = await DiscoveryEndpoints.GetDatabasesAsync(
-            "  ",
             discovery,
+            SettingsWithSqlServer("  "),
             NullLoggerFactory.Instance,
             CancellationToken.None);
 
         result.Value!.Available.Should().BeFalse();
-        result.Value.Error.Should().Be("Не указан сервер БД.");
-        await discovery.DidNotReceiveWithAnyArgs().ListDatabasesAsync(default!, default);
+        result.Value.Error.Should().Be("Сервер СУБД не задан. Укажите его в разделе «Параметры».");
+        await discovery.DidNotReceiveWithAnyArgs().ListDatabasesAsync(default);
     }
 
     [Fact]
     public async Task GetDatabases_propagates_cancellation_instead_of_reporting_as_error()
     {
         var discovery = Substitute.For<ISqlDatabaseDiscovery>();
-        discovery.ListDatabasesAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        discovery.ListDatabasesAsync(Arg.Any<CancellationToken>())
             .ThrowsAsync(new OperationCanceledException());
 
         var act = async () => await DiscoveryEndpoints.GetDatabasesAsync(
-            "SQLPROD01",
             discovery,
+            SettingsWithSqlServer("SQLPROD01"),
             NullLoggerFactory.Instance,
             new CancellationToken(canceled: true));
 

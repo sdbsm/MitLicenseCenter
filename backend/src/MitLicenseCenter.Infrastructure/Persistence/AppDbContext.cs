@@ -59,7 +59,6 @@ public sealed class AppDbContext : IdentityDbContext<AppUser, AppRole, Guid>
             e.Property(x => x.TenantId).IsRequired();
             e.Property(x => x.Name).IsRequired().HasMaxLength(200);
             e.Property(x => x.ClusterInfobaseId).IsRequired();
-            e.Property(x => x.DatabaseServer).IsRequired().HasMaxLength(200);
             e.Property(x => x.DatabaseName).IsRequired().HasMaxLength(200);
             e.Property(x => x.Status).HasConversion<int>().IsRequired();
             e.Property(x => x.CreatedAt).IsRequired();

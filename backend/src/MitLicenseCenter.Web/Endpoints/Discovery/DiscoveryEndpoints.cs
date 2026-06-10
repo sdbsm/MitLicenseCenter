@@ -6,6 +6,8 @@ using Microsoft.Extensions.Logging;
 using MitLicenseCenter.Application.Clusters;
 using MitLicenseCenter.Application.Discovery;
 using MitLicenseCenter.Application.Publishing;
+using MitLicenseCenter.Application.Settings;
+using MitLicenseCenter.Domain.Settings;
 using MitLicenseCenter.Infrastructure.Identity;
 
 namespace MitLicenseCenter.Web.Endpoints;
@@ -45,21 +47,26 @@ public static partial class DiscoveryEndpoints
             new DiscoveryResponse<ClusterInfobaseDto>(items, result.Available, result.Error));
     }
 
+    // Single-host (MLC-087): сервер берётся из настройки Sql.Server, query-параметра нет.
+    // Пустая настройка → Available:false с подсказкой задать сервер в «Параметрах».
     internal static async Task<Ok<DiscoveryResponse<string>>> GetDatabasesAsync(
-        [FromQuery] string? server,
         [FromServices] ISqlDatabaseDiscovery discovery,
+        [FromServices] ISettingsSnapshot settings,
         [FromServices] ILoggerFactory loggerFactory,
         CancellationToken ct)
     {
+        var server = settings.GetString(SettingKey.SqlServer);
         if (string.IsNullOrWhiteSpace(server))
         {
             return TypedResults.Ok(new DiscoveryResponse<string>(
-                Array.Empty<string>(), Available: false, Error: "Не указан сервер БД."));
+                Array.Empty<string>(),
+                Available: false,
+                Error: "Сервер СУБД не задан. Укажите его в разделе «Параметры»."));
         }
 
         try
         {
-            var databases = await discovery.ListDatabasesAsync(server, ct).ConfigureAwait(false);
+            var databases = await discovery.ListDatabasesAsync(ct).ConfigureAwait(false);
             return TypedResults.Ok(new DiscoveryResponse<string>(databases, Available: true, Error: null));
         }
         // MLC-009: отмену запроса не выдаём за «ошибку discovery» — пробрасываем.

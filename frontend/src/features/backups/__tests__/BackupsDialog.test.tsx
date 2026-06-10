@@ -35,12 +35,25 @@ const infobase = {
   tenantId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
   name: "Бухгалтерия",
   clusterInfobaseId: "dddddddd-dddd-dddd-dddd-dddddddddddd",
-  databaseServer: "(local)",
   databaseName: "acme_bp",
   status: "Active",
   createdAt: "2026-01-01T00:00:00Z",
   updatedAt: null,
   tenantName: "Клиент A",
+  publication: {
+    id: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+    infobaseId: "22222222-2222-2222-2222-222222222222",
+    siteName: "Default Web Site",
+    virtualPath: "/acme-bp",
+    platformVersion: "8.3.23.1865",
+    source: "Unknown",
+    physicalPathOverride: null,
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: null,
+    lastCheckStatus: "Unknown",
+    lastCheckAt: null,
+    lastCheckDetails: null,
+  },
 } as InfobaseListItem;
 
 const succeeded: BackupSummary = {

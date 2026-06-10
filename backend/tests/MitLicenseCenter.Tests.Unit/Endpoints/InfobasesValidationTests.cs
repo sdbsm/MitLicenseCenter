@@ -22,7 +22,6 @@ public sealed class InfobasesValidationTests
             TenantId: Guid.NewGuid(),
             Name: "Бухгалтерия",
             ClusterInfobaseId: Guid.NewGuid(),
-            DatabaseServer: "sql.local",
             DatabaseName: "acme_bp",
             Status: InfobaseStatus.Active,
             Publication: ValidPublication());
@@ -40,7 +39,6 @@ public sealed class InfobasesValidationTests
             TenantId: Guid.NewGuid(),
             Name: string.Empty,
             ClusterInfobaseId: Guid.NewGuid(),
-            DatabaseServer: "sql.local",
             DatabaseName: "acme_bp",
             Status: InfobaseStatus.Active,
             Publication: ValidPublication());
@@ -80,7 +78,6 @@ public sealed class InfobasesValidationTests
     {
         InfobaseValidationRules.PlatformVersionRegex().ToString().Should().Be(@"^\d+\.\d+\.\d+\.\d+$");
         InfobaseValidationRules.NameMaxLength.Should().Be(200);
-        InfobaseValidationRules.DatabaseServerMaxLength.Should().Be(200);
         InfobaseValidationRules.DatabaseNameMaxLength.Should().Be(200);
         InfobaseValidationRules.SiteNameMaxLength.Should().Be(200);
         InfobaseValidationRules.VirtualPathMaxLength.Should().Be(200);

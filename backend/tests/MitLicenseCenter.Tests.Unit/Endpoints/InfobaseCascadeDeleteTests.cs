@@ -32,7 +32,6 @@ public sealed class InfobaseCascadeDeleteTests
             TenantId = tenant.Id,
             Name = "Acme BP",
             ClusterInfobaseId = Guid.NewGuid(),
-            DatabaseServer = "sql.local",
             DatabaseName = "acme_bp",
             Status = InfobaseStatus.Active,
             CreatedAt = DateTime.UtcNow,

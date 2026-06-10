@@ -23,7 +23,6 @@ type FormValues = InfobaseFormValues;
 
 // Поля, которые живут в свёрнутом блоке «Дополнительно». Если валидация падает
 // на одном из них, блок надо раскрыть, иначе пользователь не увидит ошибку.
-// databaseServer здесь нет — поле скрытое (MLC-082), его ошибка показывается toast'ом.
 const ADVANCED_ERROR_KEYS = new Set(["name", "status", "publication"]);
 
 interface UseInfobaseFormArgs {
@@ -37,9 +36,8 @@ interface UseInfobaseFormArgs {
 // MLC-023 — вся не-презентационная логика формы инфобазы (схема, defaultValues, prefill
 // настроек, touched-рефы автоподстановки, discovery, точечная проверка занятости, submit,
 // маппинг 409). InfobaseFormDialog остаётся тонким вью поверх этого хука.
-// MLC-082 (single-host): сервер СУБД в форме не показывается. databaseServer — скрытое
-// поле: при создании — из настройки Defaults.DatabaseServer, при редактировании —
-// текущее значение базы (правка не мигрирует сервер молча). Контракт API прежний.
+// MLC-088 (single-host): сервер СУБД из формы и контракта API убран совсем — SQL-инстанс
+// задан одной настройкой Sql.Server (discovery имён БД берёт его на бекенде).
 export function useInfobaseForm({
   open,
   onOpenChange,
@@ -55,7 +53,6 @@ export function useInfobaseForm({
 
   const { data: settings } = useSettings();
   const settingValue = (key: string) => settings?.find((s) => s.key === key)?.value ?? undefined;
-  const defaultDatabaseServer = settingValue("Defaults.DatabaseServer") ?? "";
   const defaultSiteName = settingValue("IIS.DefaultSiteName") ?? "Default Web Site";
   const defaultPlatformVersion = settingValue("OneC.DefaultPlatformVersion") ?? "";
   const defaultVrdRoot = settingValue("IIS.DefaultVrdRoot") ?? "C:\\inetpub\\wwwroot";
@@ -78,7 +75,6 @@ export function useInfobaseForm({
           tenantId: infobase.tenantId,
           name: infobase.name,
           clusterInfobaseId: infobase.clusterInfobaseId,
-          databaseServer: infobase.databaseServer,
           databaseName: infobase.databaseName,
           status: infobase.status,
           publication: {
@@ -92,7 +88,6 @@ export function useInfobaseForm({
           tenantId: defaultTenantId ?? tenants[0]?.id ?? "",
           name: "",
           clusterInfobaseId: "",
-          databaseServer: defaultDatabaseServer,
           databaseName: "",
           status: "Active",
           publication: {
@@ -110,9 +105,6 @@ export function useInfobaseForm({
   useEffect(() => {
     if (isEdit || settingsApplied.current || !settings) return;
     settingsApplied.current = true;
-    if (!form.getValues("databaseServer")) {
-      form.setValue("databaseServer", defaultDatabaseServer);
-    }
     if (!form.getValues("publication.platformVersion")) {
       form.setValue("publication.platformVersion", defaultPlatformVersion);
     }
@@ -123,17 +115,14 @@ export function useInfobaseForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings, isEdit]);
 
-  const [watchedDatabaseServer, watchedDatabaseName] = useWatch({
-    control: form.control,
-    name: ["databaseServer", "databaseName"],
-  });
+  const watchedDatabaseName = useWatch({ control: form.control, name: "databaseName" });
 
   // Discovery: тянем списки, пока диалог открыт (ленивая загрузка по `open`).
-  // Список БД дёргается сразу с сервером из скрытого поля (настройка/значение базы) —
-  // двухшаговый выбор «сначала сервер, потом база» исчез (MLC-082).
+  // Список БД дёргается без сервера — бекенд берёт SQL-инстанс из настройки Sql.Server
+  // (single-host, MLC-087); двухшаговый выбор «сначала сервер, потом база» исчез.
   const infobasesQuery = useClusterInfobases(open);
   const sitesQuery = useIisSites(open);
-  const databasesQuery = useDatabases(watchedDatabaseServer ?? "", open);
+  const databasesQuery = useDatabases(open);
   const platformVersionsQuery = usePlatformVersions(open);
 
   const infobasesState = toDiscoveryState(infobasesQuery);
@@ -247,7 +236,6 @@ export function useInfobaseForm({
           const input: UpdateInfobaseInput = {
             name: values.name.trim(),
             clusterInfobaseId: values.clusterInfobaseId.trim(),
-            databaseServer: values.databaseServer.trim(),
             databaseName: values.databaseName.trim(),
             status: values.status,
             publication: publicationInput,
@@ -259,7 +247,6 @@ export function useInfobaseForm({
             tenantId: values.tenantId,
             name: values.name.trim(),
             clusterInfobaseId: values.clusterInfobaseId.trim(),
-            databaseServer: values.databaseServer.trim(),
             databaseName: values.databaseName.trim(),
             status: values.status,
             publication: publicationInput,
@@ -281,11 +268,6 @@ export function useInfobaseForm({
       }
     },
     (errors) => {
-      // databaseServer — скрытое поле: его ошибку (настройка Defaults.DatabaseServer
-      // не задана) пользователь в форме не увидит — показываем toast с подсказкой.
-      if (errors.databaseServer) {
-        toast.error(t("infobases.errors.databaseServerNotConfigured"));
-      }
       // Раскрываем «Дополнительно», если ошибка валидации в одном из его полей.
       if (Object.keys(errors).some((k) => ADVANCED_ERROR_KEYS.has(k))) {
         setAdvancedOpen(true);
@@ -317,7 +299,6 @@ export function useInfobaseForm({
     platformVersionsState,
     refetchPlatformVersions: () => void platformVersionsQuery.refetch(),
     // авто-подстановка / производные
-    watchedDatabaseServer,
     computedDefaultPath,
     handleClusterChange,
     handleDatabaseNameChange,

@@ -155,7 +155,6 @@ public sealed class PerformanceEndpointsTests
             TenantId = tenant.Id,
             Name = "Бухгалтерия",
             ClusterInfobaseId = Guid.NewGuid(),
-            DatabaseServer = "localhost",
             DatabaseName = "mitpro",
             Status = InfobaseStatus.Active,
             CreatedAt = DateTime.UtcNow,

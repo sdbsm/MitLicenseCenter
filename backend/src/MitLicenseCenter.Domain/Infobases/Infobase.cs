@@ -10,7 +10,8 @@ public sealed class Infobase : IEntity
     public Guid TenantId { get; set; }
     public required string Name { get; set; }
     public Guid ClusterInfobaseId { get; set; }
-    public required string DatabaseServer { get; set; }
+    // MLC-088 (single-host): серверное поле снято — SQL-инстанс задаётся одной настройкой
+    // Sql.Server. Имя БД остаётся per-база.
     public required string DatabaseName { get; set; }
     public InfobaseStatus Status { get; set; }
     public DateTime CreatedAt { get; init; }

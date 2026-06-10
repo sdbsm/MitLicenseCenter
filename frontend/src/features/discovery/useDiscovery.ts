@@ -55,15 +55,13 @@ export function useClusterInfobases(enabled: boolean) {
   });
 }
 
-export function useDatabases(server: string, enabled: boolean) {
-  const trimmed = server.trim();
+// MLC-087 (single-host): сервер берётся из настройки Sql.Server на бекенде, query-параметра
+// нет. Незаданная настройка → ответ Available:false (форма уходит в ручной ввод имени БД).
+export function useDatabases(enabled: boolean) {
   return useQuery({
-    queryKey: ["discovery", "databases", trimmed],
-    queryFn: () =>
-      api<DiscoveryResponse<string>>(
-        `/api/v1/discovery/databases?server=${encodeURIComponent(trimmed)}`
-      ),
-    enabled: enabled && trimmed.length > 0,
+    queryKey: ["discovery", "databases"],
+    queryFn: () => api<DiscoveryResponse<string>>("/api/v1/discovery/databases"),
+    enabled,
     staleTime: STALE_TIME,
   });
 }

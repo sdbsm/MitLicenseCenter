@@ -32,12 +32,17 @@ public static class SettingKey
     // берём host из OneC.RAS.Endpoint (кластер и RAS обычно на одном сервере).
     public const string OneCClusterServer = "OneC.Cluster.Server";
 
+    // Единственное место, где задан SQL-инстанс, на котором живут базы клиентов
+    // (single-host, MLC-087). Форма добавления инфобазы и discovery имён БД берут
+    // сервер отсюда; «дефолтом для форм» он больше не является. Без сидируемого
+    // дефолта — зависит от инсталляции, оператор задаёт явно через «Параметры».
+    public const string SqlServer = "Sql.Server";
+
     // Дефолты для формы добавления инфобазы. Не влияют на доменную модель и
-    // адаптеры: значения по-прежнему хранятся per-база (Infobase/Publication),
-    // эти ключи лишь предзаполняют форму, чтобы оператор не вводил одно и то же
-    // для каждой базы. Сервер БД и версия платформы без сидируемого дефолта —
-    // зависят от конкретной инсталляции; сайт IIS почти всегда «Default Web Site».
-    public const string DefaultsDatabaseServer = "Defaults.DatabaseServer";
+    // адаптеры: значения по-прежнему хранятся per-публикация (Publication), эти
+    // ключи лишь предзаполняют форму, чтобы оператор не вводил одно и то же для
+    // каждой базы. Версия платформы без сидируемого дефолта — зависит от
+    // конкретной инсталляции; сайт IIS почти всегда «Default Web Site».
     public const string IisDefaultSiteName = "IIS.DefaultSiteName";
     public const string OneCDefaultPlatformVersion = "OneC.DefaultPlatformVersion";
 

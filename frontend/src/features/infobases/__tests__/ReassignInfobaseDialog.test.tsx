@@ -51,7 +51,6 @@ const infobase = {
   tenantId: tenantA.id,
   name: "База 1",
   clusterInfobaseId: "dddddddd-dddd-dddd-dddd-dddddddddddd",
-  databaseServer: "sql-01",
   databaseName: "acme",
   status: "Active",
   createdAt: "2026-01-01T00:00:00Z",

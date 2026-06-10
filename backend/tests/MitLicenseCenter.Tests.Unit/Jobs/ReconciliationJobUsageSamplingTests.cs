@@ -108,7 +108,6 @@ public sealed class ReconciliationJobUsageSamplingTests
             TenantId = tenantId,
             Name = "БП",
             ClusterInfobaseId = Guid.NewGuid(),
-            DatabaseServer = "sql.local",
             DatabaseName = "db",
             Status = InfobaseStatus.Active,
             CreatedAt = Now,

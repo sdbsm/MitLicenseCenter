@@ -5,13 +5,14 @@ using Xunit;
 
 namespace MitLicenseCenter.Tests.Unit.Settings;
 
-// ADR-17: три form-prefill ключа добавлены в общий каталог настроек. Они UI-only
-// (бекенд их не читает), но обязаны быть в catalog'е, иначе PUT /settings/{key}
-// вернёт 404 SETTING_UNKNOWN_KEY и оператор не сможет задать дефолты через UI.
+// ADR-17: non-secret text-ключи без сидируемого дефолта в общем каталоге настроек.
+// Sql.Server (MLC-087) — единственное место правды SQL-инстанса (читается бекендом);
+// SiteName/PlatformVersion — form-prefill (UI-only). Все обязаны быть в catalog'е, иначе
+// PUT /settings/{key} вернёт 404 SETTING_UNKNOWN_KEY и оператор не сможет их задать через UI.
 public sealed class DefaultPrefillCatalogTests
 {
     [Theory]
-    [InlineData(SettingKey.DefaultsDatabaseServer)]
+    [InlineData(SettingKey.SqlServer)]
     [InlineData(SettingKey.IisDefaultSiteName)]
     [InlineData(SettingKey.OneCDefaultPlatformVersion)]
     public void Form_prefill_key_is_in_catalog_and_is_a_non_secret_text_setting(string key)
@@ -29,10 +30,10 @@ public sealed class DefaultPrefillCatalogTests
     }
 
     [Fact]
-    public void DatabaseServer_and_PlatformVersion_have_no_seeded_default()
+    public void SqlServer_and_PlatformVersion_have_no_seeded_default()
     {
         // Зависят от конкретной инсталляции — оператор задаёт явно через «Параметры».
-        SettingDefinitions.All[SettingKey.DefaultsDatabaseServer].DefaultValue.Should().BeNull();
+        SettingDefinitions.All[SettingKey.SqlServer].DefaultValue.Should().BeNull();
         SettingDefinitions.All[SettingKey.OneCDefaultPlatformVersion].DefaultValue.Should().BeNull();
     }
 }
