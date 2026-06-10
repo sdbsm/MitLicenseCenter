@@ -169,7 +169,14 @@ export function TenantsPage() {
                         </Link>
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
-                        {NUMBER_FORMATTER.format(tenant.infobaseCount)}
+                        {/* Счётчик баз ведёт на отфильтрованный список «Баз» (MLC-085);
+                            сгруппированного режима на /infobases больше нет. */}
+                        <Link
+                          to={`/infobases?tenantId=${tenant.id}`}
+                          className="hover:text-primary hover:underline"
+                        >
+                          {NUMBER_FORMATTER.format(tenant.infobaseCount)}
+                        </Link>
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
                         {NUMBER_FORMATTER.format(tenant.maxConcurrentLicenses)}
