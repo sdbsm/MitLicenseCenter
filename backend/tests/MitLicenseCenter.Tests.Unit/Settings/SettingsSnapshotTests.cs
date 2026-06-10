@@ -132,8 +132,10 @@ public sealed class SettingsSnapshotTests
             .ToArray();
 
         // Дожидаемся, пока загрузчик окажется внутри GetAllAsync, даём остальным
-        // дойти до критической секции и отпускаем.
-        store.Entered.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+        // дойти до критической секции и отпускаем. Потолок 30с — запас под медленный
+        // CI-раннер (MLC-080: 5с флейкнул на windows-latest, PR #65); зелёный путь
+        // не замедляется — Wait выходит по сигналу.
+        store.Entered.Wait(TimeSpan.FromSeconds(30)).Should().BeTrue();
         await Task.Delay(50);
         store.Release.Set();
 
