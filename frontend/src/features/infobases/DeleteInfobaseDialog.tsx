@@ -13,13 +13,21 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { InfobaseListItem } from "./types";
 import { useDeleteInfobase } from "./useInfobases";
+
+// Диалог удаления читает только id (мутация) и name (подтверждение по имени), поэтому
+// принимает минимальный контракт — это позволяет переиспользовать его и из диалога
+// обратного дрейфа (MLC-096), где полного InfobaseListItem нет (запись может быть на
+// другой странице пагинации).
+export interface DeletableInfobase {
+  id: string;
+  name: string;
+}
 
 interface DeleteInfobaseDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  infobase: InfobaseListItem | null;
+  infobase: DeletableInfobase | null;
 }
 
 export function DeleteInfobaseDialog({ open, onOpenChange, infobase }: DeleteInfobaseDialogProps) {
@@ -67,9 +75,7 @@ export function DeleteInfobaseDialog({ open, onOpenChange, infobase }: DeleteInf
         </div>
 
         <AlertDialogFooter>
-          <AlertDialogCancel disabled={remove.isPending}>
-            {t("common.cancel")}
-          </AlertDialogCancel>
+          <AlertDialogCancel disabled={remove.isPending}>{t("common.cancel")}</AlertDialogCancel>
           <AlertDialogAction
             disabled={!matched || remove.isPending}
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:ring-destructive/20"

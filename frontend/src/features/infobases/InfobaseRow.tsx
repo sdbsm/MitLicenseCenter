@@ -116,6 +116,12 @@ interface InfobaseRowProps {
   /** Выделение для bulk-операций; чекбокс рендерится, когда передан обработчик. */
   selected?: boolean;
   onToggleSelect?: (item: InfobaseListItem, checked: boolean) => void;
+  /** MLC-096 — обратный дрейф: UUID базы отсутствует в снапшоте кластера 1С. Рендерит
+   *  красную метку «Не найдена в кластере» рядом со статусом. Пусто для Viewer и при
+   *  недоступном RAS (родитель отдаёт false). */
+  missing?: boolean;
+  /** Время опроса RAS — для тултипа метки «Не найдена в кластере». */
+  missingCheckedAtUtc?: string;
 }
 
 /** Строка таблицы инфобаз (база + её публикация), общая для списка баз и карточки клиента. */
@@ -133,6 +139,8 @@ export function InfobaseRow({
   isChecking = false,
   selected = false,
   onToggleSelect,
+  missing = false,
+  missingCheckedAtUtc,
 }: InfobaseRowProps) {
   const { t } = useTranslation();
   const pub = item.publication;
@@ -158,9 +166,30 @@ export function InfobaseRow({
           <TableCell className="text-muted-foreground">{tenantName}</TableCell>
         )}
         <TableCell>
-          <Badge className={statusBadgeClass(item.status)}>
-            {t(`infobases.status.${item.status}`)}
-          </Badge>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Badge className={statusBadgeClass(item.status)}>
+              {t(`infobases.status.${item.status}`)}
+            </Badge>
+            {missing && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="cursor-help">
+                    <StatusBadge variant="danger">{t("infobases.missing.label")}</StatusBadge>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-sm">
+                  {t("infobases.missing.tooltip")}
+                  {missingCheckedAtUtc && (
+                    <>
+                      {" ("}
+                      <RelativeTime value={missingCheckedAtUtc} />
+                      {")"}
+                    </>
+                  )}
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </div>
         </TableCell>
         <TableCell>
           <div className="flex items-center gap-1.5">

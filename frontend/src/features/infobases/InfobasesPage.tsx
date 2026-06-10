@@ -31,7 +31,7 @@ import {
 import { useCheckStatus } from "@/features/publications/usePublications";
 import type { BulkItemState } from "@/features/publications/useBulkOperation";
 import { useAllTenants } from "@/features/tenants/useTenants";
-import { DeleteInfobaseDialog } from "./DeleteInfobaseDialog";
+import { DeleteInfobaseDialog, type DeletableInfobase } from "./DeleteInfobaseDialog";
 import { InfobaseFormDialog } from "./InfobaseFormDialog";
 import { infobaseColumnCount } from "./infobaseFormat";
 import { InfobaseRow, InfobaseTableHeader } from "./InfobaseRow";
@@ -39,10 +39,12 @@ import { ReassignInfobaseDialog } from "./ReassignInfobaseDialog";
 import type { InfobaseListItem } from "./types";
 import type { InfobaseFormPrefill } from "./useInfobaseForm";
 import { INFOBASES_PAGE_SIZE, useInfobases } from "./useInfobases";
+import { MissingInfobasesBanner } from "./unassigned/MissingInfobasesBanner";
+import { MissingInfobasesDialog } from "./unassigned/MissingInfobasesDialog";
 import { UnassignedBanner } from "./unassigned/UnassignedBanner";
 import { UnassignedInfobasesDialog } from "./unassigned/UnassignedInfobasesDialog";
 import { useUnassignedInfobases } from "./unassigned/useUnassignedInfobases";
-import type { UnassignedInfobaseItem } from "./unassigned/types";
+import type { MissingInfobase, UnassignedInfobaseItem } from "./unassigned/types";
 
 const PAGE_SIZE = INFOBASES_PAGE_SIZE;
 const ALL_TENANTS = "__all__";
@@ -100,7 +102,8 @@ export function InfobasesPage() {
   const [editing, setEditing] = useState<InfobaseListItem | null>(null);
   const [prefill, setPrefill] = useState<InfobaseFormPrefill | null>(null);
   const [unassignedOpen, setUnassignedOpen] = useState(false);
-  const [deleting, setDeleting] = useState<InfobaseListItem | null>(null);
+  const [missingOpen, setMissingOpen] = useState(false);
+  const [deleting, setDeleting] = useState<DeletableInfobase | null>(null);
   const [reassigning, setReassigning] = useState<InfobaseListItem | null>(null);
   const [backupsFor, setBackupsFor] = useState<InfobaseListItem | null>(null);
 
@@ -163,6 +166,20 @@ export function InfobasesPage() {
   const unassignedItems = useMemo(() => unassigned.data?.items ?? [], [unassigned.data]);
   const showUnassignedBanner = isAdmin && unassignedAvailable && unassignedItems.length > 0;
 
+  // MLC-096 — обратный дрейф: записи панели, чьего UUID нет в кластере. BE отдаёт
+  // missingItems только при available:true, но проверяем явно — ложных красных меток быть
+  // не должно. membership-набор UUID пробрасывается в строки (Viewer / available:false →
+  // данных нет → набор пуст → меток нет).
+  const missingItems = useMemo(
+    () => (isAdmin && unassignedAvailable ? (unassigned.data?.missingItems ?? []) : []),
+    [isAdmin, unassignedAvailable, unassigned.data]
+  );
+  const missingSet = useMemo(
+    () => new Set(missingItems.map((m) => m.clusterInfobaseId)),
+    [missingItems]
+  );
+  const showMissingBanner = missingItems.length > 0;
+
   const openManualForm = () => {
     setEditing(null);
     setPrefill(null);
@@ -189,6 +206,13 @@ export function InfobasesPage() {
   const handleManualEntry = () => {
     setUnassignedOpen(false);
     openManualForm();
+  };
+
+  // «Удалить» из диалога обратного дрейфа — существующий delete-флоу (подтверждение по
+  // имени + аудит); после удаления инвалидация unassigned-query уберёт строку и метку.
+  const handleDeleteMissing = (item: MissingInfobase) => {
+    setMissingOpen(false);
+    setDeleting({ id: item.infobaseId, name: item.name });
   };
 
   const handleOpenEdit = (infobase: InfobaseListItem) => {
@@ -343,6 +367,14 @@ export function InfobasesPage() {
             />
           )}
 
+          {showMissingBanner && unassigned.data && (
+            <MissingInfobasesBanner
+              count={missingItems.length}
+              checkedAtUtc={unassigned.data.checkedAtUtc}
+              onShow={() => setMissingOpen(true)}
+            />
+          )}
+
           {isAdmin && selected.size > 0 && (
             <PublicationsBulkBar
               count={selected.size}
@@ -413,6 +445,8 @@ export function InfobasesPage() {
                           isChecking={checkingId === item.publication.id}
                           selected={selected.has(item.publication.id)}
                           onToggleSelect={isAdmin ? toggleSelect : undefined}
+                          missing={missingSet.has(item.clusterInfobaseId)}
+                          missingCheckedAtUtc={unassigned.data?.checkedAtUtc}
                           {...rowPublicationProps}
                         />
                       ))}
@@ -458,6 +492,14 @@ export function InfobasesPage() {
           onRefresh={() => void unassigned.refresh()}
           onAssign={handleAssign}
           onManualEntry={handleManualEntry}
+        />
+      )}
+      {isAdmin && (
+        <MissingInfobasesDialog
+          open={missingOpen}
+          onOpenChange={setMissingOpen}
+          items={missingItems}
+          onDelete={handleDeleteMissing}
         />
       )}
       <DeleteInfobaseDialog
