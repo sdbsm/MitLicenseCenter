@@ -37,7 +37,12 @@ import { infobaseColumnCount } from "./infobaseFormat";
 import { InfobaseRow, InfobaseTableHeader } from "./InfobaseRow";
 import { ReassignInfobaseDialog } from "./ReassignInfobaseDialog";
 import type { InfobaseListItem } from "./types";
+import type { InfobaseFormPrefill } from "./useInfobaseForm";
 import { INFOBASES_PAGE_SIZE, useInfobases } from "./useInfobases";
+import { UnassignedBanner } from "./unassigned/UnassignedBanner";
+import { UnassignedInfobasesDialog } from "./unassigned/UnassignedInfobasesDialog";
+import { useUnassignedInfobases } from "./unassigned/useUnassignedInfobases";
+import type { UnassignedInfobaseItem } from "./unassigned/types";
 
 const PAGE_SIZE = INFOBASES_PAGE_SIZE;
 const ALL_TENANTS = "__all__";
@@ -93,6 +98,8 @@ export function InfobasesPage() {
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<InfobaseListItem | null>(null);
+  const [prefill, setPrefill] = useState<InfobaseFormPrefill | null>(null);
+  const [unassignedOpen, setUnassignedOpen] = useState(false);
   const [deleting, setDeleting] = useState<InfobaseListItem | null>(null);
   const [reassigning, setReassigning] = useState<InfobaseListItem | null>(null);
   const [backupsFor, setBackupsFor] = useState<InfobaseListItem | null>(null);
@@ -148,13 +155,45 @@ export function InfobasesPage() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
 
-  const handleOpenCreate = () => {
+  // MLC-093 — нераспределённые базы кластера: запрос только для админа (Viewer ничего
+  // нового не видит, endpoint Admin-only). Питает баннер на «Базах» и discovery-first
+  // флоу кнопки «Добавить».
+  const unassigned = useUnassignedInfobases(isAdmin);
+  const unassignedAvailable = unassigned.data?.available ?? false;
+  const unassignedItems = useMemo(() => unassigned.data?.items ?? [], [unassigned.data]);
+  const showUnassignedBanner = isAdmin && unassignedAvailable && unassignedItems.length > 0;
+
+  const openManualForm = () => {
     setEditing(null);
+    setPrefill(null);
     setFormOpen(true);
+  };
+
+  // «Добавить базу» = discovery-first: при доступном RAS открываем диалог разбора,
+  // при недоступном (или пока неизвестно — данные ещё грузятся, available:false) —
+  // сразу ручная форма, поведение не деградирует.
+  const handleOpenAdd = () => {
+    if (unassignedAvailable) setUnassignedOpen(true);
+    else openManualForm();
+  };
+
+  // «Назначить» из диалога — форма с префиллом выбранной базы кластера.
+  const handleAssign = (item: UnassignedInfobaseItem) => {
+    setUnassignedOpen(false);
+    setEditing(null);
+    setPrefill({ clusterInfobaseId: item.clusterInfobaseId, name: item.name });
+    setFormOpen(true);
+  };
+
+  // «Ввести вручную» из диалога — текущая пустая форма.
+  const handleManualEntry = () => {
+    setUnassignedOpen(false);
+    openManualForm();
   };
 
   const handleOpenEdit = (infobase: InfobaseListItem) => {
     setEditing(infobase);
+    setPrefill(null);
     setFormOpen(true);
   };
 
@@ -229,7 +268,7 @@ export function InfobasesPage() {
           <p className="text-muted-foreground text-sm">{t("infobases.subtitle")}</p>
         </div>
         {isAdmin && (
-          <Button onClick={handleOpenCreate} disabled={tenants.length === 0}>
+          <Button onClick={handleOpenAdd} disabled={tenants.length === 0}>
             <PlusIcon className="size-4" />
             {t("infobases.actions.add")}
           </Button>
@@ -294,6 +333,16 @@ export function InfobasesPage() {
             </div>
           )}
 
+          {showUnassignedBanner && unassigned.data && (
+            <UnassignedBanner
+              count={unassignedItems.length}
+              checkedAtUtc={unassigned.data.checkedAtUtc}
+              onRefresh={() => void unassigned.refresh()}
+              onResolve={() => setUnassignedOpen(true)}
+              isRefreshing={unassigned.isFetching}
+            />
+          )}
+
           {isAdmin && selected.size > 0 && (
             <PublicationsBulkBar
               count={selected.size}
@@ -316,7 +365,7 @@ export function InfobasesPage() {
                   </p>
                 </div>
                 {isAdmin && tenants.length > 0 && (
-                  <Button size="sm" onClick={handleOpenCreate}>
+                  <Button size="sm" onClick={handleOpenAdd}>
                     <PlusIcon className="size-4" />
                     {t("infobases.actions.add")}
                   </Button>
@@ -387,13 +436,30 @@ export function InfobasesPage() {
       </Tabs>
 
       <InfobaseFormDialog
-        key={editing?.id ?? "create"}
+        key={editing?.id ?? (prefill ? `create-${prefill.clusterInfobaseId}` : "create")}
         open={formOpen}
         onOpenChange={setFormOpen}
         infobase={editing}
         tenants={tenants}
         defaultTenantId={tenantFilter !== ALL_TENANTS ? tenantFilter : undefined}
+        prefill={prefill}
       />
+
+      {isAdmin && (
+        <UnassignedInfobasesDialog
+          open={unassignedOpen}
+          onOpenChange={setUnassignedOpen}
+          items={unassignedItems}
+          hiddenItems={unassigned.data?.hiddenItems ?? []}
+          available={unassignedAvailable}
+          checkedAtUtc={unassigned.data?.checkedAtUtc ?? null}
+          isLoading={unassigned.isLoading}
+          isRefreshing={unassigned.isFetching}
+          onRefresh={() => void unassigned.refresh()}
+          onAssign={handleAssign}
+          onManualEntry={handleManualEntry}
+        />
+      )}
       <DeleteInfobaseDialog
         key={deleting?.id ?? "none"}
         open={deleting !== null}

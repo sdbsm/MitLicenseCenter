@@ -29,7 +29,7 @@ import { Separator } from "@/components/ui/separator";
 import { DiscoveryField } from "@/features/discovery/DiscoveryField";
 import type { Tenant } from "@/features/tenants/types";
 import type { InfobaseListItem } from "./types";
-import { useInfobaseForm } from "./useInfobaseForm";
+import { useInfobaseForm, type InfobaseFormPrefill } from "./useInfobaseForm";
 import { PublicationFieldset } from "./PublicationFieldset";
 
 interface InfobaseFormDialogProps {
@@ -38,6 +38,7 @@ interface InfobaseFormDialogProps {
   infobase?: InfobaseListItem | null;
   tenants: Tenant[];
   defaultTenantId?: string;
+  prefill?: InfobaseFormPrefill | null;
 }
 
 // MLC-023 — тонкий вью главной формы инфобазы. Вся логика (схема, prefill, touched,
@@ -49,6 +50,7 @@ export function InfobaseFormDialog({
   infobase,
   tenants,
   defaultTenantId,
+  prefill,
 }: InfobaseFormDialogProps) {
   const { t } = useTranslation();
   const {
@@ -76,7 +78,7 @@ export function InfobaseFormDialog({
     markNameTouched,
     markVirtualPathTouched,
     markPhysicalPathTouched,
-  } = useInfobaseForm({ open, onOpenChange, infobase, tenants, defaultTenantId });
+  } = useInfobaseForm({ open, onOpenChange, infobase, tenants, defaultTenantId, prefill });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
