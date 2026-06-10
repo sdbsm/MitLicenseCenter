@@ -31,9 +31,6 @@ const TenantDetailPage = lazy(() =>
 const InfobasesPage = lazy(() =>
   import("@/features/infobases/InfobasesPage").then((m) => ({ default: m.InfobasesPage }))
 );
-const PublicationsPage = lazy(() =>
-  import("@/features/publications/PublicationsPage").then((m) => ({ default: m.PublicationsPage }))
-);
 const SessionsPage = lazy(() =>
   import("@/features/sessions/SessionsPage").then((m) => ({ default: m.SessionsPage }))
 );
@@ -74,7 +71,6 @@ export const router = createBrowserRouter([
       { path: "tenants", element: <TenantsPage /> },
       { path: "tenants/:id", element: <TenantDetailPage /> },
       { path: "infobases", element: <InfobasesPage /> },
-      { path: "publications", element: <PublicationsPage /> },
       { path: "sessions", element: <SessionsPage /> },
       { path: "reports", element: <ReportsPage /> },
       { path: "performance", element: <PerformancePage /> },

@@ -24,7 +24,7 @@ import { BulkProgressView } from "./BulkProgressView";
 import { describePublicationOpError } from "./bulkErrors";
 import type { PublicationListItem, PublicationStatusResponse } from "./types";
 import { useBulkOperation, type BulkItemState } from "./useBulkOperation";
-import { publicationsQueryKey } from "./usePublications";
+import { infobasesQueryKey } from "@/features/infobases/useInfobases";
 
 interface BulkChangePlatformDialogProps {
   open: boolean;
@@ -54,7 +54,7 @@ export function BulkChangePlatformDialog({
 
   const handleComplete = useCallback(
     (states: BulkItemState[]) => {
-      void queryClient.invalidateQueries({ queryKey: publicationsQueryKey });
+      void queryClient.invalidateQueries({ queryKey: infobasesQueryKey });
       onRunComplete(states);
     },
     [queryClient, onRunComplete]

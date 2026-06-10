@@ -1,5 +1,3 @@
-import { format } from "date-fns";
-import { ru } from "date-fns/locale";
 import type { InfobaseStatus } from "./types";
 
 export function statusBadgeClass(status: InfobaseStatus): string {
@@ -13,12 +11,9 @@ export function statusBadgeClass(status: InfobaseStatus): string {
   }
 }
 
-export function formatInfobaseDateTime(value: string | null | undefined): string {
-  if (!value) return "—";
-  return format(new Date(value), "dd.MM.yyyy HH:mm", { locale: ru });
-}
-
-/** Число колонок таблицы инфобаз — для colSpan пустых/скелетон-строк. */
-export function infobaseColumnCount(showTenant: boolean): number {
-  return showTenant ? 8 : 7;
+/** Число колонок таблицы инфобаз — для colSpan пустых/скелетон-строк.
+ *  База 7: Название · Сервер БД · Статус · Публикация · Версия платформы · Проверено ·
+ *  Действия; +1 «Клиент», +1 чекбоксы bulk-выбора (MLC-081). */
+export function infobaseColumnCount(showTenant: boolean, selectable = false): number {
+  return 7 + (showTenant ? 1 : 0) + (selectable ? 1 : 0);
 }

@@ -28,9 +28,8 @@
   "nav": {
     "dashboard": "Главная",
     "sessions": "Сеансы",
-    "publications": "Публикации",
     "tenants": "Клиенты",
-    "infobases": "Инфобазы",
+    "infobases": "Базы",
     "reports": "Отчёты",
     "performance": "Быстродействие",
     "audit": "Аудит",
@@ -274,8 +273,12 @@
     }
   },
   "infobases": {
-    "title": "Инфобазы",
+    "title": "Базы",
     "subtitle": "Информационные базы 1С с привязкой к клиенту и публикацией в IIS.",
+    "tabs": {
+      "bases": "Базы",
+      "iis": "IIS"
+    },
     "actions": {
       "add": "Добавить инфобазу"
     },
@@ -292,10 +295,15 @@
       "tenant": "Клиент",
       "clusterInfobaseId": "ID в кластере 1С",
       "databaseServer": "Сервер БД",
-      "databaseName": "Имя БД",
-      "status": "Статус",
+      "status": "Статус базы",
       "publication": "Публикация",
-      "updatedAt": "Обновлена"
+      "platformVersion": "Версия платформы",
+      "lastChecked": "Проверено"
+    },
+    "source": {
+      "webinst": "Источник: webinst — публикация создана панелью.",
+      "configurator": "Источник: Конфигуратор — создана вне панели; повторная публикация через webinst перезапишет ручные настройки (default.vrd, web.config).",
+      "unknown": "Источник публикации неизвестен — публикация ещё не проверялась."
     },
     "status": {
       "Active": "Активна",
@@ -421,20 +429,6 @@
     }
   },
   "publications": {
-    "title": "Публикации",
-    "table": {
-      "headers": {
-        "tenant": "Клиент",
-        "infobase": "Информационная база",
-        "siteName": "Сайт IIS",
-        "virtualPath": "Виртуальный путь",
-        "platformVersion": "Версия платформы",
-        "source": "Источник",
-        "status": "Статус",
-        "lastChecked": "Проверено",
-        "actions": "Действия"
-      }
-    },
     "status": {
       "unknown": "—",
       "published": "Опубликована",
@@ -446,13 +440,8 @@
       "webinst": "webinst",
       "configurator": "Конфигуратор"
     },
-    "filters": {
-      "tenant": "Клиент",
-      "status": "Статус",
-      "all": "Все"
-    },
     "actions": {
-      "check": "Проверить сейчас",
+      "check": "Проверить публикацию",
       "publish": "Опубликовать",
       "changePlatform": "Сменить платформу"
     },
@@ -582,10 +571,6 @@
         "failed": "Не удалось выполнить операцию IIS",
         "notFound": "Объект IIS не найден (возможно, список устарел)."
       }
-    },
-    "empty": {
-      "noPublications": "Публикаций пока нет. Создайте информационную базу с публикацией.",
-      "noMatchingFilter": "Нет публикаций, соответствующих фильтрам."
     },
     "fields": {
       "siteName": "Сайт IIS",

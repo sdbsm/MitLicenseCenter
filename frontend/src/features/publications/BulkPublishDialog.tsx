@@ -16,7 +16,7 @@ import { describePublicationOpError } from "./bulkErrors";
 import { publicationsNeedingOverwriteConfirm } from "./bulkGating";
 import type { PublicationListItem, PublicationStatusResponse } from "./types";
 import { useBulkOperation, type BulkItemState } from "./useBulkOperation";
-import { publicationsQueryKey } from "./usePublications";
+import { infobasesQueryKey } from "@/features/infobases/useInfobases";
 
 interface BulkPublishDialogProps {
   open: boolean;
@@ -47,7 +47,7 @@ export function BulkPublishDialog({
 
   const handleComplete = useCallback(
     (states: BulkItemState[]) => {
-      void queryClient.invalidateQueries({ queryKey: publicationsQueryKey });
+      void queryClient.invalidateQueries({ queryKey: infobasesQueryKey });
       onRunComplete(states);
     },
     [queryClient, onRunComplete]
