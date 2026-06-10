@@ -26,7 +26,6 @@ public sealed class ClusterIdAvailabilityTests
         TenantId = tenantId,
         Name = "База",
         ClusterInfobaseId = clusterInfobaseId,
-        DatabaseServer = "sql.local",
         DatabaseName = "ib",
         Status = InfobaseStatus.Active,
         CreatedAt = DateTime.UtcNow,

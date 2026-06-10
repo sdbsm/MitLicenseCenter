@@ -9,7 +9,6 @@ function infobase(overrides: Partial<InfobaseListItem["publication"]> = {}): Inf
     tenantName: "ООО Ромашка",
     name: "Бухгалтерия",
     clusterInfobaseId: "11111111-1111-1111-1111-111111111111",
-    databaseServer: "(local)",
     databaseName: "acme_bp",
     status: "Active",
     createdAt: "2026-06-01T00:00:00Z",

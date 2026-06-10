@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   PLATFORM_VERSION_PATTERN,
   NAME_MAX_LENGTH,
-  DATABASE_SERVER_MAX_LENGTH,
   DATABASE_NAME_MAX_LENGTH,
   SITE_NAME_MAX_LENGTH,
   VIRTUAL_PATH_MAX_LENGTH,
@@ -42,7 +41,6 @@ describe("validation — пины констант к спеке 03_DOMAIN_MODEL
 
   it("max-длины полей == литералы спеки", () => {
     expect(NAME_MAX_LENGTH).toBe(200);
-    expect(DATABASE_SERVER_MAX_LENGTH).toBe(200);
     expect(DATABASE_NAME_MAX_LENGTH).toBe(200);
     expect(SITE_NAME_MAX_LENGTH).toBe(200);
     expect(VIRTUAL_PATH_MAX_LENGTH).toBe(200);
@@ -62,7 +60,6 @@ describe("validation — правила virtualPath (фиксация)", () => {
     tenantId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
     name: "База 1",
     clusterInfobaseId: "dddddddd-dddd-dddd-dddd-dddddddddddd",
-    databaseServer: "sql-01",
     databaseName: "acme",
     status: "Active" as const,
   };

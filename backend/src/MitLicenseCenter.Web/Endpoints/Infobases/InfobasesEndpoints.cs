@@ -73,7 +73,6 @@ public static partial class InfobasesEndpoints
                     x.TenantName,
                     x.Infobase.Name,
                     x.Infobase.ClusterInfobaseId,
-                    x.Infobase.DatabaseServer,
                     x.Infobase.DatabaseName,
                     x.Infobase.Status,
                     x.Infobase.CreatedAt,
@@ -156,10 +155,9 @@ public static partial class InfobasesEndpoints
         CancellationToken ct)
     {
         var normalizedName = (request.Name ?? string.Empty).Trim();
-        var normalizedDbServer = (request.DatabaseServer ?? string.Empty).Trim();
         var normalizedDbName = (request.DatabaseName ?? string.Empty).Trim();
 
-        var errors = ValidateInfobase(normalizedName, normalizedDbServer, normalizedDbName, request.Status);
+        var errors = ValidateInfobase(normalizedName, normalizedDbName, request.Status);
         AppendPublicationErrors(errors, request.Publication);
         if (errors.Count > 0)
         {
@@ -190,7 +188,6 @@ public static partial class InfobasesEndpoints
             TenantId = request.TenantId,
             Name = normalizedName,
             ClusterInfobaseId = request.ClusterInfobaseId,
-            DatabaseServer = normalizedDbServer,
             DatabaseName = normalizedDbName,
             Status = request.Status,
             CreatedAt = now,
@@ -256,10 +253,9 @@ public static partial class InfobasesEndpoints
         }
 
         var normalizedName = (request.Name ?? string.Empty).Trim();
-        var normalizedDbServer = (request.DatabaseServer ?? string.Empty).Trim();
         var normalizedDbName = (request.DatabaseName ?? string.Empty).Trim();
 
-        var errors = ValidateInfobase(normalizedName, normalizedDbServer, normalizedDbName, request.Status);
+        var errors = ValidateInfobase(normalizedName, normalizedDbName, request.Status);
         AppendPublicationErrors(errors, request.Publication);
         if (errors.Count > 0)
         {
@@ -282,7 +278,6 @@ public static partial class InfobasesEndpoints
         var now = clock.GetUtcNow().UtcDateTime;
         infobase.Name = normalizedName;
         infobase.ClusterInfobaseId = request.ClusterInfobaseId;
-        infobase.DatabaseServer = normalizedDbServer;
         infobase.DatabaseName = normalizedDbName;
         infobase.Status = request.Status;
         infobase.UpdatedAt = now;
@@ -420,7 +415,6 @@ public static partial class InfobasesEndpoints
 
     private static Dictionary<string, string[]> ValidateInfobase(
         string normalizedName,
-        string normalizedDbServer,
         string normalizedDbName,
         InfobaseStatus status)
     {
@@ -428,10 +422,6 @@ public static partial class InfobasesEndpoints
         if (string.IsNullOrWhiteSpace(normalizedName))
         {
             errors[nameof(CreateInfobaseRequest.Name)] = ["Название инфобазы не может быть пустым."];
-        }
-        if (string.IsNullOrWhiteSpace(normalizedDbServer))
-        {
-            errors[nameof(CreateInfobaseRequest.DatabaseServer)] = ["Укажите сервер БД."];
         }
         if (string.IsNullOrWhiteSpace(normalizedDbName))
         {

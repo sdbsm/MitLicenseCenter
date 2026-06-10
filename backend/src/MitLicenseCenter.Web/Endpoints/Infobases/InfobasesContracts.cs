@@ -9,7 +9,6 @@ public sealed record InfobaseResponse(
     Guid TenantId,
     string Name,
     Guid ClusterInfobaseId,
-    string DatabaseServer,
     string DatabaseName,
     InfobaseStatus Status,
     DateTime CreatedAt,
@@ -21,7 +20,6 @@ public sealed record InfobaseListItemResponse(
     string TenantName,
     string Name,
     Guid ClusterInfobaseId,
-    string DatabaseServer,
     string DatabaseName,
     InfobaseStatus Status,
     DateTime CreatedAt,
@@ -49,7 +47,6 @@ public sealed record CreateInfobaseRequest(
     [property: Required] Guid TenantId,
     [property: Required, StringLength(InfobaseValidationRules.NameMaxLength, MinimumLength = 1)] string Name,
     [property: Required] Guid ClusterInfobaseId,
-    [property: Required, StringLength(InfobaseValidationRules.DatabaseServerMaxLength, MinimumLength = 1)] string DatabaseServer,
     [property: Required, StringLength(InfobaseValidationRules.DatabaseNameMaxLength, MinimumLength = 1)] string DatabaseName,
     [property: Required] InfobaseStatus Status,
     [property: Required] CreatePublicationRequest Publication);
@@ -57,7 +54,6 @@ public sealed record CreateInfobaseRequest(
 public sealed record UpdateInfobaseRequest(
     [property: Required, StringLength(InfobaseValidationRules.NameMaxLength, MinimumLength = 1)] string Name,
     [property: Required] Guid ClusterInfobaseId,
-    [property: Required, StringLength(InfobaseValidationRules.DatabaseServerMaxLength, MinimumLength = 1)] string DatabaseServer,
     [property: Required, StringLength(InfobaseValidationRules.DatabaseNameMaxLength, MinimumLength = 1)] string DatabaseName,
     [property: Required] InfobaseStatus Status,
     [property: Required] UpdatePublicationRequest Publication);
@@ -68,7 +64,7 @@ public sealed record ReassignInfobaseRequest(
 internal static class InfobaseMappings
 {
     public static InfobaseResponse ToResponse(this Infobase x) =>
-        new(x.Id, x.TenantId, x.Name, x.ClusterInfobaseId, x.DatabaseServer, x.DatabaseName, x.Status, x.CreatedAt, x.UpdatedAt);
+        new(x.Id, x.TenantId, x.Name, x.ClusterInfobaseId, x.DatabaseName, x.Status, x.CreatedAt, x.UpdatedAt);
 
     public static InfobaseDetailResponse ToDetailResponse(this Infobase infobase, Publication publication) =>
         new(infobase.ToResponse(), publication.ToResponse());

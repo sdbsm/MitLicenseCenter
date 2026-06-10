@@ -150,8 +150,8 @@ public sealed class DashboardSummaryTests
 
         // 2 инфобазы под активным тенантом
         db.Infobases.AddRange(
-            new Infobase { Id = Guid.NewGuid(), TenantId = tActive.Id, Name = "BP", ClusterInfobaseId = Guid.NewGuid(), DatabaseServer = "s", DatabaseName = "n", Status = InfobaseStatus.Active, CreatedAt = DateTime.UtcNow },
-            new Infobase { Id = Guid.NewGuid(), TenantId = tActive.Id, Name = "ZUP", ClusterInfobaseId = Guid.NewGuid(), DatabaseServer = "s", DatabaseName = "n", Status = InfobaseStatus.Active, CreatedAt = DateTime.UtcNow });
+            new Infobase { Id = Guid.NewGuid(), TenantId = tActive.Id, Name = "BP", ClusterInfobaseId = Guid.NewGuid(), DatabaseName = "n", Status = InfobaseStatus.Active, CreatedAt = DateTime.UtcNow },
+            new Infobase { Id = Guid.NewGuid(), TenantId = tActive.Id, Name = "ZUP", ClusterInfobaseId = Guid.NewGuid(), DatabaseName = "n", Status = InfobaseStatus.Active, CreatedAt = DateTime.UtcNow });
         await db.SaveChangesAsync();
 
         var sessions = new List<SnapshotSessionEntry>

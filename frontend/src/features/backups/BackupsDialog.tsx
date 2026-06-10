@@ -95,10 +95,7 @@ export function BackupsDialog({ infobase, open, onOpenChange }: BackupsDialogPro
               </Button>
             </div>
             <DialogDescription>
-              {t("backups.subtitle", {
-                db: infobase.databaseName,
-                server: infobase.databaseServer,
-              })}
+              {t("backups.subtitle", { db: infobase.databaseName })}
             </DialogDescription>
           </DialogHeader>
 

@@ -124,7 +124,6 @@ public sealed class HotColdEnforcementOverKillTests
             TenantId = tenantId,
             Name = infobaseName,
             ClusterInfobaseId = clusterInfobaseId,
-            DatabaseServer = "sql",
             DatabaseName = "db",
             CreatedAt = now,
         });

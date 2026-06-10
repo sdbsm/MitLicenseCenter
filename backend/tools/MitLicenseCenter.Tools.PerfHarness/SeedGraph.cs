@@ -105,7 +105,6 @@ internal static class SeedDataGenerator
                 TenantId = tenants[tenantIndex].Id,
                 Name = $"ib-{localIndex:D4}",
                 ClusterInfobaseId = clusterInfobaseId,
-                DatabaseServer = "perf-sql",
                 DatabaseName = $"db_{j:D6}",
                 Status = InfobaseStatus.Active,
                 CreatedAt = nowUtc,

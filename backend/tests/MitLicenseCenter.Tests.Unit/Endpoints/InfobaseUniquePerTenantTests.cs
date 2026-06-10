@@ -17,7 +17,6 @@ public sealed class InfobaseUniquePerTenantTests
             TenantId: tenantId,
             Name: name,
             ClusterInfobaseId: clusterInfobaseId ?? Guid.NewGuid(),
-            DatabaseServer: "sql.local",
             DatabaseName: "ib",
             Status: InfobaseStatus.Active,
             Publication: new CreatePublicationRequest(
@@ -178,7 +177,6 @@ public sealed class InfobaseUniquePerTenantTests
             new UpdateInfobaseRequest(
                 Name: "Бухгалтерия 2.0",
                 ClusterInfobaseId: clusterId,
-                DatabaseServer: "sql.local",
                 DatabaseName: "ib",
                 Status: InfobaseStatus.Active,
                 Publication: new UpdatePublicationRequest(

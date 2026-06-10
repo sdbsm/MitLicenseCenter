@@ -359,8 +359,6 @@
       "clusterAlreadyAssigned": "Эта база кластера уже привязана к другому клиенту.",
       "clusterAlreadyAssignedNamed": "Эта база кластера уже привязана к клиенту «{{name}}».",
       "clusterIdInvalid": "ID должен быть в формате GUID.",
-      "databaseServerRequired": "Укажите сервер БД.",
-      "databaseServerNotConfigured": "Сервер СУБД не задан. Укажите его в «Параметрах».",
       "databaseNameRequired": "Укажите имя БД.",
       "fieldTooLong": "Значение не длиннее 200 символов.",
       "loadFailed": "Не удалось загрузить список инфобаз."
@@ -368,7 +366,7 @@
   },
   "backups": {
     "title": "Бэкапы базы «{{name}}»",
-    "subtitle": "Полная копия (COPY_ONLY) базы {{db}} на сервере {{server}}. Хранится последний бэкап; устаревшие файлы удаляются автоматически.",
+    "subtitle": "Полная копия (COPY_ONLY) базы {{db}}. Хранится последний бэкап; устаревшие файлы удаляются автоматически.",
     "rowAction": "Бэкапы базы",
     "actions": {
       "start": "Сделать бэкап",
@@ -1079,7 +1077,6 @@
     "unavailable": "Список недоступен — введите вручную.",
     "chooseFromList": "Выбрать из списка",
     "enterManually": "Ввести вручную",
-    "databaseServerMissing": "Сервер СУБД не задан в «Параметрах»",
     "racNotFound": "rac.exe не найден в стандартных каталогах."
   },
   "errors": {

@@ -46,7 +46,6 @@ public sealed class TenantInfobaseCountTests
         TenantId = tenantId,
         Name = name,
         ClusterInfobaseId = Guid.NewGuid(),
-        DatabaseServer = "sql.local",
         DatabaseName = name.ToLowerInvariant().Replace(' ', '_'),
         Status = InfobaseStatus.Active,
         CreatedAt = DateTime.UtcNow,

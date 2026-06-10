@@ -89,7 +89,6 @@ public sealed class InfobaseReassignTests
         TenantId = tenantId,
         Name = name,
         ClusterInfobaseId = Guid.NewGuid(),
-        DatabaseServer = "sql.local",
         DatabaseName = "db",
         Status = InfobaseStatus.Active,
         CreatedAt = Now,

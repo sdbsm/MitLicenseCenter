@@ -16,7 +16,6 @@ export const GUID_PATTERN =
 // длина platformVersion на практике связана regex'ом, длина virtualPath режется на
 // уровне БД/DTO. Схему форму не меняем — поведение остаётся 1:1 с текущим.
 export const NAME_MAX_LENGTH = 200;
-export const DATABASE_SERVER_MAX_LENGTH = 200;
 export const DATABASE_NAME_MAX_LENGTH = 200;
 export const SITE_NAME_MAX_LENGTH = 200;
 export const VIRTUAL_PATH_MAX_LENGTH = 200;
@@ -40,11 +39,6 @@ export function buildInfobaseFormSchema(t: (k: string) => string) {
       .string()
       .trim()
       .regex(GUID_PATTERN, t("infobases.errors.clusterIdInvalid")),
-    databaseServer: z
-      .string()
-      .trim()
-      .min(1, t("infobases.errors.databaseServerRequired"))
-      .max(DATABASE_SERVER_MAX_LENGTH, t("infobases.errors.fieldTooLong")),
     databaseName: z
       .string()
       .trim()

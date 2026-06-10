@@ -40,7 +40,6 @@ public sealed class DbUpdateExceptionBackstopTests
             TenantId: tenantId,
             Name: name,
             ClusterInfobaseId: clusterId ?? Guid.NewGuid(),
-            DatabaseServer: "sql.local",
             DatabaseName: "ib",
             Status: InfobaseStatus.Active,
             Publication: new CreatePublicationRequest(
@@ -53,7 +52,6 @@ public sealed class DbUpdateExceptionBackstopTests
         new(
             Name: name,
             ClusterInfobaseId: clusterId,
-            DatabaseServer: "sql.local",
             DatabaseName: "ib",
             Status: InfobaseStatus.Active,
             Publication: new UpdatePublicationRequest(
@@ -152,7 +150,6 @@ public sealed class DbUpdateExceptionBackstopTests
             TenantId = acme.Id,
             Name = "Бухгалтерия",
             ClusterInfobaseId = clusterId,
-            DatabaseServer = "sql.local",
             DatabaseName = "ib",
             Status = InfobaseStatus.Active,
             CreatedAt = DateTime.UtcNow,
@@ -198,7 +195,6 @@ public sealed class DbUpdateExceptionBackstopTests
             TenantId = acme.Id,
             Name = "Бухгалтерия",
             ClusterInfobaseId = Guid.NewGuid(),
-            DatabaseServer = "sql.local",
             DatabaseName = "ib",
             Status = InfobaseStatus.Active,
             CreatedAt = DateTime.UtcNow,
