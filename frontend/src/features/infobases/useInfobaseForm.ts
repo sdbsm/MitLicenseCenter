@@ -25,12 +25,20 @@ type FormValues = InfobaseFormValues;
 // на одном из них, блок надо раскрыть, иначе пользователь не увидит ошибку.
 const ADVANCED_ERROR_KEYS = new Set(["name", "status", "publication"]);
 
+// MLC-093 — префилл при «Назначить» из диалога нераспределённых баз: предвыбор базы
+// кластера (по UUID, тот же источник, что и пикер) и её имя как название инфобазы.
+export interface InfobaseFormPrefill {
+  clusterInfobaseId: string;
+  name: string;
+}
+
 interface UseInfobaseFormArgs {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   infobase?: InfobaseListItem | null;
   tenants: Tenant[];
   defaultTenantId?: string;
+  prefill?: InfobaseFormPrefill | null;
 }
 
 // MLC-023 — вся не-презентационная логика формы инфобазы (схема, defaultValues, prefill
@@ -44,6 +52,7 @@ export function useInfobaseForm({
   infobase,
   tenants,
   defaultTenantId,
+  prefill,
 }: UseInfobaseFormArgs) {
   const { t } = useTranslation();
   const isEdit = Boolean(infobase);
@@ -67,6 +76,8 @@ export function useInfobaseForm({
   const virtualPathTouched = useRef(isEdit);
   const physicalPathTouched = useRef(isEdit);
   const settingsApplied = useRef(false);
+  // Угадывание имени БД при префилле — одноразовое (когда подъедет discovery баз).
+  const databaseGuessApplied = useRef(false);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(buildInfobaseFormSchema(t)),
@@ -86,8 +97,8 @@ export function useInfobaseForm({
         }
       : {
           tenantId: defaultTenantId ?? tenants[0]?.id ?? "",
-          name: "",
-          clusterInfobaseId: "",
+          name: prefill?.name ?? "",
+          clusterInfobaseId: prefill?.clusterInfobaseId ?? "",
           databaseName: "",
           status: "Active",
           publication: {
@@ -202,6 +213,25 @@ export function useInfobaseForm({
       form.setValue("publication.physicalPathOverride", pp, { shouldValidate: true });
     }
   };
+
+  // MLC-093 — best-effort угадывание имени БД при «Назначить»: имя базы кластера часто
+  // совпадает с именем БД на SQL-сервере. Когда discovery баз загрузился, ищем точное
+  // case-insensitive совпадение по имени из prefill и подставляем его (с реальным
+  // регистром БД) — дальше штатная деривация virtual/physical path. Только при создании,
+  // один раз и пока пользователь не правил имя БД руками.
+  useEffect(() => {
+    if (isEdit || databaseGuessApplied.current || !prefill) return;
+    if (!databasesQuery.data?.available) return;
+    databaseGuessApplied.current = true;
+    if (form.getValues("databaseName")) return;
+    const match = (databasesQuery.data.items ?? []).find(
+      (db) => db.toLocaleLowerCase() === prefill.name.toLocaleLowerCase()
+    );
+    if (match) {
+      handleDatabaseNameChange(match, (v) => form.setValue("databaseName", v));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [databasesQuery.data, isEdit, prefill]);
 
   const computedDefaultPath = (() => {
     const pp = physicalPathFromDatabase(defaultVrdRoot, watchedDatabaseName ?? "");
