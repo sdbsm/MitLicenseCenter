@@ -7,7 +7,6 @@ import {
   MonitorPlayIcon,
   ScrollTextIcon,
   SettingsIcon,
-  UserIcon,
   UsersRoundIcon,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -23,6 +22,8 @@ import {
 import { useMe } from "@/features/auth/useAuth";
 import { NavLinkItem } from "./NavLinkItem";
 
+// Группировка MLC-084 (UX-аудит §3.5): Обзор вне групп, далее Мониторинг /
+// Управление / Система — итого 8 пунктов. Профиль живёт в топбаре, не здесь.
 export function Sidebar() {
   const { t } = useTranslation();
   const { data: me } = useMe();
@@ -39,19 +40,26 @@ export function Sidebar() {
 
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>{t("nav.groups.operations")}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               <NavLinkItem to="/" end icon={GaugeIcon} label={t("nav.dashboard")} />
-              <NavLinkItem to="/sessions" icon={MonitorPlayIcon} label={t("nav.sessions")} />
-              <NavLinkItem to="/reports" icon={LineChartIcon} label={t("nav.reports")} />
-              <NavLinkItem to="/performance" icon={ActivityIcon} label={t("nav.performance")} />
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
 
         <SidebarGroup>
-          <SidebarGroupLabel>{t("nav.groups.configuration")}</SidebarGroupLabel>
+          <SidebarGroupLabel>{t("nav.groups.monitoring")}</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <NavLinkItem to="/sessions" icon={MonitorPlayIcon} label={t("nav.sessions")} />
+              <NavLinkItem to="/performance" icon={ActivityIcon} label={t("nav.performance")} />
+              <NavLinkItem to="/reports" icon={LineChartIcon} label={t("nav.reports")} />
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
+          <SidebarGroupLabel>{t("nav.groups.management")}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               <NavLinkItem to="/tenants" icon={Building2Icon} label={t("nav.tenants")} />
@@ -69,7 +77,6 @@ export function Sidebar() {
               {isAdmin && (
                 <NavLinkItem to="/settings" icon={SettingsIcon} label={t("nav.settings")} />
               )}
-              <NavLinkItem to="/profile" icon={UserIcon} label={t("nav.profile")} />
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

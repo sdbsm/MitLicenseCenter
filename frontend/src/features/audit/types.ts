@@ -17,6 +17,11 @@ export type AuditActionType =
   | "AdminLoggedIn"
   | "AdminLoggedOut"
   | "AdminPasswordChanged"
+  | "UserCreated"
+  | "UserDisabled"
+  | "UserPasswordReset"
+  | "UserEnabled"
+  | "UserRoleChanged"
   | "SessionKilled"
   | "LimitChanged"
   | "PublicationDriftDetected"
@@ -61,6 +66,11 @@ export const AUDIT_ACTION_TYPES: readonly AuditActionType[] = [
   "AdminLoggedIn",
   "AdminLoggedOut",
   "AdminPasswordChanged",
+  "UserCreated",
+  "UserDisabled",
+  "UserPasswordReset",
+  "UserEnabled",
+  "UserRoleChanged",
   "SessionKilled",
   "LimitChanged",
   "SettingChanged",
