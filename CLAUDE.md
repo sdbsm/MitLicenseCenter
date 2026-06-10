@@ -47,6 +47,12 @@ CI — `.github/workflows/ci.yml` (backend на windows-latest, frontend на
 ubuntu-latest). Pre-commit (`.husky/pre-commit`, нужен **Git Bash**) гоняет
 lint-staged + `dotnet format` на staged-файлах.
 
+> **CI на GitHub сейчас красный по биллингу аккаунта** (Actions не стартует джобы,
+> «payments failed»; решение пользователя 2026-06-10 — пока не чинить). **Источник
+> правды — локальные прогоны**: `build.ps1` (BE) + `pnpm test`/`type-check`/`lint` (FE),
+> результаты — в отчёт/PR. Вливание PR — `gh pr merge --merge --admin`. Красный крест
+> на PR при зелёных локальных прогонах — не блокер. Снять эту заметку, когда биллинг починят.
+
 ## Конвенции
 - Коммиты: `MLC-NNN: <что>` для задач бэклога, иначе префикс `docs:` / `chore:` / `fix:`. Ветку — от `main`.
 - **Anti-corruption граница (ADR-20):** в Web-эндпоинтах можно инжектить
