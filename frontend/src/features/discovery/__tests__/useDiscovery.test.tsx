@@ -57,29 +57,21 @@ describe("toDiscoveryState", () => {
 describe("useDatabases", () => {
   beforeEach(() => mockedApi.mockReset());
 
-  it("does not fetch when server is empty", async () => {
-    renderHook(() => useDatabases("", true), { wrapper: makeWrapper() });
-    // дать react-query шанс выполниться
-    await new Promise((r) => setTimeout(r, 0));
-    expect(mockedApi).not.toHaveBeenCalled();
-  });
-
   it("does not fetch when not enabled", async () => {
-    renderHook(() => useDatabases("(local)", false), { wrapper: makeWrapper() });
+    renderHook(() => useDatabases(false), { wrapper: makeWrapper() });
     await new Promise((r) => setTimeout(r, 0));
     expect(mockedApi).not.toHaveBeenCalled();
   });
 
-  it("fetches with url-encoded server when enabled", async () => {
+  // MLC-087: сервер берётся из настройки Sql.Server на бекенде — query-параметра нет.
+  it("fetches without a server param when enabled", async () => {
     mockedApi.mockResolvedValueOnce({ items: ["acme_bp"], available: true, error: null });
 
-    const { result } = renderHook(() => useDatabases("localhost\\SQLEXPRESS", true), {
+    const { result } = renderHook(() => useDatabases(true), {
       wrapper: makeWrapper(),
     });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(mockedApi).toHaveBeenCalledWith(
-      "/api/v1/discovery/databases?server=localhost%5CSQLEXPRESS"
-    );
+    expect(mockedApi).toHaveBeenCalledWith("/api/v1/discovery/databases");
   });
 });

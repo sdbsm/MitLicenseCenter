@@ -1,10 +1,13 @@
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 using MitLicenseCenter.Application.Discovery;
+using MitLicenseCenter.Application.Settings;
+using MitLicenseCenter.Domain.Settings;
 
 namespace MitLicenseCenter.Infrastructure.Discovery;
 
-// Перечисляет пользовательские БД на указанном сервере через sys.databases.
+// Перечисляет пользовательские БД на SQL-инстансе панели через sys.databases.
+// Сервер — настройка Sql.Server (единственный источник, single-host MLC-087).
 // Параметры аутентификации (Trusted_Connection / TrustServerCertificate / Encrypt)
 // наследуются из ConnectionStrings:Default — меняются только сервер и каталог
 // (master). Так discovery работает под той же учёткой, что и приложение, и не
@@ -16,15 +19,19 @@ internal sealed class SqlDatabaseDiscovery : ISqlDatabaseDiscovery
     private const int CommandTimeoutSeconds = 5;
 
     private readonly string _baseConnectionString;
+    private readonly ISettingsSnapshot _settings;
 
-    public SqlDatabaseDiscovery(IConfiguration configuration)
+    public SqlDatabaseDiscovery(IConfiguration configuration, ISettingsSnapshot settings)
     {
         _baseConnectionString = configuration.GetConnectionString("Default")
             ?? throw new InvalidOperationException("ConnectionStrings:Default не задан.");
+        _settings = settings;
     }
 
-    public async Task<IReadOnlyList<string>> ListDatabasesAsync(string server, CancellationToken ct)
+    public async Task<IReadOnlyList<string>> ListDatabasesAsync(CancellationToken ct)
     {
+        var server = _settings.GetString(SettingKey.SqlServer);
+        // Эндпоинт гейтит пустую настройку до вызова; здесь — defense-in-depth.
         ArgumentException.ThrowIfNullOrWhiteSpace(server);
 
         var builder = new SqlConnectionStringBuilder(_baseConnectionString)

@@ -64,7 +64,7 @@ const infobase = {
 } as InfobaseListItem;
 
 const settingsCatalog = [
-  { key: "Defaults.DatabaseServer", value: "sql-default" },
+  { key: "Sql.Server", value: "sql-default" },
   { key: "OneC.DefaultPlatformVersion", value: "8.3.99.1" },
   { key: "IIS.DefaultSiteName", value: "My Site" },
 ];
@@ -140,12 +140,12 @@ describe("useInfobaseForm", () => {
     );
   });
 
-  it("create: настройка Defaults.DatabaseServer не задана → submit блокируется с toast-подсказкой", async () => {
+  it("create: настройка Sql.Server не задана → submit блокируется с toast-подсказкой", async () => {
     // MLC-082 — сервер СУБД в форме не показывается; databaseServer — скрытое поле из
     // настройки. Если настройка пуста, zod-ошибка падает на невидимое поле — пользователь
     // должен увидеть toast с отсылкой в «Параметры», а запрос не должен уходить в сеть.
     mockedApi.mockReset();
-    mockApi(settingsCatalog.filter((s) => s.key !== "Defaults.DatabaseServer"));
+    mockApi(settingsCatalog.filter((s) => s.key !== "Sql.Server"));
     const { result } = renderForm(null);
 
     await waitFor(() =>

@@ -13,9 +13,9 @@ import { useSettings } from "./useSettings";
 // (OneC.RAS.Endpoint → RasPortField) и единый пикер платформы (OneC.RAS.ExePath +
 // OneC.DefaultPlatformVersion → PlatformPicker, версия в SECTIONS отдельно не
 // перечисляется — её ведёт пикер). «SQL Server» — единственное место, где задан
-// SQL-инстанс (Defaults.DatabaseServer; ключ настройки исторический, переименование —
-// бек-этап 2): формы баз берут значение отсюда, «дефолтом для форм» он больше не
-// называется. Сайт IIS живёт в секции «Публикации IIS» рядом с корневой папкой.
+// SQL-инстанс (Sql.Server, MLC-087): формы баз и discovery имён БД берут значение
+// отсюда, «дефолтом для форм» он больше не называется. Сайт IIS живёт в секции
+// «Публикации IIS» рядом с корневой папкой.
 // «Хранение данных» объединяет два окна ретенции — аудит и историю использования
 // лицензий для /reports.
 const SECTIONS: { titleKey: string; keys: string[] }[] = [
@@ -30,7 +30,7 @@ const SECTIONS: { titleKey: string; keys: string[] }[] = [
   },
   {
     titleKey: "settings.sections.sql",
-    keys: ["Defaults.DatabaseServer"],
+    keys: ["Sql.Server"],
   },
   {
     titleKey: "settings.sections.license",
@@ -79,7 +79,7 @@ const FIELD_META: Record<
     placeholder: "1CV8,1CV8C,WebClient,Designer,COMConnection",
   },
   "IIS.DefaultVrdRoot": { type: "text" },
-  "Defaults.DatabaseServer": { type: "text", placeholder: "sql.local или (local)" },
+  "Sql.Server": { type: "text", placeholder: "sql.local или (local)" },
   "IIS.DefaultSiteName": { type: "text", placeholder: "Default Web Site" },
   "Polling.HotIntervalSeconds": { type: "number", min: 2, max: 60 },
   "Polling.ColdIntervalSeconds": { type: "number", min: 10, max: 300 },
@@ -150,7 +150,7 @@ export function SettingsPage() {
                     );
                   }
                   // MLC-056: сервер БД — пикер локальных SQL-инстансов (ручной fallback).
-                  if (k === "Defaults.DatabaseServer") {
+                  if (k === "Sql.Server") {
                     return <DatabaseServerField key={k} setting={setting} />;
                   }
                   const meta = FIELD_META[k] ?? { type: "text" as const };

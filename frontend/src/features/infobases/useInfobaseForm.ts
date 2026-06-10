@@ -38,7 +38,7 @@ interface UseInfobaseFormArgs {
 // настроек, touched-рефы автоподстановки, discovery, точечная проверка занятости, submit,
 // маппинг 409). InfobaseFormDialog остаётся тонким вью поверх этого хука.
 // MLC-082 (single-host): сервер СУБД в форме не показывается. databaseServer — скрытое
-// поле: при создании — из настройки Defaults.DatabaseServer, при редактировании —
+// поле: при создании — из настройки Sql.Server (MLC-087), при редактировании —
 // текущее значение базы (правка не мигрирует сервер молча). Контракт API прежний.
 export function useInfobaseForm({
   open,
@@ -55,7 +55,7 @@ export function useInfobaseForm({
 
   const { data: settings } = useSettings();
   const settingValue = (key: string) => settings?.find((s) => s.key === key)?.value ?? undefined;
-  const defaultDatabaseServer = settingValue("Defaults.DatabaseServer") ?? "";
+  const defaultDatabaseServer = settingValue("Sql.Server") ?? "";
   const defaultSiteName = settingValue("IIS.DefaultSiteName") ?? "Default Web Site";
   const defaultPlatformVersion = settingValue("OneC.DefaultPlatformVersion") ?? "";
   const defaultVrdRoot = settingValue("IIS.DefaultVrdRoot") ?? "C:\\inetpub\\wwwroot";
@@ -123,17 +123,14 @@ export function useInfobaseForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings, isEdit]);
 
-  const [watchedDatabaseServer, watchedDatabaseName] = useWatch({
-    control: form.control,
-    name: ["databaseServer", "databaseName"],
-  });
+  const watchedDatabaseName = useWatch({ control: form.control, name: "databaseName" });
 
   // Discovery: тянем списки, пока диалог открыт (ленивая загрузка по `open`).
-  // Список БД дёргается сразу с сервером из скрытого поля (настройка/значение базы) —
-  // двухшаговый выбор «сначала сервер, потом база» исчез (MLC-082).
+  // Список БД дёргается без сервера — бекенд берёт SQL-инстанс из настройки Sql.Server
+  // (single-host, MLC-087); двухшаговый выбор «сначала сервер, потом база» исчез.
   const infobasesQuery = useClusterInfobases(open);
   const sitesQuery = useIisSites(open);
-  const databasesQuery = useDatabases(watchedDatabaseServer ?? "", open);
+  const databasesQuery = useDatabases(open);
   const platformVersionsQuery = usePlatformVersions(open);
 
   const infobasesState = toDiscoveryState(infobasesQuery);
@@ -281,7 +278,7 @@ export function useInfobaseForm({
       }
     },
     (errors) => {
-      // databaseServer — скрытое поле: его ошибку (настройка Defaults.DatabaseServer
+      // databaseServer — скрытое поле: его ошибку (настройка Sql.Server
       // не задана) пользователь в форме не увидит — показываем toast с подсказкой.
       if (errors.databaseServer) {
         toast.error(t("infobases.errors.databaseServerNotConfigured"));
@@ -317,7 +314,6 @@ export function useInfobaseForm({
     platformVersionsState,
     refetchPlatformVersions: () => void platformVersionsQuery.refetch(),
     // авто-подстановка / производные
-    watchedDatabaseServer,
     computedDefaultPath,
     handleClusterChange,
     handleDatabaseNameChange,
