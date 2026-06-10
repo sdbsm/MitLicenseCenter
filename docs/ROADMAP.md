@@ -26,11 +26,12 @@ Operator concerns (backup, network-edge auth) are documented in `OPERATIONS.md`.
   **(а) прямая** — база есть в кластере, но не заведена в панель: её сеансы невидимы и не
   считаются в лимит лицензий ни одного клиента (дыра в контроле квот);
   **(б) обратная** — база заведена в панель, но удалена из кластера: запись выглядит живой
-  с вечным потреблением 0, без какого-либо сигнала оператору. Направление (а) закрывает
-  трек «Нераспределённые базы» (`MLC-092..094`, открыт 2026-06-11 — `PROJECT_BACKLOG.md`);
-  направление (б) — отдельная
-  обязательная задача: детект по diff списка кластера с `Infobases` + явный статус
-  «не найдена в кластере» в UI. Read-only наблюдение, без auto-fix (в духе ADR-4).
+  с вечным потреблением 0, без какого-либо сигнала оператору. Направление **(а) закрыто**
+  треком «Нераспределённые базы» (`MLC-092..094`, 2026-06-11 — discovery-first баннер/диалог
+  разбора + игнор-лист, **ADR-29**): незаведённые базы теперь видимы и разбираемы оператором.
+  Направление **(б) остаётся обязательным** (не опция): детект по diff списка кластера с
+  `Infobases` + явный статус «не найдена в кластере» в UI. Read-only наблюдение, без auto-fix
+  (в духе ADR-4).
 - **RAS Strategy B** — replace `rac.exe`-per-cycle with a long-lived TCP socket on 1545. The cross-call cluster-UUID cache (MLC-041) already roughly halved the steady-state spawn rate (the kill path and hot polling now cost ~1 spawn each), so the ≤26 procs/min budget has comfortable headroom; this further optimization stays gated on real-world latency measurement.
 - **Multi-cluster / multi-node topology** — every adapter currently assumes single-node; opening this up requires re-reviewing each adapter and the single-node operational constraint.
 - **UI: заспечено в `05`/`06`, но не построено в v1.** Дизайн-канон описывает эти фичи, код их пока не реализует (каждое место помечено «не в v1» по месту в `05_UI_REQUIREMENTS.md` / `06_UI_DESIGN.md`):

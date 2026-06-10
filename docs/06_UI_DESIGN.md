@@ -133,6 +133,8 @@ The Sessions Monitor and Dashboard poll. The UI must communicate freshness hones
   - Reconcile → `RefreshCcw`
   - Kill / terminate → `Power`
   - Administrator → `ShieldCheck`
+  - Hide (from unassigned) → `EyeOff`
+  - Restore / return (un-hide) → `RotateCcw`
 - Icon size in tables: `h-4 w-4`. In page headers: `h-5 w-5`. In empty states: `h-12 w-12 text-muted-foreground`.
 
 ## 11. Accessibility & Density
@@ -176,6 +178,10 @@ Use these exact phrasings throughout the UI for consistency. **Do not invent syn
 | Disable user | Отключить пользователя |
 | Reset password | Сбросить пароль |
 | Assign infobase | Назначить базу |
+| Resolve unassigned bases | Разобрать |
+| Hide from unassigned | Скрыть |
+| Restore (un-hide) base | Вернуть |
+| Enter base manually | Ввести вручную |
 | Suspend tenant | Приостановить клиента |
 
 ### Statuses
@@ -195,6 +201,7 @@ Use these exact phrasings throughout the UI for consistency. **Do not invent syn
 
 ### Frequent phrases
 - "Данные обновлены N сек назад" — freshness indicator.
+- "Проверено N сек назад" — freshness of a poll/check time (`CheckedAtUtc`), e.g. the unassigned-bases RAS poll — same `<RelativeTime>` idiom (§8), exact time in the tooltip.
 - "Данные устарели" — stale state.
 - "Не удалось получить данные" — fetch error.
 - "Нет данных" — empty table generic.
