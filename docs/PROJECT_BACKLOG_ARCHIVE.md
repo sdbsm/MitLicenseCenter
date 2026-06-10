@@ -4068,17 +4068,23 @@ multi-node, UI-долги канона 06 (tanstack/recharts/ESLint-StatusBadge)
   (CI красный по биллингу — известно, не чиним). **Канон/ADR не трогались** — отдельный PR `MLC-094`
   после вливания `MLC-093` (FE).
 
-- **Live-прогон на стенде `MLC-092`** (2026-06-11, реальный SQL `Server=.`, БД `MitLicenseCenter`).
+- **Live-прогон на стенде `MLC-092`** (2026-06-11, реальный SQL `Server=.`, БД `MitLicenseCenter`,
+  реальный RAS — на стенде доступен, отдал 2 нераспределённые базы кластера `bd1`/`test`).
   **Бэкап ПЕРЕД миграцией** (COPY_ONLY, recovery-point): `MitLicenseCenter_20260611_pre-mlc092.bak`
   → `F:\MlcStage2Backups\`. **Миграция накатана** (`ef database update`, единственная Pending);
-  проверка схемы `dbo.HiddenClusterInfobases`: колонки `ClusterInfobaseId uniqueidentifier NOT NULL`
-  (PK), `Name nvarchar(200) NOT NULL`, `HiddenAtUtc datetime2 NOT NULL`, `HiddenBy nvarchar(256)
-  NOT NULL`; `__EFMigrationsHistory` содержит запись миграции. **Проводка эндпоинта** проверена на
-  отдельном инстансе (:5090): три маршрута смонтированы и **закрыты авторизацией** — `GET`/`POST`/
-  `DELETE /infobases/unassigned[...]` без cookie → **401** (Admin-гейт). **Аутентифицированный JSON/UI
-  e2e в этой сессии НЕ прогонялся:** задокументированный admin-пароль стенда даёт 401 (видимо изменён
-  после записи в память), а сбрасывать его через `reset-admin` / инжектить хеши в общую auth-таблицу
-  стенда **запрещено** (память `dev-stand-admin-credentials` + это правка общей инфраструктуры) — путь
-  покрыт юнит-тестами, а полный аутентифицированный end-to-end по плану куратора — **финал сессии 2**
-  (после FE `MLC-093`). Кандидат реестру: уточнить актуальный admin-пароль стенда (значение в памяти
-  устарело) — передано куратору, в этот ход не бралось.
+  схема `dbo.HiddenClusterInfobases`: `ClusterInfobaseId uniqueidentifier NOT NULL` (PK),
+  `Name nvarchar(200)`, `HiddenAtUtc datetime2`, `HiddenBy nvarchar(256)`; запись в
+  `__EFMigrationsHistory`. **Аутентифицированный API e2e под admin** (пароль сброшен
+  `reset-admin.ps1 -Unlock` с разрешения пользователя 2026-06-11, новое значение — в памяти
+  `dev-stand-admin-credentials`; запрет на сброс снят): `GET /infobases/unassigned` → `available:true`,
+  2 базы в `items`, **`description` опущено** (null-omit, подтверждает контракт для FE-Zod `.nullish()`);
+  `hide bd1` → 204, `GET` → bd1 ушёл в `hiddenItems` (`hiddenBy:admin`, `hiddenAtUtc`), `items` −1,
+  **`checkedAtUtc` не изменился** (diff живой поверх кэша снапшота); повторный `hide` → 409
+  `UNASSIGNED_ALREADY_HIDDEN`; пустое имя → 400; `unhide` несуществующей → 404; `unhide bd1` → 204,
+  `?refresh=true` → bd1 вернулся в `items`, новый `checkedAtUtc` (обход кэша). **Чистка игнор-листа:**
+  `hide test` → завёл инфобазу с `clusterInfobaseId=test` (201) → `test` пропала и из `items` (заведена),
+  и из `hiddenItems` (строка игнор-листа удалена в `CreateAsync`); `hide` уже заведённой `test` → 409
+  `UNASSIGNED_ALREADY_ASSIGNED`. **Аудит:** в `dbo.AuditLogs` — строки `ActionType=14`/`15`,
+  `Initiator=admin`, `TenantId=NULL` (server-scope), русские формулировки. **Без cookie** все три
+  маршрута → 401 (Admin-гейт). **Уборка:** тестовая инфобаза удалена, `HiddenClusterInfobases` = 0 строк,
+  обе базы снова нераспределены — стенд в исходном состоянии (immutable-аудит 14/15 сохранён by design).
