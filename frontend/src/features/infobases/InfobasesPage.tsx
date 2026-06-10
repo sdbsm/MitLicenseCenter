@@ -1,6 +1,7 @@
-import { ChevronDownIcon, DatabaseIcon, PlusIcon } from "lucide-react";
+import { DatabaseIcon, PlusIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { PaginationBar } from "@/components/PaginationBar";
@@ -27,7 +28,6 @@ import { useCheckStatus } from "@/features/publications/usePublications";
 import type { BulkItemState } from "@/features/publications/useBulkOperation";
 import { useAllTenants } from "@/features/tenants/useTenants";
 import { DeleteInfobaseDialog } from "./DeleteInfobaseDialog";
-import { groupByTenant } from "./grouping";
 import { InfobaseFormDialog } from "./InfobaseFormDialog";
 import { infobaseColumnCount } from "./infobaseFormat";
 import { InfobaseRow, InfobaseTableHeader } from "./InfobaseRow";
@@ -37,12 +37,13 @@ import { INFOBASES_PAGE_SIZE, useInfobases } from "./useInfobases";
 
 const PAGE_SIZE = INFOBASES_PAGE_SIZE;
 const ALL_TENANTS = "__all__";
-type ViewMode = "flat" | "grouped";
 
 /**
  * Единая страница «Базы» (MLC-081): таблица инфобаз, обогащённая публикационными
  * колонками и операциями (бывшая страница «Публикации» влита сюда), плюс вкладка
- * «IIS» с управлением пулами/сайтами/iisreset (MLC-047).
+ * «IIS» с управлением пулами/сайтами/iisreset (MLC-047). Grouped-режим «По клиенту»
+ * снят (MLC-085, аудит §3.2): сгруппированный взгляд — паспорт клиента /tenants/:id,
+ * здесь — flat-список с фильтром по клиенту (?tenantId= — ссылки извне).
  */
 export function InfobasesPage() {
   const { t } = useTranslation();
@@ -59,7 +60,10 @@ export function InfobasesPage() {
     return map;
   }, [tenants]);
 
-  const [tenantFilter, setTenantFilter] = useState<string>(ALL_TENANTS);
+  // Фильтр по клиенту живёт в URL (?tenantId=) — на отфильтрованный список ведут
+  // ссылки извне (колонка «Базы» в таблице клиентов, MLC-085).
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tenantFilter = searchParams.get("tenantId") ?? ALL_TENANTS;
   const tenantIdParam = tenantFilter === ALL_TENANTS ? null : tenantFilter;
 
   const [page, setPage] = useState(1);
@@ -69,8 +73,6 @@ export function InfobasesPage() {
     PAGE_SIZE
   );
 
-  const [viewMode, setViewMode] = useState<ViewMode>("flat");
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<InfobaseListItem | null>(null);
   const [deleting, setDeleting] = useState<InfobaseListItem | null>(null);
@@ -93,7 +95,15 @@ export function InfobasesPage() {
   // Смена фильтра по клиенту возвращает на первую страницу — иначе можно «застрять»
   // на несуществующей странице сильно меньшего отфильтрованного набора.
   const changeTenantFilter = (value: string) => {
-    setTenantFilter(value);
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (value === ALL_TENANTS) next.delete("tenantId");
+        else next.set("tenantId", value);
+        return next;
+      },
+      { replace: true }
+    );
     setPage(1);
   };
 
@@ -101,20 +111,6 @@ export function InfobasesPage() {
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
-
-  const groups = useMemo(
-    () => (viewMode === "grouped" ? groupByTenant(items, tenantNameById) : []),
-    [viewMode, items, tenantNameById]
-  );
-
-  const toggleGroup = (tenantId: string) => {
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(tenantId)) next.delete(tenantId);
-      else next.add(tenantId);
-      return next;
-    });
-  };
 
   const handleOpenCreate = () => {
     setEditing(null);
@@ -230,22 +226,6 @@ export function InfobasesPage() {
                 {t("common.reset")}
               </Button>
             )}
-            <div className="ml-auto inline-flex rounded-md border p-0.5">
-              <Button
-                variant={viewMode === "flat" ? "secondary" : "ghost"}
-                size="sm"
-                onClick={() => setViewMode("flat")}
-              >
-                {t("infobases.view.flat")}
-              </Button>
-              <Button
-                variant={viewMode === "grouped" ? "secondary" : "ghost"}
-                size="sm"
-                onClick={() => setViewMode("grouped")}
-              >
-                {t("infobases.view.grouped")}
-              </Button>
-            </div>
           </div>
 
           {isError && (
@@ -293,50 +273,6 @@ export function InfobasesPage() {
                   </Button>
                 )}
               </div>
-            </div>
-          ) : viewMode === "grouped" && !isLoading ? (
-            <div className="space-y-3">
-              {groups.map((group) => {
-                const isCollapsed = collapsed.has(group.tenantId);
-                return (
-                  <div key={group.tenantId} className="rounded-md border">
-                    <button
-                      type="button"
-                      onClick={() => toggleGroup(group.tenantId)}
-                      aria-expanded={!isCollapsed}
-                      className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-medium"
-                    >
-                      <ChevronDownIcon
-                        className={`size-4 transition-transform ${isCollapsed ? "-rotate-90" : ""}`}
-                      />
-                      <span>{group.tenantName}</span>
-                      <span className="text-muted-foreground tabular-nums">
-                        ({group.items.length})
-                      </span>
-                    </button>
-                    {!isCollapsed && (
-                      <Table>
-                        <InfobaseTableHeader />
-                        <TableBody>
-                          {group.items.map((item) => (
-                            <InfobaseRow
-                              key={item.id}
-                              item={item}
-                              isAdmin={isAdmin}
-                              onEdit={handleOpenEdit}
-                              onDelete={setDeleting}
-                              onReassign={tenants.length > 1 ? setReassigning : undefined}
-                              onBackups={setBackupsFor}
-                              isChecking={checkingId === item.publication.id}
-                              {...rowPublicationProps}
-                            />
-                          ))}
-                        </TableBody>
-                      </Table>
-                    )}
-                  </div>
-                );
-              })}
             </div>
           ) : (
             <div className="rounded-md border">

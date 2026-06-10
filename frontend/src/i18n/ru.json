@@ -68,7 +68,7 @@
   },
   "dashboard": {
     "title": "Обзор",
-    "subtitle": "Обзор инфраструктуры 1С-хостинга",
+    "subtitle": "Клиенты, лицензии и здоровье хоста — с переходами в разделы.",
     "kpi": {
       "tenants": "Клиенты",
       "tenantsLabel": "активных из {{total}}",
@@ -87,6 +87,10 @@
       "consecutiveFailures_one": "{{count}} ошибка подряд",
       "consecutiveFailures_few": "{{count}} ошибки подряд",
       "consecutiveFailures_many": "{{count}} ошибок подряд"
+    },
+    "host": {
+      "title": "Здоровье хоста",
+      "error": "Не удалось получить метрики хоста."
     },
     "topTenants": {
       "title": "Топ клиентов по нагрузке",
@@ -275,10 +279,6 @@
     "filters": {
       "tenant": "Клиент",
       "allTenants": "Все клиенты"
-    },
-    "view": {
-      "flat": "Список",
-      "grouped": "По клиенту"
     },
     "fields": {
       "name": "Название",

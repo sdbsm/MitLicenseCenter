@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router";
 import { RelativeTime } from "@/components/ui/RelativeTime";
 import { StatusBadge, type StatusBadgeVariant } from "@/components/ui/StatusBadge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,6 +7,7 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { HostHealthCard } from "./HostHealthCard";
 import type { DashboardRasHealth, DashboardSummaryResponse, TenantConsumptionRow } from "./types";
 import { useDashboardSummary } from "./useDashboardSummary";
 
@@ -51,6 +53,13 @@ export function DashboardPage() {
         )}
 
         <KpiGrid data={data} isLoading={isLoading} isFetching={isFetching} />
+
+        {/* Строка состояния системы (MLC-085, аудит §3.4): RAS-статус + здоровье хоста. */}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+          <RasHealthCard data={data} isLoading={isLoading} isFetching={isFetching} />
+          <HostHealthCard isFetching={isFetching} />
+        </div>
+
         <TopTenantsCard data={data?.topTenantsByConsumption ?? null} isLoading={isLoading} />
       </div>
     </TooltipProvider>
@@ -63,43 +72,49 @@ interface KpiGridProps {
   isFetching: boolean;
 }
 
+// KPI-карточки кликабельны (MLC-085): каждая ведёт в раздел, отвечающий за её
+// число. «Свободно лицензий» — производная от «Использовано», обе ведут в /reports.
 function KpiGrid({ data, isLoading, isFetching }: KpiGridProps) {
   const { t } = useTranslation();
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
       <KpiCard
         label={t("dashboard.kpi.tenants")}
         value={data ? data.tenantsActive : undefined}
         secondary={data ? t("dashboard.kpi.tenantsLabel", { total: data.tenantsTotal }) : undefined}
+        to="/tenants"
         isLoading={isLoading}
         isFetching={isFetching}
       />
       <KpiCard
         label={t("dashboard.kpi.infobases")}
         value={data?.infobasesTotal}
+        to="/infobases"
         isLoading={isLoading}
         isFetching={isFetching}
       />
       <KpiCard
         label={t("dashboard.kpi.sessions")}
         value={data?.sessionsActiveTotal}
+        to="/sessions"
         isLoading={isLoading}
         isFetching={isFetching}
       />
       <KpiCard
         label={t("dashboard.kpi.consumed")}
         value={data?.licensesConsumedTotal}
+        to="/reports"
         isLoading={isLoading}
         isFetching={isFetching}
       />
       <KpiCard
         label={t("dashboard.kpi.available")}
         value={data?.licensesAvailableTotal}
+        to="/reports"
         isLoading={isLoading}
         isFetching={isFetching}
       />
-      <RasHealthCard data={data} isLoading={isLoading} isFetching={isFetching} />
     </div>
   );
 }
@@ -108,27 +123,38 @@ interface KpiCardProps {
   label: string;
   value: number | undefined;
   secondary?: string;
+  to: string;
   isLoading: boolean;
   isFetching: boolean;
 }
 
-function KpiCard({ label, value, secondary, isLoading, isFetching }: KpiCardProps) {
+function KpiCard({ label, value, secondary, to, isLoading, isFetching }: KpiCardProps) {
   return (
-    <Card className={cn("gap-2 py-4", isFetching && !isLoading && "opacity-90")}>
-      <CardHeader className="px-4 pb-0">
-        <CardTitle className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
-          {label}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="px-4">
-        {isLoading || value === undefined ? (
-          <Skeleton className="h-8 w-16" />
-        ) : (
-          <div className="text-3xl font-semibold tabular-nums">{value}</div>
+    <Link
+      to={to}
+      className="focus-visible:ring-ring block rounded-xl focus-visible:ring-2 focus-visible:outline-none"
+    >
+      <Card
+        className={cn(
+          "hover:bg-muted/50 h-full gap-2 py-4 transition-colors",
+          isFetching && !isLoading && "opacity-90"
         )}
-        {secondary && <p className="text-muted-foreground mt-1 text-xs">{secondary}</p>}
-      </CardContent>
-    </Card>
+      >
+        <CardHeader className="px-4 pb-0">
+          <CardTitle className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+            {label}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="px-4">
+          {isLoading || value === undefined ? (
+            <Skeleton className="h-8 w-16" />
+          ) : (
+            <div className="text-3xl font-semibold tabular-nums">{value}</div>
+          )}
+          {secondary && <p className="text-muted-foreground mt-1 text-xs">{secondary}</p>}
+        </CardContent>
+      </Card>
+    </Link>
   );
 }
 
@@ -232,7 +258,12 @@ function TopTenantsCard({ data, isLoading }: TopTenantsCardProps) {
             {data.map((row) => (
               <li key={row.tenantId} className="grid grid-cols-[1fr_auto] items-center gap-3">
                 <div className="min-w-0 space-y-1.5">
-                  <p className="truncate text-sm font-medium">{row.tenantName}</p>
+                  <Link
+                    to={`/tenants/${row.tenantId}`}
+                    className="hover:text-primary block truncate text-sm font-medium hover:underline"
+                  >
+                    {row.tenantName}
+                  </Link>
                   <Progress value={row.percent} className={progressColorClass(row.percent)} />
                 </div>
                 <p className="text-muted-foreground text-sm tabular-nums">
