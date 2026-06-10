@@ -3955,3 +3955,71 @@ multi-node, UI-долги канона 06 (tanstack/recharts/ESLint-StatusBadge)
   поясняющий снятие ключа. **Ноль** `Infobase.DatabaseServer`, **ноль** использования ключа
   `OneC.Cluster.Server`, **ноль** `?server=` в discovery. **Секция трека в реестр-архив НЕ
   перенесена** (закрытие трека — за куратором, per постановка). `NEXT TASK` не переставлялся.
+
+## Трек «UX-пересборка, этап 2: single-host бек-чистка» — секция реестра (закрыт 2026-06-10, перенесено из PROJECT_BACKLOG.md)
+
+**Вводная.** Пользователь **подтвердил single-host окончательно (2026-06-10)** — триггер этапа 2
+сработал. Объём: бек-хвосты по описи §7 аудита (`.claude/plans/ux-audit-single-host.md`) + ADR
+«Single-host topology» + канон 01/03/04 + кандидаты из архивной секции этапа 1. Изменения API/БД
+**разрешены** — строго в объёме описи, без попутных рефакторингов.
+
+**Решения куратора по развилкам описи (2026-06-10):**
+- §7 п.1 — колонку `Infobase.DatabaseServer` **убрать с миграцией** (чистый вариант: single-host
+  подтверждён, значения колонки одинаковы и восстановимы из настройки).
+- §7 п.4 — ключ `Defaults.DatabaseServer` **переименовать с миграцией значения** (например, в
+  `Sql.Server`); настройка остаётся **единственным местом правды** — НЕ деривация из
+  `ConnectionStrings:Default` (она убила бы секцию «SQL Server» на /settings из `MLC-083`).
+
+**Ограничения трека — входили в каждую постановку:**
+- Каждая задача оставляет панель полностью рабочей.
+- API/БД меняются только в объёме описи §7 + кандидатов; новых фич нет (исключение — `MLC-090`,
+  принятый кандидат).
+- Правишь валидацию инфобаз — **обе стороны** (BE `InfobaseValidationRules.cs` ↔ FE
+  `validation.ts`) + parity-тесты.
+- После `dotnet ef migrations add` — нормализовать файлы миграции (UTF-8 без BOM + LF, гоча CLAUDE.md).
+- Обе роли (Admin/Viewer) проверяются; live-прогон на стенде.
+- Настройки — только через whitelist `SettingDefinitions` (+сидер/миграция при переименовании/удалении ключа).
+
+**Темп исполнения:** две сессии — сессия 1 = `MLC-087`+`MLC-088` (один PR, коммиты раздельно),
+сессия 2 = `MLC-089`+`MLC-090` (PR кода) → `MLC-091` (PR канона+ADR после вливания). Жизненный
+цикл реестра — на задачу.
+
+**Задачи трека (исполнены по порядку):**
+
+- `MLC-087` (ST-A) · Backend+Frontend · M · **Done (2026-06-10)** — **SQL-инстанс: настройка
+  `Sql.Server` — единственный источник** (§7 п.2/4/5). Ключ `Defaults.DatabaseServer` → `Sql.Server`
+  (миграция значения `MLC087RenameSqlServerSetting`, reversible, UPDATE сохраняет значение) +
+  каталог/сидер + FE-привязка секции «SQL Server». `GET /discovery/databases` без `server=` —
+  сервер из `Sql.Server`; `ISqlDatabaseDiscovery.ListDatabasesAsync` без параметра сервера.
+  `Sql.Server` читается через `ISettingsSnapshot` в `SqlDatabaseDiscovery` И в
+  `DiscoveryEndpoints.GetDatabasesAsync` (гейт пустой настройки → Available:false); `sql-instances`
+  и пикер /settings не тронуты. Полный отчёт — в архиве.
+- `MLC-088` (ST-B) · Backend+Frontend · M · **Done (2026-06-10)** — **колонка `Infobase.DatabaseServer`
+  удалена** (§7 п.1, «чисто»). Дроп миграцией `MLC088DropInfobaseDatabaseServer` (reversible, Down →
+  колонка пустой ""). grep-читатели колонки: единственный — `BackupsEndpoints.StartAsync`, переключён
+  на настройку `Sql.Server` (+ новый 409 `SQL_SERVER_NOT_CONFIGURED` при пустой).
+  `DatabaseBackup.DatabaseServer` (снимок сервера на записи бэкапа) — отдельная колонка, НЕ тронута;
+  публикации/webinst используют `OneC.*`; отчёты/перф колонку не читали. Контракты POST/PUT/GET,
+  валидация (`DatabaseServerMaxLength` ↔ FE `validation.ts`) + parity, скрытое поле формы и
+  toast-гейт — сняты. Пустая настройка ловится на discovery (Available:false) и бэкапе (409).
+  Полный отчёт — в архиве.
+- `MLC-089` (ST-C) · Backend · S · **Done (2026-06-10)** — **ключ `OneC.Cluster.Server` удалён**
+  (§7 п.3). Снят из `SettingKey`+`SettingDefinitions` (FE не трогался — был скрыт из UI); миграция
+  `MLC089DropOneCClusterServerSetting` чистит row из `dbo.Settings` (roll-forward only).
+  `ResolveClusterServer` (`WebinstArgs.cs`) сужен до host из `RAS.Endpoint`. Полный отчёт + live — в архиве.
+- `MLC-090` (ST-D) · Backend+Frontend · S · **Done (2026-06-10)** — **фильтр статуса публикации**
+  (принятый кандидат с `MLC-081`). Параметр `publishStatus` в `GET /api/v1/infobases` (server-side,
+  коррелированный `EXISTS`; ручной парс enum → 400 на мусор, как `actionType` на `/audit`); UI-фильтр
+  на «Базах» + URL-состояние (`?publishStatus=`). Ответ API не изменён (Zod цел). Полный отчёт + live — в архиве.
+- `MLC-091` (ST-E) · Docs · S · **Done (2026-06-10)** — **финальный док-PR этапа 2**. Новый
+  **ADR-28 «Single-host topology»** (+ Update-нота в ADR-17: поле SQL-сервера промотировано —
+  условие ревизии сработало; ADR-4 — `Srvr=` из RAS-хоста); канон `01/03/04` present-tense под
+  single-host, +попутно 05 (форма без сервера, фильтр MLC-090). Каталог 04 §4 = 24 ключа, синхрон с
+  `SettingDefinitions` ([Doc divergence] `Performance.Recording*` закрыт); discovery Swagger чист
+  ещё с MLC-087. Мелочи: поллинг сеансов «~15s»→«~5s»; «Отключить администратора»→«Отключить
+  пользователя». **Хвост-тест полноты пройден:** только легитимные остатки (`DatabaseBackup.*`-снимок,
+  `sql-instances` пикер /settings, комментарий в `WebinstArgs`). Полный отчёт — в архиве.
+
+**Примечание о CI:** на момент сессии 2 GitHub Actions не стартовал джобы (биллинг аккаунта,
+«payments failed») — PR #80/#81 влиты `--admin` с подтверждения пользователя; источник правды —
+локальные прогоны (BE 589/589, FE 333, type-check, lint — зелёные).
