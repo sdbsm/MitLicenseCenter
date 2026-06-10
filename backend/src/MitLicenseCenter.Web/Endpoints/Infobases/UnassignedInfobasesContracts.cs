@@ -17,9 +17,27 @@ public sealed record HiddenUnassignedInfobaseResponse(
     DateTime HiddenAtUtc,
     string HiddenBy);
 
+// MLC-095 — обратный дрейф: запись панели, чьего ClusterInfobaseId нет в снапшоте
+// кластера 1С («мёртвая душа»: база удалена из кластера, а в панели висит здоровой).
+// Считается ТОЛЬКО при Available:true (сбой опроса RAS ≠ пропавшие базы) — иначе пусто.
+public sealed record MissingInfobaseDto(
+    Guid InfobaseId,
+    string TenantName,
+    string Name,
+    Guid ClusterInfobaseId);
+
+// Внутренняя проекция записи панели (Id + имя клиента + имя базы + UUID кластера) —
+// общая основа прямого (Items) и обратного (MissingItems) diff'ов одним join'ом.
+internal sealed record PanelInfobaseRow(
+    Guid InfobaseId,
+    string TenantName,
+    string Name,
+    Guid ClusterInfobaseId);
+
 public sealed record UnassignedInfobasesResponse(
     IReadOnlyList<UnassignedInfobaseItemResponse> Items,
     IReadOnlyList<HiddenUnassignedInfobaseResponse> HiddenItems,
+    IReadOnlyList<MissingInfobaseDto> MissingItems,
     bool Available,
     string? Error,
     DateTime CheckedAtUtc);

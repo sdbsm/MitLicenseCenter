@@ -66,18 +66,26 @@ public static partial class UnassignedInfobasesEndpoints
         if (!snapshot.Available)
         {
             // RAS недоступен — честный Available:false, а не пустой список (фронт по нему
-            // прячет баннер и не показывает «ложный ноль»).
+            // прячет баннер и не показывает «ложный ноль»). MissingItems тоже пуст: сбой
+            // опроса RAS ≠ пропавшие базы, ложных красных меток быть не должно (MLC-095).
             return TypedResults.Ok(new UnassignedInfobasesResponse(
                 Array.Empty<UnassignedInfobaseItemResponse>(),
-                hiddenItems, Available: false, snapshot.Error, snapshot.CheckedAtUtc));
+                hiddenItems, Array.Empty<MissingInfobaseDto>(),
+                Available: false, snapshot.Error, snapshot.CheckedAtUtc));
         }
 
-        // Diff считается на каждый запрос (кэшируется только снапшот RAS): заведение,
-        // скрытие и возврат базы видны сразу, без ожидания истечения TTL.
-        var assigned = await db.Infobases.AsNoTracking()
-            .Select(x => x.ClusterInfobaseId)
+        // Записи панели с именем клиента — основа для обоих diff'ов (join по образцу
+        // infobaseMap в ReconciliationJob). Diff считается на каждый запрос (кэшируется
+        // только снапшот RAS): заведение, скрытие, возврат и удаление видны сразу.
+        var panelInfobases = await db.Infobases.AsNoTracking()
+            .Join(
+                db.Tenants.AsNoTracking(),
+                i => i.TenantId,
+                t => t.Id,
+                (i, t) => new PanelInfobaseRow(i.Id, t.Name, i.Name, i.ClusterInfobaseId))
             .ToListAsync(ct).ConfigureAwait(false);
-        var excluded = assigned.ToHashSet();
+
+        var excluded = panelInfobases.Select(p => p.ClusterInfobaseId).ToHashSet();
         excluded.UnionWith(hiddenItems.Select(h => h.ClusterInfobaseId));
 
         var items = snapshot.Infobases
@@ -86,8 +94,17 @@ public static partial class UnassignedInfobasesEndpoints
             .Select(i => new UnassignedInfobaseItemResponse(i.Id, i.Name, i.Description))
             .ToList();
 
+        // Обратный diff: записи панели, чьего ClusterInfobaseId нет в снапшоте кластера.
+        var clusterIds = snapshot.Infobases.Select(i => i.Id).ToHashSet();
+        var missingItems = panelInfobases
+            .Where(p => !clusterIds.Contains(p.ClusterInfobaseId))
+            .OrderBy(p => p.TenantName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(p => new MissingInfobaseDto(p.InfobaseId, p.TenantName, p.Name, p.ClusterInfobaseId))
+            .ToList();
+
         return TypedResults.Ok(new UnassignedInfobasesResponse(
-            items, hiddenItems, Available: true, Error: null, snapshot.CheckedAtUtc));
+            items, hiddenItems, missingItems, Available: true, Error: null, snapshot.CheckedAtUtc));
     }
 
     internal static async Task<Results<NoContent, ValidationProblem, Conflict<ProblemDetails>>> HideAsync(
