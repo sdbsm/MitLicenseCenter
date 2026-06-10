@@ -26,29 +26,29 @@ public sealed class WebinstArgsTests
         WebinstArgs.VirtualDirName(input).Should().Be(expected);
     }
 
+    // MLC-089 (single-host): адрес кластера деривируется из OneC.RAS.Endpoint —
+    // отдельный ключ OneC.Cluster.Server снят. RAS host:port → host (порт RAS для
+    // строки соединения с кластером не подходит).
     [Fact]
-    public void ResolveClusterServer_prefers_explicit_setting()
+    public void ResolveClusterServer_takes_ras_host_without_port()
     {
-        WebinstArgs.ResolveClusterServer("1c-srv:1541", "ras-host:1545").Should().Be("1c-srv:1541");
-    }
-
-    [Fact]
-    public void ResolveClusterServer_falls_back_to_ras_host_without_port()
-    {
-        WebinstArgs.ResolveClusterServer(null, "ras-host:1545").Should().Be("ras-host");
+        WebinstArgs.ResolveClusterServer("ras-host:1545").Should().Be("ras-host");
     }
 
     [Fact]
     public void ResolveClusterServer_uses_ras_as_is_when_no_port()
     {
-        WebinstArgs.ResolveClusterServer("  ", "ras-host").Should().Be("ras-host");
+        WebinstArgs.ResolveClusterServer("ras-host").Should().Be("ras-host");
     }
 
     [Fact]
-    public void ResolveClusterServer_throws_when_nothing_configured()
+    public void ResolveClusterServer_throws_when_ras_not_configured()
     {
-        var act = () => WebinstArgs.ResolveClusterServer(null, null);
+        var act = () => WebinstArgs.ResolveClusterServer(null);
         act.Should().Throw<InvalidOperationException>();
+
+        var actBlank = () => WebinstArgs.ResolveClusterServer("  ");
+        actBlank.Should().Throw<InvalidOperationException>();
     }
 
     [Fact]

@@ -27,11 +27,6 @@ public static class SettingKey
     // IIS / publications (используется в PR 3.5).
     public const string IisDefaultVrdRoot = "IIS.DefaultVrdRoot";
 
-    // Адрес 1С-кластера для строки соединения webinst (MLC-045): -connstr
-    // "Srvr=<этот адрес>;Ref=<имя ИБ>;". Формат host или host:port. Пусто →
-    // берём host из OneC.RAS.Endpoint (кластер и RAS обычно на одном сервере).
-    public const string OneCClusterServer = "OneC.Cluster.Server";
-
     // Единственное место, где задан SQL-инстанс, на котором живут базы клиентов
     // (single-host, MLC-087). Форма добавления инфобазы и discovery имён БД берут
     // сервер отсюда; «дефолтом для форм» он больше не является. Без сидируемого

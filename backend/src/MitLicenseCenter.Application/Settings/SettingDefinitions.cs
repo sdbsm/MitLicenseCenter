@@ -69,12 +69,6 @@ public static class SettingDefinitions
                 Kind: SettingValueKind.Path,
                 DefaultValue: @"C:\inetpub\wwwroot"),
 
-            [SettingKey.OneCClusterServer] = new(
-                SettingKey.OneCClusterServer,
-                IsSecret: false,
-                Description: "Адрес 1С-кластера для публикации через webinst (строка соединения Srvr=…;Ref=…). Формат host или host:port. Пусто → берётся host из OneC.RAS.Endpoint.",
-                Kind: SettingValueKind.Text),
-
             // Единственное место, где задан SQL-инстанс, на котором живут базы клиентов
             // (single-host, MLC-087): discovery имён БД и форма инфобазы берут сервер
             // отсюда. На бекенде читается discovery'ем и постановкой бэкапа в очередь.

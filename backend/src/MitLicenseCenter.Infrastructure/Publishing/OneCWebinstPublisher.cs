@@ -54,7 +54,6 @@ internal sealed partial class OneCWebinstPublisher : IWebinstPublisher
         try
         {
             var clusterServer = WebinstArgs.ResolveClusterServer(
-                _settings.GetString(SettingKey.OneCClusterServer),
                 _settings.GetString(SettingKey.OneCRasEndpoint));
             connStr = WebinstArgs.BuildConnStr(clusterServer, infobase.Name);
         }
