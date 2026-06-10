@@ -83,6 +83,79 @@ public sealed class UnassignedInfobasesEndpointsTests
         body.HiddenItems[0].Should().Be(new HiddenUnassignedInfobaseResponse(hidden.Id, "Скрытая", T0, "admin"));
     }
 
+    // ── Обратный diff: MissingItems (MLC-095) ───────────────────────────────────────
+
+    private static Infobase PanelInfobase(Guid tenantId, string name, Guid clusterInfobaseId) => new()
+    {
+        Id = Guid.NewGuid(),
+        TenantId = tenantId,
+        Name = name,
+        ClusterInfobaseId = clusterInfobaseId,
+        DatabaseName = "ib",
+        Status = InfobaseStatus.Active,
+        CreatedAt = T0,
+    };
+
+    [Fact]
+    public async Task Missing_items_contains_panel_record_absent_from_cluster()
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+        var tenant = new Tenant { Id = Guid.NewGuid(), Name = "Acme", MaxConcurrentLicenses = 10, IsActive = true, CreatedAt = T0 };
+        db.Tenants.Add(tenant);
+        // Запись панели с UUID, которого нет в кластере (база удалена/пересоздана).
+        var ghost = PanelInfobase(tenant.Id, "Призрак", Guid.NewGuid());
+        db.Infobases.Add(ghost);
+        await db.SaveChangesAsync();
+
+        // Кластер содержит другую базу — наш UUID в снапшоте отсутствует.
+        var result = await GetAsync(db, ClusterWith(new ClusterInfobase(Guid.NewGuid(), "Чужая", null)), new UnassignedInfobasesCache(), T0);
+
+        var body = result.Value!;
+        body.Available.Should().BeTrue();
+        body.MissingItems.Should().ContainSingle();
+        body.MissingItems[0].Should().Be(new MissingInfobaseDto(ghost.Id, "Acme", "Призрак", ghost.ClusterInfobaseId));
+        // Чужая база кластера — нераспределённая (в Items), но не в MissingItems.
+        body.Items.Select(i => i.Name).Should().NotContain("Призрак");
+    }
+
+    [Fact]
+    public async Task Record_present_in_both_panel_and_cluster_is_not_missing_nor_unassigned()
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+        var tenant = new Tenant { Id = Guid.NewGuid(), Name = "Acme", MaxConcurrentLicenses = 10, IsActive = true, CreatedAt = T0 };
+        db.Tenants.Add(tenant);
+        var live = new ClusterInfobase(Guid.NewGuid(), "Живая", null);
+        db.Infobases.Add(PanelInfobase(tenant.Id, "Живая", live.Id));
+        await db.SaveChangesAsync();
+
+        var result = await GetAsync(db, ClusterWith(live), new UnassignedInfobasesCache(), T0);
+
+        var body = result.Value!;
+        body.MissingItems.Should().BeEmpty("база есть и в панели, и в кластере");
+        body.Items.Should().BeEmpty("она же заведена — не нераспределённая");
+    }
+
+    [Fact]
+    public async Task Missing_items_empty_when_ras_unavailable()
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+        var tenant = new Tenant { Id = Guid.NewGuid(), Name = "Acme", MaxConcurrentLicenses = 10, IsActive = true, CreatedAt = T0 };
+        db.Tenants.Add(tenant);
+        // Запись с UUID вне кластера — но при недоступном RAS красных меток быть не должно.
+        db.Infobases.Add(PanelInfobase(tenant.Id, "Призрак", Guid.NewGuid()));
+        await db.SaveChangesAsync();
+
+        var cluster = Substitute.For<IClusterClient>();
+        cluster.ListInfobasesAsync(Arg.Any<CancellationToken>())
+            .Returns(new ClusterInfobaseDiscoveryResult(
+                Array.Empty<ClusterInfobase>(), Available: false, Error: "stderr"));
+
+        var body = (await GetAsync(db, cluster, new UnassignedInfobasesCache(), T0)).Value!;
+
+        body.Available.Should().BeFalse();
+        body.MissingItems.Should().BeEmpty("сбой опроса RAS ≠ пропавшие базы");
+    }
+
     // ── Кэш / refresh ───────────────────────────────────────────────────────────────
 
     [Fact]
