@@ -4176,6 +4176,79 @@ multi-node, UI-долги канона 06 (tanstack/recharts/ESLint-StatusBadge)
   `hiddenItems` пуст, обе базы снова нераспределены, своих инфобаз не создавал — стенд в исходном
   состоянии (immutable-аудит 14/15 сохранён by design).
 
+## Трек «Обратный дрейф панель↔кластер» — отчёты задач (пополняется по мере закрытия)
+
+Направление (б) пункта «Дрейф панель↔кластер» (`ROADMAP.md`): база, удалённая/пересозданная
+в кластере 1С, остаётся в панели «здоровой» записью без сигнала («мёртвая душа»; сеансы
+реальной базы не считаются в лимит). Read-only наблюдение, без auto-fix (дух ADR-4). Спека —
+часть 2 план-файла `C:\Users\andre\.claude\plans\glittery-floating-turtle.md`. Одна сессия:
+`MLC-095`+`MLC-096` (один PR кода #91, коммиты раздельно) → `MLC-097` (PR канона #92).
+
+- `MLC-095` (RD-A) — **`MissingItems` в ответе unassigned (backend)** — Done (2026-06-11, PR #91).
+  Расширен ответ существующего `GET /api/v1/infobases/unassigned` (списочный `GET /infobases`
+  не тронут — критичная Zod-граница). DTO `MissingInfobaseDto { InfobaseId, TenantName, Name,
+  ClusterInfobaseId }` + `MissingItems: IReadOnlyList<…>` в `UnassignedInfobasesResponse`.
+  `GetUnassignedAsync`: при `Available:true` — обратный diff (записи `Infobases`, чьих
+  `ClusterInfobaseId` нет в снапшоте кластера), join имени клиента; при `Available:false` —
+  пустой список (сбой опроса RAS ≠ пропавшие базы, ложных красных меток нет). Прямой и обратный
+  diff питаются одной проекцией `PanelInfobaseRow` (один join Infobases×Tenants вместо двух
+  запросов), сортировка MissingItems по клиенту+имени. Кэш/`refresh` — без изменений. **Без
+  миграций, мутаций, новых аудит-кодов и настроек.** +3 теста слайса (обратный diff с join
+  имени; пусто при `Available:false`; запись «и в панели и в кластере» не в MissingItems и не в
+  Items) → `dotnet test` 613/613 зелёный. Гейт остался: response-record получил 3-й список —
+  оба конструктора в `GetUnassignedAsync` обновлены (Available:false-ветка отдаёт пустой
+  `MissingItems`).
+
+- `MLC-096` (RD-B) — **баннер + метка + диалог обратного дрейфа (frontend)** — Done (2026-06-11,
+  PR #91). Zod-схема unassigned: + `missingInfobaseSchema` (все поля `z.string()` non-null — BE
+  их не опускает, `omittable` не нужен) и `missingItems` в response-схеме. `MissingInfobasesBanner`
+  (семантика `danger`/rose, иконка `AlertTriangle`, `<RelativeTime>`-свежесть) в **том же слоте**
+  `InfobasesPage`, что жёлтый `UnassignedBanner`, и на **том же** query (без второго запроса) +
+  кнопка «Показать». `MissingInfobasesDialog` (обычный `Dialog`, 06 §7): строка = клиент · имя ·
+  UUID-моно; «Удалить» → существующий `DeleteInfobaseDialog` (AlertDialog-подтверждение по имени
+  + аудит) с инвалидацией `["infobases","unassigned"]` (убирает строку и метку). `DeleteInfobaseDialog`
+  принят к минимальному контракту `{ id, name }` (`DeletableInfobase`) — запись дрейфа может быть
+  на другой странице пагинации, полного `InfobaseListItem` нет. Метка `StatusBadge danger` «Не
+  найдена в кластере» в `InfobaseRow` (ячейка статуса, тултип со временем проверки) — рендер по
+  membership-набору `Set<clusterInfobaseId>`, собранному на странице строго при
+  `isAdmin && available` (Viewer и `available:false` → набор пуст → меток нет). Баннер — при
+  `isAdmin && available && count>0`. i18n `infobases.missing.*` (label, tooltip, banner с
+  plural-формами, dialog). +8 тестов Vitest (баннер компонента; диалог компонента → onDelete;
+  page-гейтинг: баннер+метка при available+missing, нет при пустом/`available:false`/Viewer;
+  метка по membership) → `pnpm test` 355/355, `type-check`, `lint` зелёные.
+
+- `MLC-097` (RD-C) — **канон (docs)** — Done (2026-06-11, отдельный PR #92 после вливания #91).
+  **ADR-29 Update-нота** в `DECISIONS.md`: направление (б) реализовано **тем же** наблюдательным
+  механизмом (`MissingItems` из того же кэшируемого снапшота; только при `Available:true`;
+  read-only, без персиста/мутаций/аудит-кодов/миграций) — новый ADR не нужен, это завершение
+  ADR-29; обновлены «Relation to ADR-4/ADR-16» (оба направления, без нового RAS-опроса) и
+  «Rejected» (серверный фильтр «не найдена» и новые аудит-коды отклонены; зона (б) помечена
+  закрытой). Канон present-tense без changelog: `04_INFRASTRUCTURE` — форма ответа
+  `{ Items, HiddenItems, MissingItems, … }` + подпункт «Reverse diff» (условие `Available:true`,
+  тот же снапшот, `GET /infobases` не тронут); `05_UI_REQUIREMENTS` §3.3 — подпункт «Reverse
+  drift» (метка `danger`, красный баннер в одном слоте с жёлтым, диалог «Показать»→«Удалить»
+  через существующий delete-флоу, Admin-only, только при reachable+count>0, серверный фильтр —
+  отложен); `06_UI_DESIGN` §12 — «Показать» (domain) и «Не найдена в кластере» (statuses);
+  `ROADMAP.md` — пункт «Дрейф панель↔кластер» сжат до строки-факта «закрыт полностью» (оба
+  направления, `MLC-092..094` + `MLC-095..097`). Валидация инфобаз и каталог настроек не
+  трогались.
+
+- **Live-прогон на стенде `MLC-095`..`MLC-097`** (2026-06-11, реальный backend :5080 +
+  `Server=.`/БД `MitLicenseCenter`, RAS **доступен** — `available:true`). Под Admin-cookie
+  (login :5080 → 200, роль Admin): базовый `GET /infobases/unassigned?refresh=true` →
+  `items:[]`, `missingItems:[]`, `available:true`. **Заведена запись с несуществующим UUID
+  кластера** `99999999-…-9999` (имитация «Ввести вручную», POST `/infobases`, клиент `mtpro`,
+  имя «E2E Призрак MLC-097») → 201. Повторный `unassigned?refresh=true` → `missingItems` ровно
+  `[{ infobaseId, tenantName:"mtpro", name:"E2E Призрак MLC-097", clusterInfobaseId:"9999…" }]`,
+  `available:true`, `items:[]` (реальные базы кластера меток/нераспределённости не получили —
+  ложного жёлтого тоже нет). **Удаление** записи (DELETE `/infobases/{id}`) → 204; следующий
+  `unassigned?refresh=true` → `missingItems:[]`, `mtpro.infobaseCount` снова 3. Гейт Admin-only:
+  без cookie все маршруты → 401 (подтверждено в логе `RolesAuthorizationRequirement … Admin`).
+  FE-рендер (красный баннер/метка/тултип, гейтинг Viewer/`available:false`/пусто, диалог→delete)
+  — покрыт Vitest, в браузере в эту сессию не гонялся (живой SPA пользователя не трогал); ветка
+  `available:false` (RAS-down) — покрыта тестами BE+FE, физически RAS не останавливал. **Уборка:**
+  тестовая запись удалена, стенд в исходном состоянии; backend, поднятый для прогона, заглушён.
+
 ## Трек «Нераспределённые базы: discovery-first добавление» — секция реестра (закрыт 2026-06-11, перенесено из PROJECT_BACKLOG.md)
 
 **Вводная.** Базы кластера 1С, не заведённые в панель, невидимы оператору, а их сеансы
