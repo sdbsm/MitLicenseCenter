@@ -23,10 +23,7 @@ import { STATUSES, type InfobaseFormValues } from "./validation";
 
 interface PublicationFieldsetProps {
   control: Control<InfobaseFormValues>;
-  // Discovery: сервер СУБД (инстансы SQL), сайт IIS, версия платформы.
-  sqlInstanceOptions: DiscoveryOption[];
-  sqlInstancesState: DiscoveryState;
-  onRefreshSqlInstances: () => void;
+  // Discovery: сайт IIS, версия платформы.
   siteOptions: DiscoveryOption[];
   sitesState: DiscoveryState;
   onRefreshSites: () => void;
@@ -42,14 +39,13 @@ interface PublicationFieldsetProps {
   markPhysicalPathTouched: () => void;
 }
 
-// MLC-023 — презентационный блок «Дополнительно» (3 группы: Инфобаза, СУБД, Публикация в
+// MLC-023 — презентационный блок «Дополнительно» (2 группы: Инфобаза, Публикация в
 // IIS). Без состояния и эффектов: получает control формы и discovery-пропсы от
 // useInfobaseForm. Раскрытие/сворачивание блока остаётся в InfobaseFormDialog.
+// Сервер СУБД в форме не показывается (MLC-082, single-host) — значение подставляется
+// из настройки в useInfobaseForm.
 export function PublicationFieldset({
   control,
-  sqlInstanceOptions,
-  sqlInstancesState,
-  onRefreshSqlInstances,
   siteOptions,
   sitesState,
   onRefreshSites,
@@ -117,39 +113,6 @@ export function PublicationFieldset({
                   ))}
                 </SelectContent>
               </Select>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-      </div>
-
-      <Separator />
-
-      {/* Группа: СУБД (SQL Server) */}
-      <div className="grid gap-4">
-        <div className="space-y-0.5">
-          <h4 className="text-sm font-semibold">{t("infobases.form.groupDatabase")}</h4>
-          <p className="text-muted-foreground text-xs">{t("infobases.form.groupDatabaseHint")}</p>
-        </div>
-
-        <FormField
-          control={control}
-          name="databaseServer"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>{t("infobases.form.databaseServerLabel")}</FormLabel>
-              <FormControl>
-                <DiscoveryField
-                  value={field.value}
-                  onChange={field.onChange}
-                  options={sqlInstanceOptions}
-                  available={sqlInstancesState.available}
-                  loading={sqlInstancesState.loading}
-                  error={sqlInstancesState.error}
-                  onRefresh={onRefreshSqlInstances}
-                  manualPlaceholder={t("infobases.form.databaseServerPlaceholder")}
-                />
-              </FormControl>
               <FormMessage />
             </FormItem>
           )}
