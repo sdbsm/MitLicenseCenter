@@ -25,4 +25,14 @@
     <AssemblyName>$(MSBuildProjectName)</AssemblyName>
   </PropertyGroup>
 
+  <!--
+    Версия продукта — единая точка для всех сборок бэкенда. `/api/v1/health` отдаёт
+    InformationalVersion (см. Endpoints/Health/HealthEndpoints.cs). SourceRevision в
+    строку не добавляем, чтобы health показывал чистый «0.1.0-beta», а не «…+<sha>».
+  -->
+  <PropertyGroup>
+    <Version>0.1.0-beta</Version>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
 </Project>
