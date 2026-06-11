@@ -4475,6 +4475,53 @@ multi-node, UI-долги канона 06 (tanstack/recharts/ESLint-StatusBadge)
   - **Вне scope.** Показ первого пароля `admin` на финальном экране мастера — `MLC-102` (сейчас — из Event Log);
     деинсталл-полировка (keep-data prompt, ярлыки) — `MLC-103`.
 
+- `MLC-102` — **Пароль admin задаёт оператор в мастере (вместо случайного)** — Done (2026-06-11).
+  - **Проблема.** До этого `IdentitySeeder` на пустой БД всегда генерил случайный 24-символьный пароль и писал его
+    в лог (`EventId 1001`) — оператор доставал из Event Log. Решение оператора: мастер установщика спрашивает пароль
+    admin, сидер берёт его при первом старте. Random+лог остаётся fallback для не-инсталляторных путей (dev, `db-reset`,
+    ручной деплой).
+  - **Backend (`IdentitySeeder.cs`).** В `EnsureSeededAsync`: резолвим путь одноразового файла из
+    `IConfiguration["Seed:InitialAdminPasswordFile"]` (дефолт = `Path.Combine(CommonApplicationData,
+    "MitLicenseCenter", "initial-admin.secret")` — та же прод-конвенция, что и key ring). При сидинге (нет
+    пользователей): если файл есть и непустой → читаем (Trim), используем как пароль, **best-effort удаляем** файл
+    (try/catch на `IOException`/`UnauthorizedAccessException`), логируем `LogSeededAdminWithOperatorPassword`
+    (новый `[LoggerMessage]` **EventId 1002**, Warning, БЕЗ значения пароля); иначе → прежняя ветка
+    `GenerateInitialPassword()` + `LogSeededAdmin` (EventId 1001). Невалидный по политике пароль → существующий
+    `ThrowIfFailed` (fail-fast). **Cleanup:** если пользователи уже есть (сидинг не нужен), но файл существует →
+    удаляем его best-effort (не оставлять висящий секрет; ранний `return`). Файл читается-удаляется даже если
+    содержимое пустое (одноразовый контракт). Dev/тесты не задеты: по дефолтному ProgramData-пути файла нет → random.
+  - **Тесты (`IdentitySeederTests.cs`, +4).** Реальный `UserManager`/`RoleManager` над EF InMemory + `IConfiguration`
+    с конфиг-ключом на temp-файл (харнес `SeederHarness`, передаёт корневой провайдер — сидер сам делает scope):
+    (1) валидный пароль в файле → admin создан с ним + файл удалён; (2) файла нет → random (заданный пароль не
+    подходит); (3) невалидный по политике (`"short"`) → `InvalidOperationException` + файл всё равно удалён;
+    (4) повторный прогон с висящим файлом при наличии юзера → файл удалён, ровно 1 пользователь (второй admin не создан).
+  - **Установщик (`installer/MitLicenseCenter.iss`, UTF-8 BOM).** Новая страница `PageAdmin` «Учётная запись
+    администратора» (`CreateInputQueryPage` после `PageNet`): пароль (`IsPassword`) + подтверждение, подсказка
+    политики. `ShouldSkipPage(PageAdmin.ID) = ServiceExists` — на апгрейде admin уже есть, страницу пропускаем.
+    Валидация на Next (`NextButtonClick`): непустой, == подтверждению, `AdminPasswordMeetsPolicy` (Pascal посимвольно:
+    длина ≥12 + наличие upper/lower/digit/special). `WriteInitialAdminPassword` в `CurStepChanged(ssPostInstall)`
+    (только при `not ServiceExists`, **ДО** `GrantServiceAccountRights` — чтобы `icacls (OI)(CI)M` на каталог накрыл
+    и файл): `SaveStringToFile({commonappdata}\MitLicenseCenter\initial-admin.secret, AdminPassword, False)` (UTF-8
+    без BOM; каталог уже в `[Dirs]`). Финальный экран (`CurPageChanged(wpFinished)`): чистая установка — «Панель
+    установлена… Войдите как admin с заданным паролем» + URL `http://localhost:<port>/` (`PanelUrl`); апгрейд — текст
+    без пароля. `[Run]` postinstall-чекбокс «Открыть панель в браузере» (`{code:PanelUrl}`, `shellexec nowait
+    skipifsilent`). Пароль нигде не логируется; на апгрейде `.secret` не пишется.
+  - **Контракт одноразового файла.** Установщик (чистая установка) пишет `%ProgramData%\MitLicenseCenter\initial-admin.secret`
+    (плейнтекст, UTF-8 без BOM, под ACL каталога). Сидер бэкенда на **первом старте** читает, создаёт admin, **удаляет**
+    файл (best-effort) — транзиентный. Cleanup: если admin уже есть, висящий файл тоже удаляется. Пароль не попадает
+    в лог (EventId 1002 фиксирует только факт). На апгрейде файл не создаётся (страница пропущена).
+  - **Канон.** `docs/DECISIONS.md` **ADR-31** — новый буллет «Admin password set in the wizard (MLC-102)»
+    (страница только чистая установка, одноразовый файл, сидер использует+удаляет, EventId 1002 без значения,
+    random+1001 fallback, cleanup-контракт, конфиг-ключ, finish без пароля). `docs/OPERATIONS.md` — буллет
+    «First-run admin password» (инсталляторный путь через `.secret` без Event Log vs fallback random+1001),
+    «Wizard steps» шаг (5) + finish, «Diagnosing service start» (пароль из мастера, Event Log не нужен).
+    `docs/PROJECT_BACKLOG.md` — `MLC-102` → Done (сжатая строка + гоча одноразового файла), NEXT очищен, трек не
+    закрыт (5/6).
+  - **Проверка.** `scripts\build.ps1 -Configuration Release` — non-smoke зелёные, включая 4 новых `IdentitySeederTests`;
+    smoke `RacExecutableSmokeTests` зависят от живого 1С RAS (environmental, не блокер). `scripts\build-installer.ps1`
+    → ISCC компилирует `.iss` без ошибок → `Setup.exe`. Реальный тест-инсталл — приёмочный шаг оператора.
+  - **Вне scope.** Деинсталл-полировка (keep-data prompt: предложить удалить БД + key ring; ярлыки меню) — `MLC-103`.
+
 ## Трек «Нераспределённые базы: discovery-first добавление» — секция реестра (закрыт 2026-06-11, перенесено из PROJECT_BACKLOG.md)
 
 **Вводная.** Базы кластера 1С, не заведённые в панель, невидимы оператору, а их сеансы

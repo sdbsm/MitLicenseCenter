@@ -89,6 +89,11 @@ Filename: "{sys}\netsh.exe"; \
 ; --- Старт службы ---
 Filename: "{sys}\sc.exe"; Parameters: "start {#MyServiceName}"; \
   Flags: runhidden; StatusMsg: "Запуск службы..."
+; --- Опционально открыть панель в браузере (финальный чекбокс) ---
+; URL формирует [Code] из введённого порта; postinstall — чекбокс на финальном экране,
+; nowait — не ждём браузер, skipifsilent — в тихом режиме не открываем.
+Filename: "{code:PanelUrl}"; Description: "Открыть панель в браузере"; \
+  Flags: postinstall shellexec nowait skipifsilent
 
 [UninstallRun]
 ; Стоп + удаление службы. RunOnceId, чтобы шаги не дублировались.
@@ -144,6 +149,9 @@ var
   PageCreds: TInputQueryWizardPage;
   { Страница «Сеть»: порт + AllowedHosts. }
   PageNet: TInputQueryWizardPage;
+  { Страница «Учётная запись администратора»: пароль admin + подтверждение (только чистая
+    установка — на апгрейде admin уже создан, не спрашиваем). MLC-102. }
+  PageAdmin: TInputQueryWizardPage;
   { Метка-результат теста подключения на странице учётных данных. }
   TestResultLabel: TNewStaticText;
   TestButton: TNewButton;
@@ -186,6 +194,45 @@ end;
 function NetAllowedHosts: string;
 begin
   Result := Trim(PageNet.Values[1]);
+end;
+
+{ Пароль admin (заданный оператором) — НЕ тримим: пробелы/спецсимволы значимы. }
+function AdminPassword: string;
+begin
+  Result := PageAdmin.Values[0];
+end;
+
+function AdminPasswordConfirm: string;
+begin
+  Result := PageAdmin.Values[1];
+end;
+
+{ Проверка пароля admin по парольной политике Identity (паритет с RequiredLength=12 +
+  Require Upper/Lower/Digit/NonAlphanumeric, см. backend AddInfrastructure / IdentitySeeder).
+  Сидер всё равно перепроверит при создании (fail-fast), но мастер ловит ошибку заранее. }
+function AdminPasswordMeetsPolicy(const pwd: string): Boolean;
+var
+  i: Integer;
+  c: Char;
+  hasUpper, hasLower, hasDigit, hasSpecial: Boolean;
+begin
+  hasUpper := False;
+  hasLower := False;
+  hasDigit := False;
+  hasSpecial := False;
+  for i := 1 to Length(pwd) do
+  begin
+    c := pwd[i];
+    if (c >= 'A') and (c <= 'Z') then
+      hasUpper := True
+    else if (c >= 'a') and (c <= 'z') then
+      hasLower := True
+    else if (c >= '0') and (c <= '9') then
+      hasDigit := True
+    else
+      hasSpecial := True;  { всё прочее — спецсимвол (NonAlphanumeric) }
+  end;
+  Result := (Length(pwd) >= 12) and hasUpper and hasLower and hasDigit and hasSpecial;
 end;
 
 { ===== Служебные ===== }
@@ -287,6 +334,15 @@ begin
   StringChangeEx(Result, '''', '''''', True);
 end;
 
+{ ===== URL панели (для финального экрана / открытия в браузере) ===== }
+
+{ URL панели для оператора: http://localhost:<порт>/. Хост — localhost (служба слушит
+  http://+:<порт>, локальное имя всегда достижимо с самого хоста). MLC-102. }
+function PanelUrl(Param: string): string;
+begin
+  Result := 'http://localhost:' + NetPort + '/';
+end;
+
 { ===== Строка подключения ===== }
 
 { Собирает строку подключения по режиму. appName уходит в Application Name (Default/Hangfire). }
@@ -329,6 +385,27 @@ begin
   if not SaveStringToFile(path, json, False) then
     MsgBox('Не удалось записать appsettings.Production.json по пути ' + path + '.' + #13#10 +
            'Служба может не стартовать — проверьте конфигурацию вручную.', mbError, MB_OK);
+end;
+
+{ ===== Одноразовый файл пароля admin (MLC-102) ===== }
+
+{ На чистой установке кладём заданный оператором пароль admin в одноразовый файл
+  {commonappdata}\MitLicenseCenter\initial-admin.secret. Сидер бэкенда при первом старте
+  читает его, создаёт admin с этим паролем и УДАЛЯЕТ файл (ADR-31). На апгрейде admin уже
+  есть — файл не пишем (страница пароля пропущена через ShouldSkipPage). Каталог создаётся
+  [Dirs]; под ACL %ProgramData%\MitLicenseCenter (режим A — Modify сервис-аккаунту, режим B —
+  LocalSystem). UTF-8 без BOM (SaveStringToFile с UTF8=False). Пароль не логируется. }
+procedure WriteInitialAdminPassword;
+var
+  path: string;
+begin
+  if ServiceExists then
+    Exit;  { апгрейд — admin уже создан }
+  path := ExpandConstant('{commonappdata}\MitLicenseCenter\initial-admin.secret');
+  if not SaveStringToFile(path, AdminPassword, False) then
+    MsgBox('Не удалось записать файл с паролем администратора по пути ' + path + '.' + #13#10 +
+           'Первый администратор будет создан со случайным паролем — он попадёт в Журнал событий Windows.',
+           mbError, MB_OK);
 end;
 
 { ===== ACL для ОС-аккаунта (режим A) ===== }
@@ -565,6 +642,24 @@ begin
   PageNet.Add('AllowedHosts:', False);
   PageNet.Values[0] := '{#MyDefaultPort}';
   PageNet.Values[1] := '*';
+
+  { --- Страница «Учётная запись администратора» (только чистая установка) --- }
+  PageAdmin := CreateInputQueryPage(PageNet.ID,
+    'Учётная запись администратора',
+    'Пароль первого администратора панели',
+    'Задайте пароль администратора (логин — admin). Под ним вы войдёте в панель после установки.' + #13#10 +
+    'Требования: не менее 12 символов, заглавная и строчная буквы, цифра и спецсимвол.');
+  PageAdmin.Add('Пароль администратора:', True);
+  PageAdmin.Add('Подтверждение пароля:', True);
+end;
+
+{ Страница пароля admin — только на чистой установке: на апгрейде admin уже создан в БД,
+  заново его не спрашиваем (паритет с ServiceExists = апгрейд). MLC-102. }
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  Result := False;
+  if (PageAdmin <> nil) and (PageID = PageAdmin.ID) then
+    Result := ServiceExists;
 end;
 
 { Сброс результата теста при заходе на страницу учётных данных + подсказки по режиму. }
@@ -590,6 +685,22 @@ begin
       PageCreds.SubCaptionLabel.Caption :=
         'SQL-логин создан заранее с нужными правами. Служба работает под LocalSystem, подключается этим логином.';
     end;
+  end;
+
+  { Финальный экран: подтверждаем вход и даём URL. Пароль admin НЕ показываем — его задал
+    оператор (на апгрейде admin уже был). MLC-102. }
+  if CurPageID = wpFinished then
+  begin
+    if ServiceExists then
+      WizardForm.FinishedLabel.Caption :=
+        'Панель обновлена и запущена.' + #13#10#13#10 +
+        'Откройте панель: ' + PanelUrl('') + #13#10 +
+        'Учётные записи администраторов сохранены.'
+    else
+      WizardForm.FinishedLabel.Caption :=
+        'Панель установлена и запущена.' + #13#10#13#10 +
+        'Войдите как admin с заданным паролем.' + #13#10 +
+        'Откройте панель: ' + PanelUrl('');
   end;
 end;
 
@@ -672,6 +783,31 @@ begin
       Exit;
     end;
   end;
+
+  { --- Учётная запись администратора (только чистая установка) --- }
+  if (PageAdmin <> nil) and (CurPageID = PageAdmin.ID) then
+  begin
+    if AdminPassword = '' then
+    begin
+      MsgBox('Задайте пароль администратора.', mbError, MB_OK);
+      Result := False;
+      Exit;
+    end;
+    if AdminPassword <> AdminPasswordConfirm then
+    begin
+      MsgBox('Пароль и подтверждение не совпадают.', mbError, MB_OK);
+      Result := False;
+      Exit;
+    end;
+    if not AdminPasswordMeetsPolicy(AdminPassword) then
+    begin
+      MsgBox('Пароль не соответствует требованиям:' + #13#10 +
+             'не менее 12 символов, заглавная и строчная буквы, цифра и спецсимвол.',
+             mbError, MB_OK);
+      Result := False;
+      Exit;
+    end;
+  end;
 end;
 
 { После копирования файлов: записать конфиг, выдать ACL ОС-аккаунту, снести старое
@@ -683,6 +819,9 @@ begin
   if CurStep = ssPostInstall then
   begin
     WriteProductionConfig;
+    { Пароль admin — ДО выдачи ACL: icacls на каталог (OI)(CI) затем накроет и этот файл,
+      чтобы сервис-аккаунт (режим A) мог прочитать и удалить его при первом старте. }
+    WriteInitialAdminPassword;
     GrantServiceAccountRights;
     { Снять одноимённое firewall-правило, чтобы add из [Run] не плодил дубли и применил
       актуальный порт. Игнорируем результат (правила может не быть на чистой установке). }
