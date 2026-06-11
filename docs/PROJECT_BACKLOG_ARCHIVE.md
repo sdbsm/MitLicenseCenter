@@ -4308,6 +4308,45 @@ multi-node, UI-долги канона 06 (tanstack/recharts/ESLint-StatusBadge)
     Гоча для них: `dotnet publish` теперь требует node ≥22.13 + pnpm 11 (если не задан Skip/Prebuilt);
     инсталлятор-пайплайн, вероятно, использует `-p:PrebuiltSpaDist=<dist>`.
 
+- `MLC-099` — **Self-contained single-file publish + publish-скрипт** — Done (2026-06-11). Задача 2/6
+  трека: повторяемый скрипт, собирающий готовый к установке артефакт без .NET на хосте. Спека —
+  `.claude/plans/mlc-099-self-contained-publish.md`.
+  - **`scripts/publish-release.ps1` (новый, UTF-8 с BOM).** Обёртка над `dotnet publish` в стиле
+    `build.ps1`: успех нативного шага — только по `$LASTEXITCODE`, вокруг вызова снят
+    `$ErrorActionPreference='Stop'` (обход stderr-спама PS 5.1). Параметры: `-OutputDir` (дефолт
+    `artifacts\<version>\backend`; `<version>` читается из тега `<Version>` в `backend\Directory.Build.props`
+    через `[xml]`), `-Configuration` (дефолт `Release`), `-FrameworkDependent` (switch),
+    `-SkipSpaBuild` (→ `-p:SkipSpaBuild=true`), `-PrebuiltSpaDist <путь>` (→ `-p:PrebuiltSpaDist=…`).
+    Пути нормализуются хелпером `Resolve-AbsolutePath` (rooted-путь — как есть, относительный — от CWD;
+    наивный `Join-Path CWD <absolute>` ронял `GetFullPath` на «format is not supported» — поймано на
+    первом прогоне дефолтного абсолютного `-OutputDir` и исправлено). Итоговый вывод: путь артефакта,
+    размер `MitLicenseCenter.Web.exe`, наличие `wwwroot\index.html`.
+  - **Дефолт — self-contained single-file win-x64.** `dotnet publish … -r win-x64 --self-contained true
+    -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true`.
+    Рантайм .NET 10 вшит в exe → хосту .NET не нужен. `-FrameworkDependent` публикует без
+    `-r/--self-contained/PublishSingleFile` (нужен .NET 10 на хосте). **Trimming сознательно НЕ включён**
+    (`PublishTrimmed` не задаётся): EF Core / Hangfire / Identity рефлексивны, обрезка их ломает.
+  - **csproj не менялся** — флаги single-file/self-contained живут в скрипте, а не в проекте, чтобы
+    обычный `dotnet publish`/inner-loop и framework-dependent-вариант не ломались. Таргет
+    `CopySpaToPublish` (MLC-098, `AfterTargets="Publish"`) сам кладёт `wwwroot` рядом с exe.
+  - **Канон (present-tense, в том же ходу).** `docs/DECISIONS.md` — **Update-нота к ADR-14**:
+    `publish-release.ps1` — build/packaging-тулинг (производит артефакт), **не** CD/деплой-автоматизация;
+    ручной деплой и отложенный `Deploy-MitLicenseCenter.ps1` без изменений (снимает код↔doc-расхождение —
+    перечень `scripts/` в ADR-14 разошёлся с деревом). `docs/OPERATIONS.md` — «Deployment is manual»
+    шаг 2 переписан на `scripts/publish-release.ps1` (self-contained по умолчанию, `-FrameworkDependent`
+    как опция, trimming off); секция «Backend hosts the SPA» — пункт про сборку артефакта скриптом +
+    опт-ауты в switch-форме (`-SkipSpaBuild` / `-PrebuiltSpaDist`). `CLAUDE.md` — строка в «Командах».
+  - **Проверка.** `scripts\build.ps1 -Configuration Release` — зелёный (exit 0; csproj не менялся).
+    Self-contained публиш (~16 с инкрементально): `MitLicenseCenter.Web.exe` **55.6 МБ** (рантайм вшит),
+    `wwwroot\index.html` + `wwwroot\assets\` (46 файлов), `appsettings.Production.json` (template) +
+    `web.config` присутствуют; артефакт = 1 exe + 4 pdb + 3 appsettings + web.config + SPA (~58.5 МБ всего).
+    Framework-dependent публиш (`-FrameworkDependent`): без вшитого рантайма (россыпь dll, exe-стартер
+    лёгкий), требует .NET 10 на хосте. Полный запуск exe против SQL — приёмочный шаг инсталлятора (MLC-100+),
+    здесь не выполнялся.
+  - **Вне scope (следующие задачи трека).** `MLC-100` Inno Setup каркас (служба, ACL key ring, firewall);
+    `MLC-101` страница SQL + генерация `appsettings.Production.json`; `MLC-102` захват пароля admin;
+    `MLC-103` деинсталляция. Открытые вопросы куратора (учётка службы, код-подпись, апгрейд поверх) — к `MLC-100+`.
+
 ## Трек «Нераспределённые базы: discovery-first добавление» — секция реестра (закрыт 2026-06-11, перенесено из PROJECT_BACKLOG.md)
 
 **Вводная.** Базы кластера 1С, не заведённые в панель, невидимы оператору, а их сеансы
