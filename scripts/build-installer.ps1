@@ -11,9 +11,11 @@
       3) вызывает ISCC с /DMyAppVersion и /DPublishDir, кладёт Setup.exe в -OutputDir;
       4) печатает путь и размер Setup.exe.
 
-    Установщик ставит панель как одну Windows-службу под LocalSystem (ADR-31), открывает
-    порт 8080 в firewall и умеет обновление поверх (стоп службы → подмена с сохранением
-    appsettings.Production.json / key ring / БД → старт).
+    Установщик (ADR-31) — интерактивный мастер: собирает SQL-инстанс/БД, режим аутентификации
+    (Windows-аккаунт под службой ИЛИ SQL-логин при LocalSystem), учётку и сетевые параметры
+    (порт → Urls+firewall, AllowedHosts), проверяет подключение (PowerShell System.Data.SqlClient),
+    пишет appsettings.Production.json из ввода и настраивает службу; умеет обновление поверх
+    (стоп службы → подмена с сохранением appsettings.Production.json / key ring / БД → старт).
 
     Предусловие: установлен Inno Setup 6 (ISCC.exe). Если не найден —
     `winget install JRSoftware.InnoSetup`.
