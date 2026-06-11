@@ -1,6 +1,8 @@
 using FluentAssertions;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -175,14 +177,24 @@ public sealed class IdentitySeederTests
         {
             var services = new ServiceCollection();
             services.AddLogging(b => b.SetMinimumLevel(LogLevel.Warning));
+            services.AddDataProtection(); // нужен AddDefaultTokenProviders (DataProtectorTokenProvider)
             services.AddSingleton<IConfiguration>(new ConfigurationBuilder()
                 .AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     ["Seed:InitialAdminPasswordFile"] = passwordFilePath,
                 })
                 .Build());
+            // EnsureSeededAsync создаёт собственный scope (новый AppDbContext); данные должны быть
+            // видны нашему внешнему scope. Общий внутренний EF-провайдер (AddEntityFrameworkInMemoryDatabase)
+            // + явный InMemoryDatabaseRoot гарантируют единый стор между scope'ами — без них EF строит
+            // отдельный внутренний провайдер на конфигурацию и кросс-scope запись не видна.
+            var dbRoot = new InMemoryDatabaseRoot();
+            var efProvider = new ServiceCollection()
+                .AddEntityFrameworkInMemoryDatabase()
+                .BuildServiceProvider();
+            var dbName = $"seeder-{Guid.NewGuid():N}";
             services.AddDbContext<AppDbContext>(o =>
-                o.UseInMemoryDatabase($"seeder-{Guid.NewGuid():N}"));
+                o.UseInMemoryDatabase(dbName, dbRoot).UseInternalServiceProvider(efProvider));
             services
                 .AddIdentityCore<AppUser>(options =>
                 {
