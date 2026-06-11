@@ -33,8 +33,10 @@ DefaultDirName={autopf}\MitLicense Center
 DefaultGroupName=MitLicense Center
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
-ArchitecturesInstallIn64BitMode=x64
-ArchitecturesAllowed=x64
+; Артефакт — win-x64 self-contained; ставим только в 64-битном режиме.
+; Идентификатор x64compatible (предпочтительный в Inno 6.3+; x64 устарел).
+ArchitecturesInstallIn64BitMode=x64compatible
+ArchitecturesAllowed=x64compatible
 OutputBaseFilename=MitLicenseCenter-Setup-{#MyAppVersion}
 OutputDir=Output
 Compression=lzma2
