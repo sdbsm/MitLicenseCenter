@@ -277,6 +277,16 @@ begin
   StringChangeEx(Result, '"', '""', True);
 end;
 
+{ Экранирует значение для PowerShell single-quoted literal ('...'): одиночная кавычка
+  удваивается. Строку подключения вставляем в '...'-литерал во временном .ps1, чтобы
+  пароль не попал в командную строку powershell.exe (нет SetEnvironmentVariable в Pascal
+  Script). Временный скрипт удаляется сразу после запуска. }
+function PsSingleQuote(const S: string): string;
+begin
+  Result := S;
+  StringChangeEx(Result, '''', '''''', True);
+end;
+
 { ===== Строка подключения ===== }
 
 { Собирает строку подключения по режиму. appName уходит в Application Name (Default/Hangfire). }
@@ -420,19 +430,22 @@ begin
   end;
 
   { Сниппет на System.Data.SqlClient (есть в .NET Framework / PS 5.1). Строку подключения
-    передаём через переменную окружения MLC_CONN — НЕ через аргумент командной строки,
-    чтобы пароль не светился в списке процессов и не пришлось экранировать кавычки. }
+    вставляем в PowerShell '...'-литерал внутри временного .ps1 (Pascal Script не имеет
+    SetEnvironmentVariable) — НЕ в командную строку powershell.exe, поэтому пароль не
+    светится в списке процессов; временный скрипт лежит во временном каталоге установщика
+    (ACL установщика) и удаляется сразу после запуска. }
   psScript :=
-    '$ErrorActionPreference=''Stop'';' +
-    'try {' +
-    '  $c = New-Object System.Data.SqlClient.SqlConnection $env:MLC_CONN;' +
-    '  $c.Open();' +
-    '  $c.Close();' +
-    '  exit 0;' +
-    '} catch {' +
-    '  [Console]::Error.WriteLine($_.Exception.Message);' +
-    '  exit 1;' +
-    '}';
+    '$ErrorActionPreference=''Stop'';' + #13#10 +
+    '$cs = ''' + PsSingleQuote(connStr) + ''';' + #13#10 +
+    'try {' + #13#10 +
+    '  $c = New-Object System.Data.SqlClient.SqlConnection $cs;' + #13#10 +
+    '  $c.Open();' + #13#10 +
+    '  $c.Close();' + #13#10 +
+    '  exit 0;' + #13#10 +
+    '} catch {' + #13#10 +
+    '  [Console]::Error.WriteLine($_.Exception.Message);' + #13#10 +
+    '  exit 1;' + #13#10 +
+    '}' + #13#10;
 
   scriptPath := ExpandConstant('{tmp}\mlc-conntest.ps1');
   if not SaveStringToFile(scriptPath, psScript, False) then
@@ -441,24 +454,17 @@ begin
     Exit;
   end;
 
-  { Пароль — в окружение дочернего powershell.exe (наследуется), не в командную строку. }
-  if not SetEnvironmentVariable('MLC_CONN', connStr) then
-  begin
-    errMsg := 'Не удалось подготовить параметры проверки.';
-    Exit;
-  end;
-
   cmdLine := '-NoProfile -ExecutionPolicy Bypass -File "' + scriptPath + '"';
   if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
               cmdLine, '', SW_HIDE, ewWaitUntilTerminated, rc) then
   begin
-    SetEnvironmentVariable('MLC_CONN', '');
+    DeleteFile(scriptPath);
     errMsg := 'Не удалось запустить powershell.exe для проверки.';
     Exit;
   end;
 
-  { Очистить переменную (не оставлять пароль в окружении процесса установщика). }
-  SetEnvironmentVariable('MLC_CONN', '');
+  { Удалить временный скрипт (в нём строка подключения с паролем). }
+  DeleteFile(scriptPath);
 
   if rc = 0 then
     Result := True
