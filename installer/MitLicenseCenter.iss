@@ -10,6 +10,12 @@
 ; (под выбранным ОС-аккаунтом или LocalSystem). Аккаунт/логин с правами в SQL (sysadmin)
 ; создаёт оператор ЗАРАНЕЕ — установщик их потребляет и проверяет, не создаёт.
 ;
+; Надёжность (MLC-107): создание/конфиг/старт службы и firewall выполняются в [Code]
+; (ConfigureService в ssPostInstall) с проверкой кода возврата sc.exe — ошибка создания
+; (например 1057: в режиме Windows введён SQL-логин) прерывает установку с подсказкой, а не
+; завершает её «успехом» без службы. appsettings.Production.json удаляется при деинсталле и
+; на чистой установке перезаписывается из ввода (skip-if-exists — только на апгрейде).
+;
 ; Параметры передаёт scripts\build-installer.ps1:
 ;   /DMyAppVersion=<версия из backend\Directory.Build.props>
 ;   /DPublishDir=<каталог self-contained publish (artifacts\<version>\backend)>
@@ -69,28 +75,12 @@ Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubd
 Name: "{commonappdata}\MitLicenseCenter"; Flags: uninsneveruninstall
 
 [Run]
-; --- Регистрация службы ---
-; Создание службы — только на чистой установке (на апгрейде ветка ниже обновляет binPath
-; и аккаунт). obj=/password= формирует [Code] по выбранному режиму: режим A => указанный
-; ОС-аккаунт, режим B => obj не задаём (LocalSystem).
-Filename: "{sys}\sc.exe"; \
-  Parameters: "{code:GetScCreateParams}"; \
-  Flags: runhidden; StatusMsg: "Регистрация службы..."; Check: not ServiceExists
-; На апгрейде службу не пересоздаём — выравниваем путь к exe и аккаунт (на случай смены
-; режима/{app}). obj=/password= снова формирует [Code].
-Filename: "{sys}\sc.exe"; \
-  Parameters: "{code:GetScConfigParams}"; \
-  Flags: runhidden; StatusMsg: "Обновление службы..."; Check: ServiceExists
-Filename: "{sys}\sc.exe"; \
-  Parameters: "description {#MyServiceName} ""Панель управления лицензиями 1С (MitLicense Center)"""; \
-  Flags: runhidden
-; --- Firewall: входящий TCP на выбранный порт панели ---
-Filename: "{sys}\netsh.exe"; \
-  Parameters: "{code:GetFirewallAddParams}"; \
-  Flags: runhidden; StatusMsg: "Открытие порта в брандмауэре..."
-; --- Старт службы ---
-Filename: "{sys}\sc.exe"; Parameters: "start {#MyServiceName}"; \
-  Flags: runhidden; StatusMsg: "Запуск службы..."
+; Регистрация/конфиг/старт службы и открытие firewall-порта выполняются в [Code]
+; (процедура ConfigureService в CurStepChanged(ssPostInstall)) — с проверкой кода возврата
+; sc.exe и внятным сообщением при ошибке (MLC-107). Раньше эти шаги жили здесь, в [Run], и
+; их провал проходил молча: например sc create => 1057, когда в режиме Windows-аутентификации
+; введён SQL-логин (sa), завершал установку «успешно» БЕЗ службы. Теперь create проверяется и
+; прерывает установку с подсказкой, а старт — предупреждает и отсылает в Журнал событий.
 ; --- Опционально открыть панель в браузере (финальный чекбокс) ---
 ; URL формирует [Code] из введённого порта; postinstall — чекбокс на финальном экране,
 ; nowait — не ждём браузер, skipifsilent — в тихом режиме не открываем.
@@ -112,6 +102,10 @@ Filename: "{sys}\netsh.exe"; \
 [UninstallDelete]
 ; Сгенерированный в ssPostInstall интернет-ярлык + его каталог в меню «Пуск».
 Type: filesandordirs; Name: "{commonprograms}\MitLicense Center"
+; appsettings.Production.json генерится в [Code] (SaveStringToFile), а не секцией [Files],
+; поэтому деинсталлятор сам его не удаляет — сносим явно, иначе при переустановке остаётся
+; старый конфиг от прошлой установки (MLC-107). Key ring/БД здесь НЕ трогаем.
+Type: files; Name: "{app}\appsettings.Production.json"
 
 [Code]
 const
@@ -376,9 +370,11 @@ var
   path, json, urls: string;
 begin
   path := ExpandConstant('{app}\appsettings.Production.json');
-  { Апгрейд: НЕ затирать правки оператора (паритет с MLC-100 onlyifdoesntexist). Конфиг
-    пишем только если файла ещё нет — на чистой установке из ввода мастера. }
-  if FileExists(path) then
+  { Skip-if-exists применяем ТОЛЬКО на апгрейде (ServiceExists): НЕ затирать правки оператора
+    (паритет с MLC-100 onlyifdoesntexist). На ЧИСТОЙ установке (службы ещё нет) пишем конфиг
+    ВСЕГДА, перезаписывая возможный остаточный файл от прошлой/прерванной установки — иначе
+    ввод мастера молча игнорируется и залипает старый конфиг (MLC-107). }
+  if ServiceExists and FileExists(path) then
     Exit;
   urls := 'http://+:' + NetPort;
   json :=
@@ -493,12 +489,100 @@ begin
     Result := Result + ' obj= "LocalSystem"';
 end;
 
-{ netsh … add rule — порт из ввода. Старое одноимённое правило снимается в
-  CurStepChanged(ssPostInstall) ДО этого вызова (идемпотентность при смене порта). }
+{ netsh … add rule — порт из ввода. Старое одноимённое правило снимается в ConfigureService
+  ДО этого вызова (идемпотентность при смене порта). }
 function GetFirewallAddParams(Param: string): string;
 begin
   Result := 'advfirewall firewall add rule name="{#MyFirewallRule}"' +
             ' dir=in action=allow protocol=TCP localport=' + NetPort;
+end;
+
+{ ===== Регистрация/конфиг/старт службы + firewall (MLC-107) ===== }
+
+{ Создание/конфиг/старт службы и открытие firewall-порта выполняются здесь, в Code-секции, а
+  не в Run-секции — чтобы проверять код возврата sc.exe и при ошибке внятно сообщать оператору
+  (а не завершать установку «успешно» без службы). Вызывается в КОНЦЕ CurStepChanged(ssPostInstall),
+  ПОСЛЕ WriteProductionConfig/WriteInitialAdminPassword/GrantServiceAccountRights и снятия старого
+  firewall-правила. Запускает sc.exe / netsh.exe (из System32) через Exec с проверкой rc.
+  Контракт ошибок:
+    - sc create (чистая установка): rc<>0 -> MsgBox с подсказкой (особо 1057 — Windows-режим
+      выбран для SQL-логина) и прерывание установки исключением (откат);
+    - sc config (апгрейд): rc<>0 -> MsgBox-предупреждение (служба остаётся, но аккаунт/путь
+      могли не примениться);
+    - sc description: rc не валидируем (косметика);
+    - netsh add: rc<>0 -> предупреждение (порт мог не открыться);
+    - sc start: rc<>0 -> предупреждение со ссылкой на Журнал событий (fail-fast bootstrap,
+      ADR-18), без Abort — служба уже создана.
+  Пароли (obj password / SQL) в сообщениях не фигурируют. }
+procedure ConfigureService;
+var
+  rc: Integer;
+  startWarn: string;
+begin
+  if not ServiceExists then
+  begin
+    { --- Чистая установка: создаём службу --- }
+    if (not Exec(ExpandConstant('{sys}\sc.exe'), GetScCreateParams(''),
+                 '', SW_HIDE, ewWaitUntilTerminated, rc)) or (rc <> 0) then
+    begin
+      if rc = 1057 then
+        { 1057 = ERROR_INVALID_SERVICE_ACCOUNT: для obj= указан невалидный аккаунт службы.
+          Типичная причина — выбран режим Windows-аутентификации, а введён SQL-логин (sa). }
+        MsgBox('Не удалось создать службу (код 1057 — недопустимая учётная запись службы).' + #13#10#13#10 +
+               'Чаще всего это значит, что на шаге «Аутентификация» выбрана Windows-аутентификация (A), ' +
+               'но в учётных данных введён SQL-логин (например sa), а не Windows-аккаунт.' + #13#10#13#10 +
+               'Если для подключения к SQL используется SQL-логин — вернитесь и выберите ' +
+               '«(B) SQL-аутентификация» (служба будет работать под LocalSystem).' + #13#10#13#10 +
+               'Если используется Windows-аккаунт — проверьте имя (ДОМЕН\Пользователь или .\Пользователь) ' +
+               'и пароль. Подробности — в логе установки.',
+               mbCriticalError, MB_OK)
+      else
+        MsgBox('Не удалось создать службу «{#MyServiceName}» (код ' + IntToStr(rc) + ').' + #13#10#13#10 +
+               'Если для подключения к SQL используется SQL-логин (например sa) — на шаге ' +
+               '«Аутентификация» выберите «(B) SQL-аутентификация», а не Windows. ' +
+               'Подробности — в логе установки.',
+               mbCriticalError, MB_OK);
+      { Жёсткое прерывание: исключение из CurStepChanged откатывает установку — служба не
+        создалась, нельзя завершать «успехом». }
+      RaiseException('Создание службы «{#MyServiceName}» завершилось с кодом ' + IntToStr(rc) + '.');
+    end;
+  end
+  else
+  begin
+    { --- Апгрейд: пересоздавать службу не нужно, выравниваем binPath/аккаунт --- }
+    if (not Exec(ExpandConstant('{sys}\sc.exe'), GetScConfigParams(''),
+                 '', SW_HIDE, ewWaitUntilTerminated, rc)) or (rc <> 0) then
+      MsgBox('Не удалось обновить параметры службы «{#MyServiceName}» (код ' + IntToStr(rc) + ').' + #13#10 +
+             'Служба сохранена, но путь к программе или учётная запись могли не примениться — ' +
+             'проверьте параметры службы вручную (services.msc) и лог установки.',
+             mbError, MB_OK);
+  end;
+
+  { --- Описание службы (косметика, rc не валидируем) --- }
+  Exec(ExpandConstant('{sys}\sc.exe'),
+       'description {#MyServiceName} "Панель управления лицензиями 1С (MitLicense Center)"',
+       '', SW_HIDE, ewWaitUntilTerminated, rc);
+
+  { --- Firewall: входящий TCP на выбранный порт --- }
+  if (not Exec(ExpandConstant('{sys}\netsh.exe'), GetFirewallAddParams(''),
+               '', SW_HIDE, ewWaitUntilTerminated, rc)) or (rc <> 0) then
+    MsgBox('Не удалось открыть TCP-порт ' + NetPort + ' в брандмауэре Windows (код ' + IntToStr(rc) + ').' + #13#10 +
+           'Панель установлена, но может быть недоступна по сети — откройте порт вручную ' +
+           '(брандмауэр Windows) или проверьте лог установки.',
+           mbError, MB_OK);
+
+  { --- Старт службы: на провале предупреждаем (без Abort — служба создана) --- }
+  if (not Exec(ExpandConstant('{sys}\sc.exe'), 'start {#MyServiceName}',
+               '', SW_HIDE, ewWaitUntilTerminated, rc)) or (rc <> 0) then
+  begin
+    startWarn :=
+      'Служба «{#MyServiceName}» создана, но не запустилась (код ' + IntToStr(rc) + ').' + #13#10#13#10 +
+      'Причину смотрите в Журнале событий Windows (Приложение, источник MitLicenseCenter): ' +
+      'бэкенд при старте применяет миграции и проверяет доступ к SQL fail-fast (ADR-18) и ' +
+      'пишет туда причину отказа (например SQL недоступен или нет прав у учётной записи службы).' + #13#10#13#10 +
+      'После устранения причины запустите службу вручную (services.msc) или перезагрузите хост.';
+    MsgBox(startWarn, mbError, MB_OK);
+  end;
 end;
 
 { ===== Тест подключения (PowerShell + System.Data.SqlClient) ===== }
@@ -719,8 +803,8 @@ begin
     'Как панель будет подключаться к SQL Server',
     'Учётную запись с правами в SQL (роль sysadmin на экземпляре) оператор создаёт ЗАРАНЕЕ — установщик её только использует, не создаёт.',
     True, False);
-  PageAuthMode.Add('Windows-аутентификация: служба работает под указанным доменным/локальным аккаунтом (Trusted_Connection).');
-  PageAuthMode.Add('SQL-аутентификация: служба работает под LocalSystem, подключение SQL-логином и паролем.');
+  PageAuthMode.Add('(A) Windows-аутентификация — служба работает под доменным/локальным Windows-аккаунтом (Trusted_Connection). Выберите, если вводите имя Windows-учётной записи (ДОМЕН\Пользователь или .\Пользователь).');
+  PageAuthMode.Add('(B) SQL-аутентификация — служба работает под LocalSystem, подключение SQL-логином (например sa) и паролем. Выберите, если вводите SQL-логин, а не Windows-аккаунт.');
   PageAuthMode.SelectedValueIndex := AUTH_WINDOWS;
 
   { --- Страница «Учётные данные» --- }
@@ -795,15 +879,18 @@ begin
     end;
     if AuthMode = AUTH_WINDOWS then
     begin
-      PageCreds.PromptLabels[0].Caption := 'Аккаунт службы (ДОМЕН\Пользователь или .\Пользователь):';
+      PageCreds.PromptLabels[0].Caption := 'Windows-аккаунт службы (ДОМЕН\Пользователь или .\Пользователь):';
       PageCreds.SubCaptionLabel.Caption :=
-        'Аккаунт создан заранее, имеет права в SQL (Trusted) и право входа как служба. Служба будет работать под ним.';
+        'Режим (A) Windows-аутентификация. Введите Windows-учётную запись (НЕ SQL-логин): она создана заранее, ' +
+        'имеет права в SQL (Trusted) и право входа как служба — служба будет работать под ней. ' +
+        'Если у вас SQL-логин (например sa) — вернитесь назад и выберите (B) SQL-аутентификация.';
     end
     else
     begin
-      PageCreds.PromptLabels[0].Caption := 'SQL-логин:';
+      PageCreds.PromptLabels[0].Caption := 'SQL-логин (например sa):';
       PageCreds.SubCaptionLabel.Caption :=
-        'SQL-логин создан заранее с нужными правами. Служба работает под LocalSystem, подключается этим логином.';
+        'Режим (B) SQL-аутентификация. Введите SQL-логин (НЕ Windows-аккаунт): он создан заранее с нужными правами. ' +
+        'Служба работает под LocalSystem и подключается этим логином и паролем.';
     end;
   end;
 
@@ -961,7 +1048,7 @@ begin
 end;
 
 { После копирования файлов: записать конфиг, выдать ACL ОС-аккаунту, снести старое
-  firewall-правило (перед add из [Run] — идемпотентность при смене порта на апгрейде). }
+  firewall-правило, затем зарегистрировать/настроить/запустить службу и открыть порт. }
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   rc: Integer;
@@ -973,13 +1060,16 @@ begin
       чтобы сервис-аккаунт (режим A) мог прочитать и удалить его при первом старте. }
     WriteInitialAdminPassword;
     GrantServiceAccountRights;
-    { Снять одноимённое firewall-правило, чтобы add из [Run] не плодил дубли и применил
-      актуальный порт. Игнорируем результат (правила может не быть на чистой установке). }
+    { Снять одноимённое firewall-правило, чтобы add в ConfigureService не плодил дубли и
+      применил актуальный порт. Игнорируем результат (правила может не быть на чистой установке). }
     Exec(ExpandConstant('{sys}\netsh.exe'),
          'advfirewall firewall delete rule name="{#MyFirewallRule}"',
          '', SW_HIDE, ewWaitUntilTerminated, rc);
     { Ярлык меню «Пуск» на URL панели (порт из ввода мастера). }
     CreateStartMenuShortcut;
+    { В КОНЦЕ: создание/конфиг/старт службы + firewall с проверкой rc и внятными ошибками.
+      На провале create бросает исключение -> установка откатывается (MLC-107). }
+    ConfigureService;
   end;
 end;
 
