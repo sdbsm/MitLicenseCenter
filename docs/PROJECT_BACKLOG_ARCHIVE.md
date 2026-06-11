@@ -4397,6 +4397,29 @@ multi-node, UI-долги канона 06 (tanstack/recharts/ESLint-StatusBadge)
     генерация `appsettings.Production.json`); `MLC-102` захват/показ первого пароля admin; `MLC-103` деинсталляция-полировка
     (keep-data prompt, ярлыки).
 
+- `MLC-104` — **Backend осведомлён о Windows-службе (корректива к MLC-100)** — Done (2026-06-11).
+  - **Проблема.** Установщик MLC-100 регистрирует exe службой через `sc create`, но `Program.cs` не звал
+    `UseWindowsService()`. Не-service-aware процесс не сигналит SCM `SERVICE_RUNNING`, поэтому `sc start`
+    падает по таймауту (ошибка **1053**) и служба не встаёт — блокер тест-инсталла скелета MLC-100 и всего установщика.
+  - **Сделано.** (1) `backend/Directory.Packages.props` — `PackageVersion Include="Microsoft.Extensions.Hosting.WindowsServices"
+    Version="10.0.8"` (в линию с прочими `Microsoft.Extensions.*` / EF / ASP.NET Core 10.0.8). (2)
+    `backend/src/MitLicenseCenter.Web/MitLicenseCenter.Web.csproj` — `PackageReference` без версии (central package
+    management). (3) `Program.cs` сразу после `var builder = WebApplication.CreateBuilder(args);` —
+    `builder.Host.UseWindowsService(o => o.ServiceName = "MitLicenseCenter");` с комментарием. Вызов —
+    **no-op в консоли/dev** (детектит запуск под SCM), поэтому `dev.ps1` / inner-loop не меняются; под службой хост
+    (а) корректно отвечает SCM на start/stop, (б) ставит content root = каталог exe (находит `appsettings.Production.json`/
+    `wwwroot` рядом), (в) шлёт логи в **Windows Event Log** (оператор там видит fail-fast `Critical` и первый пароль admin).
+  - **Канон.** `docs/DECISIONS.md` — правка **ADR-31** (новый буллет «Backend is service-aware (MLC-104)»: `sc create`
+    работает именно благодаря `UseWindowsService`, иначе `sc start` → 1053; content root, Event Log). `docs/OPERATIONS.md`
+    секция «GUI installer» — буллет «Diagnosing service start» (под службой логи → Event Log: fail-fast Critical + первый
+    пароль admin). `docs/PROJECT_BACKLOG.md` — `MLC-104` → Done, NEXT очищен, трек не закрыт.
+  - **Проверка.** `scripts\build.ps1 -Configuration Release` — non-smoke зелёные (623). Smoke `RacExecutableSmokeTests`
+    (Category=Smoke) зависят от живого 1С RAS на стенде — environmental, к задаче не относятся. Реальный старт службы под
+    SCM — приёмочный тест-инсталл оператора.
+  - **NetArchTest.** `Microsoft.Extensions.Hosting.WindowsServices` — framework-расширение хостинга, не Infrastructure-адаптер
+    / `Process` / `Web.Administration` → `LayerBoundaryTests` остаются зелёными.
+  - **Вне scope.** Интерактивный мастер (SQL/hostname/аккаунт) — `MLC-101`; показ пароля admin в мастере — `MLC-102`.
+
 ## Трек «Нераспределённые базы: discovery-first добавление» — секция реестра (закрыт 2026-06-11, перенесено из PROJECT_BACKLOG.md)
 
 **Вводная.** Базы кластера 1С, не заведённые в панель, невидимы оператору, а их сеансы

@@ -41,6 +41,10 @@
     <!-- IIS lifecycle (MLC-047): статус службы W3SVC через ServiceController -->
     <PackageVersion Include="System.ServiceProcess.ServiceController" Version="10.0.8" />
 
+    <!-- Windows-служба (MLC-104, ADR-31): UseWindowsService() — хост сигналит SCM,
+         content root = каталог exe, логи → Event Log. No-op в консоли/dev. -->
+    <PackageVersion Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.8" />
+
     <!-- Host-метрики раздела «Быстродействие» (MLC-064, ADR-26): WMI (Win32_PerfFormattedData_*
          / Win32_PerfRawData_* / Win32_ComputerSystem). WMI выбран вместо PerformanceCounter,
          т.к. имена perf-категорий/счётчиков локализованы на RU Windows (English-lookup падает),

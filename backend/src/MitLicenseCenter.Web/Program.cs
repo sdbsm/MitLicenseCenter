@@ -20,6 +20,11 @@ using MitLicenseCenter.Web.Hangfire;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// MLC-104 — корректная работа Windows-службой (установщик ADR-31 ставит exe через sc create).
+// No-op в консоли/dev (детектит запуск под SCM); под службой — отвечает SCM на start/stop,
+// content root = каталог exe (находит appsettings.Production.json/wwwroot), логи → Event Log.
+builder.Host.UseWindowsService(o => o.ServiceName = "MitLicenseCenter");
+
 builder.Services.Configure<JsonOptions>(o =>
 {
     o.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
