@@ -164,6 +164,12 @@ var
   TestButton: TNewButton;
   { Прошёл ли последний тест подключения (гейт на Next со страницы учётных данных). }
   ConnTestPassed: Boolean;
+  { Целевая БД уже содержит установку панели (есть пользователи auth.Users). Вычисляется
+    один раз при уходе со страницы «Сеть» (NextButtonClick), см. DatabaseHasPanelUsers. На
+    такой БД сидер не применит заданный пароль admin — страницу пароля пропускаем (MLC-105). }
+  DbAlreadyInitialized: Boolean;
+  { Показали ли уже информационное предупреждение про уже-инициализированную БД (один раз). }
+  DbInitWarningShown: Boolean;
 
 { ===== Хелперы доступа к вводу ===== }
 
@@ -406,8 +412,11 @@ procedure WriteInitialAdminPassword;
 var
   path: string;
 begin
-  if ServiceExists then
-    Exit;  { апгрейд — admin уже создан }
+  { Не пишем .secret, если применять некуда: апгрейд (admin уже создан) ИЛИ чистая установка
+    поверх уже-инициализированной БД (DbAlreadyInitialized — страница пароля была пропущена,
+    сидер не применит файл). MLC-102/105. }
+  if ServiceExists or DbAlreadyInitialized then
+    Exit;
   path := ExpandConstant('{commonappdata}\MitLicenseCenter\initial-admin.secret');
   if not SaveStringToFile(path, AdminPassword, False) then
     MsgBox('Не удалось записать файл с паролем администратора по пути ' + path + '.' + #13#10 +
@@ -577,6 +586,86 @@ begin
               'Проверьте инстанс, имя БД/логина, пароль и права (см. лог сервера).';
 end;
 
+{ ===== Проба: целевая БД уже содержит установку панели? (MLC-105) ===== }
+
+{ Тем же приёмом, что TestSqlConnection (временный .ps1 с connstr в '...'-литерале,
+  powershell -File, файл удаляется), но connstr на выбранную БД (НЕ master). PS-сниппет
+  открывает соединение и выполняет:
+    IF OBJECT_ID('auth.Users','U') IS NULL SELECT 0 ELSE SELECT COUNT(*) FROM auth.Users
+  и пишет число в stdout. Зеркалит условие сидера userManager.Users.AnyAsync (любой
+  пользователь, не только admin). Fail-open: БД недоступна (ещё не создана) / ошибка
+  запроса / соединение не открылось -> вернуть False (трактуем как «не инициализирована»),
+  чтобы не было хуже текущего поведения. Креды/режим — как в тесте: B — SQL-логин;
+  A — Integrated Security установщика-админа. }
+function DatabaseHasPanelUsers: Boolean;
+var
+  connStr, psScript, scriptPath, outPath, cmdLine: string;
+  outData: AnsiString;  { LoadStringFromFile требует var AnsiString — не String. }
+  rc: Integer;
+begin
+  Result := False;
+
+  if (SqlInstance = '') or (SqlDatabase = '') then
+    Exit;
+
+  if AuthMode = AUTH_WINDOWS then
+    connStr := 'Server=' + SqlInstance +
+               ';Database=' + SqlDatabase +
+               ';Integrated Security=True;Encrypt=True;TrustServerCertificate=True;Connect Timeout=10'
+  else
+    connStr := 'Server=' + SqlInstance +
+               ';Database=' + SqlDatabase +
+               ';User Id=' + CredUser + ';Password=' + CredPassword +
+               ';Encrypt=True;TrustServerCertificate=True;Connect Timeout=10';
+
+  { Результат запроса пишем в файл (не в stdout) — exit-код только индикатор успеха.
+    connStr в '...'-литерале временного .ps1 (пароль не попадает в командную строку). }
+  outPath := ExpandConstant('{tmp}\mlc-dbprobe-out.txt');
+  DeleteFile(outPath);
+
+  psScript :=
+    '$ErrorActionPreference=''Stop'';' + #13#10 +
+    '$cs = ''' + PsSingleQuote(connStr) + ''';' + #13#10 +
+    '$out = ''' + PsSingleQuote(outPath) + ''';' + #13#10 +
+    'try {' + #13#10 +
+    '  $c = New-Object System.Data.SqlClient.SqlConnection $cs;' + #13#10 +
+    '  $c.Open();' + #13#10 +
+    '  $cmd = $c.CreateCommand();' + #13#10 +
+    '  $cmd.CommandText = ''IF OBJECT_ID(''''auth.Users'''',''''U'''') IS NULL SELECT 0 ELSE SELECT COUNT(*) FROM auth.[Users]'';' + #13#10 +
+    '  $n = $cmd.ExecuteScalar();' + #13#10 +
+    '  $c.Close();' + #13#10 +
+    '  Set-Content -LiteralPath $out -Value ([string]$n) -Encoding ASCII;' + #13#10 +
+    '  exit 0;' + #13#10 +
+    '} catch {' + #13#10 +
+    '  exit 1;' + #13#10 +
+    '}' + #13#10;
+
+  scriptPath := ExpandConstant('{tmp}\mlc-dbprobe.ps1');
+  if not SaveStringToFile(scriptPath, psScript, False) then
+    Exit;  { fail-open }
+
+  cmdLine := '-NoProfile -ExecutionPolicy Bypass -File "' + scriptPath + '"';
+  if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+              cmdLine, '', SW_HIDE, ewWaitUntilTerminated, rc) then
+  begin
+    DeleteFile(scriptPath);
+    DeleteFile(outPath);
+    Exit;  { fail-open: не смогли запустить }
+  end;
+
+  { Временный скрипт содержит строку подключения (пароль) — удаляем сразу. }
+  DeleteFile(scriptPath);
+
+  if rc = 0 then
+  begin
+    if LoadStringFromFile(outPath, outData) then
+      if StrToIntDef(Trim(outData), 0) > 0 then
+        Result := True;
+  end;
+  { rc <> 0 (БД недоступна / ошибка запроса) -> fail-open, Result остаётся False. }
+  DeleteFile(outPath);
+end;
+
 { ===== Обработчик кнопки «Проверить подключение» ===== }
 
 procedure TestButtonClick(Sender: TObject);
@@ -611,6 +700,8 @@ end;
 procedure InitializeWizard;
 begin
   ConnTestPassed := False;
+  DbAlreadyInitialized := False;
+  DbInitWarningShown := False;
 
   { --- Страница «SQL Server»: инстанс + БД --- }
   PageSql := CreateInputQueryPage(wpSelectDir,
@@ -680,13 +771,15 @@ begin
   PageAdmin.Add('Подтверждение пароля:', True);
 end;
 
-{ Страница пароля admin — только на чистой установке: на апгрейде admin уже создан в БД,
-  заново его не спрашиваем (паритет с ServiceExists = апгрейд). MLC-102. }
+{ Страница пароля admin пропускается, когда применять пароль некуда: на апгрейде (admin уже
+  создан в БД, паритет с ServiceExists) ИЛИ на чистой установке поверх уже-инициализированной
+  БД (в auth.Users уже есть пользователи — сидер сидит только пустую БД, заданный пароль не
+  применится). DbAlreadyInitialized вычисляется один раз в NextButtonClick (см.). MLC-102/105. }
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
   Result := False;
   if (PageAdmin <> nil) and (PageID = PageAdmin.ID) then
-    Result := ServiceExists;
+    Result := ServiceExists or DbAlreadyInitialized;
 end;
 
 { Сброс результата теста при заходе на страницу учётных данных + подсказки по режиму. }
@@ -723,6 +816,14 @@ begin
         'Панель обновлена и запущена.' + #13#10#13#10 +
         'Откройте панель: ' + PanelUrl('') + #13#10 +
         'Учётные записи администраторов сохранены.'
+    else if DbAlreadyInitialized then
+      { Чистая установка поверх уже-инициализированной БД: пароль admin не применялся,
+        страница пароля была пропущена. Учётки в существующей БД сохранены. MLC-105. }
+      WizardForm.FinishedLabel.Caption :=
+        'Панель установлена и запущена.' + #13#10#13#10 +
+        'Учётные записи в существующей базе данных сохранены — войдите прежними ' +
+        'учётными данными (или сбросьте пароль admin утилитой reset-admin).' + #13#10 +
+        'Откройте панель: ' + PanelUrl('')
     else
       WizardForm.FinishedLabel.Caption :=
         'Панель установлена и запущена.' + #13#10#13#10 +
@@ -808,6 +909,28 @@ begin
       MsgBox('Укажите AllowedHosts (например * — любой хост).', mbError, MB_OK);
       Result := False;
       Exit;
+    end;
+
+    { Уход со страницы «Сеть» к странице пароля admin — последняя точка, где можно решить,
+      показывать ли её. На апгрейде (ServiceExists) проба не нужна — страница и так
+      пропущена. Иначе один раз пробим целевую БД на наличие пользователей панели; если
+      они есть — задаваемый пароль admin сидер не применит (он сидит только пустую БД),
+      поэтому страницу пропускаем и один раз предупреждаем оператора. Проба fail-open:
+      недоступная/пустая БД -> «не инициализирована» -> поведение как сейчас. MLC-105. }
+    if not ServiceExists then
+    begin
+      DbAlreadyInitialized := DatabaseHasPanelUsers;
+      if DbAlreadyInitialized and (not DbInitWarningShown) then
+      begin
+        DbInitWarningShown := True;
+        MsgBox('База данных "' + SqlDatabase + '" уже содержит установку панели ' +
+               '(учётные записи).' + #13#10#13#10 +
+               'Заданный пароль администратора НЕ будет применён — существующие учётные ' +
+               'записи сохраняются.' + #13#10#13#10 +
+               'Сменить пароль admin — утилитой reset-admin (см. OPERATIONS) либо ' +
+               'установкой на пустую базу данных.',
+               mbInformation, MB_OK);
+      end;
     end;
   end;
 
