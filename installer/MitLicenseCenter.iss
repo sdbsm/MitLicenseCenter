@@ -599,7 +599,8 @@ end;
   A — Integrated Security установщика-админа. }
 function DatabaseHasPanelUsers: Boolean;
 var
-  connStr, psScript, scriptPath, outPath, cmdLine, outData: string;
+  connStr, psScript, scriptPath, outPath, cmdLine: string;
+  outData: AnsiString;  { LoadStringFromFile требует var AnsiString — не String. }
   rc: Integer;
 begin
   Result := False;
