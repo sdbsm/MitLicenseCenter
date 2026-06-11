@@ -4249,6 +4249,65 @@ multi-node, UI-долги канона 06 (tanstack/recharts/ESLint-StatusBadge)
   `available:false` (RAS-down) — покрыта тестами BE+FE, физически RAS не останавливал. **Уборка:**
   тестовая запись удалена, стенд в исходном состоянии; backend, поднятый для прогона, заглушён.
 
+## Трек «GUI-установщик (Inno Setup)» — отчёты задач (пополняется по мере закрытия)
+
+Цель трека (`MLC-098..103`): заменить ручную установку (`artifacts/0.1.0-beta/INSTALL.md`) на
+графический установщик (`.exe`, мастер) для single-host Windows. Согласовано 2026-06-11: движок
+**Inno Setup**; бэкенд **сам отдаёт SPA** (IIS не нужен для хостинга страницы панели — только для
+управляемых публикаций 1С); backend публикуется **self-contained**. Полная спека трека —
+`.claude/plans/installer-track.md`.
+
+- `MLC-098` — **Бэкенд сам отдаёт SPA (same-origin)** — Done (2026-06-11). Фундамент трека:
+  один процесс Kestrel отдаёт и `/api/*`, и страницу SPA. Спека — `.claude/plans/zesty-tinkering-fog.md`.
+  - **Код (`Program.cs`).** `app.UseStaticFiles()` вставлен **после** блока HSTS/HTTPS-redirect
+    (`if (enforceHttps) {…}`) и **до** `app.UseAuthentication()` — статика (логин-страница + бандлы)
+    грузится анониму; хэшированные `/assets/*` кэшируются надолго этим middleware. `app.MapFallback(…)
+    .AllowAnonymous()` вставлен **после** `app.UseHangfireDashboard("/hangfire", …)` и **до** блока
+    `RecurringJob.AddOrUpdate(...)` — SPA history-fallback: зарезервированный путь → 404; нет
+    `WebRootPath`/`index.html` (dev / `SkipSpaBuild`) → 404; иначе `index.html` с `Cache-Control:
+    no-cache, no-store, must-revalidate` + `text/html; charset=utf-8` через `SendFileAsync`.
+  - **`SpaFallback.cs` (новый, internal static).** Чистый предикат `IsReservedPath(PathString)` —
+    зеркало `TransportSecurity.cs`: `StartsWithSegments("/api"|"/hangfire", OrdinalIgnoreCase)`.
+    `/api` (REST + `/api/docs`) и `/hangfire` НЕ перехватываются fallback'ом → неизвестный `/api/*`
+    отдаёт честный 404, а не замаскированный `200 HTML`; дашборд Hangfire держит свою авторизацию.
+  - **`MitLicenseCenter.Web.csproj`.** MSBuild-таргеты `BuildSpa` (`pnpm install --frozen-lockfile`
+    + `pnpm build`) и `CopySpaToPublish` (`AfterTargets="Publish"`, `DependsOnTargets="BuildSpa"`):
+    копирует `frontend/dist` в `$(PublishDir)wwwroot` (обходит капризный Static-Web-Assets pipeline;
+    `dotnet build`/`test`/dev НЕ триггерят → inner-loop быстрый, без node/pnpm/`wwwroot`). Свойства
+    `FrontendDir`/`SpaDistDir`/`SkipSpaBuild`/`PrebuiltSpaDist`; `<Error>` при отсутствии
+    `$(SpaDistDir)\index.html`. Опт-ауты: `-p:SkipSpaBuild=true` (publish без SPA, SPA → 404) и
+    `-p:PrebuiltSpaDist=<dist>` (готовый dist без pnpm — для CI/инсталлятора).
+  - **`.gitignore`.** Добавлен `backend/src/MitLicenseCenter.Web/wwwroot/` (генерируемый артефакт,
+    существует только в выводе publish, не в дереве исходников).
+  - **Тест.** `Web/SpaFallbackTests.cs` (зеркало `TransportSecurityTests`): `[Theory]` на
+    `IsReservedPath` — positive `/api`, `/api/v1/health`, `/api/v1/unknown`, `/api/docs`, `/hangfire`,
+    `/API/V1/HEALTH`; negative `/`, `/login`, `/tenants`, `/tenants/42`, `/settings`, `/applications`,
+    `/hangfireish`. Интеграционный мини-пайплайн НЕ добавлялся (дисциплина host-boot тестов тянет SQL;
+    end-to-end закрыт прогоном опубликованного артефакта), `WebApplicationFactory<Program>` не
+    использовался.
+  - **Канон (present-tense, в том же ходу).** Новый **ADR-30** «Backend hosts the SPA (same-origin);
+    IIS не нужен для страницы панели» (решение + связь с ADR-1/12/20/28, отклонённые альтернативы:
+    IIS+ARR для статики / отдельный статик-сервер / `UseDefaultFiles`+SWA-in-tree; node/pnpm как
+    publish-time предусловие; фундамент инсталлятора). `04_INFRASTRUCTURE.md` §3 — топология: страницу
+    отдаёт backend (Kestrel) same-origin с API, IIS — только для управляемых публикаций 1С.
+    `OPERATIONS.md` — новая секция «Backend hosts the SPA» (build-предусловия publish: node ≥22.13 +
+    pnpm 11 или `SkipSpaBuild`/`PrebuiltSpaDist`; `wwwroot` едет в артефакте; кэш `index.html`
+    no-cache / хэш-ассеты cache-forever; `Security:EnforceHttps` без изменений; dev по-прежнему
+    vite :5173) + обновлены шаги «Deployment is manual» (publish собирает фронт, отдельного
+    статик-шага нет).
+  - **Anti-corruption граница (ADR-20).** Раздача статики не добавила запрещённых зависимостей
+    (нет `System.Diagnostics.Process` / `Microsoft.Web.Administration` / Infrastructure-адаптеров) —
+    NetArchTest `LayerBoundaryTests` остался зелёным.
+  - **Проверка.** `scripts\build.ps1 -Configuration Release` — зелёный (~59 с): BE build 0
+    warnings, `dotnet test` 626/626 (включая 13 новых кейсов `SpaFallbackTests`), format чистый;
+    FE 355/355 тестов, lint/type-check/build зелёные (баннеры `pnpm : $ …` в stderr — известный
+    ложный «красный», CLAUDE.md). Самодостаточность публиша: `dotnet publish … -c Release -o <tmp>`
+    (~6 с) → `<tmp>\wwwroot\index.html` + `<tmp>\wwwroot\assets\` (46 файлов) присутствуют.
+  - **Вне scope (следующие задачи трека).** `MLC-099` self-contained single-file publish;
+    `MLC-100..102` Inno Setup (служба, SQL-страница, захват пароля admin); `MLC-103` деинсталляция.
+    Гоча для них: `dotnet publish` теперь требует node ≥22.13 + pnpm 11 (если не задан Skip/Prebuilt);
+    инсталлятор-пайплайн, вероятно, использует `-p:PrebuiltSpaDist=<dist>`.
+
 ## Трек «Нераспределённые базы: discovery-first добавление» — секция реестра (закрыт 2026-06-11, перенесено из PROJECT_BACKLOG.md)
 
 **Вводная.** Базы кластера 1С, не заведённые в панель, невидимы оператору, а их сеансы
