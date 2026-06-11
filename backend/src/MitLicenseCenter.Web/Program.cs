@@ -13,6 +13,7 @@ using MitLicenseCenter.Application;
 using MitLicenseCenter.Application.Jobs;
 using MitLicenseCenter.Infrastructure;
 using MitLicenseCenter.Infrastructure.Identity;
+using MitLicenseCenter.Infrastructure.Persistence;
 using MitLicenseCenter.Infrastructure.Settings;
 using MitLicenseCenter.Web;
 using MitLicenseCenter.Web.Endpoints;
@@ -155,6 +156,27 @@ builder.Services.AddHangfireServer(o =>
 // Infrastructure.DependencyInjection.
 
 var app = builder.Build();
+
+// MLC-106 (ADR-18) — ранний bootstrap: создаём целевую БД, если её ещё нет, ДО Hangfire-
+// регистрации (она коннектится к БД) и до миграций/сидинга. Первопричина: EF `MigrateAsync`
+// под `EnableRetryOnFailure` НЕ создаёт несуществующую БД (4060 ретраится как транзиентная →
+// краш). Один сырой `CREATE DATABASE` к master обходит ловушку; `IF DB_ID IS NULL` — существующую
+// БД не трогает (в dev/ops БД уже создана db-reset/инсталлятором → no-op). Гейт: только когда
+// задана непустая строка подключения (InMemory-тесты через WebApplicationFactory её не задают →
+// не зовём). Тот же fail-fast контракт, что и сидер: ошибка → LogCritical + throw из Main.
+var defaultConnectionString = app.Configuration.GetConnectionString("Default");
+if (!string.IsNullOrWhiteSpace(defaultConnectionString))
+{
+    try
+    {
+        await DatabaseBootstrapper.EnsureDatabaseCreatedAsync(defaultConnectionString).ConfigureAwait(false);
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogCritical(ex, "Не удалось создать базу данных панели при старте.");
+        throw;
+    }
+}
 
 // MLC-004 — самый внешний middleware: ловит непойманные исключения из всего пайплайна
 // и отдаёт их как ProblemDetails (без AddProblemDetails выше это был бы голый 500 без

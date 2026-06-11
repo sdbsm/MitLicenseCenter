@@ -4397,6 +4397,48 @@ multi-node, UI-долги канона 06 (tanstack/recharts/ESLint-StatusBadge)
     генерация `appsettings.Production.json`); `MLC-102` захват/показ первого пароля admin; `MLC-103` деинсталляция-полировка
     (keep-data prompt, ярлыки).
 
+- `MLC-106` — **Bootstrap создаёт БД, если её нет (на пустом инстансе)** — Done (2026-06-11).
+  - **Проблема.** На по-настоящему пустом SQL-инстансе (БД ещё нет) служба **падала**, БД не создавалась.
+    Первопричина: `DependencyInjection.cs:52` включает `EnableRetryOnFailure(maxRetryCount: 3)`, а `IdentitySeeder`
+    зовёт `db.Database.MigrateAsync()` — известная ловушка EF Core: на несуществующей БД ошибка 4060 «cannot open
+    database» трактуется retry-стратегией как транзиентная и ретраится, затем `MigrateAsync` бросает → fail-fast →
+    APPCRASH. `MigrateAsync` сам НЕ создаёт БД под retry-стратегией. В dev баг маскировал `db-reset.ps1` (создаёт БД
+    заранее); на стенде БД всегда уже была. Затрагивало и установщик, и ручной деплой (OPERATIONS обещал «БД создаётся
+    при первом старте» — было неправдой для пустого инстанса).
+  - **Сделано** (backend; хелпер + ранний вызов + тест + канон). (1) Новый
+    `backend/src/MitLicenseCenter.Infrastructure/Persistence/DatabaseBootstrapper.cs` (статический,
+    `Microsoft.Data.SqlClient` — допустим в слое Persistence): `EnsureDatabaseCreatedAsync(connectionString, ct)` —
+    извлекает `InitialCatalog` через `SqlConnectionStringBuilder`; пусто → no-op; строит master-строку (тот же билдер,
+    `InitialCatalog="master"`, креды/`Encrypt`/`TrustServerCertificate` сохранены — приём `SqlDatabaseDiscovery`),
+    открывает `SqlConnection` и выполняет `IF DB_ID(@name) IS NULL EXEC('CREATE DATABASE [<экранир. имя>]')` — имя БД
+    проверяется параметром `@name` в `DB_ID`, в DDL подставляется экранированное (`]`→`]]`) имя (DDL не принимает имя
+    объекта параметром; параметр + экранирование — defense-in-depth). Существующая БД не трогается. Один statement к
+    master обходит EF-ловушку 4060 целиком (retry ни при чём). Чистые под-хелперы `internal GetDatabaseName(cs)` /
+    `ToMasterConnectionString(cs)` (`InternalsVisibleTo MitLicenseCenter.Tests.Unit` уже был). (2) `Program.cs` — вызов
+    **сразу после `var app = builder.Build();`**, ДО `app.UseHangfireDashboard` / `RecurringJob.AddOrUpdate` (Hangfire
+    `SqlServerStorage` тоже коннектится к БД) и до `IdentitySeeder`/`SettingsSeeder`. **Гейт:** только при непустой
+    `app.Configuration.GetConnectionString("Default")` (InMemory-тесты через `WebApplicationFactory` строку не задают →
+    пропуск; в dev строка есть, `IF DB_ID IS NULL` — no-op, т.к. `db-reset` уже создал БД). Обёрнут в собственный
+    fail-fast `try/catch` с `app.Logger.LogCritical(...)` + `throw` (как существующий bootstrap-try). (3) Тест
+    `backend/tests/MitLicenseCenter.Tests.Unit/Persistence/DatabaseBootstrapperTests.cs` — покрывает чистые под-хелперы:
+    извлечение имени БД, пустой `InitialCatalog`, замена `Database`→`master`, сохранение SQL-кред / `Encrypt` /
+    `TrustServerCertificate` / Integrated Security, и `EnsureDatabaseCreatedAsync` = no-op при пустом каталоге (6 тестов,
+    все зелёные). Сам `CREATE DATABASE` юнитом не тестируется (SQL-Server-специфичен — ручная приёмка на стенде).
+  - **Канон.** `docs/DECISIONS.md` **ADR-18** — новый буллет «Database creation precedes migrations (MLC-106)»
+    (первопричина 4060+retry; ранний `CREATE DATABASE` к master до Hangfire/Migrate; existing БД не трогается; гейт на
+    непустую `Default`; нужны права `CREATE DATABASE` — `sysadmin`/`dbcreator`, уже требуется каноном); порядок bootstrap
+    в «Decision» дополнен шагом создания БД. `docs/OPERATIONS.md` «Startup is fail-fast» — порядок bootstrap дополнен
+    созданием БД + явная нота «БД не обязана существовать до первого старта (MLC-106)». `docs/PROJECT_BACKLOG.md` —
+    `MLC-106` → Done (строка «Вне трека» + гоча), NEXT очищен, счётчик `MLC-107` (новая секция трека не заводилась —
+    standalone follow-up к закрытому треку «GUI-установщик»).
+  - **Проверка.** `scripts\build.ps1 -Configuration Release` — non-smoke зелёные, включая новые `DatabaseBootstrapperTests`
+    (smoke RAS — environmental, не блокер). Реальный `CREATE DATABASE` / тест-инсталл — приёмочный тест оператора на стенде
+    (`DROP DATABASE MitLicenseCenter` → `Start-Service MitLicenseCenter` → служба стартует, БД создана, миграции применены,
+    `admin` засеян).
+  - **Гочи.** Транзитивный `Microsoft.Data.SqlClient` доступен тесту через ссылку на Infrastructure (EF SqlServer) — отдельный
+    PackageReference в Tests.Unit не нужен. NetArchTest зелёный: сырой `SqlClient` в `Infrastructure.Persistence` — это слой
+    доступа к БД, не адаптер к 1С/IIS (ADR-20). `.cs` — без BOM, LF; `TreatWarningsAsErrors` — 0 варнингов.
+
 - `MLC-105` — **Установщик: распознавать уже-инициализированную БД (не игнорировать пароль молча)** — Done (2026-06-11).
   - **Проблема.** «Чистая установка» (службы нет) ≠ «пустая БД»: деинсталл не трогает SQL-базу, поэтому новый
     `Setup.exe` может бить в БД с прежними учётками. Сидер задаёт операторский пароль admin **только при сидинге
