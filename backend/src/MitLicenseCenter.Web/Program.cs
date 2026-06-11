@@ -177,6 +177,12 @@ if (enforceHttps)
     app.UseHttpsRedirection();
 }
 
+// MLC-098 (ADR-30) — статика SPA: Kestrel сам отдаёт собранный wwwroot same-origin с API.
+// ДО аутентификации — логин-страница и её бандлы грузятся анониму. Хэшированные /assets/*
+// этот middleware кэширует надолго; index.html не кэшируется (см. MapFallback ниже). В dev
+// wwwroot обычно нет — middleware просто пропускает запрос дальше (страницу даёт vite :5173).
+app.UseStaticFiles();
+
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -225,6 +231,32 @@ app.UseHangfireDashboard("/hangfire", new DashboardOptions
     DashboardTitle = "MitLicense Center · Hangfire",
     DisplayStorageConnectionString = false,
 });
+
+// MLC-098 (ADR-30) — SPA history-fallback: запрос, не подхваченный ни одним эндпоинтом/статикой,
+// отдаёт оболочку index.html, чтобы deep-link/refresh клиентских маршрутов (createBrowserRouter,
+// HTML5-history) работали. Анонимный — оболочку грузит и неаутентифицированный (логин рисует SPA).
+// Зарезервированные /api и /hangfire НЕ перехватываем: неизвестный /api/* честно отдаёт 404,
+// а не маскируется под HTML. В dev без wwwroot fallback тоже отдаёт 404 (страницу даёт vite :5173).
+app.MapFallback(async context =>
+{
+    if (SpaFallback.IsReservedPath(context.Request.Path))
+    {
+        context.Response.StatusCode = StatusCodes.Status404NotFound;
+        return;
+    }
+
+    var index = Path.Combine(app.Environment.WebRootPath ?? string.Empty, "index.html");
+    if (app.Environment.WebRootPath is null || !File.Exists(index))
+    {
+        context.Response.StatusCode = StatusCodes.Status404NotFound;
+        return;
+    }
+
+    // index.html НЕ кэшируем (ссылается на хэшированные /assets/*); сами ассеты кэширует UseStaticFiles.
+    context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
+    context.Response.ContentType = "text/html; charset=utf-8";
+    await context.Response.SendFileAsync(index).ConfigureAwait(false);
+}).AllowAnonymous();
 
 RecurringJob.AddOrUpdate<IReconciliationJob>(
     "cold-snapshot",

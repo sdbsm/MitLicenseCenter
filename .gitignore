@@ -62,6 +62,9 @@ frontend/.vite/
 **/.vite/
 **/coverage/
 
+# SPA edет в wwwroot бэкенда только при publish (MLC-098) — генерируемый артефакт, не в git.
+backend/src/MitLicenseCenter.Web/wwwroot/
+
 # ─────────────────────────────────────────────────────────────
 # OS / editor
 # ─────────────────────────────────────────────────────────────

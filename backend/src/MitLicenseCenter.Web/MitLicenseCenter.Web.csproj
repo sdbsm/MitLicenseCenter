@@ -24,4 +24,38 @@
     <PackageReference Include="Hangfire.SqlServer" />
   </ItemGroup>
 
+  <!--
+    MLC-098 (ADR-30) — публиш самодостаточен: Kestrel сам отдаёт SPA из wwwroot.
+    При `dotnet publish` собираем frontend и кладём dist в опубликованный wwwroot.
+    Копируем в $(PublishDir)wwwroot через AfterTargets="Publish" (обходит капризный
+    Static-Web-Assets pipeline); обычный `dotnet build`/`test` это НЕ триггерит —
+    inner-loop остаётся быстрым и без node/pnpm/wwwroot.
+      • -p:SkipSpaBuild=true     — публиш без SPA (backend-only / тесты).
+      • -p:PrebuiltSpaDist=<путь> — переиспользовать готовый dist, не вызывая pnpm
+                                    (CI / инсталлятор-пайплайн).
+    Предусловие build-машины для publish (если не задан Skip/Prebuilt): node ≥22.13 + pnpm 11.
+  -->
+  <PropertyGroup>
+    <FrontendDir>$(MSBuildProjectDirectory)\..\..\..\frontend</FrontendDir>
+    <SpaDistDir Condition="'$(PrebuiltSpaDist)' != ''">$(PrebuiltSpaDist)</SpaDistDir>
+    <SpaDistDir Condition="'$(PrebuiltSpaDist)' == ''">$(FrontendDir)\dist</SpaDistDir>
+  </PropertyGroup>
+
+  <Target Name="BuildSpa" Condition="'$(SkipSpaBuild)' != 'true' and '$(PrebuiltSpaDist)' == ''">
+    <Exec Command="pnpm install --frozen-lockfile" WorkingDirectory="$(FrontendDir)" />
+    <Exec Command="pnpm build" WorkingDirectory="$(FrontendDir)" />
+  </Target>
+
+  <Target Name="CopySpaToPublish" AfterTargets="Publish" DependsOnTargets="BuildSpa"
+          Condition="'$(SkipSpaBuild)' != 'true'">
+    <Error Condition="!Exists('$(SpaDistDir)\index.html')"
+           Text="MLC-098: нет $(SpaDistDir)\index.html. Соберите SPA или задайте PrebuiltSpaDist / SkipSpaBuild." />
+    <ItemGroup>
+      <SpaFiles Include="$(SpaDistDir)\**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(SpaFiles)"
+          DestinationFiles="@(SpaFiles->'$(PublishDir)wwwroot\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+
 </Project>
