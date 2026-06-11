@@ -417,10 +417,10 @@ end;
 
 { ===== Ярлык меню «Пуск» (интернет-ярлык на URL панели) ===== }
 
-{ Создаёт {commonprograms}\MitLicense Center\MitLicense Center.url — интернет-ярлык,
-  открывающий панель в браузере по умолчанию. Inno [Icons] не умеет .url с динамическим
-  URL (порт из мастера), поэтому пишем .url вручную через SaveStringToFile. Каталог +
-  ярлык сносятся при деинсталляции секцией [UninstallDelete]. }
+{ Создаёт commonprograms\MitLicense Center\MitLicense Center.url — интернет-ярлык,
+  открывающий панель в браузере по умолчанию. Inno-секция Icons не умеет .url с
+  динамическим URL (порт из мастера), поэтому пишем .url вручную через SaveStringToFile.
+  Каталог + ярлык сносятся при деинсталляции секцией UninstallDelete. }
 procedure CreateStartMenuShortcut;
 var
   dir, path, content: string;
