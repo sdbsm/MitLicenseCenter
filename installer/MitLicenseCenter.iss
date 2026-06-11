@@ -50,6 +50,8 @@ SolidCompression=yes
 WizardStyle=modern
 UninstallDisplayName={#MyAppName}
 UninstallDisplayIcon={app}\{#MyExeName}
+; Лог установки во временный каталог (диагностика проблемных установок у оператора).
+SetupLogging=yes
 
 [Languages]
 Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
@@ -103,8 +105,13 @@ Filename: "{sys}\sc.exe"; Parameters: "delete {#MyServiceName}"; Flags: runhidde
 Filename: "{sys}\netsh.exe"; \
   Parameters: "advfirewall firewall delete rule name=""{#MyFirewallRule}"""; \
   Flags: runhidden; RunOnceId: "DeleteFwRule"
-; БД и {commonappdata}\MitLicenseCenter\keys (key ring) НЕ трогаем — keep-data
-; полировка вынесена в MLC-103.
+; БД установщик НЕ трогает (нужны creds, может быть ценной/общей — ручное удаление,
+; см. OPERATIONS). Конфиг + key ring в {commonappdata}\MitLicenseCenter удаляются ТОЛЬКО
+; по явному согласию оператора в keep-data prompt (CurUninstallStepChanged, ниже).
+
+[UninstallDelete]
+; Сгенерированный в ssPostInstall интернет-ярлык + его каталог в меню «Пуск».
+Type: filesandordirs; Name: "{commonprograms}\MitLicense Center"
 
 [Code]
 const
@@ -406,6 +413,26 @@ begin
     MsgBox('Не удалось записать файл с паролем администратора по пути ' + path + '.' + #13#10 +
            'Первый администратор будет создан со случайным паролем — он попадёт в Журнал событий Windows.',
            mbError, MB_OK);
+end;
+
+{ ===== Ярлык меню «Пуск» (интернет-ярлык на URL панели) ===== }
+
+{ Создаёт commonprograms\MitLicense Center\MitLicense Center.url — интернет-ярлык,
+  открывающий панель в браузере по умолчанию. Inno-секция Icons не умеет .url с
+  динамическим URL (порт из мастера), поэтому пишем .url вручную через SaveStringToFile.
+  Каталог + ярлык сносятся при деинсталляции секцией UninstallDelete. }
+procedure CreateStartMenuShortcut;
+var
+  dir, path, content: string;
+begin
+  dir := ExpandConstant('{commonprograms}\MitLicense Center');
+  if not DirExists(dir) then
+    ForceDirectories(dir);
+  path := dir + '\MitLicense Center.url';
+  content := '[InternetShortcut]' + #13#10 + 'URL=' + PanelUrl('') + #13#10;
+  if not SaveStringToFile(path, content, False) then
+    { Не критично — установка состоялась, ярлык лишь удобство. }
+    Log('Не удалось создать ярлык меню «Пуск»: ' + path);
 end;
 
 { ===== ACL для ОС-аккаунта (режим A) ===== }
@@ -828,5 +855,39 @@ begin
     Exec(ExpandConstant('{sys}\netsh.exe'),
          'advfirewall firewall delete rule name="{#MyFirewallRule}"',
          '', SW_HIDE, ewWaitUntilTerminated, rc);
+    { Ярлык меню «Пуск» на URL панели (порт из ввода мастера). }
+    CreateStartMenuShortcut;
+  end;
+end;
+
+{ ===== Деинсталляция: keep-data prompt по ключам/конфигу ===== }
+
+{ Спрашиваем у оператора, удалять ли конфиг и ключи шифрования из
+  %ProgramData%\MitLicenseCenter. Дефолт — НЕТ (сохранить): key ring + БД — единый
+  бэкап-юнит (ADR-15/CLAUDE.md), без ключей секреты в dbo.Settings не расшифровать.
+  БД установщик НЕ трогает (нужны creds + опасно). Служба и firewall-правило снимаются
+  секцией [UninstallRun]; ярлык «Пуск» — секцией [UninstallDelete]. }
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  dataDir: string;
+begin
+  if CurUninstallStep = usUninstall then
+  begin
+    dataDir := ExpandConstant('{commonappdata}\MitLicenseCenter');
+    if not DirExists(dataDir) then
+      Exit;
+    { MB_DEFBUTTON2 → дефолтная кнопка «Нет» (сохранить). }
+    if MsgBox(
+         'Удалить конфигурацию и КЛЮЧИ ШИФРОВАНИЯ из' + #13#10 +
+         dataDir + ' ?' + #13#10#13#10 +
+         'Нет (рекомендуется) — сохранить для переустановки.' + #13#10#13#10 +
+         'Да — удалить ключи. ВНИМАНИЕ: без них секреты в базе данных (dbo.Settings) ' +
+         'расшифровать НЕЛЬЗЯ. Удаляйте только если база данных тоже выводится из ' +
+         'эксплуатации (ключи шифрования и БД — единый бэкап-юнит).' + #13#10#13#10 +
+         'Базу данных SQL Server установщик не трогает — удалите её вручную при ' +
+         'необходимости.',
+         mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
+      DelTree(dataDir, True, True, True);
+    { Иначе — оставить каталог (ключи + конфиг) нетронутым. }
   end;
 end;
