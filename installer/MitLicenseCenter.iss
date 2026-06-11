@@ -390,11 +390,11 @@ end;
 { ===== Одноразовый файл пароля admin (MLC-102) ===== }
 
 { На чистой установке кладём заданный оператором пароль admin в одноразовый файл
-  {commonappdata}\MitLicenseCenter\initial-admin.secret. Сидер бэкенда при первом старте
-  читает его, создаёт admin с этим паролем и УДАЛЯЕТ файл (ADR-31). На апгрейде admin уже
-  есть — файл не пишем (страница пароля пропущена через ShouldSkipPage). Каталог создаётся
-  [Dirs]; под ACL %ProgramData%\MitLicenseCenter (режим A — Modify сервис-аккаунту, режим B —
-  LocalSystem). UTF-8 без BOM (SaveStringToFile с UTF8=False). Пароль не логируется. }
+  initial-admin.secret в каталоге commonappdata\MitLicenseCenter. Сидер бэкенда при первом
+  старте читает его, создаёт admin с этим паролем и УДАЛЯЕТ файл (ADR-31). На апгрейде admin
+  уже есть — файл не пишем (страница пароля пропущена через ShouldSkipPage). Каталог создаётся
+  секцией Dirs; под ACL %ProgramData%\MitLicenseCenter (режим A — Modify сервис-аккаунту,
+  режим B — LocalSystem). UTF-8 без BOM (SaveStringToFile с UTF8=False). Пароль не логируется. }
 procedure WriteInitialAdminPassword;
 var
   path: string;
