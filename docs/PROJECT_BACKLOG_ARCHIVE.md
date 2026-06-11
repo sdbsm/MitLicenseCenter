@@ -4420,6 +4420,61 @@ multi-node, UI-долги канона 06 (tanstack/recharts/ESLint-StatusBadge)
     / `Process` / `Web.Administration` → `LayerBoundaryTests` остаются зелёными.
   - **Вне scope.** Интерактивный мастер (SQL/hostname/аккаунт) — `MLC-101`; показ пароля admin в мастере — `MLC-102`.
 
+- `MLC-101` — **Интерактивный мастер установщика: учётные данные SQL + сеть** — Done (2026-06-11).
+  - **Проблема.** Скелет MLC-100 ставил дефолт-конфиг (`Server=.` Trusted, служба LocalSystem). На хосте, где
+    у LocalSystem нет прав на SQL, служба падает на fail-fast bootstrap (подтверждено на стенде: APPCRASH,
+    MSSQL «SYSTEM не удалось открыть базу MitLicenseCenter»). Решение оператора (2026-06-11): установщик
+    **спрашивает учётные данные** заранее созданного аккаунта с нужными правами — **либо ОС-аккаунт** (служба
+    под ним, Trusted SQL), **либо SQL-логин** (служба LocalSystem, SQL-аутентификация).
+  - **Сделано (`installer/MitLicenseCenter.iss`, расширен поверх MLC-100, всё прежнее сохранено — AppId,
+    `[Files]` Excludes, апгрейд через `PrepareToInstall`, uninstall, firewall).** Кастомные `[Code]`-страницы
+    мастера (`InitializeWizard`): **(1) SQL Server** — `CreateInputQueryPage` (инстанс, дефолт `.`; БД, дефолт
+    `MitLicenseCenter`). **(2) Аутентификация** — `CreateInputOptionPage` radio: (A) Windows (служба под
+    указанным ОС-аккаунтом, `Trusted_Connection`) / (B) SQL (LocalSystem, SQL-логин). **(3) Учётные данные** —
+    `CreateInputQueryPage` (аккаунт/логин + пароль `IsPassword=True`); подписи полей и подсказка
+    (`SubCaptionLabel`/`PromptLabels`) перерисовываются под режим в `CurPageChanged`; кнопка «Проверить
+    подключение» (`TNewButton`) + цветная метка-результат (`TNewStaticText`). **(4) Сеть** —
+    `CreateInputQueryPage` (порт, дефолт `8080`; `AllowedHosts`, дефолт `*`). Валидация и **гейт Next** в
+    `NextButtonClick` (непустые поля, порт 1..65535, успешный тест подключения для страницы учётных данных).
+  - **Тест подключения (без правки backend).** `TestSqlConnection` пишет временный `.ps1` со сниппетом
+    `New-Object System.Data.SqlClient.SqlConnection; $c.Open()` (есть в PS 5.1) и зовёт
+    `powershell.exe -NoProfile -ExecutionPolicy Bypass -File … (exit 0/1)`. Строка подключения передаётся через
+    **переменную окружения `MLC_CONN`** (наследуется дочерним процессом), а **не** через командную строку —
+    пароль не светится в списке процессов и не нужно экранировать кавычки; переменная очищается сразу после
+    `Exec`. Тест — к `Database=master` (БД панели может не существовать). Режим **B**: полноценный тест
+    введёнными SQL-creds. Режим **A**: тест достижимости инстанса под Integrated Security установщика-админа +
+    честная подпись, что права самого сервис-аккаунта проверятся при первом старте (fail-fast → Event Log).
+  - **Применение выбора (`CurStepChanged(ssPostInstall)` + `[Run]` через `{code:…}`-параметры).**
+    `WriteProductionConfig` генерирует `appsettings.Production.json` из ввода (`SaveStringToFile`, UTF-8 без BOM):
+    `ConnectionStrings:Default/Hangfire` по режиму (A: `Trusted_Connection=True`; B: `User Id`/`Password`; оба
+    `Encrypt=True;TrustServerCertificate=True;Application Name=…`), `Urls=http://+:<port>`, `AllowedHosts`,
+    `Security:EnforceHttps=false`/`EnableSwagger=false`. **Skip-if-exists** (`FileExists` → `Exit`) — апгрейд не
+    затирает правки оператора (паритет с прежним `onlyifdoesntexist`; дефолт-template
+    `appsettings.Production.default.json` удалён из репо). Служба: `GetScCreateParams`/`GetScConfigParams`
+    формируют параметры `sc` — режим A добавляет `obj= "<аккаунт>" password= "<пароль>"`, режим B — LocalSystem
+    (config-ветка явно возвращает `obj= "LocalSystem"` на случай смены A→B при апгрейде). `GrantServiceAccountRights`
+    (только режим A): `icacls "%ProgramData%\MitLicenseCenter" /grant "<аккаунт>":(OI)(CI)M` на key ring (право
+    Log-on-as-a-service SCM выдаёт сам при валидном `sc config obj=/password=`; иначе оператор — `secpol.msc`).
+    Firewall и `Urls` — на выбранный порт (хардкод 8080 убран; старое одноимённое правило снимается в
+    `ssPostInstall` перед `add` — идемпотентность при смене порта).
+  - **Экранирование.** `JsonEscape` (бэкслеши + двойные кавычки для JSON-значений — инстанс `.\SQLEXPRESS`,
+    пароли), `CmdQuoteInner` (удвоение `"` для значений внутри кавычек в командной строке `sc`/`netsh`/`icacls`).
+    Пароли нигде не логируются.
+  - **Канон.** `docs/DECISIONS.md` **ADR-31** переписан: лид (конфиг из ввода мастера + выбранный порт);
+    два новых буллета вместо «Service account = LocalSystem»/«Default config, not a wizard prompt» — «Interactive
+    wizard collects credentials + network (MLC-101)» (два режима, предусловие — оператор создаёт аккаунт заранее,
+    права `sysadmin`, тест подключения) и «Config + service from wizard input» (генерация, ACL, плейнтекст под ACL)
+    + «Connection test = PowerShell, not a new CLI verb»; буллет апгрейда (skip-if-exists + re-apply account/port);
+    Rejected (установщик не создаёт принципала; нет нового CLI-verb). `docs/OPERATIONS.md` секция «GUI installer» —
+    буллеты «Precondition — create the SQL principal first», «Wizard steps», обновлённые «What it installs»/«Upgrade».
+    `scripts/build-installer.ps1` `.DESCRIPTION` + `CLAUDE.md` команда — описание мастера. `docs/PROJECT_BACKLOG.md`
+    — `MLC-101` → Done (сжатая строка), NEXT очищен, трек не закрыт (4/6).
+  - **Проверка.** ISCC компилирует `installer\MitLicenseCenter.iss` без ошибок → `Setup.exe`. `scripts\build.ps1
+    -Configuration Release` — non-smoke зелёные (C# не менялся); smoke `RacExecutableSmokeTests` зависят от живого
+    1С RAS — environmental. Реальный тест-инсталл с вводом creds — приёмочный шаг оператора (инвазивно, не делалось).
+  - **Вне scope.** Показ первого пароля `admin` на финальном экране мастера — `MLC-102` (сейчас — из Event Log);
+    деинсталл-полировка (keep-data prompt, ярлыки) — `MLC-103`.
+
 ## Трек «Нераспределённые базы: discovery-first добавление» — секция реестра (закрыт 2026-06-11, перенесено из PROJECT_BACKLOG.md)
 
 **Вводная.** Базы кластера 1С, не заведённые в панель, невидимы оператору, а их сеансы
