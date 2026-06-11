@@ -4522,6 +4522,40 @@ multi-node, UI-долги канона 06 (tanstack/recharts/ESLint-StatusBadge)
     → ISCC компилирует `.iss` без ошибок → `Setup.exe`. Реальный тест-инсталл — приёмочный шаг оператора.
   - **Вне scope.** Деинсталл-полировка (keep-data prompt: предложить удалить БД + key ring; ярлыки меню) — `MLC-103`.
 
+- `MLC-103` — **Деинсталляция + полировка установщика (закрытие трека 6/6)** — Done (2026-06-11).
+  - **Задача.** Последняя задача трека «GUI-установщик». Довести деинсталляцию и UX: keep-data prompt при
+    удалении (удалять ли ключи `%ProgramData%`), ярлык меню «Пуск» на URL панели, лог установки. Только
+    `installer/MitLicenseCenter.iss` (backend не менялся). До этого uninstall сносил службу + firewall и
+    жёстко оставлял БД + key ring без выбора; ярлыков и лога не было.
+  - **Keep-data prompt (`CurUninstallStepChanged(usUninstall)`).** Если каталог `{commonappdata}\MitLicenseCenter`
+    существует — `MsgBox(mbConfirmation, MB_YESNO or MB_DEFBUTTON2)` (дефолтная кнопка — **Нет** = сохранить):
+    спрашиваем, удалять ли конфиг + **ключи шифрования** из `%ProgramData%\MitLicenseCenter`. Текст-предупреждение:
+    без ключей секреты в `dbo.Settings` расшифровать нельзя, удалять только если БД тоже выводится из эксплуатации
+    (ключи + БД — единый бэкап-юнит, ADR-15); БД SQL установщик **не трогает** (ручное удаление). При «Да» →
+    `DelTree(dataDir, True, True, True)`; при «Нет» → каталог нетронут (поведение прежнего `uninsneveruninstall`,
+    теперь по выбору оператора). Каталога нет → `Exit` без вопроса.
+  - **Ярлык меню «Пуск» (`CreateStartMenuShortcut`, вызов в `ssPostInstall`).** `ForceDirectories(
+    {commonprograms}\MitLicense Center)` + `SaveStringToFile(…\MitLicense Center.url, '[InternetShortcut]'#13#10
+    'URL='+PanelUrl('')#13#10, False)` — интернет-ярлык на `http://localhost:<port>/` (порт из ввода мастера,
+    реюз `PanelUrl`/`NetPort` из MLC-101/102). Через ручную запись `.url`, т.к. Inno `[Icons]` не умеет
+    динамический URL. Ошибка записи не критична (`Log`, установка состоялась). Удаление — секция
+    `[UninstallDelete]` `Type: filesandordirs; Name: {commonprograms}\MitLicense Center` (сносит ярлык + каталог).
+  - **Лог установки.** `[Setup]` `SetupLogging=yes` — Inno пишет лог каждой установки/апгрейда во временный
+    каталог (`%TEMP%\Setup Log*.txt`) для диагностики у оператора.
+  - **Сохранено без изменений.** `[UninstallRun]` стоп+delete службы + удаление firewall-правила (RunOnceId);
+    мастер MLC-101/102, генерация `appsettings.Production.json`, апгрейд поверх (`AppId`/`PrepareToInstall`),
+    `initial-admin.secret`, ACL key ring, `UninstallDisplayName`/`UninstallDisplayIcon`. `.iss` остаётся UTF-8 BOM.
+  - **Канон.** `docs/DECISIONS.md` **ADR-31** буллет «Uninstall is conservative (MLC-103)» — keep-data prompt
+    (дефолт сохранить, предупреждение про бэкап-юнит), БД не трогается, ярлык «Пуск», `SetupLogging=yes`.
+    `docs/OPERATIONS.md` секция «GUI installer» — новый буллет «Start menu + install log» + обновлён «Uninstall»
+    (теперь спрашивает про ключи). `docs/PROJECT_BACKLOG.md` — `MLC-103` → Done (сжатая строка), NEXT очищен;
+    **трек помечен завершённым 6/6, ожидает закрытия куратором** (перенос секции в архив + строка «Завершённые
+    треки» + счётчик — отдельный ход куратора).
+  - **Проверка.** `scripts\build.ps1 -Configuration Release` — non-smoke зелёные (backend не менялся; smoke
+    `RacExecutableSmokeTests` — environmental, зависят от живого 1С RAS). `scripts\build-installer.ps1` → ISCC
+    компилирует `.iss` без ошибок → `Setup.exe`. Реальная установка/удаление с проверкой prompt'а и ярлыка —
+    приёмочный шаг оператора.
+
 ## Трек «Нераспределённые базы: discovery-first добавление» — секция реестра (закрыт 2026-06-11, перенесено из PROJECT_BACKLOG.md)
 
 **Вводная.** Базы кластера 1С, не заведённые в панель, невидимы оператору, а их сеансы
