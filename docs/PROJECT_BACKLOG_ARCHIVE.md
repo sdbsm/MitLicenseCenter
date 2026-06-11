@@ -4397,6 +4397,40 @@ multi-node, UI-долги канона 06 (tanstack/recharts/ESLint-StatusBadge)
     генерация `appsettings.Production.json`); `MLC-102` захват/показ первого пароля admin; `MLC-103` деинсталляция-полировка
     (keep-data prompt, ярлыки).
 
+- `MLC-105` — **Установщик: распознавать уже-инициализированную БД (не игнорировать пароль молча)** — Done (2026-06-11).
+  - **Проблема.** «Чистая установка» (службы нет) ≠ «пустая БД»: деинсталл не трогает SQL-базу, поэтому новый
+    `Setup.exe` может бить в БД с прежними учётками. Сидер задаёт операторский пароль admin **только при сидинге
+    пустой БД** (`userManager.Users.AnyAsync()` == false); если пользователи уже есть — он их не трогает и **удаляет**
+    `.secret`, не применяя его → заданный в мастере пароль молча игнорируется. Воспроизведено на стенде 2026-06-11
+    (БД с прошлым `admin` + `stage2-viewer`; вход новым паролем не проходил; вылечено `reset-admin`).
+  - **Сделано** (только `installer/MitLicenseCenter.iss`, `[Code]`; backend не тронут). (1) Функция-проба
+    `DatabaseHasPanelUsers: Boolean` — тем же приёмом, что `TestSqlConnection`: connstr (на выбранную БД, **не** master)
+    кладётся в `'...'`-литерал временного `.ps1`, `powershell -NoProfile -ExecutionPolicy Bypass -File`, скрипт удаляется
+    сразу. PS-сниппет открывает `System.Data.SqlClient`-соединение и выполняет
+    `IF OBJECT_ID('auth.Users','U') IS NULL SELECT 0 ELSE SELECT COUNT(*) FROM auth.[Users]`, пишет число во временный
+    out-файл (out-файл тоже удаляется); >0 → есть пользователи. Зеркалит any-user условие сидера. Креды/режим — как в
+    тесте: B — SQL-логин, A — Integrated Security установщика. **Fail-open:** БД недоступна / ещё не создана / ошибка
+    запроса / не открылось → `False` («не инициализирована»), поведение не хуже текущего. (2) Глобальный флаг
+    `DbAlreadyInitialized` — вычисляется **один раз** в `NextButtonClick` при уходе со страницы «Сеть» (`PageNet`), только
+    если `not ServiceExists`; проба **не** гоняется на каждый `ShouldSkipPage`. (3) `ShouldSkipPage(PageAdmin)` →
+    `ServiceExists or DbAlreadyInitialized` (страница пароля пропускается и на апгрейде, и на уже-инициализированной БД).
+    (4) Один раз — информационный `MsgBox`: БД `<имя>` уже содержит установку панели, заданный пароль admin **не** будет
+    применён, существующие учётки сохраняются, сменить — `reset-admin` (OPERATIONS) или ставить на пустую БД. (5)
+    `WriteInitialAdminPassword` — в начале `if ServiceExists or DbAlreadyInitialized then Exit` (не пишем `.secret`, если
+    применять некуда). (6) Финальный экран (`wpFinished`) — ветка для `DbAlreadyInitialized and not ServiceExists`: «учётные
+    записи в существующей базе сохранены — войдите прежними кредами (или сбросьте пароль admin утилитой reset-admin)» + URL.
+  - **Канон.** `docs/DECISIONS.md` **ADR-31** — новый под-буллет «Existing-database recognition (MLC-105)» (проба `auth.Users`,
+    fail-open, пропуск страницы пароля + предупреждение, `.secret` не пишется; «чистая установка» ≠ «пустая БД»; гоча —
+    проба завязана на имя таблицы `auth.Users`; правка строки `ShouldSkipPage` = `ServiceExists or DbAlreadyInitialized`).
+    `docs/OPERATIONS.md` секция «GUI installer» — шаг 5 мастера уточнён + новый буллет «Installing onto a database that
+    already has a panel install». `docs/PROJECT_BACKLOG.md` — `MLC-105` → Done (строка «Вне трека»), NEXT очищен, счётчик
+    `MLC-106`; новая секция трека не заводилась (трек «GUI-установщик» закрыт, это standalone follow-up).
+  - **Проверка.** `scripts\build-installer.ps1` — ISCC компилирует `.iss` без ошибок, `Setup.exe` собран.
+    `scripts\build.ps1 -Configuration Release` — non-smoke зелёные (backend не менялся; smoke RAS — environmental).
+    Реальная установка на непустую/пустую БД — приёмочный тест оператора.
+  - **Гочи.** `.iss` — UTF-8 **с BOM**. В Pascal избегали строк-комментариев, начинающихся с `[`, и brace-констант внутри
+    `{ }`-комментариев. Пароли/connstr не логируются; временные `.ps1` и out-файл удаляются.
+
 - `MLC-104` — **Backend осведомлён о Windows-службе (корректива к MLC-100)** — Done (2026-06-11).
   - **Проблема.** Установщик MLC-100 регистрирует exe службой через `sc create`, но `Program.cs` не звал
     `UseWindowsService()`. Не-service-aware процесс не сигналит SCM `SERVICE_RUNNING`, поэтому `sc start`
