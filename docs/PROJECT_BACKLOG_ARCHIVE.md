@@ -4347,6 +4347,56 @@ multi-node, UI-долги канона 06 (tanstack/recharts/ESLint-StatusBadge)
     `MLC-101` страница SQL + генерация `appsettings.Production.json`; `MLC-102` захват пароля admin;
     `MLC-103` деинсталляция. Открытые вопросы куратора (учётка службы, код-подпись, апгрейд поверх) — к `MLC-100+`.
 
+- `MLC-100` — **Inno Setup каркас: установщик (файлы + служба + firewall + старт, с обновлением)** — Done (2026-06-11).
+  Задача 3/6 трека: `.exe`-установщик, ставящий панель одной Windows-службой на single-host, с обновлением поверх.
+  Спека — `.claude/plans/mlc-100-installer-skeleton.md`. Решения куратора (2026-06-11): служба под **LocalSystem**
+  (выбор аккаунта → MLC-101), **без код-подписи** (SmartScreen приемлем для LAN), **сразу с обновлением** поверх.
+  - **`installer/MitLicenseCenter.iss` (новый, UTF-8 с BOM — Inno 6 Unicode, кириллица в сообщениях/StatusMsg).**
+    `[Setup]`: фикс. `AppId={B7E9F3A2-4C1D-4E8A-9F6B-2D5A8C3E1F40}` (детект апгрейда — **менять нельзя**),
+    `AppName=MitLicense Center`, `AppVersion={#MyAppVersion}`, `DefaultDirName={autopf}\MitLicense Center`,
+    `PrivilegesRequired=admin`, `OutputBaseFilename=MitLicenseCenter-Setup-{#MyAppVersion}`,
+    `ArchitecturesInstallIn64BitMode=x64`. `[Languages]` — Russian (`compiler:Languages\Russian.isl`).
+    `#ifndef PublishDir → #error` (скрипт без артефакта не компилируется по ошибке вызова).
+  - **`[Files]`.** `{#PublishDir}\*` → `{app}` (`recursesubdirs createallsubdirs ignoreversion`, `Excludes:
+    appsettings.Production.json`); отдельно `appsettings.Production.default.json` → `{app}\appsettings.Production.json`
+    с флагом **`onlyifdoesntexist`** (апгрейд не затирает правки оператора). Дефолт-конфиг — новый
+    `installer/appsettings.Production.default.json` (`Server=.`/`Trusted_Connection=True`/`Urls=http://+:8080`/
+    `EnforceHttps=false`). `[Dirs]` — `{commonappdata}\MitLicenseCenter` с `uninsneveruninstall` (key ring, purpose
+    `mlc.settings.v1`; под SYSTEM дефолтных ACL достаточно — явный grant отложен на MLC-101).
+  - **Служба (через `{sys}\sc.exe`, нативной у Inno нет).** `[Run]`: на чистой установке (`Check: not ServiceExists`)
+    `sc create MitLicenseCenter binPath= "{app}\MitLicenseCenter.Web.exe" start= auto DisplayName= "MitLicense Center"`
+    (obj не задаём → **LocalSystem**); на апгрейде (`Check: ServiceExists`) службу не пересоздаём — только
+    `sc config … binPath=` (выравнивание пути); затем `sc description …`, `sc start …`. Firewall: `[Run]`
+    `netsh advfirewall firewall add rule name="MitLicense Center" dir=in action=allow protocol=TCP localport=8080`.
+  - **Обновление поверх (`[Code]`).** `PrepareToInstall` зовёт `StopServiceAndWait`, **до** `[Files]` — иначе exe
+    залочен. `ServiceExists`/стоп реализованы через P/Invoke `advapi32` (`OpenSCManagerW`/`OpenServiceW`/
+    `ControlService`/`QueryServiceStatus`/`CloseServiceHandle`): служба останавливается и цикл ждёт фактического
+    `SERVICE_STOPPED` (до ~30 с, 60×500 мс). Сохраняются: `appsettings.Production.json`, key ring, БД. На старте
+    службы миграции накатываются **fail-fast (ADR-18)**.
+  - **`[UninstallRun]`.** `sc stop` + `sc delete MitLicenseCenter` (RunOnceId), удалить firewall-правило
+    (`netsh … delete rule`). БД и `{commonappdata}\MitLicenseCenter` (key ring) **оставить** (keep-data/полировка — MLC-103).
+  - **`scripts/build-installer.ps1` (новый, UTF-8 с BOM, стиль build.ps1/publish-release.ps1).** Параметры:
+    `-Configuration` (Release), `-OutputDir` (дефолт `artifacts\<version>`), `-SkipPublish`. Шаги: (1) если не
+    `-SkipPublish` → `publish-release.ps1 -OutputDir artifacts\<version>\backend` (self-contained); (2) `Find-Iscc`:
+    PATH → `%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe` → `C:\Users\andre\…` → `%ProgramFiles(x86)%` →
+    `%ProgramFiles%`; нет → ошибка с `winget install JRSoftware.InnoSetup`; (3) `ISCC /DMyAppVersion=<version>
+    /DPublishDir=<артефакт> /O<OutputDir> installer\MitLicenseCenter.iss`; (4) путь + размер Setup.exe. Версия из
+    `<Version>` `backend\Directory.Build.props` (та же `[xml]`-логика, что в publish-release.ps1). Успех нативных
+    шагов — по `$LASTEXITCODE` (снят `Stop` вокруг вызова, обход stderr-спама PS 5.1).
+  - **Канон (present-tense, в том же ходу).** `docs/DECISIONS.md` — **ADR-31 «GUI installer (Inno Setup) for the
+    single host»** (одна служба LocalSystem, same-origin per ADR-30, firewall, апгрейд с сохранением
+    конфига/ключей/БД, миграции fail-fast ADR-18, без код-подписи; отклонено MSI/WiX, IIS+ARR, подпись в v1, ввод
+    SQL сейчас) + **Update-нота к ADR-14** (установщик пакует install/upgrade, но CI→host CD по-прежнему отложен).
+    `docs/OPERATIONS.md` — секция «GUI installer (ADR-31)» (сборка, что ставит, семантика апгрейда, деинсталл,
+    SmartScreen). `CLAUDE.md` — `build-installer.ps1` в «Командах». `docs/PROJECT_BACKLOG.md` — `MLC-100` → Done,
+    NEXT очищен, трек не закрыт (3/6).
+  - **Проверка.** `scripts\build.ps1 -Configuration Release` — зелёный (C#/csproj не менялись). `build-installer.ps1`
+    → ISCC компилирует `.iss` **без ошибок** → `artifacts\<version>\MitLicenseCenter-Setup-<version>.exe`. Реальный
+    тест-инсталл службы/firewall — приёмочный шаг оператора (инвазивно), здесь не выполнялся: только компиляция + ревью `.iss`.
+  - **Вне scope (следующие задачи трека).** `MLC-101` интерактивная страница (SQL + тест подключения, hostname/port,
+    генерация `appsettings.Production.json`); `MLC-102` захват/показ первого пароля admin; `MLC-103` деинсталляция-полировка
+    (keep-data prompt, ярлыки).
+
 ## Трек «Нераспределённые базы: discovery-first добавление» — секция реестра (закрыт 2026-06-11, перенесено из PROJECT_BACKLOG.md)
 
 **Вводная.** Базы кластера 1С, не заведённые в панель, невидимы оператору, а их сеансы
