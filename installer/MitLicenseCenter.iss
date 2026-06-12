@@ -4,6 +4,18 @@
 ; установки (стоп службы -> подмена -> старт), сохраняя appsettings.Production.json,
 ; Data Protection key ring и БД.
 ;
+; Защита секретов на диске (MLC-110): после раскладки файлов [Code] ужесточает NTFS ACL
+; в ОБОИХ режимах аутентификации (icacls /inheritance:r — режем наследование от ProgramData/
+; Program Files, где Users:RX):
+;   - каталог %ProgramData%\MitLicenseCenter (Data Protection key ring + одноразовый
+;     initial-admin.secret) — доступ только SYSTEM / Administrators (+ сервис-аккаунт в режиме A);
+;   - {app}\appsettings.Production.json (plaintext SQL-пароль) — только SYSTEM / Administrators
+;     (+ сервис-аккаунт R в режиме A).
+; Key ring НАМЕРЕННО не шифруется at-rest (ADR-8): ключи переносимы, бэкап «key ring + БД»
+; восстанавливается на новом железе/аккаунте; защита ключей — именно эти NTFS ACL.
+; Сбой icacls предупреждает (с путём), но НЕ прерывает установку — служба работоспособна,
+; страдает только hardening. ACL идемпотентны (накатываются и на чистой установке, и на апгрейде).
+;
 ; Мастер (MLC-101): интерактивные страницы собирают SQL-инстанс/БД, режим аутентификации
 ; (Windows-аккаунт ИЛИ SQL-логин), учётные данные и сетевые параметры (порт, AllowedHosts),
 ; проверяют подключение и генерируют рабочий appsettings.Production.json + настраивают службу
@@ -69,9 +81,11 @@ Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion; Excludes: "appsettings.Production.json"
 
 [Dirs]
-; Data Protection key ring живёт здесь (purpose mlc.settings.v1). Под LocalSystem
-; (SYSTEM) дефолтных ACL достаточно; под выбранным ОС-аккаунтом (режим A) [Code]
-; выдаёт ему явный ACL (icacls) в ssPostInstall. Папку НЕ удаляем при деинсталле.
+; Data Protection key ring живёт здесь (purpose mlc.settings.v1) + одноразовый
+; initial-admin.secret. Дефолтные ACL ProgramData (Users:RX) НЕДОСТАТОЧНЫ (MLC-110):
+; [Code] (HardenDataDirAcl в ssPostInstall) режет наследование и оставляет доступ ТОЛЬКО
+; SYSTEM / Administrators — в ОБОИХ режимах; в режиме A дополнительно даёт сервис-аккаунту
+; Modify. Папку НЕ удаляем при деинсталле.
 Name: "{commonappdata}\MitLicenseCenter"; Flags: uninsneveruninstall
 
 [Run]
@@ -402,8 +416,9 @@ end;
   initial-admin.secret в каталоге commonappdata\MitLicenseCenter. Сидер бэкенда при первом
   старте читает его, создаёт admin с этим паролем и УДАЛЯЕТ файл (ADR-31). На апгрейде admin
   уже есть — файл не пишем (страница пароля пропущена через ShouldSkipPage). Каталог создаётся
-  секцией Dirs; под ACL %ProgramData%\MitLicenseCenter (режим A — Modify сервис-аккаунту,
-  режим B — LocalSystem). UTF-8 без BOM (SaveStringToFile с UTF8=False). Пароль не логируется. }
+  секцией Dirs; его ACL ужесточает HardenDataDirAcl ПОСЛЕ записи этого файла (MLC-110): доступ
+  только SYSTEM/Administrators (+ сервис-аккаунт Modify в режиме A), Users отрезаны.
+  UTF-8 без BOM (SaveStringToFile с UTF8=False). Пароль не логируется. }
 procedure WriteInitialAdminPassword;
 var
   path: string;
@@ -440,28 +455,75 @@ begin
     Log('Не удалось создать ярлык меню «Пуск»: ' + path);
 end;
 
-{ ===== ACL для ОС-аккаунта (режим A) ===== }
+{ ===== Ужесточение NTFS ACL на секреты на диске (MLC-110) ===== }
 
-procedure GrantServiceAccountRights;
+{ Запуск icacls с проверкой rc. На сбое — предупреждение (с целью и подсказкой), но БЕЗ
+  прерывания установки: служба работоспособна, страдает только hardening. Каждый шаг логируется.
+  Используем SID-формы локаленезависимо (на RU Windows «Администраторы», не «Administrators»):
+    *S-1-5-18      = NT AUTHORITY\SYSTEM
+    *S-1-5-32-544  = BUILTIN\Administrators }
+procedure RunIcacls(const target, args, what: string);
 var
-  acct, keyRing: string;
   rc: Integer;
 begin
-  if AuthMode <> AUTH_WINDOWS then
-    Exit;  { LocalSystem — дефолтных ACL достаточно. }
+  Log('icacls (' + what + '): "' + target + '" ' + args);
+  if (not Exec(ExpandConstant('{sys}\icacls.exe'),
+               '"' + target + '" ' + args,
+               '', SW_HIDE, ewWaitUntilTerminated, rc)) or (rc <> 0) then
+  begin
+    Log('icacls (' + what + ') завершился с кодом ' + IntToStr(rc));
+    MsgBox('Не удалось ужесточить права доступа (NTFS ACL) для:' + #13#10 +
+           target + #13#10#13#10 +
+           'Установка продолжится — служба работоспособна, но защита секретов на диске не ' +
+           'применена. Выполните ужесточение вручную (icacls) или проверьте лог установки ' +
+           '(код ' + IntToStr(rc) + ').',
+           mbError, MB_OK);
+  end;
+end;
 
-  acct := CredUser;
-  keyRing := ExpandConstant('{commonappdata}\MitLicenseCenter');
-
-  { ACL на key ring: Modify, наследуется на под-объекты/контейнеры (OI)(CI). }
-  Exec(ExpandConstant('{sys}\icacls.exe'),
-       '"' + keyRing + '" /grant "' + CmdQuoteInner(acct) + '":(OI)(CI)M',
-       '', SW_HIDE, ewWaitUntilTerminated, rc);
+{ ACL каталога %ProgramData%\MitLicenseCenter (key ring + initial-admin.secret).
+  Режем наследование (Users:RX от ProgramData) и оставляем доступ только SYSTEM /
+  Administrators (+ сервис-аккаунт Modify в режиме A). Вызывается ПОСЛЕ записи
+  initial-admin.secret, чтобы (OI)(CI) накрыл и его. Идемпотентно (чистая установка + апгрейд). }
+procedure HardenDataDirAcl;
+var
+  dataDir, args: string;
+begin
+  dataDir := ExpandConstant('{commonappdata}\MitLicenseCenter');
+  if not DirExists(dataDir) then
+    Exit;
+  { /inheritance:r снимает унаследованные ACE; затем явные full для SYSTEM/Administrators,
+    наследуемые на под-объекты/контейнеры (OI)(CI). }
+  args := '/inheritance:r' +
+          ' /grant *S-1-5-18:(OI)(CI)F' +
+          ' /grant *S-1-5-32-544:(OI)(CI)F';
+  if AuthMode = AUTH_WINDOWS then
+    args := args + ' /grant "' + CmdQuoteInner(CredUser) + '":(OI)(CI)M';
+  RunIcacls(dataDir, args, 'каталог данных');
 
   { Право «Log on as a service» (SeServiceLogonRight) SCM выдаёт сам при sc config
     obj=…/password=… на валидном аккаунте; явная выдача через secedit здесь не делается
     (хрупко на разных локалях). Если SCM не сможет — служба не стартует, оператор выдаёт
     право через secpol.msc (подсказано в OPERATIONS). }
+end;
+
+{ ACL файла appsettings.Production.json в каталоге установки (plaintext SQL-пароль). Режем
+  наследование (Users:RX от Program Files) — только SYSTEM / Administrators full; в режиме A
+  службе достаточно Read. Вызывается ПОСЛЕ WriteProductionConfig. Применять и на апгрейде:
+  файл сохраняется от прошлой установки и не перезаписывается, но ACL всё равно накатываем. }
+procedure HardenConfigAcl;
+var
+  cfg, args: string;
+begin
+  cfg := ExpandConstant('{app}\appsettings.Production.json');
+  if not FileExists(cfg) then
+    Exit;
+  args := '/inheritance:r' +
+          ' /grant *S-1-5-18:F' +
+          ' /grant *S-1-5-32-544:F';
+  if AuthMode = AUTH_WINDOWS then
+    args := args + ' /grant "' + CmdQuoteInner(CredUser) + '":R';
+  RunIcacls(cfg, args, 'конфиг');
 end;
 
 { ===== Параметры для [Run] (sc/netsh) ===== }
@@ -1047,7 +1109,7 @@ begin
   end;
 end;
 
-{ После копирования файлов: записать конфиг, выдать ACL ОС-аккаунту, снести старое
+{ После копирования файлов: записать конфиг, ужесточить NTFS ACL на секреты, снести старое
   firewall-правило, затем зарегистрировать/настроить/запустить службу и открыть порт. }
 procedure CurStepChanged(CurStep: TSetupStep);
 var
@@ -1056,10 +1118,15 @@ begin
   if CurStep = ssPostInstall then
   begin
     WriteProductionConfig;
-    { Пароль admin — ДО выдачи ACL: icacls на каталог (OI)(CI) затем накроет и этот файл,
+    { ACL конфига — СРАЗУ после его записи (MLC-110): только SYSTEM/Administrators (+ сервис-
+      аккаунт R в режиме A); plaintext SQL-пароль не должен читаться Users. }
+    HardenConfigAcl;
+    { Пароль admin — ДО ужесточения ACL каталога: icacls (OI)(CI) затем накроет и этот файл,
       чтобы сервис-аккаунт (режим A) мог прочитать и удалить его при первом старте. }
     WriteInitialAdminPassword;
-    GrantServiceAccountRights;
+    { ACL каталога данных — ПОСЛЕ записи initial-admin.secret (MLC-110): режем наследование,
+      доступ только SYSTEM/Administrators (+ сервис-аккаунт Modify в режиме A). }
+    HardenDataDirAcl;
     { Снять одноимённое firewall-правило, чтобы add в ConfigureService не плодил дубли и
       применил актуальный порт. Игнорируем результат (правила может не быть на чистой установке). }
     Exec(ExpandConstant('{sys}\netsh.exe'),
