@@ -80,7 +80,7 @@ public static class TenantsEndpoints
         CancellationToken ct)
     {
         var normalized = (request.Name ?? string.Empty).Trim();
-        var errors = ValidateName(normalized);
+        var errors = ValidateTenant(normalized, request.MaxConcurrentLicenses);
         if (errors.Count > 0)
         {
             return TypedResults.ValidationProblem(errors);
@@ -134,7 +134,7 @@ public static class TenantsEndpoints
         }
 
         var normalized = (request.Name ?? string.Empty).Trim();
-        var errors = ValidateName(normalized);
+        var errors = ValidateTenant(normalized, request.MaxConcurrentLicenses);
         if (errors.Count > 0)
         {
             return TypedResults.ValidationProblem(errors);
@@ -198,12 +198,23 @@ public static class TenantsEndpoints
         return TypedResults.NoContent();
     }
 
-    private static Dictionary<string, string[]> ValidateName(string normalized)
+    // Ручная проверка (DataAnnotations [Required]/[Range] на контрактах в minimal API в
+    // runtime НЕ прогоняются — они только документируют Swagger). [Range(0,100_000)] на
+    // MaxConcurrentLicenses без рантайм-проверки молча сохранял бы ≤0 и отключал контроль
+    // лимитов клиента (ReconciliationJob пропускает клиента при лимите ≤0) — BE-03.
+    private const int MaxConcurrentLicensesLimit = 100_000;
+
+    private static Dictionary<string, string[]> ValidateTenant(string normalized, int maxConcurrentLicenses)
     {
         var errors = new Dictionary<string, string[]>(StringComparer.Ordinal);
         if (string.IsNullOrWhiteSpace(normalized))
         {
             errors[nameof(CreateTenantRequest.Name)] = ["Название клиента не может быть пустым."];
+        }
+        if (maxConcurrentLicenses < 0 || maxConcurrentLicenses > MaxConcurrentLicensesLimit)
+        {
+            errors[nameof(CreateTenantRequest.MaxConcurrentLicenses)] =
+                [$"Лимит лицензий должен быть в диапазоне от 0 до {MaxConcurrentLicensesLimit}."];
         }
         return errors;
     }

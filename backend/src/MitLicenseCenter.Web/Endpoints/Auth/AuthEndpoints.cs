@@ -44,6 +44,19 @@ public static class AuthEndpoints
             });
         }
 
+        // UX-01 — имя пользователя с пробелом/недопустимым символом раньше доходило до
+        // SignInManager и могло упасть 500 в пайплайне Identity; режем на входе → чистый 400.
+        // Набор символов сверен с ASP.NET Identity UserOptions.AllowedUserNameCharacters
+        // (буквы/цифры + -._@+); пробелы и пр. отвергаются.
+        if (!IsValidUserNameFormat(request.UserName))
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+            {
+                [nameof(LoginRequest.UserName)] =
+                    ["Имя пользователя содержит недопустимые символы (пробелы запрещены)."],
+            });
+        }
+
         var result = await signInManager.PasswordSignInAsync(
             request.UserName,
             request.Password,
@@ -52,6 +65,15 @@ public static class AuthEndpoints
 
         if (!result.Succeeded)
         {
+            // BE-10 — фиксируем неудачную попытку входа в аудит (вкл. блокировку учётки).
+            // initiator — введённое имя; пароль в описание НИКОГДА не попадает.
+            var reason = result.IsLockedOut ? "учётная запись заблокирована" : "неверные учётные данные";
+            await audit.LogAsync(
+                AuditActionType.LoginFailed,
+                initiator: request.UserName,
+                description: $"Неудачная попытка входа пользователя {request.UserName} ({reason}).",
+                ct: ct).ConfigureAwait(false);
+
             return TypedResults.Unauthorized();
         }
 
@@ -198,6 +220,24 @@ public static class AuthEndpoints
             ct: ct).ConfigureAwait(false);
 
         return TypedResults.NoContent();
+    }
+
+    // Зеркало дефолта ASP.NET Identity UserOptions.AllowedUserNameCharacters: латиница,
+    // цифры и -._@+. Пробел и прочее — недопустимы (UX-01). Логин-scoped, к infobase-
+    // parity-правилу отношения не имеет.
+    private const string AllowedUserNameCharacters =
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._@+";
+
+    private static bool IsValidUserNameFormat(string userName)
+    {
+        foreach (var ch in userName)
+        {
+            if (!AllowedUserNameCharacters.Contains(ch, StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static (string Field, string Message) MapIdentityError(IdentityError error) => error.Code switch

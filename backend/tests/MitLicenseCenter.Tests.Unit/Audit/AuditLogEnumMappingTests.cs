@@ -47,6 +47,7 @@ public sealed class AuditLogEnumMappingTests
     [InlineData(AuditActionType.AdminLoggedIn, 100)]
     [InlineData(AuditActionType.AdminLoggedOut, 101)]
     [InlineData(AuditActionType.AdminPasswordChanged, 102)]
+    [InlineData(AuditActionType.LoginFailed, 108)]
     [InlineData(AuditActionType.BackupRequested, 510)]
     [InlineData(AuditActionType.BackupSucceeded, 511)]
     [InlineData(AuditActionType.BackupFailed, 512)]

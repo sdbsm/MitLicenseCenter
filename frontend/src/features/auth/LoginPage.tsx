@@ -8,7 +8,13 @@ import { ApiError } from "@/lib/api";
 import { useLogin } from "./useAuth";
 
 const schema = z.object({
-  userName: z.string().trim().min(1),
+  // UX-01: пробелы (в т.ч. внутренние) и прочие недопустимые символы режем до отправки —
+  // набор сверен с ASP.NET Identity AllowedUserNameCharacters (латиница/цифры + -._@+).
+  userName: z
+    .string()
+    .trim()
+    .min(1)
+    .regex(/^[a-zA-Z0-9\-._@+]+$/),
   password: z.string().min(1),
 });
 

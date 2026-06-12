@@ -59,6 +59,46 @@ public sealed class AuthEndpointsTests
         (await h.UserManager.FindByNameAsync("operator"))!.LastLoginAt.Should().BeNull();
     }
 
+    // BE-10 — неудачный вход пишет аудит LoginFailed; initiator = введённое имя,
+    // пароль в описание НЕ попадает.
+    [Fact]
+    public async Task Login_failed_writes_LoginFailed_audit_without_password()
+    {
+        await using var h = await AuthTestHarness.CreateAsync();
+        await h.CreateUserAsync("operator", "Temp-Password-123!", mustChange: false);
+        var audit = new TestHelpers.CapturingAuditLogger();
+
+        var result = await AuthEndpoints.LoginAsync(
+            new LoginRequest("operator", "Secret-Wrong-999!"),
+            h.SignInManager, h.UserManager, audit,
+            TestHelpers.FixedClock(FixedNow), CancellationToken.None);
+
+        result.Result.Should().BeOfType<UnauthorizedHttpResult>();
+        var entry = audit.Entries.Should().ContainSingle(e => e.Action == AuditActionType.LoginFailed).Subject;
+        entry.Initiator.Should().Be("operator");
+        entry.TenantId.Should().BeNull("операция server-scope");
+        entry.Description.Should().NotContain("Secret-Wrong-999!", "пароль никогда не пишется в аудит");
+    }
+
+    // UX-01 — имя пользователя с пробелом отвергается чистым 400 (ValidationProblem),
+    // а не падает 500 в пайплайне Identity.
+    [Fact]
+    public async Task Login_with_space_in_username_returns_validation_problem_not_500()
+    {
+        await using var h = await AuthTestHarness.CreateAsync();
+        var audit = new TestHelpers.CapturingAuditLogger();
+
+        var result = await AuthEndpoints.LoginAsync(
+            new LoginRequest("oper ator", "Temp-Password-123!"),
+            h.SignInManager, h.UserManager, audit,
+            TestHelpers.FixedClock(FixedNow), CancellationToken.None);
+
+        var problem = result.Result.Should().BeOfType<ValidationProblem>().Subject;
+        problem.ProblemDetails.Errors.Should().ContainKey(nameof(LoginRequest.UserName));
+        // До PasswordSignInAsync дело не доходит → LoginFailed-аудит не пишется.
+        audit.Entries.Should().BeEmpty();
+    }
+
     [Fact]
     public async Task Me_returns_must_change_flag()
     {
