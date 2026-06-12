@@ -589,17 +589,6 @@ end;
     - sc start: rc<>0 (кроме 1056) -> предупреждение со ссылкой на Журнал событий (fail-fast
       bootstrap, ADR-18), без Abort — служба уже создана; rc=1056 (ALREADY_RUNNING) = успех (MLC-116).
   Пароли (obj password / SQL) в сообщениях не фигурируют. }
-{ Первая строка предупреждения о невзлёте службы. Формулировка корректна и для чистой
-  установки, и для апгрейда (MLC-116): на апгрейде служба НЕ «создана» — она уже существовала,
-  поэтому при ServiceExists говорим «не запустилась», без слова «создана». }
-function ServiceStartFailMessage(rc: Integer): string;
-begin
-  if ServiceExists then
-    Result := 'Служба «{#MyServiceName}» не запустилась (код ' + IntToStr(rc) + ').'
-  else
-    Result := 'Служба «{#MyServiceName}» создана, но не запустилась (код ' + IntToStr(rc) + ').';
-end;
-
 procedure ConfigureService;
 var
   rc: Integer;
@@ -665,7 +654,7 @@ begin
                '', SW_HIDE, ewWaitUntilTerminated, rc)) or ((rc <> 0) and (rc <> 1056)) then
   begin
     startWarn :=
-      ServiceStartFailMessage(rc) + #13#10#13#10 +
+      'Служба «{#MyServiceName}» не запустилась (код ' + IntToStr(rc) + ').' + #13#10#13#10 +
       'Причину смотрите в Журнале событий Windows (Приложение, источник MitLicenseCenter): ' +
       'бэкенд при старте применяет миграции и проверяет доступ к SQL fail-fast (ADR-18) и ' +
       'пишет туда причину отказа (например SQL недоступен или нет прав у учётной записи службы).' + #13#10#13#10 +
