@@ -91,6 +91,36 @@ Write-Host "Публиш MitLicense Center · версия: $version · конф
 Write-Host "Режим: $mode"
 Write-Host "Каталог артефакта: $OutputDir"
 
+# Детерминированный состав поставки (REL-01): чистим OutputDir ПЕРЕД dotnet publish.
+# Без этого dotnet publish лишь дописывает файлы поверх прежнего прогона, и в каталоге
+# копятся чужие следы (например stale *.deps.json / *.runtimeconfig.json от прежней
+# framework-dependent-сборки) — состав Setup.exe тогда зависит от истории build-машины.
+# Защита от сноса постороннего каталога: отказываемся чистить пустой путь и корень диска.
+function Clear-OutputDir {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        throw "Внутренняя ошибка: пустой путь OutputDir — чистка отменена."
+    }
+
+    $full = [System.IO.Path]::GetFullPath($Path)
+    $root = [System.IO.Path]::GetPathRoot($full)
+    # Сравниваем без хвостового разделителя: 'F:\' == 'F:\' → отказ чистить корень диска.
+    $trimmedFull = $full.TrimEnd('\', '/')
+    $trimmedRoot = $root.TrimEnd('\', '/')
+    if ([string]::IsNullOrEmpty($trimmedFull) -or ($trimmedFull -eq $trimmedRoot)) {
+        throw "Отказ чистить '$full': путь — корень диска. Укажите подкаталог в -OutputDir."
+    }
+
+    if (Test-Path -LiteralPath $full) {
+        Write-Host "==> Очистка каталога артефакта перед публишем: $full" -ForegroundColor Cyan
+        Remove-Item -LiteralPath $full -Recurse -Force
+    }
+    New-Item -ItemType Directory -Path $full -Force | Out-Null
+}
+
+Clear-OutputDir $OutputDir
+
 # Собираем аргументы dotnet publish.
 $publishArgs = @(
     'publish', $WebProject,

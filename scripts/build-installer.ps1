@@ -119,12 +119,35 @@ else {
     }
 }
 
-# --- Шаг 2: найти ISCC ---
+# --- Шаг 2: sanity-чек состава publish-каталога (REL-01) ---
+# Этот скрипт собирает ТОЛЬКО self-contained single-file артефакт (рантайм вшит в exe).
+# В таком публише не должно быть следов framework-dependent-режима: *.deps.json /
+# *.runtimeconfig.json. Их наличие = в каталог уехал чужой/накопительный публиш →
+# падаем ДО ISCC с внятной ошибкой, чтобы в Setup.exe не уехал недетерминированный состав.
+# Чек работает и в ветке -SkipPublish (переиспользование), и после свежего publish.
+Write-Host ""
+Write-Host "==> Sanity-чек состава publish-каталога (self-contained, без framework-dependent следов)" -ForegroundColor Cyan
+$forbidden = Get-ChildItem -Path $PublishDir -Recurse -File -Include '*.deps.json', '*.runtimeconfig.json' -ErrorAction SilentlyContinue
+if ($forbidden) {
+    $list = ($forbidden | ForEach-Object { '  - ' + $_.FullName.Substring($PublishDir.Length).TrimStart('\', '/') }) -join [Environment]::NewLine
+    throw @"
+Sanity-чек провален: в self-contained publish-каталоге найдены следы framework-dependent-режима.
+Каталог: $PublishDir
+Лишние файлы (*.deps.json / *.runtimeconfig.json):
+$list
+Self-contained single-file публиш не содержит этих файлов — значит каталог накопительный или
+собран в смешанном режиме. Пересоберите без -SkipPublish (publish-release.ps1 чистит каталог),
+либо удалите чужой publish-каталог вручную.
+"@
+}
+Write-Host "Sanity-чек пройден: следов framework-dependent-режима не найдено." -ForegroundColor Green
+
+# --- Шаг 3: найти ISCC ---
 $iscc = Find-Iscc
 Write-Host ""
 Write-Host "==> ISCC: $iscc" -ForegroundColor Cyan
 
-# --- Шаг 3: компиляция установщика ---
+# --- Шаг 4: компиляция установщика ---
 if (-not (Test-Path $OutputDir)) {
     New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
 }
@@ -151,7 +174,7 @@ if ($LASTEXITCODE -ne 0) {
     throw "ISCC провален (exit code $LASTEXITCODE)."
 }
 
-# --- Шаг 4: итог ---
+# --- Шаг 5: итог ---
 $setupExe = Join-Path $OutputDir "MitLicenseCenter-Setup-$version.exe"
 
 Write-Host ""
