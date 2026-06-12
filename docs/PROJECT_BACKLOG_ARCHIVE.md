@@ -4887,3 +4887,69 @@ sliding-кука 8h при активности жертвы делала дос
 stamp-claim всегда присутствовал в куке (его кладёт `UserClaimsPrincipalFactory`), валидатор
 начинает его сверять, не инвалидируя живые куки. SECURITY.md намеренно не правился (фаза
 аудита) — поведение «отзыв ≤2 мин» зафиксирует этап D1 (закрывает SEC-DOC-2).
+
+### MLC-110 — Защита секретов на диске: NTFS ACL + честный ADR-8 (KEYRING-01(в) + SEC-04 + SEC-02) — Done (2026-06-13, PR #123)
+
+**Постановка.** Findings: key ring Data Protection лежит plaintext XML вопреки канону
+«DPAPI-backed» (A5·DOC-01, подтверждено на живом key ring); каталог
+`%ProgramData%\MitLicenseCenter` (keys + одноразовый `initial-admin.secret`) без ужесточения
+ACL в режиме LocalSystem — Users читают по наследству от ProgramData (A2·SEC-04);
+plaintext SQL-пароль в `{app}\appsettings.Production.json` читаем Users:RX по наследству
+от Program Files (A2·SEC-02 = A6·REL-07). Решение владельца — вариант (в): НЕ шифровать,
+ключи остаются переносимым plaintext, защита — NTFS ACL, канон правится под правду.
+
+**Сделано (PR #123, ветка `mlc-110-secrets-acl`):**
+- `installer/MitLicenseCenter.iss` — `GrantServiceAccountRights` (давал только Modify
+  сервис-аккаунту в режиме A, наследование не резал, режим B не трогал вовсе) заменён на
+  три процедуры: `RunIcacls` (запуск icacls с проверкой rc: сбой → лог + MsgBox-предупреждение
+  с путём и подсказкой, установка НЕ прерывается — страдает только hardening),
+  `HardenDataDirAcl` (каталог `%ProgramData%\MitLicenseCenter`: `/inheritance:r` +
+  `*S-1-5-18:(OI)(CI)F` + `*S-1-5-32-544:(OI)(CI)F`; режим A — дополнительно сервис-аккаунту
+  `(OI)(CI)M` через `CmdQuoteInner`), `HardenConfigAcl` (`{app}\appsettings.Production.json`:
+  `/inheritance:r` + SYSTEM:F + Administrators:F; режим A — сервис-аккаунту `R`). SID-формы —
+  локаленезависимо (RU Windows: «Администраторы»). Порядок в ssPostInstall:
+  `WriteProductionConfig → HardenConfigAcl → WriteInitialAdminPassword → HardenDataDirAcl` —
+  ACL каталога накатывается ПОСЛЕ записи `initial-admin.secret`, чтобы `(OI)(CI)` накрыл его.
+  Идемпотентно: оба ACL применяются и на чистой установке, и на апгрейде (на апгрейде конфиг
+  сохраняется от прошлой установки — ACL всё равно обновляется). Шапка `.iss` и комментарий
+  `[Dirs]` (ложь «под LocalSystem дефолтных ACL достаточно») обновлены.
+- `Infrastructure/Settings/SettingsStore.cs` — приватный хелпер `Unprotect(key, value)`
+  оборачивает `CryptographicException` из `IDataProtector.Unprotect` в
+  `InvalidOperationException` с русским операторским сообщением: какой ключ не расшифровался,
+  вероятная причина (key ring в `%ProgramData%\MitLicenseCenter\keys` утерян/заменён/не
+  соответствует БД — например БД восстановлена из бэкапа без парного key ring), путь
+  восстановления (восстановить парный key ring — key ring и БД единый бэкап-юнит — либо заново
+  задать секреты в «Параметрах»). Исходное исключение — в InnerException. Применён в `GetAsync`
+  и `GetAllAsync` (обе точки `Unprotect`). Конвенция `InvalidOperationException` — по кодовой
+  базе (custom-исключений в проекте нет).
+- `docs/DECISIONS.md` — ADR-8 переписан честно (present-tense): значения секретов шифруются
+  в `dbo.Settings` (purpose `mlc.settings.v1`), мастер-ключи key ring — **plaintext XML
+  намеренно**, без at-rest шифрования: переносимость бэкап-юнита «key ring + БД» на новое
+  железо/аккаунт важнее; защита ключей на диске — NTFS ACL инсталлятором в обоих режимах.
+  Rejected: `ProtectKeysWithDpapi` (привязка к машине/аккаунту ломает восстановление),
+  `ProtectKeysWithCertificate` (управление .pfx — секрет для защиты секрета), Vault/Key Vault,
+  plaintext-значения. Trade-off-аргумент: читающий ключи сквозь ACL уже локальный администратор
+  хоста (та же логика, что ADR-21). SECURITY.md/OPERATIONS/04 не тронуты (перепишет D1).
+
+**Тесты (+2 в `SettingsStoreEncryptionTests.cs`):** секрет пишется одним
+`EphemeralDataProtectionProvider`, читается store'ом с другим (независимый key ring) над той
+же InMemory-БД → `GetAsync`/`GetAllAsync` бросают `InvalidOperationException` с именем ключа
+и «key ring» в сообщении, `InnerException` — `CryptographicException`.
+
+**Проверки:** `dotnet test` — 642/642 зелёные (исполнитель: 640 + 2 падения live-RAS smoke
+без поднятого RAS; независимый повтор куратора при работающем стендовом RAS — 642/642);
+ISCC-компиляция `.iss` с фиктивным PublishDir — Successful compile; `dotnet format` чисто.
+
+**Гоча Inno Setup:** Pascal-комментарии `{ }` — упоминание `{app}` внутри комментария
+преждевременно закрывает его → syntax error; в текстах комментариев фигурные скобки не писать.
+
+**Остаток на стенд (кураторский шаг после трека, вместе с прогоном Setup.exe на чистой ВМ):**
+после чистой установки в ОБОИХ режимах `icacls "%ProgramData%\MitLicenseCenter"` →
+только `SYSTEM:(OI)(CI)(F)`, `Администраторы:(OI)(CI)(F)` (+ сервис-аккаунт `(OI)(CI)(M)` в
+режиме A), без Users и `(I)`-ACE; `icacls "<app>\appsettings.Production.json"` → SYSTEM:F,
+Administrators:F (+ сервис-аккаунт `R` в режиме A); то же после апгрейда.
+
+**Гочи следующим задачам трека / D1:** ADR-21 всё ещё говорит «DPAPI-encrypted in
+`dbo.Settings`» и «DPAPI key ring», корневой `CLAUDE.md` — «DPAPI key ring + БД — единый
+бэкап-юнит»: терминология теперь расходится с честным ADR-8 (ядро утверждений — «значения
+зашифрованы at-rest», «бэкап-юнит» — верно). Правка вне объёма MLC-110 — оставлено этапу D1.
