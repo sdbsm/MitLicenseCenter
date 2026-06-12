@@ -169,6 +169,17 @@ if ($LASTEXITCODE -ne 0) {
     throw "dotnet publish провален (exit code $LASTEXITCODE)."
 }
 
+# Файл сведений о сторонних лицензиях — обязательная часть поставки (REL-10): Hangfire
+# (LGPL v3) и SheetJS/xlsx (Apache 2.0) требуют вложить тексты лицензий в дистрибутив.
+# Кладём ПОСЛЕ publish, т.к. Clear-OutputDir выше пересоздаёт каталог (MLC-108). Файл
+# .txt безопасен для sanity-чека build-installer.ps1 (тот ловит только *.deps.json /
+# *.runtimeconfig.json). Отсутствие исходника — ошибка сборки, а не тихий пропуск.
+$licensesSource = Join-Path $RepoRoot 'THIRD_PARTY_LICENSES.txt'
+if (-not (Test-Path -LiteralPath $licensesSource)) {
+    throw "Не найден $licensesSource — файл сторонних лицензий обязателен в поставке (REL-10)."
+}
+Copy-Item -LiteralPath $licensesSource -Destination (Join-Path $OutputDir 'THIRD_PARTY_LICENSES.txt') -Force
+
 # --- Итоговый вывод: путь артефакта, размер exe, наличие SPA ---
 $exePath = Join-Path $OutputDir 'MitLicenseCenter.Web.exe'
 $spaIndex = Join-Path $OutputDir 'wwwroot\index.html'
@@ -190,4 +201,8 @@ if (Test-Path $spaIndex) {
 }
 else {
     Write-Host "SPA: wwwroot\index.html ОТСУТСТВУЕТ (ожидаемо при -SkipSpaBuild)." -ForegroundColor Yellow
+}
+
+if (Test-Path (Join-Path $OutputDir 'THIRD_PARTY_LICENSES.txt')) {
+    Write-Host "Лицензии: THIRD_PARTY_LICENSES.txt вложен в поставку."
 }
