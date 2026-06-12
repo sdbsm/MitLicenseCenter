@@ -23,6 +23,9 @@ vi.mock("@/features/backups/BackupsDialog", () => ({ BackupsDialog: () => null }
 vi.mock("@/features/publications/PublishPublicationDialog", () => ({
   PublishPublicationDialog: () => null,
 }));
+vi.mock("@/features/publications/UnpublishPublicationDialog", () => ({
+  UnpublishPublicationDialog: () => null,
+}));
 vi.mock("@/features/publications/ChangePlatformDialog", () => ({
   ChangePlatformDialog: () => null,
 }));

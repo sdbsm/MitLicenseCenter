@@ -37,6 +37,8 @@ public static partial class PublicationsEndpoints
         // MLC-045: операции публикации.
         group.MapPost("/{id:guid}/check", CheckAsync).RequireAuthorization(Roles.Admin);
         group.MapPost("/{id:guid}/publish", PublishAsync).RequireAuthorization(Roles.Admin);
+        // MLC-113: снятие IIS-публикации через webinst -delete (UX-43).
+        group.MapPost("/{id:guid}/unpublish", UnpublishAsync).RequireAuthorization(Roles.Admin);
         group.MapPost("/{id:guid}/change-platform", ChangePlatformAsync).RequireAuthorization(Roles.Admin);
     }
 
@@ -175,6 +177,60 @@ public static partial class PublicationsEndpoints
 
         await httpContext.AuditAsync(audit, AuditActionType.PublicationPublished,
             init => AuditDescriptions.PublicationPublished(
+                $"{publication.SiteName}{publication.VirtualPath}", init),
+            infobase.TenantId, ct).ConfigureAwait(false);
+
+        var status = await db.Publications
+            .AsNoTracking()
+            .Where(x => x.Id == id)
+            .Select(x => new PublicationStatusResponse(x.LastCheckStatus, x.LastCheckAt, x.LastCheckDetails))
+            .FirstAsync(ct)
+            .ConfigureAwait(false);
+        return TypedResults.Ok(status);
+    }
+
+    // Снятие IIS-публикации через webinst -delete (MLC-113, UX-43). Зеркаль PublishAsync,
+    // но без confirm-гейта: разрушительность подтверждается токеном в UI. Source НЕ
+    // сбрасываем (метаданные происхождения); гейт перезаписи смотрит на Published-статус,
+    // который после снятия станет NotPublished. При сбое webinst — 409 без аудита.
+    internal static async Task<Results<Ok<PublicationStatusResponse>, NotFound, Conflict<ProblemDetails>>> UnpublishAsync(
+        Guid id,
+        AppDbContext db,
+        IWebinstPublisher webinst,
+        IPublicationStatusJob statusJob,
+        IAuditLogger audit,
+        HttpContext httpContext,
+        TimeProvider clock,
+        CancellationToken ct)
+    {
+        var publication = await db.Publications.FirstOrDefaultAsync(x => x.Id == id, ct).ConfigureAwait(false);
+        if (publication is null)
+        {
+            return TypedResults.NotFound();
+        }
+
+        var infobase = await db.Infobases.AsNoTracking().FirstOrDefaultAsync(x => x.Id == publication.InfobaseId, ct).ConfigureAwait(false);
+        if (infobase is null)
+        {
+            return TypedResults.NotFound();
+        }
+
+        var result = await webinst.UnpublishAsync(publication, infobase, ct).ConfigureAwait(false);
+        if (!result.Success)
+        {
+            // Адаптер уже залогировал сырой вывод webinst; detail санитизирован.
+            return TypedResults.Conflict(Problems.UnpublishFailed(
+                result.ErrorDetail ?? "Не удалось снять публикацию инфобазы.", httpContext.TraceIdentifier));
+        }
+
+        publication.UpdatedAt = clock.GetUtcNow().UtcDateTime;
+        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+
+        // Обновляем фактический статус — после снятия станет NotPublished.
+        await statusJob.RefreshOneAsync(id, ct).ConfigureAwait(false);
+
+        await httpContext.AuditAsync(audit, AuditActionType.PublicationUnpublished,
+            init => AuditDescriptions.PublicationUnpublished(
                 $"{publication.SiteName}{publication.VirtualPath}", init),
             infobase.TenantId, ct).ConfigureAwait(false);
 

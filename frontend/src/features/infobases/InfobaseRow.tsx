@@ -1,6 +1,7 @@
 import {
   ArrowRightLeftIcon,
   CircleHelpIcon,
+  CircleSlashIcon,
   DatabaseBackupIcon,
   GlobeIcon,
   LayersIcon,
@@ -110,6 +111,8 @@ interface InfobaseRowProps {
    *  карточка клиента их не передаёт, и пункты меню не рендерятся. */
   onCheck?: (publication: PublicationListItem) => void;
   onPublish?: (publication: PublicationListItem) => void;
+  /** MLC-113: снятие IIS-публикации через webinst -delete (UX-43). */
+  onUnpublish?: (publication: PublicationListItem) => void;
   onChangePlatform?: (publication: PublicationListItem) => void;
   /** Идёт проверка публикации этой строки («Проверить публикацию» задизейблен). */
   isChecking?: boolean;
@@ -135,6 +138,7 @@ export function InfobaseRow({
   onBackups,
   onCheck,
   onPublish,
+  onUnpublish,
   onChangePlatform,
   isChecking = false,
   selected = false,
@@ -278,6 +282,15 @@ export function InfobaseRow({
                     >
                       <LayersIcon className="size-4" />
                       {t("publications.actions.changePlatform")}
+                    </DropdownMenuItem>
+                  )}
+                  {onUnpublish && (
+                    <DropdownMenuItem
+                      variant="destructive"
+                      onSelect={() => onUnpublish(toPublicationListItem(item))}
+                    >
+                      <CircleSlashIcon className="size-4" />
+                      {t("publications.actions.unpublish")}
                     </DropdownMenuItem>
                   )}
                   {onReassign && (

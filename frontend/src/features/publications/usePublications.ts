@@ -32,6 +32,18 @@ export function usePublish() {
   });
 }
 
+// Снятие публикации через webinst -delete (MLC-113). Без тела; после успеха фактический
+// статус публикации станет NotPublished. Инвалидирует список инфобаз.
+export function useUnpublish() {
+  return useInvalidatingMutation({
+    mutationFn: (publicationId: string) =>
+      api<PublicationStatusResponse>(`/api/v1/publications/${publicationId}/unpublish`, {
+        method: "POST",
+      }),
+    invalidate: () => [infobasesQueryKey],
+  });
+}
+
 // Смена платформы — правка пути к wsisapi.dll в web.config под новую версию.
 export function useChangePlatform() {
   return useInvalidatingMutation({

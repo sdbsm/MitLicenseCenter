@@ -24,6 +24,11 @@ public enum AuditActionType
     PublicationUpdated = 21,
     PublicationDeleted = 22,
 
+    // Снятие IIS-публикации через webinst -delete (MLC-113, UX-43): приложение IIS +
+    // default.vrd + web.config удалены, инфобаза в кластере не затрагивается. int 23
+    // продолжает группу Publication 20..22 (frozen-int rule — число переиспользовать нельзя).
+    PublicationUnpublished = 23,
+
     AdminLoggedIn = 100,
     AdminLoggedOut = 101,
     AdminPasswordChanged = 102,

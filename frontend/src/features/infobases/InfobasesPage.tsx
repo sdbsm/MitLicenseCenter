@@ -23,6 +23,7 @@ import { ChangePlatformDialog } from "@/features/publications/ChangePlatformDial
 import { IisManagementCard } from "@/features/publications/iis/IisManagementCard";
 import { PublicationsBulkBar } from "@/features/publications/PublicationsBulkBar";
 import { PublishPublicationDialog } from "@/features/publications/PublishPublicationDialog";
+import { UnpublishPublicationDialog } from "@/features/publications/UnpublishPublicationDialog";
 import {
   toPublicationListItem,
   type PublicationListItem,
@@ -110,6 +111,7 @@ export function InfobasesPage() {
   // MLC-081: операции с публикацией строки (бывшая страница «Публикации»).
   const [checkingId, setCheckingId] = useState<string | null>(null);
   const [publishTarget, setPublishTarget] = useState<PublicationListItem | null>(null);
+  const [unpublishTarget, setUnpublishTarget] = useState<PublicationListItem | null>(null);
   const [platformTarget, setPlatformTarget] = useState<PublicationListItem | null>(null);
   const checkStatus = useCheckStatus();
 
@@ -221,6 +223,16 @@ export function InfobasesPage() {
     setFormOpen(true);
   };
 
+  // MLC-113: при удалении со страницы «Базы» прокидываем publishStatus, чтобы диалог
+  // удаления показал чекбокс «снять публикацию из IIS» (диалог обратного дрейфа статус
+  // не передаёт — там чекбокс скрыт).
+  const handleOpenDelete = (infobase: InfobaseListItem) =>
+    setDeleting({
+      id: infobase.id,
+      name: infobase.name,
+      publishStatus: infobase.publication.lastCheckStatus,
+    });
+
   const handleCheck = async (publication: PublicationListItem) => {
     setCheckingId(publication.id);
     try {
@@ -280,6 +292,7 @@ export function InfobasesPage() {
     ? {
         onCheck: (p: PublicationListItem) => void handleCheck(p),
         onPublish: setPublishTarget,
+        onUnpublish: setUnpublishTarget,
         onChangePlatform: setPlatformTarget,
       }
     : {};
@@ -439,7 +452,7 @@ export function InfobasesPage() {
                           tenantName={tenantNameById.get(item.tenantId) ?? item.tenantName}
                           isAdmin={isAdmin}
                           onEdit={handleOpenEdit}
-                          onDelete={setDeleting}
+                          onDelete={handleOpenDelete}
                           onReassign={tenants.length > 1 ? setReassigning : undefined}
                           onBackups={setBackupsFor}
                           isChecking={checkingId === item.publication.id}
@@ -537,6 +550,14 @@ export function InfobasesPage() {
               if (!open) setPublishTarget(null);
             }}
             publication={publishTarget}
+          />
+          <UnpublishPublicationDialog
+            key={`unpublish-${unpublishTarget?.id ?? "new"}`}
+            open={unpublishTarget !== null}
+            onOpenChange={(open) => {
+              if (!open) setUnpublishTarget(null);
+            }}
+            publication={unpublishTarget}
           />
           <ChangePlatformDialog
             key={`platform-${platformTarget?.id ?? "new"}`}

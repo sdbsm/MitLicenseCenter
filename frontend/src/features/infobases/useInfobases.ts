@@ -98,9 +98,15 @@ export function useReassignInfobase() {
   });
 }
 
+// MLC-113 (UX-43): unpublishFromIis=true добавляет ?unpublishFromIis=true — бэкенд
+// СНАЧАЛА снимает публикацию из IIS через webinst -delete и при сбое возвращает 409,
+// не удаляя инфобазу (защита от молчаливого сиротства публикации в IIS).
 export function useDeleteInfobase() {
   return useInvalidatingMutation({
-    mutationFn: (id: string) => api<null>(`/api/v1/infobases/${id}`, { method: "DELETE" }),
+    mutationFn: ({ id, unpublishFromIis }: { id: string; unpublishFromIis?: boolean }) =>
+      api<null>(`/api/v1/infobases/${id}${unpublishFromIis ? "?unpublishFromIis=true" : ""}`, {
+        method: "DELETE",
+      }),
     invalidate: infobasesQueryKey,
   });
 }

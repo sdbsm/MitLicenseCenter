@@ -37,7 +37,35 @@ internal sealed partial class OneCWebinstPublisher : IWebinstPublisher
         _logger = logger;
     }
 
-    public async Task<WebinstResult> PublishAsync(Publication publication, Infobase infobase, CancellationToken ct)
+    public Task<WebinstResult> PublishAsync(Publication publication, Infobase infobase, CancellationToken ct) =>
+        RunWebinstAsync(
+            publication,
+            infobase,
+            WebinstArgs.BuildPublish,
+            WebinstOperation.Publish,
+            "Не удалось опубликовать инфобазу через webinst. Подробности — в журнале сервера.",
+            ct);
+
+    public Task<WebinstResult> UnpublishAsync(Publication publication, Infobase infobase, CancellationToken ct) =>
+        RunWebinstAsync(
+            publication,
+            infobase,
+            WebinstArgs.BuildUnpublish,
+            WebinstOperation.Unpublish,
+            "Не удалось снять публикацию инфобазы через webinst. Подробности — в журнале сервера.",
+            ct);
+
+    // Общий конвейер publish/unpublish (MLC-045 + MLC-113): резолв webinst.exe →
+    // строка соединения → физ.каталог → сборка аргументов (отличается только -publish/
+    // -delete) → замок-кэп → RunAsync → классификация exit. Зеркальность снятия и
+    // публикации гарантируется тем, что обе ветки идут одним путём, меняя лишь builder.
+    private async Task<WebinstResult> RunWebinstAsync(
+        Publication publication,
+        Infobase infobase,
+        Func<Publication, string, string, IReadOnlyList<string>> buildArgs,
+        WebinstOperation operation,
+        string failureDetail,
+        CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(publication);
         ArgumentNullException.ThrowIfNull(infobase);
@@ -68,10 +96,10 @@ internal sealed partial class OneCWebinstPublisher : IWebinstPublisher
             publication.SiteName,
             publication.VirtualPath);
 
-        var args = WebinstArgs.BuildPublish(publication, physicalDir, connStr);
+        var args = buildArgs(publication, physicalDir, connStr);
 
         // MLC-046: кэп одновременных спавнов webinst (массовая публикация = N таких
-        // вызовов). Замок берётся вокруг самого процесса; на одиночный publish — слот
+        // вызовов). Замок берётся вокруг самого процесса; на одиночный вызов — слот
         // свободен, берётся мгновенно, поведение 1:1.
         int exitCode;
         string stdout;
@@ -88,9 +116,14 @@ internal sealed partial class OneCWebinstPublisher : IWebinstPublisher
 
         // Полный вывод webinst — в лог сервера (пути, имена ИБ). Наружу — общий
         // санитизированный detail (MLC-009 / ADR-4.1 sanitization pattern).
-        LogWebinstFailed(_logger, publication.Id, exitCode, $"{stdout}\n{stderr}".Trim());
-        return WebinstResult.Failed(
-            "Не удалось опубликовать инфобазу через webinst. Подробности — в журнале сервера.");
+        LogWebinstFailed(_logger, operation.ToString(), publication.Id, exitCode, $"{stdout}\n{stderr}".Trim());
+        return WebinstResult.Failed(failureDetail);
+    }
+
+    private enum WebinstOperation
+    {
+        Publish,
+        Unpublish,
     }
 
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunAsync(
@@ -153,6 +186,6 @@ internal sealed partial class OneCWebinstPublisher : IWebinstPublisher
 
     [LoggerMessage(
         Level = LogLevel.Warning,
-        Message = "webinst publish {PublicationId}: exit={ExitCode}. Вывод: {Output}")]
-    private static partial void LogWebinstFailed(ILogger logger, Guid publicationId, int exitCode, string output);
+        Message = "webinst {Operation} {PublicationId}: exit={ExitCode}. Вывод: {Output}")]
+    private static partial void LogWebinstFailed(ILogger logger, string operation, Guid publicationId, int exitCode, string output);
 }

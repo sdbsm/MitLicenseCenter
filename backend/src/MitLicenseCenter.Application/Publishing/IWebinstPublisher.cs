@@ -11,6 +11,15 @@ namespace MitLicenseCenter.Application.Publishing;
 public interface IWebinstPublisher
 {
     Task<WebinstResult> PublishAsync(Publication publication, Infobase infobase, CancellationToken ct);
+
+    /// <summary>
+    /// Снимает IIS-публикацию через <c>webinst -delete</c> (MLC-113, симметрично
+    /// <see cref="PublishAsync"/>). После успешного снятия из IIS удалены приложение,
+    /// default.vrd и web.config; инфобаза в кластере 1С не затрагивается. При неуспехе
+    /// (ненулевой exit / таймаут / отсутствие webinst.exe) — <see cref="WebinstResult.Failed"/>
+    /// с санитизированным detail (сырой вывод webinst уходит в журнал сервера).
+    /// </summary>
+    Task<WebinstResult> UnpublishAsync(Publication publication, Infobase infobase, CancellationToken ct);
 }
 
 // Результат запуска webinst. Success — exit 0. При неуспехе ErrorDetail несёт

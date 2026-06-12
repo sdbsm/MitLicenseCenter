@@ -64,4 +64,14 @@ public sealed class WebinstArgsTests
 
         args.Should().ContainInOrder("-publish", "-iis", "-wsdir", "acme", "-dir", @"C:\inetpub\wwwroot\acme", "-connstr", "Srvr=1c-srv;Ref=Acme;");
     }
+
+    // MLC-113: снятие — тот же набор, что и публикация, но с -delete вместо -publish.
+    [Fact]
+    public void BuildUnpublish_produces_delete_flags()
+    {
+        var args = WebinstArgs.BuildUnpublish(Pub(), @"C:\inetpub\wwwroot\acme", "Srvr=1c-srv;Ref=Acme;");
+
+        args.Should().ContainInOrder("-delete", "-iis", "-wsdir", "acme", "-dir", @"C:\inetpub\wwwroot\acme", "-connstr", "Srvr=1c-srv;Ref=Acme;");
+        args.Should().NotContain("-publish");
+    }
 }
