@@ -4789,3 +4789,51 @@ multi-node, UI-долги канона 06 (tanstack/recharts/ESLint-StatusBadge)
   reverse diff + условие `Available`), `05` §3.3 (метка/баннер/диалог), `06` §12 («Не найдена
   в кластере», «Показать»); `ROADMAP.md` — «Дрейф панель↔кластер» закрыт полностью (оба
   направления). Present-tense.
+
+
+## Трек «Пред-релизные фиксы по итогам аудита» (MLC-108..115) — отчёты задач (пополняется по мере закрытия)
+
+Источник трека: независимый пред-релизный аудит А0–С1 (2026-06-12) — вердикт и findings в
+`audit/2026-06/MASTER-REPORT.md` (+ `TECH-DEBT.md`; папка untracked, читается из корня
+основного репо). Спека трека — `.claude/plans/audit-fix-prerelease.md`. Кураторская модель:
+исполнитель — субагент (opus, worktree), куратор ревьюит, гонит проверки и вливает
+(`gh pr merge --merge --admin`; CI красный по биллингу — гейт локальный).
+
+### MLC-108 — Детерминированный состав релизного артефакта (REL-01) — Done (2026-06-12, PR #119)
+
+**Постановка.** Finding A6·REL-01 (High, подтверждён фактом): `publish-release.ps1` не чистил
+OutputDir перед `dotnet publish`, а `build-installer.ps1`/`.iss` пакуют накопительный каталог
+целиком — в собранный Setup.exe уехали 82 чужих файла, включая stale
+`*.runtimeconfig.json`/`*.deps.json` от прежнего FrameworkDependent-прогона; состав поставки
+зависел от истории build-машины.
+
+**Сделано (PR #119, ветка `mlc-108-deterministic-release-artifact`, только два скрипта):**
+- `scripts/publish-release.ps1` — функция `Clear-OutputDir` + вызов после нормализации
+  OutputDir, до сборки аргументов `dotnet publish`: `Remove-Item -Recurse -Force` +
+  пересоздание `New-Item`. Защита от сноса постороннего каталога: `throw` на пустом пути и
+  на корне диска (сравнение `GetFullPath` с `GetPathRoot` без хвостового разделителя).
+- `scripts/build-installer.ps1` — новый «Шаг 2: sanity-чек состава publish-каталога (REL-01)»
+  между публишем и поиском ISCC, работает и в ветке `-SkipPublish`, и после свежего publish:
+  рекурсивный поиск `*.deps.json`/`*.runtimeconfig.json` в `$PublishDir`; при находке —
+  `throw` с русским сообщением и перечнем лишних файлов (self-contained single-file публиш
+  этих файлов не содержит). Последующие шаги перенумерованы (2→3, 3→4, 4→5).
+- Кодировка обоих `.ps1` — UTF-8 с BOM сохранена (проверено по байтам блобов ветки);
+  стиль скриптов (русские сообщения, `$LASTEXITCODE`-дисциплина PS 5.1) выдержан.
+
+**Проверки (исполнитель + независимый повтор куратора):**
+- Детерминированность: build 1 (self-contained, `-SkipSpaBuild`) → 10 файлов; намеренный
+  `-FrameworkDependent`-прогон в тот же каталог добавил `deps.json`/`runtimeconfig.json`
+  (stale-следы воспроизведены); build 2 (self-contained) → `Compare-Object` списков
+  build 1 vs build 2: различий нет.
+- Sanity-чек красный: подложенный `MitLicenseCenter.Web.deps.json` +
+  `build-installer.ps1 -SkipPublish` → падение ДО ISCC с перечнем лишних файлов
+  (воспроизведено куратором независимо).
+- Sanity-чек зелёный: чистый каталог → «Sanity-чек пройден», ISCC собрал Setup.exe
+  (без stale-артефактов).
+- Защита чистки: `publish-release.ps1 -OutputDir 'F:\'` → отказ «путь — корень диска»,
+  ничего не удалено (проверено куратором).
+
+**Гочи следующим задачам трека:** `.iss` по-прежнему пакует publish-каталог целиком
+(`[Files]` с маской каталога) — детерминированность держится на чистке OutputDir +
+sanity-чеке, точечная фильтрация в `.iss` в объём REL-01 не входила. Для MLC-112 (REL-02):
+страховка апгрейда не затронута, `build-installer.ps1` менялся только в части sanity-чека.
