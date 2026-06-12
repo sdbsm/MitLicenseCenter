@@ -91,6 +91,30 @@ public static class DependencyInjection
             .AddSignInManager()
             .AddDefaultTokenProviders();
 
+        // MLC-109 (SEC-01) — немедленный отзыв доступа при disable / reset-password / смене роли.
+        // Cookie-кука sliding 8h: при активности жертвы доступ был фактически бессрочным, т.к.
+        // отзыв роли/пароля/учётки не убивал уже выданную куку. Лечится security-stamp'ом: при
+        // каждой такой операции мы ротируем AspNetUsers.SecurityStamp (UpdateSecurityStampAsync),
+        // а SecurityStampValidator на каждом OnValidatePrincipal сверяет stamp из куки с БД —
+        // расхождение → кука отвергается (SignOut). Гоча: AddIdentityCore (в отличие от полного
+        // AddIdentity) НЕ регистрирует ни ISecurityStampValidator, ни ITwoFactorSecurityStampValidator
+        // и не настраивает SecurityStampValidatorOptions — поэтому регистрируем их явно здесь, рядом
+        // с самой регистрацией Identity (cookie-пайплайн в Web подключает валидатор к
+        // OnValidatePrincipal). Без ITwoFactorSecurityStampValidator SecurityStampValidator падает
+        // на резолве зависимости, хотя 2FA в панели не используется.
+        services.AddScoped<ISecurityStampValidator, SecurityStampValidator<AppUser>>();
+        services.AddScoped<ITwoFactorSecurityStampValidator, TwoFactorSecurityStampValidator<AppUser>>();
+
+        // Интервал ревалидации куки. Компромисс «свежесть отзыва ↔ нагрузка на БД»: при каждом
+        // запросе с уже провалидированной кукой stamp НЕ перечитывается — только раз в интервал.
+        // 2 минуты — верхняя граница задержки, с которой отозванная кука перестаёт работать
+        // (требование SEC-01: 1–5 мин). Меньше — лишние round-trip'ы в БД на горячем пути; больше —
+        // окно, в которое уволенный/разжалованный ещё ходит со старой кукой.
+        services.Configure<SecurityStampValidatorOptions>(o =>
+        {
+            o.ValidationInterval = TimeSpan.FromMinutes(2);
+        });
+
         AddDataProtection(services, environment);
 
         services.TryAddSingletonTimeProvider();

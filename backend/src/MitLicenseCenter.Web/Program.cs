@@ -83,6 +83,16 @@ builder.Services
         options.ExpireTimeSpan = TimeSpan.FromHours(8);
         options.SlidingExpiration = true;
 
+        // MLC-109 (SEC-01) — немедленный отзыв доступа. Подключаем SecurityStampValidator к
+        // ревалидации куки: на каждом OnValidatePrincipal (не чаще, чем раз в
+        // SecurityStampValidatorOptions.ValidationInterval = 2 мин, см. Infrastructure/DI)
+        // он сверяет security-stamp из куки со stamp'ом в БД. Если админ отключил/разжаловал
+        // пользователя или сбросил ему пароль — соответствующий эндпоинт ротирует stamp
+        // (UpdateSecurityStampAsync), и старая кука здесь отвергается → принудительный SignOut
+        // в пределах интервала. Self-смена пароля переиздаёт куку свежим stamp'ом
+        // (RefreshSignInAsync) — своя сессия не рвётся.
+        options.Events.OnValidatePrincipal = SecurityStampValidator.ValidatePrincipalAsync;
+
         options.Events.OnRedirectToLogin = ctx =>
         {
             ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
@@ -93,7 +103,15 @@ builder.Services
             ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
             return Task.CompletedTask;
         };
-    });
+    })
+    // MLC-109 (SEC-01) — обязательная пара к SecurityStampValidator. При отклонении куки
+    // валидатор делает «sign-out everywhere»: SignOutAsync И по ApplicationScheme, И по
+    // TwoFactorRememberMeScheme. Полный AddIdentity()/AddIdentityCookies() регистрирует обе
+    // куки, но мы собираем пайплайн вручную (только ApplicationScheme) — без регистрации
+    // TwoFactorRememberMe SignOutAsync по ней бросает «No sign-out handler is registered»
+    // ровно в момент первого отзыва доступа. 2FA в панели не используется, поэтому это
+    // чисто служебная no-op-кука, нужная лишь чтобы sign-out по схеме не падал.
+    .AddCookie(IdentityConstants.TwoFactorRememberMeScheme);
 
 builder.Services.AddAuthorizationBuilder()
     .AddPolicy(Roles.Admin, p => p.RequireRole(Roles.Admin))
