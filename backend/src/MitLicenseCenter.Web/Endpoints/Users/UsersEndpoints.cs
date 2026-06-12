@@ -203,6 +203,12 @@ public static class UsersEndpoints
 
         await userManager.SetLockoutEndDateAsync(user, DateTimeOffset.MaxValue).ConfigureAwait(false);
 
+        // MLC-109 (SEC-01) — ротируем security-stamp, чтобы активная кука жертвы умерла в
+        // пределах интервала ревалидации (см. SecurityStampValidator в Program.cs). Сам по
+        // себе lockout закрывает только будущий вход (PasswordSignInAsync), уже выданную
+        // sliding-куку он не отзывает.
+        await userManager.UpdateSecurityStampAsync(user).ConfigureAwait(false);
+
         await httpContext.AuditAsync(audit, AuditActionType.UserDisabled,
             init => AuditDescriptions.UserDisabled(user.UserName!, init),
             tenantId: null, ct).ConfigureAwait(false);
@@ -304,6 +310,12 @@ public static class UsersEndpoints
                 $"Не удалось назначить роль '{role}': "
                 + string.Join("; ", addResult.Errors.Select(e => $"{e.Code}: {e.Description}")));
         }
+
+        // MLC-109 (SEC-01) — ротируем security-stamp: смена роли должна отозвать старую куку
+        // жертвы с прежними role-claims в пределах интервала ревалидации (см. Program.cs).
+        // Add/RemoveFromRole stamp сами НЕ трогают, поэтому без этого вызова разжалованный
+        // Admin продолжал бы ходить с Admin-claims в куке до её естественного истечения (8h).
+        await userManager.UpdateSecurityStampAsync(user).ConfigureAwait(false);
 
         await httpContext.AuditAsync(audit, AuditActionType.UserRoleChanged,
             init => AuditDescriptions.UserRoleChanged(user.UserName!, oldRole, role, init),
