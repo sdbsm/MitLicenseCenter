@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MitLicenseCenter.Application.Identity;
@@ -91,23 +92,40 @@ public sealed class SecurityStampRevocationTests
     public async Task Self_change_password_keeps_own_session_alive()
     {
         await using var h = await Harness.CreateAsync();
-        var me = await h.CreateUserAsync("operator", Roles.Admin, "Temp-Password-123!");
-        h.SetCurrentUser("operator");
+        await h.CreateUserAsync("operator", Roles.Admin, "Temp-Password-123!");
         var audit = new TestHelpers.CapturingAuditLogger();
+
+        // Кука, выданная ДО смены пароля: principal со «старым» stamp. До смены он валиден,
+        // ПОСЛЕ смены (ротация stamp в ChangePasswordAsync UserManager'ом) — должен умереть.
+        // Это доказывает, что без переиздания куки своя сессия бы порвалась → RefreshSignInAsync
+        // в эндпоинте — обязательное звено критерия «self-смена не разлогинивает себя».
+        // Эта же principal = текущая сессия в HttpContext: эндпоинт по ней находит юзера, а
+        // RefreshSignInAsync по ней (через AuthenticateAsync перехватчика) подтверждает «вход».
+        var beforeChange = (await h.UserManager.FindByNameAsync("operator"))!;
+        var staleOwnCookie = await h.SignInManager.CreateUserPrincipalAsync(beforeChange);
+        h.SetCurrentUser(staleOwnCookie);
 
         var result = await AuthEndpoints.ChangePasswordAsync(
             new ChangePasswordRequest("Temp-Password-123!", "New-Password-456!"),
             h.HttpContext, h.UserManager, h.SignInManager, audit, CancellationToken.None);
         result.Result.Should().BeOfType<Microsoft.AspNetCore.Http.HttpResults.NoContent>();
 
-        // Регрессия: после смены пароля собственная сессия живёт — переиздаём principal через
-        // тот же SignInManager (как это делает RefreshSignInAsync, переписывая куку свежим
-        // stamp'ом) и прогоняем через валидатор: он ДОЛЖЕН принять.
-        var reloaded = (await h.UserManager.FindByNameAsync("operator"))!;
-        var refreshedPrincipal = await h.SignInManager.CreateUserPrincipalAsync(reloaded);
+        // Регрессия: эндпоинт ОБЯЗАН переиздать куку через RefreshSignInAsync. Захватываем
+        // principal, который SignInManager реально передал в IAuthenticationService.SignInAsync
+        // по ApplicationScheme (та самая переписанная кука) — НЕ собираем его руками, иначе тест
+        // прошёл бы и без RefreshSignInAsync. Без вызова RefreshSignInAsync захвата не будет.
+        h.CapturedSignInPrincipal.Should().NotBeNull(
+            "эндпоинт переиздаёт куку через RefreshSignInAsync → SignInAsync по ApplicationScheme вызван");
 
-        var rejected = await h.RunValidatorAsync(refreshedPrincipal);
-        rejected.Should().BeFalse("self-смена пароля: своя сессия со свежим stamp остаётся валидной");
+        var refreshedRejected = await h.RunValidatorAsync(h.CapturedSignInPrincipal!);
+        refreshedRejected.Should().BeFalse(
+            "self-смена пароля: переизданная эндпоинтом кука со свежим stamp остаётся валидной");
+
+        // А вот СТАРАЯ кука (до смены) валидатором отвергается — то есть переиздание было
+        // действительно необходимо: не сделай эндпоинт RefreshSignInAsync, сессия бы умерла.
+        var staleRejected = await h.RunValidatorAsync(staleOwnCookie);
+        staleRejected.Should().BeTrue(
+            "stamp ротирован сменой пароля → старая, непереизданная кука отвергается валидатором");
     }
 
     // Детерминированный генератор паролей сброса (как в UsersEndpointsTests).
@@ -125,22 +143,31 @@ public sealed class SecurityStampRevocationTests
         private readonly ServiceProvider _provider;
         private readonly IServiceScope _scope;
 
+        private readonly CapturingAuthenticationService _capturingAuth;
+
         public UserManager<AppUser> UserManager { get; }
         public SignInManager<AppUser> SignInManager { get; }
         public DefaultHttpContext HttpContext { get; }
+
+        // Последний principal, переданный в IAuthenticationService.SignInAsync по
+        // ApplicationScheme — т.е. кука, которую эндпоинт реально переиздал через
+        // RefreshSignInAsync. null, пока SignInAsync не вызван.
+        public ClaimsPrincipal? CapturedSignInPrincipal => _capturingAuth.LastApplicationSchemePrincipal;
 
         private Harness(
             ServiceProvider provider,
             IServiceScope scope,
             UserManager<AppUser> userManager,
             SignInManager<AppUser> signInManager,
-            DefaultHttpContext httpContext)
+            DefaultHttpContext httpContext,
+            CapturingAuthenticationService capturingAuth)
         {
             _provider = provider;
             _scope = scope;
             UserManager = userManager;
             SignInManager = signInManager;
             HttpContext = httpContext;
+            _capturingAuth = capturingAuth;
         }
 
         public static async Task<Harness> CreateAsync()
@@ -183,6 +210,15 @@ public sealed class SecurityStampRevocationTests
                 // TwoFactorRememberMe — без её регистрации SignOutAsync бросает.
                 .AddCookie(IdentityConstants.TwoFactorRememberMeScheme);
 
+            // Перехватываем IAuthenticationService поверх дефолтного (его регистрирует
+            // AddAuthentication выше): декоратор записывает principal, который SignInManager
+            // отдаёт в SignInAsync по ApplicationScheme при RefreshSignInAsync. Реальную куку в
+            // ответ не пишем — для теста важен лишь захваченный principal, а DefaultHttpContext
+            // не настроен на запись cookie-ответа.
+            var capturingAuth = new CapturingAuthenticationService();
+            services.RemoveAll<IAuthenticationService>();
+            services.AddScoped<IAuthenticationService>(_ => capturingAuth);
+
             var provider = services.BuildServiceProvider();
             var scope = provider.CreateScope();
 
@@ -197,7 +233,7 @@ public sealed class SecurityStampRevocationTests
 
             var userManager = scope.ServiceProvider.GetRequiredService<UserManager<AppUser>>();
             var signInManager = scope.ServiceProvider.GetRequiredService<SignInManager<AppUser>>();
-            return new Harness(provider, scope, userManager, signInManager, httpContext);
+            return new Harness(provider, scope, userManager, signInManager, httpContext, capturingAuth);
         }
 
         public async Task<AppUser> CreateUserAsync(string userName, string role, string password = "Seed-Password-123!")
@@ -208,9 +244,10 @@ public sealed class SecurityStampRevocationTests
             return user;
         }
 
-        public void SetCurrentUser(string userName) =>
-            HttpContext.User = new ClaimsPrincipal(
-                new ClaimsIdentity([new Claim(ClaimTypes.Name, userName)], authenticationType: "Test"));
+        // Текущая cookie-сессия в HttpContext. Передаём полноценный principal (с NameIdentifier и
+        // Name) из CreateUserPrincipalAsync: эндпоинт по Name находит юзера, а RefreshSignInAsync
+        // сверяет UserId текущей сессии с переподписываемым — без NameIdentifier он молча выйдет.
+        public void SetCurrentUser(ClaimsPrincipal principal) => HttpContext.User = principal;
 
         // Прогоняет принципала куки через SecurityStampValidator ровно так, как cookie-пайплайн
         // в Program.cs (OnValidatePrincipal = SecurityStampValidator.ValidatePrincipalAsync).
@@ -238,6 +275,50 @@ public sealed class SecurityStampRevocationTests
         private sealed class FieldHttpContextAccessor : IHttpContextAccessor
         {
             public HttpContext? HttpContext { get; set; }
+        }
+
+        // Перехватчик IAuthenticationService: фиксирует principal, который SignInManager передаёт
+        // в SignInAsync по ApplicationScheme (то, что делает RefreshSignInAsync, переписывая
+        // куку свежим stamp'ом). Куку в ответ намеренно НЕ пишем — DefaultHttpContext в тесте не
+        // настроен на запись cookie, да и нам нужен лишь сам захваченный principal.
+        private sealed class CapturingAuthenticationService : IAuthenticationService
+        {
+            public ClaimsPrincipal? LastApplicationSchemePrincipal { get; private set; }
+
+            public Task SignInAsync(HttpContext context, string? scheme, ClaimsPrincipal principal, AuthenticationProperties? properties)
+            {
+                if (string.Equals(scheme, IdentityConstants.ApplicationScheme, StringComparison.Ordinal))
+                {
+                    LastApplicationSchemePrincipal = principal;
+                }
+
+                return Task.CompletedTask;
+            }
+
+            public Task SignOutAsync(HttpContext context, string? scheme, AuthenticationProperties? properties) =>
+                Task.CompletedTask;
+
+            // RefreshSignInAsync в .NET 10 СНАЧАЛА вызывает AuthenticateAsync(ApplicationScheme) и
+            // переиздаёт куку только если текущая сессия аутентифицирована. Моделируем «уже вошедшего»
+            // пользователя текущей principal из HttpContext (её ставит SetCurrentUser, authenticationType
+            // != null → IsAuthenticated). Иначе RefreshSignInAsync молча выйдет и SignInAsync не вызовет.
+            public Task<AuthenticateResult> AuthenticateAsync(HttpContext context, string? scheme)
+            {
+                if (string.Equals(scheme, IdentityConstants.ApplicationScheme, StringComparison.Ordinal)
+                    && context.User.Identity?.IsAuthenticated == true)
+                {
+                    var ticket = new AuthenticationTicket(context.User, IdentityConstants.ApplicationScheme);
+                    return Task.FromResult(AuthenticateResult.Success(ticket));
+                }
+
+                return Task.FromResult(AuthenticateResult.NoResult());
+            }
+
+            public Task ChallengeAsync(HttpContext context, string? scheme, AuthenticationProperties? properties) =>
+                Task.CompletedTask;
+
+            public Task ForbidAsync(HttpContext context, string? scheme, AuthenticationProperties? properties) =>
+                Task.CompletedTask;
         }
 
         public async ValueTask DisposeAsync()
