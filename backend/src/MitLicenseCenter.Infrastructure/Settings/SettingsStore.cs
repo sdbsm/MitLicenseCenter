@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
@@ -31,6 +32,29 @@ internal sealed class SettingsStore : ISettingsStore
         _clock = clock;
     }
 
+    // Расшифровка секрета с понятной для оператора ошибкой вместо сырого
+    // CryptographicException (стектрейс/500). Битый/чужой/потерянный key ring —
+    // штатный операционный сценарий (БД восстановили из бэкапа без парного key ring
+    // или наоборот), а не баг кода. Исходный CryptographicException — в InnerException.
+    private byte[] Unprotect(string key, byte[] protectedValue)
+    {
+        try
+        {
+            return _protector.Unprotect(protectedValue);
+        }
+        catch (CryptographicException ex)
+        {
+            throw new InvalidOperationException(
+                $"Не удалось расшифровать секретную настройку «{key}». " +
+                "Вероятная причина — key ring в %ProgramData%\\MitLicenseCenter\\keys утерян, " +
+                "заменён или не соответствует базе данных (например, БД восстановлена из бэкапа " +
+                "без парного key ring — или наоборот). Key ring и база данных — единый бэкап-юнит. " +
+                "Восстановите парный key ring из резервной копии либо заново задайте секретные " +
+                "настройки в разделе «Параметры».",
+                ex);
+        }
+    }
+
     public async Task<string?> GetAsync(string key, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrEmpty(key);
@@ -43,7 +67,7 @@ internal sealed class SettingsStore : ISettingsStore
 
         if (row.IsSecret)
         {
-            return row.Value is null ? null : Encoding.UTF8.GetString(_protector.Unprotect(row.Value));
+            return row.Value is null ? null : Encoding.UTF8.GetString(Unprotect(row.Key, row.Value));
         }
 
         return row.ValueText;
@@ -70,7 +94,7 @@ internal sealed class SettingsStore : ISettingsStore
         foreach (var row in rows)
         {
             result[row.Key] = row.IsSecret
-                ? (row.Value is null ? null : Encoding.UTF8.GetString(_protector.Unprotect(row.Value)))
+                ? (row.Value is null ? null : Encoding.UTF8.GetString(Unprotect(row.Key, row.Value)))
                 : row.ValueText;
         }
 

@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text;
 using FluentAssertions;
 using Microsoft.AspNetCore.DataProtection;
@@ -137,6 +138,58 @@ public sealed class SettingsStoreEncryptionTests
 
         all["OneC.Cluster.AdminPassword"].Should().Be(await store.GetAsync("OneC.Cluster.AdminPassword"));
         all["Polling.HotIntervalSeconds"].Should().Be(await store.GetAsync("Polling.HotIntervalSeconds"));
+    }
+
+    [Fact]
+    public async Task GetAsync_wraps_CryptographicException_with_operator_message()
+    {
+        // Симулируем потерянный/чужой key ring: значение зашифровано ОДНИМ провайдером,
+        // а читается ДРУГИМ (независимый ephemeral key ring) — Unprotect не сможет
+        // расшифровать чужой пейлоад и бросит CryptographicException. Store должен
+        // обернуть его в понятную оператору ошибку (InvalidOperationException), сохранив
+        // исходное исключение в InnerException.
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"settings-crypto-{Guid.NewGuid():N}")
+            .Options;
+        var db = new AppDbContext(options);
+        var snapshot = Substitute.For<ISettingsSnapshot>();
+        var clock = TimeProvider.System;
+
+        // Провайдер A пишет секрет.
+        var writeStore = new SettingsStore(db, new EphemeralDataProtectionProvider(), snapshot, clock);
+        await writeStore.SetAsync("OneC.Cluster.AdminPassword", "hunter2", isSecret: true, updatedBy: "admin");
+
+        // Провайдер B (другой key ring) читает тот же row из той же БД.
+        var readStore = new SettingsStore(db, new EphemeralDataProtectionProvider(), snapshot, clock);
+
+        var act = async () => await readStore.GetAsync("OneC.Cluster.AdminPassword");
+
+        var ex = (await act.Should().ThrowAsync<InvalidOperationException>()).Which;
+        ex.Message.Should().Contain("OneC.Cluster.AdminPassword");
+        ex.Message.Should().Contain("key ring");
+        ex.InnerException.Should().BeOfType<CryptographicException>();
+    }
+
+    [Fact]
+    public async Task GetAllAsync_wraps_CryptographicException_with_operator_message()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"settings-crypto-all-{Guid.NewGuid():N}")
+            .Options;
+        var db = new AppDbContext(options);
+        var snapshot = Substitute.For<ISettingsSnapshot>();
+        var clock = TimeProvider.System;
+
+        var writeStore = new SettingsStore(db, new EphemeralDataProtectionProvider(), snapshot, clock);
+        await writeStore.SetAsync("OneC.Cluster.AdminPassword", "hunter2", isSecret: true, updatedBy: "admin");
+
+        var readStore = new SettingsStore(db, new EphemeralDataProtectionProvider(), snapshot, clock);
+
+        var act = async () => await readStore.GetAllAsync();
+
+        var ex = (await act.Should().ThrowAsync<InvalidOperationException>()).Which;
+        ex.Message.Should().Contain("OneC.Cluster.AdminPassword");
+        ex.InnerException.Should().BeOfType<CryptographicException>();
     }
 
     [Fact]
