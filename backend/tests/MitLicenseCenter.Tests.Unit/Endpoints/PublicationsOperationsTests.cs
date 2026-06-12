@@ -116,6 +116,60 @@ public sealed class PublicationsOperationsTests
         ctx.Db.Publications.Single().Source.Should().Be(PublicationSource.Webinst);
     }
 
+    // ── unpublish (MLC-113) ──────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task Unpublish_success_sets_notpublished_and_writes_23_audit()
+    {
+        await using var ctx = await TestContext.NewAsync(
+            source: PublicationSource.Webinst, status: PublicationPublishStatus.Published);
+        ctx.Webinst.UnpublishAsync(Arg.Any<Publication>(), Arg.Any<Infobase>(), Arg.Any<CancellationToken>())
+            .Returns(WebinstResult.Ok());
+        // После снятия фактическое состояние IIS — публикации нет (NotPublished).
+        ctx.Iis.ReadActualStateAsync(Arg.Any<Publication>(), Arg.Any<CancellationToken>())
+            .Returns(new PublicationActualState(false, false, false, null, null));
+
+        var result = await PublicationsEndpoints.UnpublishAsync(
+            ctx.PublicationId, ctx.Db, ctx.Webinst, ctx.Job, ctx.Audit,
+            TestHelpers.NewHttpContext("admin"), TimeProvider.System, CancellationToken.None);
+
+        var ok = result.Result.Should().BeOfType<Ok<PublicationStatusResponse>>().Subject;
+        ok.Value!.Status.Should().Be(PublicationPublishStatus.NotPublished);
+        ctx.Audit.Entries.Should().ContainSingle(e => e.Action == AuditActionType.PublicationUnpublished);
+        // Source НЕ сбрасывается — это метаданные происхождения.
+        ctx.Db.Publications.Single().Source.Should().Be(PublicationSource.Webinst);
+    }
+
+    [Fact]
+    public async Task Unpublish_webinst_failure_returns_409_without_audit()
+    {
+        await using var ctx = await TestContext.NewAsync(
+            source: PublicationSource.Webinst, status: PublicationPublishStatus.Published);
+        ctx.Webinst.UnpublishAsync(Arg.Any<Publication>(), Arg.Any<Infobase>(), Arg.Any<CancellationToken>())
+            .Returns(WebinstResult.Failed("Не удалось снять публикацию инфобазы через webinst."));
+
+        var result = await PublicationsEndpoints.UnpublishAsync(
+            ctx.PublicationId, ctx.Db, ctx.Webinst, ctx.Job, ctx.Audit,
+            TestHelpers.NewHttpContext("admin"), TimeProvider.System, CancellationToken.None);
+
+        var conflict = result.Result.Should().BeOfType<Conflict<ProblemDetails>>().Subject;
+        conflict.Value!.Extensions["code"].Should().Be(ProblemCodes.UnpublishFailed);
+        ctx.Audit.Entries.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Unpublish_not_found_returns_404()
+    {
+        await using var ctx = await TestContext.NewAsync();
+
+        var result = await PublicationsEndpoints.UnpublishAsync(
+            Guid.NewGuid(), ctx.Db, ctx.Webinst, ctx.Job, ctx.Audit,
+            TestHelpers.NewHttpContext("admin"), TimeProvider.System, CancellationToken.None);
+
+        result.Result.Should().BeOfType<NotFound>();
+        await ctx.Webinst.DidNotReceiveWithAnyArgs().UnpublishAsync(default!, default!, default);
+    }
+
     // ── change-platform ──────────────────────────────────────────────────────────────
 
     [Fact]

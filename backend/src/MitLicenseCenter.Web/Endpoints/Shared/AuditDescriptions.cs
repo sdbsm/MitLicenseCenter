@@ -57,6 +57,10 @@ internal static class AuditDescriptions
     public static string PublicationPublished(string label, string initiator) =>
         $"Публикация «{label}» опубликована через webinst администратором {initiator}.";
 
+    // ── Снятие IIS-публикации через webinst -delete (MLC-113) ──────────────────────
+    public static string PublicationUnpublished(string label, string initiator) =>
+        $"Публикация «{label}» снята с IIS администратором {initiator}.";
+
     public static string PublicationPlatformChanged(
         string label,
         string previousVersion,

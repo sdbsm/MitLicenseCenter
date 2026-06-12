@@ -22,6 +22,7 @@ const ALL_ACTION_TYPES: Record<AuditActionType, true> = {
   PublicationCreated: true,
   PublicationUpdated: true,
   PublicationDeleted: true,
+  PublicationUnpublished: true,
   AdminLoggedIn: true,
   AdminLoggedOut: true,
   AdminPasswordChanged: true,

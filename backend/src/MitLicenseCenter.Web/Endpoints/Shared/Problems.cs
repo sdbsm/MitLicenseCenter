@@ -25,6 +25,9 @@ public static class ProblemCodes
     public const string PublishFailed = "PUBLISH_FAILED";
     public const string PublishConfirmRequired = "PUBLISH_CONFIRM_REQUIRED";
 
+    // MLC-113 — снятие IIS-публикации через webinst -delete не удалось.
+    public const string UnpublishFailed = "UNPUBLISH_FAILED";
+
     // MLC-047 — операция управления жизненным циклом IIS (recycle/start/stop/iisreset)
     // не удалась (COM/таймаут/ненулевой exit). IisAccessDenied переиспользуется для прав.
     public const string IisOperationFailed = "IIS_OPERATION_FAILED";
@@ -138,6 +141,12 @@ public static class Problems
     // уже санитизированным (без путей/имён ИБ); сырой вывод webinst — в журнале.
     public static ProblemDetails PublishFailed(string detail, string? correlationId = null) =>
         Conflict(ProblemCodes.PublishFailed, "Публикация не удалась", detail, correlationId);
+
+    // MLC-113 — снятие публикации через webinst -delete не удалось. detail приходит из
+    // адаптера санитизированным; сырой вывод webinst — в журнале. При снятии в составе
+    // удаления инфобазы это 409 без удаления строк (защита от молчаливого сиротства IIS).
+    public static ProblemDetails UnpublishFailed(string detail, string? correlationId = null) =>
+        Conflict(ProblemCodes.UnpublishFailed, "Снятие публикации не удалось", detail, correlationId);
 
     // MLC-045 — повторная публикация перезатрёт ручную конфигурацию (Source ≠ Webinst).
     // Требуется явное подтверждение оператора (Confirm=true).

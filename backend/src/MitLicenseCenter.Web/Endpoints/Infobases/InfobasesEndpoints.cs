@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using MitLicenseCenter.Application.Auditing;
+using MitLicenseCenter.Application.Publishing;
 using MitLicenseCenter.Domain.Audit;
 using MitLicenseCenter.Domain.Infobases;
 using MitLicenseCenter.Domain.Publications;
@@ -406,12 +407,18 @@ public static partial class InfobasesEndpoints
         return TypedResults.Ok(infobase.ToDetailResponse(publication));
     }
 
-    internal static async Task<Results<NoContent, NotFound>> DeleteAsync(
+    // MLC-113 (UX-43): необязательное снятие IIS-публикации при удалении инфобазы.
+    // unpublishFromIis=true → СНАЧАЛА webinst -delete; при сбое — 409 и НИЧЕГО не
+    // удаляем (защита от молчаливого сиротства публикации в IIS — главная цель UX-43).
+    // unpublishFromIis=false → поведение строго прежнее (webinst не зовём).
+    internal static async Task<Results<NoContent, NotFound, Conflict<ProblemDetails>>> DeleteAsync(
         Guid id,
         AppDbContext db,
         IAuditLogger audit,
+        IWebinstPublisher webinst,
         HttpContext httpContext,
-        CancellationToken ct)
+        CancellationToken ct,
+        [FromQuery] bool unpublishFromIis = false)
     {
         var infobase = await db.Infobases.FirstOrDefaultAsync(x => x.Id == id, ct).ConfigureAwait(false);
         if (infobase is null)
@@ -426,6 +433,22 @@ public static partial class InfobasesEndpoints
         var publicationLabel = publication is null
             ? null
             : $"{publication.SiteName}{publication.VirtualPath}";
+
+        // Снятие из IIS ДО удаления строк: при сбое webinst откатываемся в 409, оставляя
+        // запись на месте — оператор снимет галочку и удалит без очистки IIS либо повторит.
+        if (unpublishFromIis && publication is not null)
+        {
+            var unpublish = await webinst.UnpublishAsync(publication, infobase, ct).ConfigureAwait(false);
+            if (!unpublish.Success)
+            {
+                return TypedResults.Conflict(Problems.UnpublishFailed(
+                    unpublish.ErrorDetail ?? "Не удалось снять публикацию инфобазы.", httpContext.TraceIdentifier));
+            }
+
+            await httpContext.AuditAsync(audit, AuditActionType.PublicationUnpublished,
+                init => AuditDescriptions.PublicationUnpublished(publicationLabel!, init),
+                tenantId, ct).ConfigureAwait(false);
+        }
 
         // Аудит пишем ДО удаления — TenantId ещё валиден, FK не нарушается.
         if (publication is not null)

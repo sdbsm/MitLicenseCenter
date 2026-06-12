@@ -339,8 +339,9 @@
     },
     "delete": {
       "title": "Удалить инфобазу?",
-      "body": "Запись об инфобазе «{{name}}» и связанная публикация в БД будут удалены. IIS не затрагивается. Это действие необратимо.",
+      "body": "Запись об инфобазе «{{name}}» и связанная публикация в БД будут удалены. Это действие необратимо.",
       "confirmLabel": "Для подтверждения введите название инфобазы: {{name}}",
+      "unpublishOption": "Также снять публикацию из IIS (default.vrd, web.config, приложение)",
       "confirm": "Удалить"
     },
     "reassign": {
@@ -484,6 +485,7 @@
     "actions": {
       "check": "Проверить публикацию",
       "publish": "Опубликовать",
+      "unpublish": "Снять публикацию",
       "changePlatform": "Сменить платформу"
     },
     "publish": {
@@ -492,6 +494,13 @@
       "bodyOverwrite": "Публикация «{{siteName}}{{virtualPath}}» создана не через панель (возможно, вручную в конфигураторе). Повторная публикация через webinst перезапишет default.vrd и web.config, удалив ручные настройки. Продолжить?",
       "confirmLabel": "Для подтверждения введите «{{token}}»",
       "confirm": "Опубликовать",
+      "cancel": "Отмена"
+    },
+    "unpublish": {
+      "title": "Снять публикацию из IIS",
+      "body": "Для «{{siteName}}{{virtualPath}}» из IIS будут удалены приложение, default.vrd и web.config через webinst -delete. Инфобаза в кластере 1С не затрагивается.",
+      "confirmLabel": "Для подтверждения введите «{{token}}»",
+      "confirm": "Снять публикацию",
       "cancel": "Отмена"
     },
     "changePlatform": {
@@ -506,6 +515,8 @@
       "checkCompleted": "Проверка завершена",
       "published": "Инфобаза опубликована",
       "publishFailed": "Не удалось опубликовать",
+      "unpublished": "Публикация снята",
+      "unpublishFailed": "Не удалось снять публикацию",
       "platformChanged": "Версия платформы изменена",
       "platformChangeFailed": "Не удалось сменить версию платформы"
     },
@@ -937,6 +948,7 @@
       "PublicationCreated": "Публикация создана",
       "PublicationUpdated": "Публикация изменена",
       "PublicationDeleted": "Публикация удалена",
+      "PublicationUnpublished": "Публикация снята с IIS",
       "PublicationDriftDetected": "Расхождение публикации обнаружено",
       "PublicationReconciled": "Публикация согласована",
       "PublicationPublished": "Публикация через webinst",
