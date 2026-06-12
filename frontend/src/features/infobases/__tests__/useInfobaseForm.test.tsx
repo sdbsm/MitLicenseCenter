@@ -78,7 +78,9 @@ function mockApi(catalog: { key: string; value: string }[] = settingsCatalog) {
   });
 }
 
-function renderForm(infobaseArg: InfobaseListItem | null) {
+// defaultTenantId — необязательный (контекст карточки клиента); без него предвыбора
+// клиента быть не должно (MLC-111).
+function renderForm(infobaseArg: InfobaseListItem | null, defaultTenantId?: string) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -87,7 +89,14 @@ function renderForm(infobaseArg: InfobaseListItem | null) {
     <QueryClientProvider client={client}>{children}</QueryClientProvider>
   );
   const view = renderHook(
-    () => useInfobaseForm({ open: true, onOpenChange, infobase: infobaseArg, tenants: [tenant] }),
+    () =>
+      useInfobaseForm({
+        open: true,
+        onOpenChange,
+        infobase: infobaseArg,
+        tenants: [tenant],
+        defaultTenantId,
+      }),
     { wrapper }
   );
   return { ...view, onOpenChange };
@@ -150,6 +159,9 @@ describe("useInfobaseForm", () => {
       expect(result.current.form.getValues("publication.platformVersion")).toBe("8.3.99.1")
     );
     act(() => {
+      // tenantId задаём явно — предвыбора клиента больше нет (MLC-111), а этот тест
+      // проверяет только необязательность настройки Sql.Server.
+      result.current.form.setValue("tenantId", tenant.id);
       result.current.form.setValue("name", "База");
       result.current.form.setValue("clusterInfobaseId", "dddddddd-dddd-dddd-dddd-dddddddddddd");
       result.current.form.setValue("databaseName", "acme");
@@ -176,5 +188,43 @@ describe("useInfobaseForm", () => {
     expect(result.current.form.getValues("publication.physicalPathOverride")).toBe(
       "C:\\inetpub\\wwwroot\\acme_bp"
     );
+  });
+
+  it("create без defaultTenantId: клиент НЕ предвыбран (tenantId пустой)", () => {
+    // MLC-111 — убран fallback tenants[0]: при создании вне контекста карточки клиента
+    // tenantId должен быть пустым, чтобы сработал placeholder «Выберите клиента».
+    const { result } = renderForm(null);
+
+    expect(result.current.form.getValues("tenantId")).toBe("");
+  });
+
+  it("create: submit без выбора клиента → ошибка поля tenantId, POST не уходит", async () => {
+    // MLC-111 — required-валидация tenantId теперь реально срабатывает: при пустом
+    // клиенте submit гасится на валидации, запрос на создание не уходит.
+    const { result } = renderForm(null);
+
+    await waitFor(() =>
+      expect(result.current.form.getValues("publication.platformVersion")).toBe("8.3.99.1")
+    );
+    act(() => {
+      // Все прочие обязательные поля заполнены; tenantId намеренно оставлен пустым.
+      result.current.form.setValue("name", "База");
+      result.current.form.setValue("clusterInfobaseId", "dddddddd-dddd-dddd-dddd-dddddddddddd");
+      result.current.form.setValue("databaseName", "acme");
+      result.current.form.setValue("publication.virtualPath", "/acme");
+    });
+
+    await act(() => result.current.onSubmit());
+
+    expect(result.current.form.getFieldState("tenantId").error).toBeDefined();
+    const postCall = mockedApi.mock.calls.find(([path]) => path === "/api/v1/infobases");
+    expect(postCall).toBeUndefined();
+  });
+
+  it("create с defaultTenantId: клиент предвыбран из контекста карточки", () => {
+    // MLC-111 — передача defaultTenantId (карточка клиента) сохраняет предвыбор.
+    const { result } = renderForm(null, tenant.id);
+
+    expect(result.current.form.getValues("tenantId")).toBe(tenant.id);
   });
 });

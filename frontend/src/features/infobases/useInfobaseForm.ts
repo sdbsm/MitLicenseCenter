@@ -50,7 +50,8 @@ export function useInfobaseForm({
   open,
   onOpenChange,
   infobase,
-  tenants,
+  // `tenants` остаётся в контракте (диалог рендерит из него список клиентов), но самому
+  // хуку больше не нужен: предвыбор tenants[0] убран (MLC-111) — клиент выбирается явно.
   defaultTenantId,
   prefill,
 }: UseInfobaseFormArgs) {
@@ -96,7 +97,7 @@ export function useInfobaseForm({
           },
         }
       : {
-          tenantId: defaultTenantId ?? tenants[0]?.id ?? "",
+          tenantId: defaultTenantId ?? "",
           name: prefill?.name ?? "",
           clusterInfobaseId: prefill?.clusterInfobaseId ?? "",
           databaseName: "",
