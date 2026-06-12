@@ -46,6 +46,12 @@ public enum AuditActionType
     // (TenantId не пишется). Новое число — 103–106 заняты MLC-058.
     UserRoleChanged = 107,
 
+    // Неудачная попытка входа (BE-10, MLC-114). Server-scope (TenantId не пишется).
+    // initiator — введённое имя пользователя; пароль в описание НИКОГДА не кладётся.
+    // Новое число — 108 (следующее свободное в 100-серии; 107 — максимум занятых,
+    // frozen-int rule: число переиспользовать нельзя).
+    LoginFailed = 108,
+
     SessionKilled = 200,
     LimitChanged = 201,
 

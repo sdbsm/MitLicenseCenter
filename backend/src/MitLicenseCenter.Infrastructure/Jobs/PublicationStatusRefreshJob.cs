@@ -60,7 +60,30 @@ internal sealed partial class PublicationStatusRefreshJob : IPublicationStatusJo
             foreach (var snapshot in snapshots)
             {
                 ct.ThrowIfCancellationRequested();
-                await ProcessOneAsync(snapshot, ct).ConfigureAwait(false);
+
+                // Per-item изоляция (BE-05): сбой одной публикации (напр.
+                // DbUpdateConcurrencyException при параллельном удалении) не должен
+                // прерывать обновление остальных. Отмену не глотаем — она прокидывается выше.
+                try
+                {
+                    await ProcessOneAsync(snapshot, ct).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    LogStatusItemFailed(_logger, snapshot.Id, ex);
+
+                    // Снимаем со слежения «отравленный» attach неуспешного SaveChanges
+                    // (RefreshAllAsync грузит снапшоты AsNoTracking → ProcessOne всегда
+                    // Attach'ит транзиентный probe). Иначе он всплыл бы при сохранении
+                    // следующего элемента. Detached, а не Modified/Added — только отвязка.
+                    var stuck = _db.Publications.Local.FirstOrDefault(p => p.Id == snapshot.Id);
+                    if (stuck is not null && _db.Entry(stuck).State != EntityState.Unchanged)
+                        _db.Entry(stuck).State = EntityState.Detached;
+                }
             }
         }
         catch (OperationCanceledException)
@@ -134,4 +157,7 @@ internal sealed partial class PublicationStatusRefreshJob : IPublicationStatusJo
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Publication status refresh cycle failed")]
     private static partial void LogStatusRunFailed(ILogger logger, Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Publication status refresh failed for publication {PublicationId}; continuing with the rest")]
+    private static partial void LogStatusItemFailed(ILogger logger, Guid publicationId, Exception ex);
 }

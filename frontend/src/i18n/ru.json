@@ -956,6 +956,7 @@
       "AdminLoggedIn": "Вход администратора",
       "AdminLoggedOut": "Выход администратора",
       "AdminPasswordChanged": "Смена пароля",
+      "LoginFailed": "Неудачная попытка входа",
       "UserCreated": "Учётная запись создана",
       "UserDisabled": "Учётная запись отключена",
       "UserPasswordReset": "Пароль сброшен",

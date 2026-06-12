@@ -26,6 +26,7 @@ const ALL_ACTION_TYPES: Record<AuditActionType, true> = {
   AdminLoggedIn: true,
   AdminLoggedOut: true,
   AdminPasswordChanged: true,
+  LoginFailed: true,
   UserCreated: true,
   UserDisabled: true,
   UserPasswordReset: true,
