@@ -124,7 +124,8 @@ Type: files; Name: "{app}\appsettings.Production.json"
 [Code]
 const
   SERVICE_QUERY_STATUS = $0004;
-  SERVICE_STOP         = $0020;
+  SERVICE_STOP         = $0020;        { access right для OpenService }
+  SERVICE_CONTROL_STOP = $00000001;    { control-код для ControlService (MLC-116): НЕ путать с SERVICE_STOP — раньше в ControlService ошибочно передавался access right $0020, функция возвращала ERROR_INVALID_PARAMETER и служба НЕ останавливалась }
   SC_MANAGER_CONNECT   = $0001;
   SERVICE_STOPPED      = 1;
   SERVICE_STOP_PENDING = 3;
@@ -307,7 +308,10 @@ begin
       if QueryServiceStatus(hSvc, status) then
       begin
         if status.dwCurrentState <> SERVICE_STOPPED then
-          ControlService(hSvc, SERVICE_STOP, status);
+          { Control-код SERVICE_CONTROL_STOP ($1), НЕ access right SERVICE_STOP ($20) (MLC-116):
+            иначе ControlService возвращает ERROR_INVALID_PARAMETER и служба не останавливается,
+            exe остаётся залочен -> экран restart-manager «файлы заняты» на апгрейде. }
+          ControlService(hSvc, SERVICE_CONTROL_STOP, status);
         { Ждём остановки до ~30 с (60 * 500 мс). }
         for i := 1 to 60 do
         begin
@@ -582,9 +586,20 @@ end;
       могли не примениться);
     - sc description: rc не валидируем (косметика);
     - netsh add: rc<>0 -> предупреждение (порт мог не открыться);
-    - sc start: rc<>0 -> предупреждение со ссылкой на Журнал событий (fail-fast bootstrap,
-      ADR-18), без Abort — служба уже создана.
+    - sc start: rc<>0 (кроме 1056) -> предупреждение со ссылкой на Журнал событий (fail-fast
+      bootstrap, ADR-18), без Abort — служба уже создана; rc=1056 (ALREADY_RUNNING) = успех (MLC-116).
   Пароли (obj password / SQL) в сообщениях не фигурируют. }
+{ Первая строка предупреждения о невзлёте службы. Формулировка корректна и для чистой
+  установки, и для апгрейда (MLC-116): на апгрейде служба НЕ «создана» — она уже существовала,
+  поэтому при ServiceExists говорим «не запустилась», без слова «создана». }
+function ServiceStartFailMessage(rc: Integer): string;
+begin
+  if ServiceExists then
+    Result := 'Служба «{#MyServiceName}» не запустилась (код ' + IntToStr(rc) + ').'
+  else
+    Result := 'Служба «{#MyServiceName}» создана, но не запустилась (код ' + IntToStr(rc) + ').';
+end;
+
 procedure ConfigureService;
 var
   rc: Integer;
@@ -643,11 +658,14 @@ begin
            mbError, MB_OK);
 
   { --- Старт службы: на провале предупреждаем (без Abort — служба создана) --- }
+  { rc=1056 (ERROR_SERVICE_ALREADY_RUNNING) — НЕ ошибка (MLC-116): на апгрейде служба может
+    уже работать (например restart-manager перезапустил её), sc start тогда возвращает 1056 —
+    это успех, не предупреждаем и не помечаем провал. Любой другой ненулевой rc — провал. }
   if (not Exec(ExpandConstant('{sys}\sc.exe'), 'start {#MyServiceName}',
-               '', SW_HIDE, ewWaitUntilTerminated, rc)) or (rc <> 0) then
+               '', SW_HIDE, ewWaitUntilTerminated, rc)) or ((rc <> 0) and (rc <> 1056)) then
   begin
     startWarn :=
-      'Служба «{#MyServiceName}» создана, но не запустилась (код ' + IntToStr(rc) + ').' + #13#10#13#10 +
+      ServiceStartFailMessage(rc) + #13#10#13#10 +
       'Причину смотрите в Журнале событий Windows (Приложение, источник MitLicenseCenter): ' +
       'бэкенд при старте применяет миграции и проверяет доступ к SQL fail-fast (ADR-18) и ' +
       'пишет туда причину отказа (например SQL недоступен или нет прав у учётной записи службы).' + #13#10#13#10 +
@@ -1010,9 +1028,10 @@ begin
         в красный. Покрывает и апгрейд, и чистую установку — единая точка истины. }
       WizardForm.FinishedHeadingLabel.Caption := 'Установка завершена с ОШИБКОЙ';
       WizardForm.FinishedLabel.Font.Color := clRed;
+      { Формулировка корректна для обоих сценариев (MLC-116): на апгрейде служба не «создана»,
+        она уже существовала — при ServiceExists говорим просто «не запустилась». }
       WizardForm.FinishedLabel.Caption :=
-        'Служба «{#MyServiceName}» создана/сохранена, но НЕ запустилась — панель сейчас ' +
-        'недоступна.' + #13#10#13#10 +
+        'Служба «{#MyServiceName}» не запустилась — панель сейчас недоступна.' + #13#10#13#10 +
         'Причину смотрите в Журнале событий Windows (Приложение, источник MitLicenseCenter): ' +
         'бэкенд при старте применяет миграции базы данных и проверяет доступ к SQL fail-fast ' +
         '(ADR-18) и пишет туда причину отказа.' + #13#10#13#10 +
