@@ -25,6 +25,7 @@ public sealed class BackupModelsTests
     [InlineData(BackupFailureReason.PermissionDenied, 3)]
     [InlineData(BackupFailureReason.BackupFailed, 4)]
     [InlineData(BackupFailureReason.Interrupted, 5)]
+    [InlineData(BackupFailureReason.TimedOut, 6)]
     public void BackupFailureReason_int_values_are_stable(BackupFailureReason reason, int expected)
     {
         ((int)reason).Should().Be(expected);

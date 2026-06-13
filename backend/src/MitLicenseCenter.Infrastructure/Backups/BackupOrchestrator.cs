@@ -23,6 +23,16 @@ internal sealed partial class BackupOrchestrator : IBackupOrchestrator, IDisposa
     private const int DefaultMaxParallel = 2;
     private const int DefaultDiskSafetyMarginMb = 2048;
 
+    // Потолок времени одного COPY_ONLY-бэкапа: дольше него Running считается зависшим и
+    // подлежит reap'у (MLC-123). 6 ч — разумный верхний предел даже для крупной базы на
+    // медленном диске; реальный бэкап завершается на порядки быстрее, поэтому ложных
+    // срабатываний нет, а настоящий вис (повисший xp_cmdshell/сетевой шар/драйвер ленты)
+    // не блокирует базу навсегда. Внутренний knob — константа в коде, не Setting (как
+    // фиксированный CRON retention-джоб и JobRetentionStateFilter): отдельная настройка
+    // потянула бы enum+каталог+миграцию+FE+i18n (отложено в MLC-026) ради того, что
+    // оператор не крутит.
+    private static readonly TimeSpan StuckRunningTimeout = TimeSpan.FromHours(6);
+
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ISqlBackupService _backupService;
     private readonly ISettingsSnapshot _settings;
@@ -203,6 +213,78 @@ internal sealed partial class BackupOrchestrator : IBackupOrchestrator, IDisposa
         }
     }
 
+    public async Task ReapStuckRunningAsync(CancellationToken ct)
+    {
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            var now = _clock.GetUtcNow().UtcDateTime;
+            var cutoff = now - StuckRunningTimeout;
+
+            // «Возраст» Running считаем от StartedAtUtc (момент перехода в Running); если по
+            // какой-то причине он null — fallback на RequestedAtUtc, чтобы строка без отметки
+            // старта всё равно подлежала reap'у, а не висела вечно.
+            var stuck = await db.DatabaseBackups
+                .Where(b => b.Status == BackupStatus.Running
+                    && (b.StartedAtUtc ?? b.RequestedAtUtc) < cutoff)
+                .ToListAsync(ct)
+                .ConfigureAwait(false);
+
+            if (stuck.Count == 0)
+            {
+                return;
+            }
+
+            var timeoutHours = (int)StuckRunningTimeout.TotalHours;
+            foreach (var backup in stuck)
+            {
+                backup.Status = BackupStatus.Failed;
+                backup.FailureReason = BackupFailureReason.TimedOut;
+                backup.CompletedAtUtc = now;
+                backup.ErrorMessage =
+                    $"Бэкап превысил лимит времени выполнения ({timeoutHours} ч) и помечен как " +
+                    "зависший — файл на диске может быть неполным.";
+
+                // КРИТИЧНО: снять in-memory замок-на-базу. Без этого база осталась бы
+                // заблокированной до рестарта, даже после закрытия строки в БД.
+                _running.Remove(RunningKey(backup.DatabaseServer, backup.DatabaseName));
+            }
+
+            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            LogReaped(_logger, stuck.Count);
+
+            // Аудит — только когда что-то reap'нули (тихие тики не спамим). Action-first
+            // standalone-запись (R3): reaper не парен с мутацией-запросом в одном контексте.
+            // Переиспользуем замороженный BackupFailed (нового enum-номера не заводим).
+            var databases = string.Join(", ", stuck
+                .Select(b => b.DatabaseName)
+                .Distinct(StringComparer.OrdinalIgnoreCase));
+            var audit = scope.ServiceProvider.GetRequiredService<IAuditLogger>();
+            await audit.LogAsync(
+                AuditActionType.BackupFailed,
+                initiator: "System",
+                description: $"TTL-reaper закрыл {stuck.Count} зависш(их) бэкап(ов) " +
+                    $"(превышен лимит {timeoutHours} ч): {databases}.",
+                tenantId: null,
+                ct: ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            LogReapFailed(_logger, ex);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public async Task WaitForWakeAsync(TimeSpan timeout, CancellationToken ct)
         // Результат не важен: false (таймаут) — это плановый тик насоса.
         => await _wake.WaitAsync(timeout, ct).ConfigureAwait(false);
@@ -272,7 +354,11 @@ internal sealed partial class BackupOrchestrator : IBackupOrchestrator, IDisposa
                 .FirstOrDefaultAsync(b => b.Id == backupId)
                 .ConfigureAwait(false);
 
-            if (backup is not null)
+            // Гонка с reaper'ом (MLC-123): зависший Task.Run мог вернуться УЖЕ ПОСЛЕ того,
+            // как TTL-reaper закрыл эту строку (Failed/TimedOut) и снял замок. Не
+            // перетираем терминальный статус и не пишем второй аудит — просто проваливаемся
+            // в finally к снятию замка (Remove идемпотентен, ключа уже нет).
+            if (backup is { Status: BackupStatus.Running })
             {
                 backup.CompletedAtUtc = _clock.GetUtcNow().UtcDateTime;
                 if (result.Succeeded)
@@ -379,4 +465,10 @@ internal sealed partial class BackupOrchestrator : IBackupOrchestrator, IDisposa
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Backup interrupted-recovery failed")]
     private static partial void LogRecoverFailed(ILogger logger, Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Reaped {Count} stuck Running backup(s) past the execution-time limit")]
+    private static partial void LogReaped(ILogger logger, int count);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Stuck-Running backup reaper failed")]
+    private static partial void LogReapFailed(ILogger logger, Exception ex);
 }

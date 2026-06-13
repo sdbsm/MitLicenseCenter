@@ -17,7 +17,10 @@ public enum BackupStatus
 // нет места под оценку + запас; EstimateUnavailable — оценку размера получить не удалось
 // (без оценки не стартуем, ADR-27); PermissionDenied — учётка панели не sysadmin;
 // BackupFailed — сам BACKUP/VERIFY или инфраструктура упали; Interrupted — рестарт
-// панели оборвал выполнявшийся бэкап (файл может быть неполным). int-значения ЗАМОРОЖЕНЫ.
+// панели оборвал выполнявшийся бэкап (файл может быть неполным); TimedOut — бэкап завис в
+// Running дольше потолка времени выполнения, TTL-reaper насоса принудительно закрыл строку
+// и снял in-memory замок-на-базу (файл на диске может быть неполным; MLC-123). int-значения
+// ЗАМОРОЖЕНЫ — новые причины добавляются только в конец, существующие не переназначаются.
 public enum BackupFailureReason
 {
     None = 0,
@@ -26,6 +29,7 @@ public enum BackupFailureReason
     PermissionDenied = 3,
     BackupFailed = 4,
     Interrupted = 5,
+    TimedOut = 6,
 }
 
 // Итог одной операции бэкапа. Провал — Succeeded=false + Reason + человекочитаемый

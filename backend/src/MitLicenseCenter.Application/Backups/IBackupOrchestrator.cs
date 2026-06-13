@@ -23,6 +23,14 @@ public interface IBackupOrchestrator
     // Failed/Interrupted; Queued не трогаются — насос их переподхватит.
     Task RecoverInterruptedAsync(CancellationToken ct);
 
+    // TTL-reaper зависших Running (MLC-123). RecoverInterruptedAsync закрывает осиротевшие
+    // Running ТОЛЬКО на старте процесса; бэкап, зависший пока процесс жив, иначе остался бы
+    // в Running навсегда, А ЕГО in-memory замок-на-базу — удержанным, и эта база никогда бы
+    // не получила новый бэкап до рестарта. Reaper закрывает строки Running старше потолка
+    // времени выполнения (Failed/TimedOut) И снимает их замок-на-базу, разблокируя базу.
+    // Вызывается каждый тик насоса (near-real-time), а не раз в сутки.
+    Task ReapStuckRunningAsync(CancellationToken ct);
+
     // Точка ожидания насоса: возвращается по wake-сигналу (новый запрос / завершение
     // бэкапа) либо по таймауту — что наступит раньше. Таймаут не ошибка, а плановый тик.
     Task WaitForWakeAsync(TimeSpan timeout, CancellationToken ct);

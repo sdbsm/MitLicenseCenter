@@ -10,10 +10,12 @@ using Xunit;
 namespace MitLicenseCenter.Tests.Unit.Web;
 
 // JobRetentionStateFilter держит схему hangfire ограниченной: завершённые джобы
-// истекают через 2 дня, упавшие — остаются для разбора (фильтр их не трогает).
+// истекают через 2 дня, упавшие — через 30 дней (видимость для разбора + самоочистка,
+// MLC-123/REL-22).
 public sealed class JobRetentionStateFilterTests
 {
     private static readonly TimeSpan ExpectedFinishedRetention = TimeSpan.FromDays(2);
+    private static readonly TimeSpan ExpectedFailedRetention = TimeSpan.FromDays(30);
 
     [Fact]
     public void Succeeded_jobs_expire_after_two_days()
@@ -36,16 +38,15 @@ public sealed class JobRetentionStateFilterTests
     }
 
     [Fact]
-    public void Failed_jobs_keep_the_default_retention()
+    public void Failed_jobs_expire_after_thirty_days()
     {
         var context = MakeContext(new FailedState(new InvalidOperationException("boom")));
-        var defaultTimeout = context.JobExpirationTimeout;
 
         new JobRetentionStateFilter().OnStateApplied(context, Substitute.For<IWriteOnlyTransaction>());
 
-        // Фильтр не вмешивается в failed-состояние — таймаут остаётся дефолтным
-        // (и не равен нашему окну для завершённых джоб).
-        context.JobExpirationTimeout.Should().Be(defaultTimeout);
+        // MLC-123/REL-22: упавшие джобы теперь получают собственное, более долгое окно —
+        // 30 дней (видимость для разбора), но не копятся вечно. И это не окно завершённых.
+        context.JobExpirationTimeout.Should().Be(ExpectedFailedRetention);
         context.JobExpirationTimeout.Should().NotBe(ExpectedFinishedRetention);
     }
 

@@ -303,6 +303,15 @@ app.MapFallback(async context =>
     await context.Response.SendFileAsync(index).ConfigureAwait(false);
 }).AllowAnonymous();
 
+// Graceful shutdown (MLC-123, BE-20): CancellationToken.None в выражениях ниже — это
+// ИДИОМАТИЧНЫЙ ПЛЕЙСХОЛДЕР Hangfire, а НЕ «вечно-неотменяемый» токен. При выполнении
+// job'ы Hangfire подменяет его реальным токеном, сигналящимся при остановке сервера и
+// при abort'е задачи (см. JobCancellationToken / IJobCancellationToken). Тела всех джоб
+// прокидывают ct в свои EF/IO-вызовы (ct.ThrowIfCancellationRequested / передача в
+// ExecuteSql/SaveChanges), поэтому при остановке службы они завершаются кооперативно.
+// НЕ заменять CancellationToken.None на захваченный токен — это сломает подстановку и
+// джоба получит токен, который никогда не сигналит при shutdown. Контракт «тело
+// уважает ct» зафиксирован характеризующим тестом (JobCancellationContractTests).
 RecurringJob.AddOrUpdate<IReconciliationJob>(
     "cold-snapshot",
     j => j.RunColdAsync(CancellationToken.None),

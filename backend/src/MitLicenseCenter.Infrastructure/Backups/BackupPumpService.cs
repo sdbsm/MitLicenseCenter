@@ -7,8 +7,10 @@ namespace MitLicenseCenter.Infrastructure.Backups;
 // Фоновый насос очереди бэкапов (MLC-077, ADR-27). Тонкая обёртка вокруг
 // IBackupOrchestrator (образец PerfRecordingSamplingService): на старте процесса один раз
 // закрывает осиротевшие Running как Failed/Interrupted, затем цикл «wake-сигнал ИЛИ
-// таймаут» → PumpOnceAsync. Wake приходит от постановки в очередь и от завершения бэкапа
-// (следующий из очереди стартует сразу); таймаут — страховочный плановый тик. Вся логика
+// таймаут» → ReapStuckRunningAsync → PumpOnceAsync. Reaper каждый тик закрывает зависшие
+// Running (старше потолка времени) и снимает их замок-на-базу (MLC-123). Wake приходит от
+// постановки в очередь и от завершения бэкапа (следующий из очереди стартует сразу);
+// таймаут — страховочный плановый тик. Вся логика
 // (потолок/замок/FIFO, доступ к БД, время) живёт в оркестраторе — детерминированном
 // seam'е; здесь только тайминг, поэтому драйвер юнит-тестами не покрывается.
 internal sealed partial class BackupPumpService : BackgroundService
@@ -44,6 +46,10 @@ internal sealed partial class BackupPumpService : BackgroundService
             try
             {
                 await _orchestrator.WaitForWakeAsync(TickTimeout, stoppingToken).ConfigureAwait(false);
+                // TTL-reaper зависших Running — каждый тик (MLC-123): закрывает строки старше
+                // потолка времени выполнения и снимает их in-memory замок-на-базу, после чего
+                // PumpOnceAsync может стартовать новый бэкап для разблокированной базы.
+                await _orchestrator.ReapStuckRunningAsync(stoppingToken).ConfigureAwait(false);
                 await _orchestrator.PumpOnceAsync(stoppingToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
