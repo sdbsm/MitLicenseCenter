@@ -60,42 +60,50 @@
 > **Первоисточник и детальные обоснования:** `audit/2026-06/TECH-DEBT.md`.
 > Каждый пункт таблицы реестра содержит код finding-а (SEC-01, BE-03 и т.д.),
 > приоритет, риск и ссылку на аудит-чат-источник.
+>
+> **Статус (2026-06-13):** пред-релизный трек `MLC-108..117` и этап D1 (переписывание
+> канона от кода) уже закрыли часть остатка. Ниже отмечено: ✅ — закрыто, **Остаток** —
+> что осталось. Полностью закрыты **R1** и (этапом D1) **R10**; частично — R2/R3/R4/R5/R7/R8.
 
 Итерации упорядочены по приоритету и зависимостям. Дать старт любой итерации
 может только куратор через постановочный PR в `PROJECT_BACKLOG.md`.
 
-### R1 — Критический security-барьер
+### R1 — Критический security-барьер ✅ ЗАКРЫТО
 
-**Зависимости:** нет (высший приоритет).
-
-**Состав:**
-- SEC-01: SecurityStampValidator + UpdateSecurityStamp при отключении/сбросе пароля/смене роли — активные сессии отзываются немедленно.
-- KEYRING / DOC-01 / REL-04: ADR-решение о шифровании key ring (сертификат vs DPAPI); ACL на каталог ключей; честная правка канона ADR-8 и `SECURITY.md`.
-- SEC-02 / REL-07: `icacls` на `appsettings.Production.json` в режиме B (SQL-пароль читаем всеми Users).
+**Закрыто пред-релизным треком:** SEC-01 (`MLC-109` — SecurityStampValidator + немедленный
+отзыв сессий); KEYRING/DOC-01/REL-04 + SEC-03/04 (`MLC-110` — решение «переносимый plaintext +
+NTFS ACL», ADR-8 переписан честно, ACL установщика на `keys` и конфиг в обоих режимах);
+SEC-02/REL-07 (`MLC-110` — `icacls` на `appsettings.Production.json`). Остатка нет.
 
 ### R2 — Валидационный барьер
 
 **Зависимости:** R1 по дисциплине (параллелен).
 
-**Состав:** BE-03 (runtime-валидация `MaxConcurrentLicenses`); BE-04 / FE-16 (max-длины строк в едином хелпере); SEC-11 / SEC-12 / UX-11 (path/connstr-метасимволы для VirtualPath, PhysicalPathOverride, DatabaseName); BE-07 / SEC-13 (символы `;`/`=` в имени инфобазы). Все правки синхронно BE + FE, parity-тесты.
+✅ BE-03 (runtime-валидация `MaxConcurrentLicenses`) — закрыто `MLC-114`.
+
+**Остаток:** BE-04 / FE-16 (max-длины строк в едином хелпере); SEC-11 / SEC-12 / UX-11 (path/connstr-метасимволы для VirtualPath, PhysicalPathOverride, DatabaseName); BE-07 / SEC-13 (символы `;`/`=` в имени инфобазы). Все правки синхронно BE + FE, parity-тесты.
 
 ### R3 — Аудит-целостность
 
 **Зависимости:** независима (после R2 по смыслу).
 
-**Состав:** BE-01 (атомарный аудит через единый `SaveChanges`/транзакцию); BE-10 (аудит неудачных входов); BE-11 (событие `LimitChanged` в журнале); BE-25 (батчинг аудит-записей в `KillEnforcer`). Все правки концентрируются в `AuditLogger.cs` и call-site.
+✅ BE-10 (аудит неудачных входов) — закрыто `MLC-114`.
+
+**Остаток:** BE-01 (атомарный аудит через единый `SaveChanges`/транзакцию); BE-11 (событие `LimitChanged` в журнале); BE-25 (батчинг аудит-записей в `KillEnforcer`). Все правки концентрируются в `AuditLogger.cs` и call-site.
 
 ### R4 — Тестовые слепые зоны
 
 **Зависимости:** независима; лучше ставить до следующих рефакторингов.
 
-**Состав:** FE-01 (тесты `ChangePasswordForm` + ForcePasswordChange); BE-09 (поведенческие тесты `AppendPublicationFieldErrors` + `UpdateAsync`); BE-12 (юнит-тест CP866-декода); BE-14 (полный freeze-тест `AuditActionType`); BE-24 (timezone-fix, `TaskCompletionSource` замена `Task.Delay`); FE-11 (kill, LoginPage, IIS-подсекция); FE-19 (wire-fixture dashboard/summary).
+✅ FE-01 (тесты `ChangePasswordForm` + ForcePasswordChange) — закрыто `MLC-115`.
+
+**Остаток:** BE-09 (поведенческие тесты `AppendPublicationFieldErrors` + `UpdateAsync`); BE-12 (юнит-тест CP866-декода); BE-14 (полный freeze-тест `AuditActionType`); BE-24 (timezone-fix, `TaskCompletionSource` замена `Task.Delay`); FE-11 (kill, LoginPage, IIS-подсекция); FE-19 (wire-fixture dashboard/summary).
 
 ### R5 — Офлайн-UX и обратная связь
 
 **Зависимости:** R2 по части форм с inline-ошибками.
 
-**Состав:** UX-03 + FE-05 (различение 401/сеть, глобальный индикатор стате, живой `errors.network`, логирование `ApiSchemaError`); UX-04 (единый паттерн inline-ошибок вместо generic-тоста); UX-17 (RAS-карточка дашборда с подсказкой при недоступности); UX-44 (понятное сообщение об ошибке публикации без ключа `OneC.RAS.Endpoint`).
+**Состав:** UX-03 + FE-05 (различение 401/сеть, глобальный индикатор стате, живой `errors.network`, логирование `ApiSchemaError`); UX-04 (единый паттерн inline-ошибок вместо generic-тоста); UX-17 (RAS-карточка дашборда с подсказкой при недоступности); UX-44 (понятное сообщение об ошибке публикации). _Примечание: функциональный корень UX-44 устранён в `MLC-117` (публикация работает сразу после установки); остаётся только полировка текста сообщения об ошибке._
 
 ### R6 — Видимость лимитов
 
@@ -107,13 +115,17 @@
 
 **Зависимости:** независима.
 
-**Состав:** BE-05 (per-item catch в `PublicationStatusRefreshJob`); BE-19 (TTL-reaper для застрявших `Running`-бэкапов); BE-20 (`CancellationToken` для всех 5 recurring-джобов); BE-21 (осознанный `AutomaticRetry`); REL-22 (явные retry-политики + раздел в OPERATIONS); REL-03 (recovery-политика службы Windows + `depend=MSSQLSERVER`).
+✅ BE-05 (per-item catch в `PublicationStatusRefreshJob`) — закрыто `MLC-114`.
+
+**Остаток:** BE-19 (TTL-reaper для застрявших `Running`-бэкапов); BE-20 (`CancellationToken` для всех 5 recurring-джобов); BE-21 (осознанный `AutomaticRetry`); REL-22 (явные retry-политики + раздел в OPERATIONS); REL-03 (recovery-политика службы Windows + `depend=MSSQLSERVER`).
 
 ### R8 — Релизный конвейер
 
 **Зависимости:** независима (параллельна R7).
 
-**Состав:** REL-01 (очистка `OutputDir` в `publish-release.ps1`); REL-12 (CI-гейт для релизного пути ISCC); REL-13 (чистка `wwwroot` при обновлении); REL-14 / REL-21 (dependabot, SDK-чеклист, `format:check`, paths-фильтры в Actions); REL-20 (убрать личный путь к ISCC из трекаемого скрипта). Результат — воспроизводимая автоматически проверяемая сборка.
+✅ REL-01 (очистка `OutputDir` в `publish-release.ps1` + sanity-чек состава) — закрыто `MLC-108`.
+
+**Остаток:** REL-12 (CI-гейт для релизного пути ISCC); REL-13 (чистка `wwwroot` при обновлении); REL-14 / REL-21 (dependabot, SDK-чеклист, `format:check`, paths-фильтры в Actions); REL-20 (убрать личный путь к ISCC из трекаемого скрипта); DOC-08 (ключ `Urls` в шаблоне `appsettings.Production.json`). Результат — воспроизводимая автоматически проверяемая сборка.
 
 ### R9 — Инсталлятор hardening
 
@@ -121,11 +133,17 @@
 
 **Состав:** REL-06 (явные требования к аккаунту службы в режиме A + IIS-права); SEC-05 (low-priv аккаунт службы вместо LocalSystem); SEC-06 / SEC-09 (scope firewall-правила, localhost bind по умолчанию); SEC-07 (security-заголовки: CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy); SEC-08 (rate-limiting на `/auth/login`); REL-08 (убрать pdb / Development.json / web.config из поставки); REL-17 (лицензия Inno Setup).
 
-### R10 — Ревизия канона
+### R10 — Ревизия канона ✅ В ОСНОВНОМ ЗАКРЫТО (этап D1)
 
-**Зависимости:** ADR-решения из R1 и R9 должны быть приняты до начала.
+**Закрыто этапом D1** (документация переписана с нуля от кода, PR #142): security-слой
+(DOC-01 / 02 / 11 / 14 — честный ADR-8, полный `SECURITY.md`, зафиксированное CSRF-решение);
+ревизия 02 и 06 (DOC-03 / 12 + рудименты стадии выбора DOC-15..17 — хвосты ADR-4.1 REVOKED
+удалены, 02 переписан); restore в OPERATIONS (DOC-09 / REL-05); ADR-3.3/7 (DOC-04 / 05);
+frozen-таблица enum (DOC-06); 00_INDEX (DOC-07); прочие DOC-расхождения.
 
-**Состав:** DOC-01 / 02 / 11 / 14 (security-слой: финал ADR-8, полный `SECURITY.md`, CSRF-решение); DOC-03 / 12 (удалить хвосты ADR-4.1 REVOKED из `02`, `06`, `OPERATIONS`); DOC-09 / REL-05 (процедура restore в OPERATIONS — «та же машина» и «новое железо», restore-drill); DOC-04 / 05 (исправить ADR-3.3 и ADR-7); REL-11 (раздел «Логи» + runbook типовых отказов); прочие Low (DOC-07 / 10 / 13 / 15–31, REL-20). Итерация без кодовых изменений — только документы.
+**Остаток (верификация, не переписывание):** REL-11 (раздел «Логи» + runbook типовых
+отказов в OPERATIONS — проверить полноту); DOC-10 (коллизия EventId 1002 — правка кода,
+не дока); убедиться, что мёртвые i18n-ключи и сирота `ComingSoonPage` (FE-17/18) удалены.
 
 ### R11 — Масштабируемость списков
 
