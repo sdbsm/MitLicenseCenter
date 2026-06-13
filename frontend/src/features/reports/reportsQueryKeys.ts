@@ -1,0 +1,8 @@
+/**
+ * Query-ключи для фичи «Отчёты» (MLC-122).
+ *
+ * Вынесены в отдельный файл, чтобы избежать циклического импорта:
+ * useTenants → reportsQueryKey → useLicenseUsage → useReportsPage → useTenants.
+ * useLicenseUsage реэкспортирует reportsQueryKey отсюда — публичный API не меняется.
+ */
+export const reportsQueryKey = ["reports", "license-usage"] as const;

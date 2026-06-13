@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useInvalidatingMutation } from "@/lib/useInvalidatingMutation";
+import { reportsQueryKey } from "@/features/reports/reportsQueryKeys";
 import { tenantListResponseSchema, type Tenant, type TenantInput } from "./types";
 
 export const tenantsQueryKey = ["tenants"] as const;
@@ -42,7 +43,10 @@ export function useUpdateTenant() {
   return useInvalidatingMutation({
     mutationFn: ({ id, input }: { id: string; input: TenantInput }) =>
       api<Tenant>(`/api/v1/tenants/${id}`, { method: "PUT", body: input }),
-    invalidate: tenantsQueryKey,
+    // FE-03: при смене лимита инвалидируем и отчёты — поле Limit в отчётах
+    // записывается бэкендом на момент снапшота, поэтому новые снапшоты сразу
+    // отразят актуальный лимит; инвалидация обеспечивает когерентность кэша.
+    invalidate: [tenantsQueryKey, reportsQueryKey],
   });
 }
 

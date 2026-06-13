@@ -1,5 +1,6 @@
-import { BuildingIcon } from "lucide-react";
+import { BuildingIcon, ExternalLinkIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import {
@@ -50,7 +51,20 @@ export function ReportsDetail({
     <Card>
       <CardHeader className="gap-3">
         <div className="flex items-center justify-between gap-2">
-          <CardTitle>{t("reports.detail.title")}</CardTitle>
+          <div className="flex items-center gap-3">
+            <CardTitle>{t("reports.detail.title")}</CardTitle>
+            {/* UX-46: навигационный хвост «увидел нарушителя → открыл карточку».
+                Ссылка появляется только когда выбран конкретный клиент. */}
+            {selectedTenantId && (
+              <Link
+                to={`/tenants/${selectedTenantId}`}
+                className="text-primary flex items-center gap-1 text-xs underline"
+              >
+                <ExternalLinkIcon className="size-3" />
+                {t("reports.detail.tenantLink")}
+              </Link>
+            )}
+          </div>
           <ExportMenu data={data} scope={{ tenantName: selectedTenantName }} />
         </div>
         <div className="grid max-w-sm gap-1.5">

@@ -1,8 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { LicenseUsageSeriesResponse, ReportsRange } from "./types";
-
-export const reportsQueryKey = ["reports", "license-usage"] as const;
+// reportsQueryKey живёт в reportsQueryKeys.ts, чтобы useTenants мог импортировать
+// только константу без циклической зависимости через useReportsPage (MLC-122).
+import { reportsQueryKey } from "./reportsQueryKeys";
+export { reportsQueryKey } from "./reportsQueryKeys";
 
 // Только заданные границы попадают в query — дефолт/кламп диапазона считает сервер.
 function buildQuery(range: ReportsRange): string {

@@ -24,10 +24,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useMe } from "@/features/auth/useAuth";
+import { StatusBadge } from "@/components/ui/StatusBadge";
+import { quotaDisplay } from "@/lib/quota";
 import { DeleteTenantDialog } from "./DeleteTenantDialog";
 import { TenantFormDialog } from "./TenantFormDialog";
 import type { Tenant } from "./types";
 import { TENANTS_PAGE_SIZE, useTenants } from "./useTenants";
+import { useTenantConsumption } from "./useTenantConsumption";
 
 const PAGE_SIZE = TENANTS_PAGE_SIZE;
 const NUMBER_FORMATTER = new Intl.NumberFormat("ru-RU");
@@ -44,6 +47,7 @@ export function TenantsPage() {
 
   const [page, setPage] = useState(1);
   const { data, isLoading, isError, isFetching, refetch } = useTenants(page, PAGE_SIZE);
+  const { consumedByTenant, isLoading: isSnapshotLoading } = useTenantConsumption();
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Tenant | null>(null);
@@ -105,6 +109,7 @@ export function TenantsPage() {
               <TableHead className="text-right">
                 {t("tenants.fields.maxConcurrentLicenses")}
               </TableHead>
+              <TableHead>{t("tenants.quota.column")}</TableHead>
               <TableHead>{t("tenants.fields.status")}</TableHead>
               <TableHead>{t("tenants.fields.createdAt")}</TableHead>
               <TableHead>{t("tenants.fields.updatedAt")}</TableHead>
@@ -125,6 +130,9 @@ export function TenantsPage() {
                       <Skeleton className="ml-auto h-4 w-12" />
                     </TableCell>
                     <TableCell>
+                      <Skeleton className="h-5 w-24" />
+                    </TableCell>
+                    <TableCell>
                       <Skeleton className="h-5 w-20" />
                     </TableCell>
                     <TableCell>
@@ -139,7 +147,7 @@ export function TenantsPage() {
               : items.length === 0
                 ? !isError && (
                     <TableRow>
-                      <TableCell colSpan={7} className="py-12">
+                      <TableCell colSpan={8} className="py-12">
                         <div className="flex flex-col items-center justify-center gap-3 text-center">
                           <Building2Icon className="text-muted-foreground size-8" />
                           <div className="space-y-1">
@@ -180,6 +188,41 @@ export function TenantsPage() {
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
                         {NUMBER_FORMATTER.format(tenant.maxConcurrentLicenses)}
+                      </TableCell>
+                      <TableCell>
+                        {/* Колонка квоты (MLC-122 / R6 / UX-02): live-оверлей из снапшота.
+                            Пока снапшот грузится — скелетон (не мигаем при poll). */}
+                        {isSnapshotLoading ? (
+                          <Skeleton className="h-5 w-24" />
+                        ) : tenant.maxConcurrentLicenses <= 0 ? (
+                          <span className="text-muted-foreground text-sm">
+                            {t("tenants.quota.unlimited")}
+                          </span>
+                        ) : (() => {
+                            const consumed = consumedByTenant.get(tenant.id) ?? 0;
+                            const { percent, severity, badgeVariant } = quotaDisplay(
+                              consumed,
+                              tenant.maxConcurrentLicenses
+                            );
+                            return (
+                              <div className="flex items-center gap-2">
+                                <span className="text-muted-foreground tabular-nums text-sm">
+                                  {t("tenants.quota.value", {
+                                    consumed,
+                                    limit: tenant.maxConcurrentLicenses,
+                                    percent,
+                                  })}
+                                </span>
+                                {severity !== "ok" && (
+                                  <StatusBadge variant={badgeVariant}>
+                                    {severity === "danger"
+                                      ? t("common.quota.exceeded")
+                                      : t("common.quota.nearLimit")}
+                                  </StatusBadge>
+                                )}
+                              </div>
+                            );
+                          })()}
                       </TableCell>
                       <TableCell>
                         {tenant.isActive ? (
