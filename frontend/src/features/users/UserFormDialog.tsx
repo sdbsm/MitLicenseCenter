@@ -21,7 +21,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { matchConflictCode, toastFormSubmitError } from "@/lib/apiErrors";
+import { applyFieldErrors, matchConflictCode, toastFormSubmitError } from "@/lib/apiErrors";
 import { USER_ROLES, type UserRole, type CreateUserInput } from "./types";
 import { useCreateUser } from "./useUsers";
 
@@ -72,6 +72,8 @@ export function UserFormDialog({ open, onOpenChange, onPasswordGenerated }: User
         form.setError(mapped.field, { type: "server", message: t(mapped.messageKey) });
         return;
       }
+      // UX-04 — 400 ValidationProblem → inline-ошибка поля.
+      if (applyFieldErrors(error, form.setError, { UserName: "userName" })) return;
       toastFormSubmitError(error, t);
     }
   });

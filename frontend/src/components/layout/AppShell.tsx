@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { Outlet } from "react-router";
 import { PageFallback } from "@/components/PageFallback";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { ConnectionBanner } from "./ConnectionBanner";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 
@@ -10,6 +11,8 @@ export function AppShell() {
     <SidebarProvider>
       <Sidebar />
       <SidebarInset className="flex min-h-svh flex-col">
+        {/* MLC-121 (UX-03): глобальный баннер «нет связи» над топбаром. */}
+        <ConnectionBanner />
         <Topbar />
         <main className="bg-background flex-1 overflow-y-auto px-6 py-6">
           {/* Общая граница Suspense для лениво подгружаемых страниц маршрутов

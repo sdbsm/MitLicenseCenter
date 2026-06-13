@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
+import "@/i18n";
+import { ApiNetworkError, ApiSchemaError } from "@/lib/api";
 import { ProtectedRoute } from "../ProtectedRoute";
 import type { CurrentUser } from "../useAuth";
 
@@ -22,14 +24,19 @@ type MeState = {
   data?: CurrentUser | null;
   isLoading?: boolean;
   isError?: boolean;
+  error?: unknown;
 };
+
+const refetch = vi.fn();
 
 function setMe(state: MeState) {
   mockedUseMe.mockReturnValue({
     data: state.data ?? null,
     isLoading: state.isLoading ?? false,
     isError: state.isError ?? false,
-  } as ReturnType<typeof useMe>);
+    error: state.error ?? null,
+    refetch,
+  } as unknown as ReturnType<typeof useMe>);
 }
 
 // Рендерит дерево с маршрутами-маркерами для "/" и "/login", чтобы наблюдать,
@@ -56,6 +63,7 @@ function renderProtected(requireAdmin: boolean) {
 describe("ProtectedRoute", () => {
   beforeEach(() => {
     mockedUseMe.mockReset();
+    refetch.mockReset();
   });
 
   it("пускает авторизованного пользователя к содержимому", () => {
@@ -76,6 +84,27 @@ describe("ProtectedRoute", () => {
     setMe({ data: null, isError: false });
     renderProtected(false);
     expect(screen.getByText("LOGIN PAGE")).toBeInTheDocument();
+  });
+
+  it("UX-03: сетевой сбой → экран «нет связи» с «Повторить», НЕ /login", async () => {
+    const { default: userEvent } = await import("@testing-library/user-event");
+    setMe({ data: null, isError: true, error: new ApiNetworkError("/api/v1/auth/me", null) });
+    renderProtected(false);
+
+    expect(screen.getByText("Нет связи с сервером.")).toBeInTheDocument();
+    expect(screen.queryByText("LOGIN PAGE")).not.toBeInTheDocument();
+    expect(screen.queryByText("PROTECTED CONTENT")).not.toBeInTheDocument();
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "Обновить" }));
+    expect(refetch).toHaveBeenCalled();
+  });
+
+  it("UX-03/FE-05: схемный сбой → экран ошибки (generic), НЕ /login", () => {
+    setMe({ data: null, isError: true, error: new ApiSchemaError("/api/v1/auth/me", []) });
+    renderProtected(false);
+
+    expect(screen.getByText("Произошла ошибка. Попробуйте ещё раз.")).toBeInTheDocument();
+    expect(screen.queryByText("LOGIN PAGE")).not.toBeInTheDocument();
   });
 
   it("admin-only маршрут редиректит Viewer на /", () => {

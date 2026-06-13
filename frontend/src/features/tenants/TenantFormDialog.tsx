@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { matchConflictCode, toastFormSubmitError } from "@/lib/apiErrors";
+import { applyFieldErrors, matchConflictCode, toastFormSubmitError } from "@/lib/apiErrors";
 import type { Tenant, TenantInput } from "./types";
 import { useCreateTenant, useUpdateTenant } from "./useTenants";
 
@@ -93,6 +93,8 @@ export function TenantFormDialog({ open, onOpenChange, tenant }: TenantFormDialo
         form.setError(mapped.field, { type: "server", message: t(mapped.messageKey) });
         return;
       }
+      // UX-04 — 400 ValidationProblem (длина/символы из MLC-118) → inline-ошибка поля.
+      if (applyFieldErrors(error, form.setError, { Name: "name" })) return;
       toastFormSubmitError(error, t);
     }
   });

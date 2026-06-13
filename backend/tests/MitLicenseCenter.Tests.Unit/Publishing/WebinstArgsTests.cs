@@ -51,6 +51,20 @@ public sealed class WebinstArgsTests
         actBlank.Should().Throw<InvalidOperationException>();
     }
 
+    // UX-44 (MLC-121): пользовательский текст ошибки не содержит технического ключа
+    // OneC.RAS.Endpoint — оператор не знает внутренних имён настроек; направляет в
+    // раздел «Параметры».
+    [Fact]
+    public void ResolveClusterServer_error_has_no_technical_setting_key()
+    {
+        var act = () => WebinstArgs.ResolveClusterServer(null);
+        act.Should()
+            .Throw<InvalidOperationException>()
+            .Which.Message.Should()
+            .NotContain("OneC.RAS.Endpoint")
+            .And.Contain("Параметры");
+    }
+
     // MLC-117: с засеянным дефолтом OneC.RAS.Endpoint = "localhost:1545" публикация
     // строит валидный connStr без ошибки «Не задан адрес 1С-кластера» — порт RAS
     // отсекается, остаётся host (localhost), кластер слушает свой порт по умолчанию.

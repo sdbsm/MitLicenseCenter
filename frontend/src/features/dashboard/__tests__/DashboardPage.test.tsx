@@ -109,4 +109,44 @@ describe("DashboardPage (MLC-085: обзор с переходами)", () => {
 
     expect(screen.getByText("Ромашка").closest("a")).toHaveAttribute("href", "/tenants/t-1");
   });
+
+  it("UX-17: при !healthy RAS-карточка показывает видимую подсказку + ссылку в «Параметры»", async () => {
+    mockedApi.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.includes("/performance/host")
+          ? host
+          : ({
+              ...summary,
+              ras: {
+                healthy: false,
+                lastCheckedAtUtc: "2026-06-10T12:00:00Z",
+                lastErrorMessage: "rac.exe не найден по указанному пути.",
+                consecutiveFailures: 3,
+              },
+            } as unknown)
+      )
+    );
+    renderPage();
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Нет связи с кластером 1С. Проверьте адрес RAS в разделе «Параметры».")
+      ).toBeInTheDocument()
+    );
+    // Видимая ссылка-переход в «Параметры» (а не только тултип).
+    expect(screen.getByText("Открыть «Параметры»").closest("a")).toHaveAttribute(
+      "href",
+      "/settings"
+    );
+    // Счётчик ошибок подряд.
+    expect(screen.getByText("3 ошибки подряд")).toBeInTheDocument();
+  });
+
+  it("при healthy подсказки нет", async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Топ клиентов по нагрузке")).toBeInTheDocument());
+    expect(
+      screen.queryByText("Нет связи с кластером 1С. Проверьте адрес RAS в разделе «Параметры».")
+    ).not.toBeInTheDocument();
+  });
 });

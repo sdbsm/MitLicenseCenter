@@ -67,7 +67,12 @@ export function ChangePlatformDialog({
         return;
       }
       if (error instanceof ApiError && error.status === 400) {
-        toast.error(t("publications.toasts.platformChangeFailed"));
+        // UX-04 — версия выбирается из Select (нет текстового поля для inline-ошибки),
+        // поэтому показываем конкретное серверное сообщение 400 ValidationProblem
+        // вместо немого generic-текста.
+        const body = error.body as { errors?: Record<string, string[]> } | null;
+        const fieldMessage = body?.errors ? Object.values(body.errors)[0]?.[0] : undefined;
+        toast.error(fieldMessage ?? error.message ?? t("publications.toasts.platformChangeFailed"));
         return;
       }
       toast.error(t("errors.generic"));
