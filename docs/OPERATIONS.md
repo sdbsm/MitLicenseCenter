@@ -83,7 +83,11 @@ recovery-политике.
 ### appsettings.Production.json
 
 Файл генерируется установщиком в каталоге установки. Пример структуры
-(из шаблона `WriteProductionConfig` в `installer\MitLicenseCenter.iss`):
+(из шаблона `WriteProductionConfig` в `installer\MitLicenseCenter.iss`).
+При **ручном деплое** (без установщика) используется шаблон
+`backend/src/MitLicenseCenter.Web/appsettings.Production.json` из репозитория — он содержит
+`"Urls": "http://+:8080"`. Без этого ключа Kestrel слушает дефолтный `localhost:5000` без
+предупреждения (DOC-08/MLC-124).
 
 ```json
 {

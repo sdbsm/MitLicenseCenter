@@ -1,10 +1,26 @@
 name: CI
 
+# REL-14/REL-21 (MLC-124): paths-фильтры — backend-job не гоняется на чисто-frontend
+# изменениях и наоборот; оба пропускаются на чисто-doc изменениях.
 on:
   push:
     branches: ["**"]
+    paths-ignore:
+      - "docs/**"
+      - "*.md"
+      - "SECURITY.md"
+      - "LICENSE"
+      - "THIRD_PARTY_LICENSES.txt"
+      - "audit/**"
   pull_request:
     branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "*.md"
+      - "SECURITY.md"
+      - "LICENSE"
+      - "THIRD_PARTY_LICENSES.txt"
+      - "audit/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -50,6 +66,13 @@ jobs:
         working-directory: backend
         run: dotnet format MitLicenseCenter.slnx --verify-no-changes --severity warn
 
+      # REL-14 (MLC-124): информационный аудит уязвимостей NuGet.
+      # continue-on-error: true — не роняет сборку; выводит CVE в лог для ревью.
+      - name: Vulnerability audit (dotnet list package --vulnerable)
+        working-directory: backend
+        run: dotnet list package --vulnerable --include-transitive
+        continue-on-error: true
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -59,7 +82,7 @@ jobs:
           if-no-files-found: ignore
 
   frontend:
-    name: Frontend (lint + type-check + build + test)
+    name: Frontend (lint + type-check + format + build + test)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -91,8 +114,19 @@ jobs:
       - name: Type check
         run: pnpm type-check
 
+      # REL-14 (MLC-124): проверка форматирования Prettier.
+      # Скрипт format:check уже есть в frontend/package.json.
+      - name: Format check
+        run: pnpm format:check
+
       - name: Build
         run: pnpm build
 
       - name: Test
         run: pnpm test
+
+      # REL-14 (MLC-124): информационный аудит уязвимостей npm/pnpm.
+      # continue-on-error: true — не роняет сборку; выводит CVE в лог для ревью.
+      - name: Vulnerability audit (pnpm audit)
+        run: pnpm audit
+        continue-on-error: true

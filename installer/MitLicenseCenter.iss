@@ -113,6 +113,16 @@ Filename: "{sys}\netsh.exe"; \
 ; см. OPERATIONS). Конфиг + key ring в {commonappdata}\MitLicenseCenter удаляются ТОЛЬКО
 ; по явному согласию оператора в keep-data prompt (CurUninstallStepChanged, ниже).
 
+[InstallDelete]
+; REL-13 (MLC-124): перед заменой файлов [Files] удаляем хэшированные SPA-ассеты предыдущей
+; версии. Vite генерирует имена вида index-<hash>.js / style-<hash>.css; [Files] с ignoreversion
+; кладёт новые поверх, но старые не удаляет — мусор накапливается, возможен «белый экран»
+; при кэш-расхождении. Каталог после удаления воссоздаётся [Files] с новыми ассетами.
+; На чистой установке секция безвредна: каталога {app}\wwwroot\assets ещё нет.
+; Key ring + БД живут в {commonappdata}\MitLicenseCenter — не затрагиваем.
+; appsettings.Production.json — в корне {app} — не затрагиваем.
+Type: filesandordirs; Name: "{app}\wwwroot\assets\*"
+
 [UninstallDelete]
 ; Сгенерированный в ssPostInstall интернет-ярлык + его каталог в меню «Пуск».
 Type: filesandordirs; Name: "{commonprograms}\MitLicense Center"
