@@ -129,6 +129,70 @@ Frontend опирается на эти коды для локализованн
 только санитизированные русскоязычные сообщения. Исключение `CLUSTER_UNAVAILABLE` возвращает
 502 вместо 409.
 
+### 3.5 Контракт discovery-ответов
+
+Discovery- и IIS-листинг-эндпоинты при сбое инфраструктуры возвращают **не ошибку HTTP, а
+`200 OK`** с телом, в котором флаг `available` установлен в `false`. Это намеренное отступление
+от стандартного контракта ошибок (§3.1–3.4): «недоступность источника» — штатная ситуация для
+форм настройки, а не сбой протокола. Фронт по `available: false` переходит в режим ручного
+ввода вместо отображения ошибки.
+
+#### Общий тип ответа
+
+Большинство listing-эндпоинтов использует обобщённую запись (объявлена в
+`DiscoveryEndpoints.cs`):
+
+```csharp
+public sealed record DiscoveryResponse<T>(IReadOnlyList<T> Items, bool Available, string? Error);
+```
+
+Поля на проводе (camelCase, политика §3.4): `items`, `available`, `error`.
+При успехе: `available: true`, `error: null` (поле отсутствует в ответе —
+`DefaultIgnoreCondition = WhenWritingNull`), `items` — непустой или пустой список.
+При сбое инфраструктуры: `available: false`, `error: "<санитизированное сообщение>"`, `items: []`.
+
+Эндпоинт `/iis/server` использует собственную запись (`IisContracts.cs`):
+
+```csharp
+public sealed record IisServerStatusResponse(string State, bool Available, string? Error);
+```
+
+Поля: `state`, `available`, `error`. При сбое `state` принимает значение `"Unknown"`.
+
+#### Санитизация сообщений
+
+Поле `error` содержит фиксированный русский текст, вшитый в обработчик. Полное исключение
+(стек-трейс, имена серверов, SQL-детали, COM-сообщения) логируется на сервере через
+source-gen `[LoggerMessage]` и наружу **никогда не попадает**. Примеры:
+«Не удалось получить список баз данных. Проверьте доступность SQL-сервера и права доступа
+или введите имя базы вручную.»,
+«Не удалось получить список пулов приложений IIS. Проверьте доступность веб-сервера и права службы.».
+
+#### OperationCanceledException
+
+`OperationCanceledException` **не перехватывается** — он не входит в `catch`-фильтр
+`when (ex is not OperationCanceledException)` и пробрасывается выше (к middleware отмены
+запроса). Это касается всех async-эндпоинтов Discovery и IIS-листинга.
+Исключение: `GetSqlInstances` и `GetRacPaths` выполняются синхронно (нет `await`) — фильтр
+там не нужен; реестровый вызов в `GetSqlInstances` не бросает `OperationCanceledException`.
+
+#### Эндпоинты, использующие паттерн
+
+| Маршрут | Тип ответа |
+|---|---|
+| `GET /api/v1/discovery/databases` | `DiscoveryResponse<string>` |
+| `GET /api/v1/discovery/iis-sites` | `DiscoveryResponse<IisSiteDto>` |
+| `GET /api/v1/discovery/platform-versions` | `DiscoveryResponse<PlatformVersionDto>` |
+| `GET /api/v1/discovery/sql-instances` | `DiscoveryResponse<string>` |
+| `GET /api/v1/discovery/cluster-infobases` | `DiscoveryResponse<ClusterInfobaseDto>` |
+| `GET /api/v1/discovery/rac-paths` | `DiscoveryResponse<string>` |
+| `GET /api/v1/iis/application-pools` | `DiscoveryResponse<IisAppPoolDto>` |
+| `GET /api/v1/iis/sites` | `DiscoveryResponse<IisSiteStateDto>` |
+| `GET /api/v1/iis/server` | `IisServerStatusResponse` (собственная запись) |
+
+Все девять маршрутов подтверждены непосредственно по коду `DiscoveryEndpoints.cs` и
+`IisEndpoints.cs`.
+
 ### 3.4 Wire-контракт (ADR-10.1)
 
 JSON на проводе: `PropertyNamingPolicy = CamelCase`, `DefaultIgnoreCondition = WhenWritingNull`.
