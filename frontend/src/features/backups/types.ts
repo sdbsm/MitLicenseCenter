@@ -27,6 +27,7 @@ export const BACKUP_FAILURE_REASONS = [
   "PermissionDenied",
   "BackupFailed",
   "Interrupted",
+  "TimedOut",
 ] as const;
 export type BackupFailureReason = (typeof BACKUP_FAILURE_REASONS)[number];
 

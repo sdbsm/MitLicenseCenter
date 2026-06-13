@@ -1,3 +1,5 @@
+using Hangfire;
+
 namespace MitLicenseCenter.Application.Jobs;
 
 // Hangfire-job (MLC-045): read-only обновление статуса публикаций в IIS — читает
@@ -7,6 +9,11 @@ namespace MitLicenseCenter.Application.Jobs;
 // Settings.Drift.IntervalMinutes), on-demand — через POST /publications/{id}/check.
 public interface IPublicationStatusJob
 {
+    // Read-only тик каждые 5 мин, самоисцеляется на следующем тике (MLC-123, REL-22):
+    // упавший тик безвреден, ретраи лишь копят красный шум. Attempts=0 — без ретраев,
+    // ждём следующий плановый тик. Атрибут на методе интерфейса
+    // (RecurringJob.AddOrUpdate<IPublicationStatusJob>) — Hangfire берёт фильтры с него.
+    [AutomaticRetry(Attempts = 0)]
     Task RefreshAllAsync(CancellationToken ct);
     Task RefreshOneAsync(Guid publicationId, CancellationToken ct);
 }

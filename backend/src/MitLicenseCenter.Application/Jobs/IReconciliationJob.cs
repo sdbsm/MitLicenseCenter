@@ -18,6 +18,12 @@ public interface IReconciliationJob
     // Таймаут 180с с запасом перекрывает worst-case длительность цикла: перекрывающий
     // тик не падает, а ждёт освобождения лока и затем сам отсекается in-memory
     // ColdThrottleState — двойной EnforceAsync невозможен ни параллельно, ни вплотную.
+    //
+    // [AutomaticRetry(Attempts = 0)] (MLC-123, REL-22): цикл тикает раз в минуту и
+    // самоисцеляется на следующем тике, поэтому ретраи бессмысленны и опасны — retry
+    // под удержанным [DisableConcurrentExecution]-локом лишь копил бы очередь и шум.
+    // Упавший цикл просто ждёт следующий минутный тик.
     [DisableConcurrentExecution(timeoutInSeconds: 180)]
+    [AutomaticRetry(Attempts = 0)]
     Task RunColdAsync(CancellationToken ct);
 }
