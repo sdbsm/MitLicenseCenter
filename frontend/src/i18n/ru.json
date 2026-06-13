@@ -364,11 +364,13 @@
       "tenantNotFound": "Клиент не найден.",
       "nameRequired": "Укажите название инфобазы.",
       "nameTooLong": "Название не длиннее 200 символов.",
+      "nameInvalidChars": "Название не должно содержать символы «;», «=», «\"».",
       "nameDuplicate": "У этого клиента уже есть инфобаза с таким названием.",
       "clusterAlreadyAssigned": "Эта база кластера уже привязана к другому клиенту.",
       "clusterAlreadyAssignedNamed": "Эта база кластера уже привязана к клиенту «{{name}}».",
       "clusterIdInvalid": "ID должен быть в формате GUID.",
       "databaseNameRequired": "Укажите имя БД.",
+      "databaseNameInvalidChars": "Имя БД содержит недопустимые символы (служебные или символы пути).",
       "fieldTooLong": "Значение не длиннее 200 символов.",
       "loadFailed": "Не удалось загрузить список инфобаз."
     },
@@ -641,9 +643,11 @@
       "virtualPathRequired": "Укажите виртуальный путь.",
       "virtualPathLeadingSlash": "Виртуальный путь должен начинаться с «/».",
       "virtualPathNoSpaces": "Виртуальный путь не должен содержать пробелов.",
+      "virtualPathInvalidChars": "Виртуальный путь содержит недопустимые символы.",
       "platformVersionRequired": "Укажите версию платформы 1С.",
       "platformVersionFormat": "Версия должна состоять из четырёх числовых сегментов, например «8.3.23.1865» или «8.5.1.1302».",
-      "physicalPathOverrideTooLong": "Путь не длиннее 260 символов."
+      "physicalPathOverrideTooLong": "Путь не длиннее 260 символов.",
+      "physicalPathOverrideInvalidChars": "Путь содержит недопустимые символы."
     }
   },
   "reports": {
