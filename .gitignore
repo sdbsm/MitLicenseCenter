@@ -90,11 +90,8 @@ $RECYCLE.BIN/
 keys/
 
 # ─────────────────────────────────────────────────────────────
-# Claude Code — personal/local settings (shared settings.json stays tracked)
+# Claude Code — личное тулинг-окружение (настройки, хуки, план-файлы, слэш-
+# команды, worktrees, launch-конфиг). Целиком локальное, в репо не кладём.
+# Канон процесса — в CLAUDE.md и docs/, не в .claude/.
 # ─────────────────────────────────────────────────────────────
-.claude/settings.local.json
-.claude/hooks/
-# Кураторские спеки задач (план-файлы) — локальные, в репо не кладём.
-.claude/plans/
-# Локальные слэш-команды (например, /curate) — личное тулинг-окружение, не канон.
-.claude/commands/
+.claude/
