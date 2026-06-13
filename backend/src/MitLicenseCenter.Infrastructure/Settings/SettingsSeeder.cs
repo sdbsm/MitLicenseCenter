@@ -60,5 +60,41 @@ public static partial class SettingsSeeder
             await db.SaveChangesAsync(ct).ConfigureAwait(false);
             LogSeeded(logger, inserted);
         }
+
+        await HealRasEndpointAsync(db, now, ct).ConfigureAwait(false);
+    }
+
+    // MLC-117: целевой heal апгрейда. На БД, засеянной до того, как у OneC.RAS.Endpoint
+    // появился сидовый дефолт, строка ключа уже существует с пустым ValueText — сидер
+    // (трогает только ОТСУТСТВУЮЩИЕ ключи) её обойдёт, и публикация будет падать
+    // «Не задан адрес 1С-кластера». Под single-host (ADR-28) пустой RAS endpoint —
+    // всегда сломанное состояние, поэтому одноразово проставляем дефолт. Идемпотентно:
+    // непустые значения и другие ключи не трогаем; дефолт берём из каталога (одна точка
+    // истины), а не хардкодим литерал второй раз.
+    private static async Task HealRasEndpointAsync(AppDbContext db, DateTime now, CancellationToken ct)
+    {
+        var defaultValue = SettingDefinitions.All[SettingKey.OneCRasEndpoint].DefaultValue;
+        if (string.IsNullOrWhiteSpace(defaultValue))
+        {
+            return;
+        }
+
+        var entry = await db.Settings
+            .SingleOrDefaultAsync(s => s.Key == SettingKey.OneCRasEndpoint, ct)
+            .ConfigureAwait(false);
+
+        // Лечим только реально пустую строку (plain без значения): ValueText пустой и
+        // зашифрованный Value отсутствует. Если оператор уже задал endpoint — не трогаем.
+        if (entry is null ||
+            !string.IsNullOrWhiteSpace(entry.ValueText) ||
+            entry.Value is not null)
+        {
+            return;
+        }
+
+        entry.ValueText = defaultValue;
+        entry.UpdatedBy = "System";
+        entry.UpdatedAt = now;
+        await db.SaveChangesAsync(ct).ConfigureAwait(false);
     }
 }

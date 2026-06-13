@@ -44,7 +44,8 @@ public static class SettingDefinitions
                 SettingKey.OneCRasEndpoint,
                 IsSecret: false,
                 Description: "Endpoint RAS-сервера в формате host:port (по умолчанию localhost:1545).",
-                Kind: SettingValueKind.HostPort),
+                Kind: SettingValueKind.HostPort,
+                DefaultValue: "localhost:1545"),
 
             // ADR-3.3: дефолт не сидируем — 1С 8.5 положил rac.exe в версионную
             // папку (`1cv8\<version>\bin\`), в `1cv8\common\` его нет. Оператор

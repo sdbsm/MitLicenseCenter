@@ -51,6 +51,18 @@ public sealed class WebinstArgsTests
         actBlank.Should().Throw<InvalidOperationException>();
     }
 
+    // MLC-117: с засеянным дефолтом OneC.RAS.Endpoint = "localhost:1545" публикация
+    // строит валидный connStr без ошибки «Не задан адрес 1С-кластера» — порт RAS
+    // отсекается, остаётся host (localhost), кластер слушает свой порт по умолчанию.
+    [Fact]
+    public void Seeded_default_endpoint_resolves_to_localhost_and_builds_connstr()
+    {
+        var server = WebinstArgs.ResolveClusterServer("localhost:1545");
+        server.Should().Be("localhost");
+
+        WebinstArgs.BuildConnStr(server, "Acme").Should().Be("Srvr=localhost;Ref=Acme;");
+    }
+
     [Fact]
     public void BuildConnStr_uses_server_and_infobase_name()
     {
