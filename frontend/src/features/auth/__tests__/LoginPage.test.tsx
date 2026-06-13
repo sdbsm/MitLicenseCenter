@@ -6,7 +6,7 @@ import type * as ReactRouterModule from "react-router";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import "@/i18n";
-import { ApiError } from "@/lib/api";
+import { ApiError, ApiNetworkError } from "@/lib/api";
 import type * as UseAuthModule from "../useAuth";
 import { LoginPage } from "../LoginPage";
 
@@ -95,7 +95,7 @@ describe("LoginPage", () => {
     expect(mutateAsync).not.toHaveBeenCalled();
   });
 
-  it("показывает «неверные учётные данные» при 401", async () => {
+  it("показывает «неверные учётные данные» при 401 (inline + тост, UX-04)", async () => {
     mutateAsync.mockRejectedValueOnce(new ApiError(401, "HTTP 401", null));
     const u = setup();
 
@@ -103,8 +103,24 @@ describe("LoginPage", () => {
     await u.type(screen.getByLabelText("Пароль"), "wrong");
     await u.click(screen.getByRole("button", { name: "Войти" }));
 
+    // Inline-канал обязателен (UX-04): сообщение в form-level alert.
     await waitFor(() =>
-      expect(toastError).toHaveBeenCalledWith("Неверное имя пользователя или пароль.")
+      expect(screen.getByRole("alert")).toHaveTextContent("Неверное имя пользователя или пароль.")
+    );
+    expect(toastError).toHaveBeenCalledWith("Неверное имя пользователя или пароль.");
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("сетевой сбой → inline «нет связи» (живой errors.network, UX-03)", async () => {
+    mutateAsync.mockRejectedValueOnce(new ApiNetworkError("/api/v1/auth/login", null));
+    const u = setup();
+
+    await u.type(screen.getByLabelText("Имя пользователя"), "admin");
+    await u.type(screen.getByLabelText("Пароль"), "secret");
+    await u.click(screen.getByRole("button", { name: "Войти" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent("Нет связи с сервером.")
     );
     expect(navigate).not.toHaveBeenCalled();
   });

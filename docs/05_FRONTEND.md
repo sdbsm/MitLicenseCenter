@@ -42,10 +42,11 @@ frontend/src/
     PageFallback.tsx
     PaginationBar.tsx
   lib/
-    api.ts                — fetch-обёртка, ApiError, ApiSchemaError
-    apiErrors.ts          — matchConflictCode, toastFormSubmitError
+    api.ts                — fetch-обёртка, ApiError, ApiNetworkError, ApiSchemaError
+    apiErrors.ts          — matchConflictCode, applyFieldErrors, toastFormSubmitError
     apiSchema.ts          — omittable(), pagedResponseSchema()
-    queryClient.ts        — единственный QueryClient со стандартной политикой
+    connectionStatus.ts   — module-store «нет связи» + useIsOffline()
+    queryClient.ts        — единственный QueryClient + классификация ошибок на кэшах
     useInvalidatingMutation.ts — фабрика мутаций с инвалидацией
     pagination.ts         — pageLinkRange()
     utils.ts              — cn() (clsx + tailwind-merge)
@@ -100,17 +101,41 @@ frontend/src/
 бросается `ApiSchemaError`. Схемы живут в `features/<feature>/types.ts` и
 реализуют интерфейс `ResponseSchema<T>` через zod.
 
-**Ошибки.** Не-2xx → `ApiError(status, message, body)`. Сообщение берётся из тела:
-поле `detail`, `title` или `message`; иначе `"HTTP {status}"`. Тело 409 Conflict
-доступно через `readConflictBody(error)` (`ConflictBody.code + detail`) для маппинга
-в ошибку поля формы.
+**Три класса ошибок (различение сеть / HTTP / схема).**
 
-### 3.2 `lib/queryClient.ts`
+- `ApiNetworkError(path, cause)` — `fetch()` отклонился до получения ответа
+  (нет связи с бэкендом, прерванное соединение). `fetch` обёрнут в try/catch;
+  raw `TypeError` наружу не выходит. Это корень различения «нет связи» от HTTP-ошибки.
+- `ApiError(status, message, body)` — получен не-2xx HTTP-ответ. Сообщение берётся
+  из тела: поле `detail`, `title` или `message`; иначе `"HTTP {status}"`. Тело
+  409 Conflict доступно через `readConflictBody(error)` (`ConflictBody.code + detail`);
+  тело 400 ValidationProblem (`errors`: dict поле→сообщения) разбирает `applyFieldErrors`.
+- `ApiSchemaError(path, issues)` — 2xx прошёл, но не прошёл Zod-границу (дрейф контракта BE↔FE).
+
+### 3.2 `lib/queryClient.ts` — политики и классификация ошибок
 
 Один глобальный `QueryClient` с политиками:
 - `staleTime: 30_000` мс по умолчанию;
 - `refetchOnWindowFocus: false` (live-данные задают свои интервалы явно);
 - retry: ≤ 2 попытки кроме 401/403 (0 попыток); мутации — без retry.
+
+На `QueryCache.onError` и `MutationCache.onError` навешен единый классификатор
+`classifyError` (диагностика идёт через консоль — удалённой телеметрии нет):
+- `ApiNetworkError` → `markOffline()` поднимает глобальный баннер «нет связи»
+  (`errors.network`); снимается `markOnline()` при следующем успешном запросе
+  (`onSuccess` обоих кэшей). Фактический успех первичнее `navigator.onLine`.
+- `ApiSchemaError` → `console.error("[ApiSchemaError]", path, issues)` с distinct
+  greppable-префиксом — расхождения BE↔FE отделены от сетевых; пользователю
+  показывается `errors.generic` (его действий не требуется).
+- `ApiError` 4xx/5xx → ни баннера, ни schema-лога: обрабатывается на месте показа
+  (тост или inline-ошибка поля формы).
+
+### 3.3 `lib/connectionStatus.ts` — индикатор соединения
+
+Минимальный module-level store без провайдера: `markOffline()` / `markOnline()`
+переключают флаг, подписка из React — через `useIsOffline()` (`useSyncExternalStore`).
+Первичный сигнал «нет связи» — фактический `ApiNetworkError` (не `navigator.onLine`).
+Баннер `ConnectionBanner` (в `AppShell`, над топбаром) виден, только пока флаг взведён.
 
 ---
 
@@ -279,9 +304,27 @@ Runtime-валидация через `api(..., { schema })` включена т
    тексты ошибок локализованы в момент построения.
 2. `useForm<FormValues>({ resolver: zodResolver(buildSchema(t)), defaultValues })`.
 3. `onSubmit = form.handleSubmit(async (values) => { ... })`.
-4. При 409 Conflict — `matchConflictCode(error, { CODE: { field, messageKey } })` →
-   `form.setError(field, { type: "server", message: t(key) })`.
-5. Прочие ошибки — `toastFormSubmitError(error, t)` (400 → серверное сообщение, иначе generic).
+4. Единый порядок обработки ошибки submit (UX-04): **409-code → 400-field → generic-тост**:
+   1. `matchConflictCode(error, { CODE: { field, messageKey } })` →
+      `form.setError(field, { type: "server", message: t(key) })`.
+   2. `applyFieldErrors(error, form.setError, fieldMap?)` — на 400 ValidationProblem
+      разбирает dict `errors` (ключи полей бэка в **PascalCase**, для вложенной
+      публикации с префиксом `Publication.`), маппит на имена полей формы (явная
+      карта или нормализация first-letter-lowercase по сегментам:
+      `Publication.SiteName → publication.siteName`) и ставит **первое** сообщение
+      из массива через `setError(..., { type: "server" })`. Возвращает `true`, если
+      проставлено хоть одно поле (тогда дальше не идём).
+   3. `toastFormSubmitError(error, t)` — fallback (400 → серверное сообщение, иначе generic).
+
+   Источник 400-ошибок поля — рантайм-барьер `InfobaseValidationRules` (MLC-118):
+   длина/символы приходят как 400 ValidationProblem, а не 500. Inline-ошибки
+   применяют: `TenantFormDialog` (`Name`), `UserFormDialog` (`UserName`),
+   `useInfobaseForm` (инфобаза + вложенная публикация; поля блока «Дополнительно»
+   раскрывают его). `SettingField` разбирает `errors.Value` своей inline-веткой;
+   `ChangePlatformDialog` (версия — `Select`, без текстового поля) показывает
+   конкретное серверное 400-сообщение тостом. **LoginPage** имеет form-level
+   inline-канал (`role="alert"`): 401 → `auth.invalidCredentials`,
+   `ApiNetworkError` → `errors.network`, прочее → `errors.generic` (тост вторичен).
 
 ### 6.2 Сброс состояния при повторном открытии
 
@@ -338,7 +381,11 @@ Discovery-запросы кешируются 5 минут (`staleTime`), что
 
 `ProtectedRoute` опрашивает `useMe()` (`GET /api/v1/auth/me`):
 - Загрузка → спиннер.
-- Ошибка / нет данных → `<Navigate to="/login" replace />`.
+- `isError` из-за `ApiNetworkError` / `ApiSchemaError` → экран «нет связи» с кнопкой
+  «Повторить» (`refetch`); сессия **не** сбрасывается (UX-03/FE-05). Сетевой сбой
+  показывает `errors.network`, схемный — `errors.generic`.
+- Нет данных без ошибки (неаутентифицирован: `fetchMe` поймал 401 → `null`, а реальный
+  401 уже увёл на `/login` через `onUnauthorized`) → `<Navigate to="/login" replace />`.
 - `data.mustChangePassword === true` → блокирующий экран `ForcePasswordChange`
   (сайдбар и контент не рендерятся вовсе). После успешной смены пароля
   инвалидируется `ME_KEY` — флаг снимается.
@@ -353,6 +400,17 @@ const isAdmin = me?.roles.includes("Admin") ?? false;
 ```
 Кнопки create/edit/delete рендерятся условно по `isAdmin`. Страницы «Параметры»
 и «Пользователи» скрыты из навигации и защищены маршрутным `requireAdmin`.
+
+### 7.4 RAS-карточка дашборда
+
+`RasHealthCard` (`features/dashboard`) показывает здоровье связи с кластером 1С из
+снапшота `summary.ras` (`healthy`, `lastCheckedAtUtc`, `lastErrorMessage`,
+`consecutiveFailures`). Три состояния: «Проверка…» (neutral, до первой пробы) /
+«OK» (success) / «Сбой» (danger). При `healthy === false` под бейджем —
+**видимая** actionable-подсказка (`dashboard.ras.hint`) «нет связи с кластером 1С,
+проверьте адрес RAS в «Параметрах»» + ссылка-переход в `/settings` + счётчик
+`consecutiveFailures` (plural-ключи). Сырой `lastErrorMessage` остаётся во вторичном
+тултипе — не как основной текст (UX-17).
 
 ---
 

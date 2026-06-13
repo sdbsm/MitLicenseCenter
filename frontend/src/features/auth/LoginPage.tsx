@@ -1,10 +1,11 @@
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { z } from "zod";
-import { ApiError } from "@/lib/api";
+import { ApiError, ApiNetworkError } from "@/lib/api";
 import { useLogin } from "./useAuth";
 
 const schema = z.object({
@@ -24,6 +25,9 @@ export function LoginPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const login = useLogin();
+  // UX-04 — inline-канал ошибки формы логина (неверные данные / нет связи) вместо
+  // одного лишь тоста. Сбрасывается при каждой новой попытке отправки.
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const {
     register,
@@ -35,15 +39,21 @@ export function LoginPage() {
   });
 
   const onSubmit = handleSubmit(async (values) => {
+    setSubmitError(null);
     try {
       const user = await login.mutateAsync(values);
       toast.success(t("auth.welcomeBack", { name: user.userName }));
       navigate("/", { replace: true });
     } catch (error) {
+      // 401 — неверные учётные данные; сетевой сбой — «нет связи» (живой errors.network);
+      // прочее — generic. Inline обязателен (UX-04), тост оставлен вторичным сигналом.
       const message =
         error instanceof ApiError && error.status === 401
           ? t("auth.invalidCredentials")
-          : t("errors.generic");
+          : error instanceof ApiNetworkError
+            ? t("errors.network")
+            : t("errors.generic");
+      setSubmitError(message);
       toast.error(message);
     }
   });
@@ -88,6 +98,12 @@ export function LoginPage() {
               <p className="text-status-danger text-xs">{t("auth.passwordRequired")}</p>
             )}
           </div>
+
+          {submitError && (
+            <p role="alert" className="text-status-danger text-sm">
+              {submitError}
+            </p>
+          )}
 
           <button
             type="submit"

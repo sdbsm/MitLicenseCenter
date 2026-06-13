@@ -1,6 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { z } from "zod";
-import { api, ApiError, ApiSchemaError, readConflictBody, setUnauthorizedHandler } from "../api";
+import {
+  api,
+  ApiError,
+  ApiNetworkError,
+  ApiSchemaError,
+  readConflictBody,
+  setUnauthorizedHandler,
+} from "../api";
 
 const originalFetch = globalThis.fetch;
 
@@ -72,6 +79,22 @@ describe("api()", () => {
     } catch (error) {
       expect(error).toBeInstanceOf(ApiError);
       expect((error as ApiError).body).toBe("Internal Server Error");
+    }
+  });
+
+  it("reject fetch (нет связи) → ApiNetworkError, а не ApiError/сырой TypeError (UX-03)", async () => {
+    const cause = new TypeError("Failed to fetch");
+    globalThis.fetch = vi.fn().mockRejectedValue(cause);
+
+    try {
+      await api("/api/v1/auth/me");
+      expect.fail("ожидалась ApiNetworkError");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ApiNetworkError);
+      expect(error).not.toBeInstanceOf(ApiError);
+      expect((error as ApiNetworkError).path).toBe("/api/v1/auth/me");
+      // Исходная ошибка сохранена в cause для диагностики.
+      expect((error as ApiNetworkError).cause).toBe(cause);
     }
   });
 

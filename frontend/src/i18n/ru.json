@@ -84,6 +84,8 @@
       "checking": "Проверка…",
       "lastError": "детали ошибки",
       "lastChecked": "проверено",
+      "hint": "Нет связи с кластером 1С. Проверьте адрес RAS в разделе «Параметры».",
+      "settingsLink": "Открыть «Параметры»",
       "consecutiveFailures_one": "{{count}} ошибка подряд",
       "consecutiveFailures_few": "{{count}} ошибки подряд",
       "consecutiveFailures_many": "{{count}} ошибок подряд"

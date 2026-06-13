@@ -167,7 +167,9 @@ interface RasHealthCardProps {
 // Stage 5 PR 5.1 (ADR-16): заменяет ClusterCard. Три визуальных состояния:
 // 1. ras === undefined ИЛИ lastCheckedAtUtc === null → «Проверка…» neutral
 // 2. healthy === true → «OK» success
-// 3. healthy === false → «Сбой» danger + tooltip с lastErrorMessage
+// 3. healthy === false → «Сбой» danger + видимая actionable-подсказка (UX-17,
+//    MLC-121): что случилось и переход в «Параметры»; lastErrorMessage остаётся
+//    во вторичном тултипе.
 function RasHealthCard({ data, isLoading, isFetching }: RasHealthCardProps) {
   const { t } = useTranslation();
   const ras: DashboardRasHealth | undefined = data?.ras;
@@ -223,6 +225,16 @@ function RasHealthCard({ data, isLoading, isFetching }: RasHealthCardProps) {
               <p className="text-muted-foreground text-xs">
                 {t("dashboard.ras.consecutiveFailures", { count: ras.consecutiveFailures })}
               </p>
+            )}
+            {/* UX-17 — видимая actionable-подсказка при недоступности кластера (а не
+                только тултип с lastErrorMessage): что случилось и куда идти чинить. */}
+            {!ras.healthy && (
+              <div className="border-status-danger/30 bg-status-danger/5 mt-1 space-y-1 rounded-md border p-2">
+                <p className="text-status-danger text-xs">{t("dashboard.ras.hint")}</p>
+                <Link to="/settings" className="text-primary inline-block text-xs underline">
+                  {t("dashboard.ras.settingsLink")}
+                </Link>
+              </div>
             )}
           </div>
         )}

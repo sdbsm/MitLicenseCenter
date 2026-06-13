@@ -3,7 +3,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, useWatch } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { toastFormSubmitError } from "@/lib/apiErrors";
+import { applyFieldErrors, toastFormSubmitError } from "@/lib/apiErrors";
 import { useSettings } from "@/features/settings/useSettings";
 import {
   toDiscoveryState,
@@ -293,6 +293,23 @@ export function useInfobaseForm({
             setAdvancedOpen(true);
           }
           form.setError(mapped.field, { type: "server", message: t(mapped.messageKey) });
+          return;
+        }
+        // UX-04 — 400 ValidationProblem (длина/символы из MLC-118) → inline-ошибки полей.
+        // Ключи бэка нормализуются дефолтным правилом: Name→name, DatabaseName→databaseName,
+        // Publication.SiteName→publication.siteName и т.д. Если ошибка попала в поле блока
+        // «Дополнительно» — раскрываем его, иначе пользователь её не увидит.
+        const appliedFields: string[] = [];
+        const applied = applyFieldErrors(error, (field: string, e) => {
+          appliedFields.push(field);
+          form.setError(field as Parameters<typeof form.setError>[0], e);
+        });
+        if (applied) {
+          if (
+            appliedFields.some((f) => f === "name" || f === "status" || f.startsWith("publication"))
+          ) {
+            setAdvancedOpen(true);
+          }
           return;
         }
         toastFormSubmitError(error, t);

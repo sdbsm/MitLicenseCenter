@@ -56,6 +56,23 @@ export class ApiSchemaError extends Error {
   }
 }
 
+/**
+ * `fetch()` отклонился ещё до получения HTTP-ответа: нет связи с бэкендом,
+ * DNS/TLS-сбой, прерванное соединение. Корень различения «нет связи» (UX-03) vs
+ * HTTP-ошибка (`ApiError`): раньше `fetch`-reject улетал сырым `TypeError` и
+ * везде сводился к generic-тосту, неотличимому от 5xx. `cause` несёт исходную
+ * ошибку для диагностики в консоли.
+ */
+export class ApiNetworkError extends Error {
+  public readonly path: string;
+
+  constructor(path: string, cause: unknown) {
+    super(`Нет связи с сервером при запросе ${path}`, { cause });
+    this.name = "ApiNetworkError";
+    this.path = path;
+  }
+}
+
 type UnauthorizedHandler = () => void;
 let onUnauthorized: UnauthorizedHandler | null = null;
 
@@ -88,7 +105,15 @@ export async function api<T>(path: string, options: RequestOptions<T> = {}): Pro
     body: body !== undefined ? JSON.stringify(body) : undefined,
   };
 
-  const response = await fetch(path, init);
+  let response: Response;
+  try {
+    response = await fetch(path, init);
+  } catch (cause) {
+    // `fetch` отклоняется только при сетевом сбое (нет связи, прерванное
+    // соединение), а не на HTTP-ошибках. Оборачиваем в управляемый класс, чтобы
+    // выше отличать «нет связи» от 4xx/5xx (UX-03/FE-05).
+    throw new ApiNetworkError(path, cause);
+  }
 
   if (response.status === 401) {
     onUnauthorized?.();

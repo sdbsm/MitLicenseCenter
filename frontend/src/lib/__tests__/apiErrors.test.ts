@@ -5,7 +5,7 @@ vi.mock("sonner", () => ({
 }));
 
 import { ApiError } from "../api";
-import { matchConflictCode, toastFormSubmitError } from "../apiErrors";
+import { applyFieldErrors, matchConflictCode, toastFormSubmitError } from "../apiErrors";
 import { toast } from "sonner";
 
 const mockedToastError = vi.mocked(toast.error);
@@ -49,6 +49,51 @@ describe("matchConflictCode", () => {
   it("не-ApiError → null", () => {
     expect(matchConflictCode(new Error("boom"), table)).toBeNull();
     expect(matchConflictCode(undefined, table)).toBeNull();
+  });
+});
+
+describe("applyFieldErrors", () => {
+  it("400 ValidationProblem: PascalCase-ключ → поле формы (явная карта), первое сообщение", () => {
+    const setError = vi.fn();
+    const error = new ApiError(400, "bad", {
+      errors: { Name: ["Слишком длинно.", "Второе сообщение игнорируется"] },
+    });
+    expect(applyFieldErrors(error, setError, { Name: "name" })).toBe(true);
+    expect(setError).toHaveBeenCalledWith("name", { type: "server", message: "Слишком длинно." });
+  });
+
+  it("нормализует ключ без записи в карте: Publication.SiteName → publication.siteName", () => {
+    const setError = vi.fn();
+    const error = new ApiError(400, "bad", {
+      errors: { "Publication.SiteName": ["Укажите сайт."] },
+    });
+    expect(applyFieldErrors(error, setError)).toBe(true);
+    expect(setError).toHaveBeenCalledWith("publication.siteName", {
+      type: "server",
+      message: "Укажите сайт.",
+    });
+  });
+
+  it("проставляет несколько полей сразу", () => {
+    const setError = vi.fn();
+    const error = new ApiError(400, "bad", {
+      errors: { Name: ["a"], DatabaseName: ["b"] },
+    });
+    expect(applyFieldErrors(error, setError)).toBe(true);
+    expect(setError).toHaveBeenCalledTimes(2);
+    expect(setError).toHaveBeenCalledWith("name", { type: "server", message: "a" });
+    expect(setError).toHaveBeenCalledWith("databaseName", { type: "server", message: "b" });
+  });
+
+  it("не-400 / без словаря errors / пустой массив → false, setError не зовётся", () => {
+    const setError = vi.fn();
+    expect(applyFieldErrors(new ApiError(409, "x", { code: "Y" }), setError)).toBe(false);
+    expect(applyFieldErrors(new ApiError(400, "x", null), setError)).toBe(false);
+    expect(applyFieldErrors(new ApiError(400, "x", { errors: { Name: [] } }), setError)).toBe(
+      false
+    );
+    expect(applyFieldErrors(new Error("boom"), setError)).toBe(false);
+    expect(setError).not.toHaveBeenCalled();
   });
 });
 
