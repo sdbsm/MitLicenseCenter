@@ -52,7 +52,11 @@ describe("useDashboardSummary", () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data).toEqual(sampleResponse);
-    expect(mockedApi).toHaveBeenCalledWith("/api/v1/dashboard/summary");
+    // FE-19 (MLC-120): запрос теперь несёт runtime-схему (Zod-граница).
+    expect(mockedApi).toHaveBeenCalledWith(
+      "/api/v1/dashboard/summary",
+      expect.objectContaining({ schema: expect.anything() })
+    );
   });
 
   it("surfaces an error state when the api throws", async () => {

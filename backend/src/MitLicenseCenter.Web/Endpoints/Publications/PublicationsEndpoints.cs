@@ -53,7 +53,10 @@ public static partial class PublicationsEndpoints
             : TypedResults.Ok(publication.ToResponse());
     }
 
-    private static async Task<Results<Ok<PublicationResponse>, NotFound, ValidationProblem>> UpdateAsync(
+    // internal (не private) ради Stage-2 теста валидации BE-09 (MLC-120) — зеркаль
+    // остальных операционных handler'ов этого модуля (Check/Publish/…). Поведение и
+    // регистрация маршрута не меняются.
+    internal static async Task<Results<Ok<PublicationResponse>, NotFound, ValidationProblem>> UpdateAsync(
         Guid id,
         [FromBody] UpdatePublicationRequest request,
         AppDbContext db,

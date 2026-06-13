@@ -134,7 +134,11 @@ internal sealed class SystemProcessRacRunner : IRacProcessRunner
         return result;
     }
 
-    private static Encoding ResolveOemEncoding()
+    // internal (а не private) только ради юнит-теста CP866-декода (BE-12, MLC-120):
+    // тест round-trip'ит идемпотентный маркер «Сеанс… не найден» через эту кодировку.
+    // InternalsVisibleTo на MitLicenseCenter.Tests.Unit уже объявлен в .csproj. Поведение
+    // декода НЕ меняется.
+    internal static Encoding ResolveOemEncoding()
     {
         // .NET Core+ требует регистрации code-page providers для CP866/CP1251/etc.
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
