@@ -1,45 +1,148 @@
 # MitLicense Center — Roadmap
 
-Forward-looking status. The full system spec lives in `01`–`06`, `DECISIONS.md`, and `OPERATIONS.md`.
+Документ описывает актуальные планы развития и отложенный бэклог.
+Горизонт — пострелизный цикл (v1.x и далее). Продуктовый контекст —
+`01_OVERVIEW.md`; архитектурные ограничения — `DECISIONS.md`.
 
-## Current status — v1 delivered
+---
 
-The application is a working control plane for single-node multi-tenant 1C hosting:
+## Актуальные планы
 
-- **Tenants / Infobases / Publications** CRUD with the FK and uniqueness contracts in `03_DOMAIN_MODEL.md`. Tenant→Infobase distribution is visible both ways: a «Базы: N» link + per-client detail lens (`/tenants/:id`), and the bases list filters by client via URL (`?tenantId=`). Bases move between clients via an explicit `POST /infobases/{id}/reassign` (audited, name-collision-guarded). Publications live as a tab-and-columns part of the unified «Базы» page (UX rework `MLC-081..086`, 2026-06-10).
-- **Session & license enforcement** — two-tier reconciliation loop (hot 3–5s / cold 20–30s), newest-first idempotent kill, manual kill from the Sessions Monitor.
-- **1C cluster adapter** — RAS via `rac.exe` only (ADR-16 / ADR-3.3), with a 30s RAS health probe surfaced on the Dashboard.
-- **IIS publications** — (re)publish via `webinst` + platform change via `web.config` rewrite + read-only status (ADR-4; ADR-4.1 surgical-patch/drift model revoked).
-- **Settings** — encrypted `dbo.Settings` (DPAPI) with the 17-key catalog in `04_INFRASTRUCTURE.md`.
-- **Audit** — immutable log with server-side paging/filtering and a daily retention purge.
-- **Frontend** — React + TS SPA on shadcn/ui, Russian-only locale, Vitest test foundation.
-- **CI** — GitHub Actions (build + test + lint), no CD (manual deploy).
-- **Observability** — hot-path metrics via `System.Diagnostics.Metrics` (`rac.exe` spawns, cold/hot cycle latency, kills), opt-in EF query profiling, and a dependency `readiness` probe (`/api/v1/health/ready`) alongside the cheap liveness `/api/v1/health`. Snapshot read with `dotnet-counters` (no external systems — ADR-15).
+### 1. Движок таблиц @tanstack/react-table
 
-Operator concerns (backup, network-edge auth) are documented in `OPERATIONS.md`.
+Библиотека `@tanstack/react-table` добавлена в зависимости, но не используется
+в коде — таблицы собраны вручную на `shadcn/ui Table`. До перевода таблиц
+на движок недоступны:
 
-## Backlog / deferred
+- меню видимости колонок;
+- density-toggle (компактно / комфортно, с сохранением в `localStorage`);
+- сериализация активных фильтров в URL (шаринг отфильтрованного вида ссылкой).
 
-- **Дрейф панель↔кластер — закрыт полностью** (оба направления, **ADR-29**). Прямое
-  направление (а) — база в кластере, но не заведена в панель — закрыто треком
-  «Нераспределённые базы» (`MLC-092..094`): discovery-first баннер/диалог разбора +
-  игнор-лист. Обратное (б) — база заведена в панель, но удалена из кластера («мёртвая душа»
-  с вечным потреблением 0) — закрыто треком «Обратный дрейф» (`MLC-095..097`): тем же
-  наблюдательным механизмом — `MissingItems` в ответе `/infobases/unassigned` (обратный diff
-  по тому же кэшу RAS, только при `Available:true`) + красная метка «Не найдена в кластере» и
-  баннер на «Базах». Read-only наблюдение, без auto-fix (дух ADR-4), без миграций/мутаций.
-  Отложенная опция: серверный фильтр таблицы «Базы» по метке «не найдена в кластере»
-  (потребует join снапшота RAS в списочный запрос) — брать по запросу оператора.
-- **RAS Strategy B** — replace `rac.exe`-per-cycle with a long-lived TCP socket on 1545. The cross-call cluster-UUID cache (MLC-041) already roughly halved the steady-state spawn rate (the kill path and hot polling now cost ~1 spawn each), so the ≤26 procs/min budget has comfortable headroom; this further optimization stays gated on real-world latency measurement.
-- **Multi-cluster / multi-node topology** — every adapter currently assumes single-node; opening this up requires re-reviewing each adapter and the single-node operational constraint.
-- **UI: заспечено в `05`/`06`, но не построено в v1.** Дизайн-канон описывает эти фичи, код их пока не реализует (каждое место помечено «не в v1» по месту в `05_UI_REQUIREMENTS.md` / `06_UI_DESIGN.md`):
-  - **Движок таблиц `@tanstack/react-table`** (`06` §2, §6) — таблицы собраны вручную на shadcn `Table`; без него отсутствуют производные UX: **меню видимости колонок**, **density-toggle** (компактно/комфортно в localStorage), **сериализация фильтров в URL** (шаринг отфильтрованного вида ссылкой).
-  - **Графики дашборда на `recharts`** (`06` §2) — библиотека подключена на странице «Отчёты» (`/reports`, `MLC-050`), но **дашборд** остаётся на карточках/прогресс-барах; перевод его метрик на графики — опция на будущее.
-  - **ESLint-правило, форсящее `StatusBadge`** (`06` §3) — пока поддерживается ревью, не линтером.
-  - Это пробелы «код отстаёт от спеки», а не дефекты дизайна. Любой пункт куратор может промоутнуть в `PROJECT_BACKLOG.md` как трекаемую задачу `MLC-NNN`.
+Любой из пунктов куратор может выделить в отдельную задачу в `PROJECT_BACKLOG.md`.
+
+### 2. Графики на дашборде (recharts)
+
+`recharts` подключена и используется на страницах «Отчёты» (`/reports`) и
+«Быстродействие» (`/performance`). Дашборд (`/`) остаётся на карточках
+и прогресс-барах. Перевод метрик дашборда на графики — опция по запросу оператора.
+
+### 3. ESLint-правило для StatusBadge
+
+`StatusBadge` — единственный способ отображать статусы в UI; правило его применения
+поддерживается ревью, не линтером. Запланировано: кастомное ESLint-правило,
+форсящее `StatusBadge` вместо сырых цветовых классов.
+
+### 4. RAS Strategy B (оптимизация)
+
+Текущее состояние: `rac.exe` запускается как отдельный процесс на каждый цикл.
+Кросс-вызовой кэш UUID кластера уже сократил steady-state spawn rate примерно
+вдвое; бюджет ≤ 26 proc/min выдерживается с запасом.
+
+Следующий шаг — переход на долгоживущий TCP-сокет на порту 1545 (Strategy B).
+Открывается после замера реальной латентности на production-нагрузке.
+
+### 5. Multi-cluster / multi-node топология
+
+Все адаптеры предполагают single-node (зафиксировано ADR-28). Расширение требует
+полного пересмотра каждого адаптера и операционной модели. Брать только при явном
+запросе со стороны оператора и после отзыва ADR-28.
+
+### 6. Серверный фильтр «Базы» по метке «не найдена в кластере»
+
+Метка «Не найдена в кластере» уже присутствует на странице Баз. Серверный фильтр
+(join снапшота RAS в списочный запрос) делает отфильтрованный список быстрым при
+большом числе баз. Брать по запросу оператора.
+
+---
+
+## Backlog / deferred — пострелизный рефакторинг R1–R12
+
+> **Первоисточник и детальные обоснования:** `audit/2026-06/TECH-DEBT.md`.
+> Каждый пункт таблицы реестра содержит код finding-а (SEC-01, BE-03 и т.д.),
+> приоритет, риск и ссылку на аудит-чат-источник.
+
+Итерации упорядочены по приоритету и зависимостям. Дать старт любой итерации
+может только куратор через постановочный PR в `PROJECT_BACKLOG.md`.
+
+### R1 — Критический security-барьер
+
+**Зависимости:** нет (высший приоритет).
+
+**Состав:**
+- SEC-01: SecurityStampValidator + UpdateSecurityStamp при отключении/сбросе пароля/смене роли — активные сессии отзываются немедленно.
+- KEYRING / DOC-01 / REL-04: ADR-решение о шифровании key ring (сертификат vs DPAPI); ACL на каталог ключей; честная правка канона ADR-8 и `SECURITY.md`.
+- SEC-02 / REL-07: `icacls` на `appsettings.Production.json` в режиме B (SQL-пароль читаем всеми Users).
+
+### R2 — Валидационный барьер
+
+**Зависимости:** R1 по дисциплине (параллелен).
+
+**Состав:** BE-03 (runtime-валидация `MaxConcurrentLicenses`); BE-04 / FE-16 (max-длины строк в едином хелпере); SEC-11 / SEC-12 / UX-11 (path/connstr-метасимволы для VirtualPath, PhysicalPathOverride, DatabaseName); BE-07 / SEC-13 (символы `;`/`=` в имени инфобазы). Все правки синхронно BE + FE, parity-тесты.
+
+### R3 — Аудит-целостность
+
+**Зависимости:** независима (после R2 по смыслу).
+
+**Состав:** BE-01 (атомарный аудит через единый `SaveChanges`/транзакцию); BE-10 (аудит неудачных входов); BE-11 (событие `LimitChanged` в журнале); BE-25 (батчинг аудит-записей в `KillEnforcer`). Все правки концентрируются в `AuditLogger.cs` и call-site.
+
+### R4 — Тестовые слепые зоны
+
+**Зависимости:** независима; лучше ставить до следующих рефакторингов.
+
+**Состав:** FE-01 (тесты `ChangePasswordForm` + ForcePasswordChange); BE-09 (поведенческие тесты `AppendPublicationFieldErrors` + `UpdateAsync`); BE-12 (юнит-тест CP866-декода); BE-14 (полный freeze-тест `AuditActionType`); BE-24 (timezone-fix, `TaskCompletionSource` замена `Task.Delay`); FE-11 (kill, LoginPage, IIS-подсекция); FE-19 (wire-fixture dashboard/summary).
+
+### R5 — Офлайн-UX и обратная связь
+
+**Зависимости:** R2 по части форм с inline-ошибками.
+
+**Состав:** UX-03 + FE-05 (различение 401/сеть, глобальный индикатор стате, живой `errors.network`, логирование `ApiSchemaError`); UX-04 (единый паттерн inline-ошибок вместо generic-тоста); UX-17 (RAS-карточка дашборда с подсказкой при недоступности); UX-44 (понятное сообщение об ошибке публикации без ключа `OneC.RAS.Endpoint`).
+
+### R6 — Видимость лимитов
+
+**Зависимости:** R5 по инфраструктуре уведомлений; R3 по BE-11.
+
+**Состав:** UX-02 (визуальный акцент превышения лимита на `/reports`, `/tenants`, карточке клиента); FE-03 (инвалидация `/reports` при смене лимита); UX-46 (переход к деталям клиента из бокового меню). Ядро ценностного предложения продукта.
+
+### R7 — Устойчивость джобов и службы
+
+**Зависимости:** независима.
+
+**Состав:** BE-05 (per-item catch в `PublicationStatusRefreshJob`); BE-19 (TTL-reaper для застрявших `Running`-бэкапов); BE-20 (`CancellationToken` для всех 5 recurring-джобов); BE-21 (осознанный `AutomaticRetry`); REL-22 (явные retry-политики + раздел в OPERATIONS); REL-03 (recovery-политика службы Windows + `depend=MSSQLSERVER`).
+
+### R8 — Релизный конвейер
+
+**Зависимости:** независима (параллельна R7).
+
+**Состав:** REL-01 (очистка `OutputDir` в `publish-release.ps1`); REL-12 (CI-гейт для релизного пути ISCC); REL-13 (чистка `wwwroot` при обновлении); REL-14 / REL-21 (dependabot, SDK-чеклист, `format:check`, paths-фильтры в Actions); REL-20 (убрать личный путь к ISCC из трекаемого скрипта). Результат — воспроизводимая автоматически проверяемая сборка.
+
+### R9 — Инсталлятор hardening
+
+**Зависимости:** R1 по ACL-части; остальное независимо.
+
+**Состав:** REL-06 (явные требования к аккаунту службы в режиме A + IIS-права); SEC-05 (low-priv аккаунт службы вместо LocalSystem); SEC-06 / SEC-09 (scope firewall-правила, localhost bind по умолчанию); SEC-07 (security-заголовки: CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy); SEC-08 (rate-limiting на `/auth/login`); REL-08 (убрать pdb / Development.json / web.config из поставки); REL-17 (лицензия Inno Setup).
+
+### R10 — Ревизия канона
+
+**Зависимости:** ADR-решения из R1 и R9 должны быть приняты до начала.
+
+**Состав:** DOC-01 / 02 / 11 / 14 (security-слой: финал ADR-8, полный `SECURITY.md`, CSRF-решение); DOC-03 / 12 (удалить хвосты ADR-4.1 REVOKED из `02`, `06`, `OPERATIONS`); DOC-09 / REL-05 (процедура restore в OPERATIONS — «та же машина» и «новое железо», restore-drill); DOC-04 / 05 (исправить ADR-3.3 и ADR-7); REL-11 (раздел «Логи» + runbook типовых отказов); прочие Low (DOC-07 / 10 / 13 / 15–31, REL-20). Итерация без кодовых изменений — только документы.
+
+### R11 — Масштабируемость списков
+
+**Зависимости:** независима; ставить после стабилизации схемы API.
+
+**Состав:** UX-05 / BE-17 (серверный поиск по клиентам + пагинация `/backups`, `/performance/recordings`); UX-14 / 15 (пагинация и сортировка таблицы сеансов и диалога «не найдены»); UX-20 / 35 / 37 / 38 (аудит: текстовый поиск, фильтр по инициатору, переход на страницу N); FE-09 (схемная валидация ~35 эндпоинтов через Zod вместо `payload as T`).
+
+### R12 — Полировка UX
+
+**Зависимости:** независима (последний цикл; доступность не зависит ни от чего).
+
+**Состав:** UX-кластер D (терминология и тексты UI); UX-кластер E (доступность, контраст WCAG AA, aria-label); UX-кластер F (онбординг и точки трения); FE-07 / 08 (сброс диалогов при повторном открытии); FE-02 / 03 (инвалидации кэша счётчиков); BE-02 (optimistic concurrency на доменных сущностях — требует миграции); BE-13 (freeze-тесты для enum с `HasConversion<int>`).
+
+---
 
 ## Permanently out of scope (ADR-15)
 
-**Scheduled** backup orchestration / any restore capability, and in-app 2FA (the operator-initiated
-on-demand `COPY_ONLY` backup button is the narrow exception carved out by ADR-27). Re-introducing
-either requires explicitly revoking ADR-15 first.
+Планировщик резервного копирования, restore-оркестрация внутри панели и встроенная
+2FA. Исключение: on-demand `COPY_ONLY`-бэкап (ADR-27). Вернуть любой пункт можно
+только явным отзывом ADR-15.
