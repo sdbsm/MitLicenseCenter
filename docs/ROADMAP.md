@@ -75,13 +75,12 @@
 NTFS ACL», ADR-8 переписан честно, ACL установщика на `keys` и конфиг в обоих режимах);
 SEC-02/REL-07 (`MLC-110` — `icacls` на `appsettings.Production.json`). Остатка нет.
 
-### R2 — Валидационный барьер
+### R2 — Валидационный барьер ✅ ЗАКРЫТО
 
 **Зависимости:** R1 по дисциплине (параллелен).
 
 ✅ BE-03 (runtime-валидация `MaxConcurrentLicenses`) — закрыто `MLC-114`.
-
-**Остаток:** BE-04 / FE-16 (max-длины строк в едином хелпере); SEC-11 / SEC-12 / UX-11 (path/connstr-метасимволы для VirtualPath, PhysicalPathOverride, DatabaseName); BE-07 / SEC-13 (символы `;`/`=` в имени инфобазы). Все правки синхронно BE + FE, parity-тесты.
+✅ BE-04 / FE-16 (max-длины строк в едином хелпере); SEC-11 / SEC-12 / UX-11 (path/connstr-метасимволы VirtualPath / PhysicalPathOverride / DatabaseName); BE-07 / SEC-13 (`;`/`=`/`"` в имени инфобазы → connstr) — закрыто `MLC-118` (синхронно BE + FE, parity-тесты, канон 03 §3.5).
 
 ### R3 — Аудит-целостность
 
