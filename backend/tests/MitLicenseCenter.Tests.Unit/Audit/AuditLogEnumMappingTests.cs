@@ -48,6 +48,9 @@ public sealed class AuditLogEnumMappingTests
     [InlineData(AuditActionType.AdminLoggedOut, 101)]
     [InlineData(AuditActionType.AdminPasswordChanged, 102)]
     [InlineData(AuditActionType.LoginFailed, 108)]
+    [InlineData(AuditActionType.SessionKilled, 200)]
+    // MLC-119 (BE-11) — LimitChanged оживлён, но int=201 заморожен (frozen-int rule).
+    [InlineData(AuditActionType.LimitChanged, 201)]
     [InlineData(AuditActionType.BackupRequested, 510)]
     [InlineData(AuditActionType.BackupSucceeded, 511)]
     [InlineData(AuditActionType.BackupFailed, 512)]

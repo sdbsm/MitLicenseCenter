@@ -136,13 +136,14 @@ internal sealed partial class KillEnforcer : IKillEnforcer
 
                 if (result.Killed || result.AlreadyGone)
                 {
-                    await _audit.LogAsync(
+                    // MLC-119 (BE-25) — enlist'им запись в общий контекст без своего SaveChanges;
+                    // все записи цикла коммитятся одним round-trip ниже (короче держим замок).
+                    _audit.Enlist(
                         AuditActionType.SessionKilled,
                         "System",
                         $"Сеанс {candidate.SessionId:N} ({candidate.AppId}, пользователь {SessionDisplay.UserNameOrFallback(candidate.UserName)}) завершён: превышен лимит {candidate.TenantName}.",
                         tenantId,
-                        AuditReason.LimitExceeded,
-                        ct).ConfigureAwait(false);
+                        AuditReason.LimitExceeded);
 
                     currentConsumed--;
                     totalKills++;
@@ -156,6 +157,9 @@ internal sealed partial class KillEnforcer : IKillEnforcer
 
         if (totalKills > 0)
         {
+            // MLC-119 (BE-25) — один SaveChanges на все enlist'ленные SessionKilled-записи
+            // цикла (вместо N round-trip'ов под замком). При totalKills==0 не зовётся.
+            await _db.SaveChangesAsync(ct).ConfigureAwait(false);
             _metrics.AddKills(totalKills);
             LogKillSummary(_logger, totalKills);
         }

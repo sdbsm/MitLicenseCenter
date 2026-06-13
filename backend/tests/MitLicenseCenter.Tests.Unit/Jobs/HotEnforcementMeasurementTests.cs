@@ -157,5 +157,11 @@ public sealed class HotEnforcementMeasurementTests
             AuditActionType action, string initiator, string description,
             Guid? tenantId = null, AuditReason? reason = null, CancellationToken ct = default)
             => Task.CompletedTask;
+
+        public void Enlist(
+            AuditActionType action, string initiator, string description,
+            Guid? tenantId = null, AuditReason? reason = null)
+        {
+        }
     }
 }
