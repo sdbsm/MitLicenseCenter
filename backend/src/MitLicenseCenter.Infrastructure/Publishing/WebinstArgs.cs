@@ -34,8 +34,22 @@ internal static class WebinstArgs
     }
 
     // Строка соединения 1С для серверной ИБ: Srvr=<кластер>;Ref=<имя ИБ>;
-    public static string BuildConnStr(string clusterServer, string infobaseName) =>
-        $"Srvr={clusterServer};Ref={infobaseName};";
+    // MLC-118 (BE-07/SEC-13) — belt-and-suspenders: первичная защита от connstr-инъекции
+    // через Ref=<name> — валидация имени на входе (InfobaseValidationRules.IsConnStrSafeName),
+    // здесь — последний рубеж. Если имя всё же содержит «; = "», строку не собираем.
+    public static string BuildConnStr(string clusterServer, string infobaseName)
+    {
+        if (infobaseName is not null
+            && (infobaseName.Contains(';', StringComparison.Ordinal)
+                || infobaseName.Contains('=', StringComparison.Ordinal)
+                || infobaseName.Contains('"', StringComparison.Ordinal)))
+        {
+            throw new InvalidOperationException(
+                "Имя инфобазы содержит недопустимые для строки соединения символы (« ; », « = », « \" »).");
+        }
+
+        return $"Srvr={clusterServer};Ref={infobaseName};";
+    }
 
     // Аргументы публикации: webinst -publish -iis -wsdir <vdir> -dir <физ.путь> -connstr <connstr>
     public static IReadOnlyList<string> BuildPublish(Publication publication, string physicalDir, string connStr)

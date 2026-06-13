@@ -69,6 +69,28 @@ public sealed class WebinstArgsTests
         WebinstArgs.BuildConnStr("1c-srv", "Acme BP").Should().Be("Srvr=1c-srv;Ref=Acme BP;");
     }
 
+    // MLC-118 (BE-07/SEC-13) — belt-and-suspenders: имя с connstr-метасимволом «;»/«=»/«"»
+    // не должно собирать строку (первичная защита — валидация на входе). Валидные имена
+    // (без запрещённых символов) строят строку как раньше.
+    [Theory]
+    [InlineData("Acme;Ref=evil")]
+    [InlineData("Acme=evil")]
+    [InlineData("Acme\"quote")]
+    public void BuildConnStr_throws_on_connstr_metachars_in_name(string infobaseName)
+    {
+        var act = () => WebinstArgs.BuildConnStr("1c-srv", infobaseName);
+        act.Should().Throw<InvalidOperationException>();
+    }
+
+    [Theory]
+    [InlineData("Acme")]
+    [InlineData("Acme BP")]
+    [InlineData("Бухгалтерия")]
+    public void BuildConnStr_builds_for_safe_name(string infobaseName)
+    {
+        WebinstArgs.BuildConnStr("1c-srv", infobaseName).Should().Be($"Srvr=1c-srv;Ref={infobaseName};");
+    }
+
     [Fact]
     public void BuildPublish_produces_expected_flags()
     {

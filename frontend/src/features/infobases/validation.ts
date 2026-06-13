@@ -24,6 +24,38 @@ export const PHYSICAL_PATH_MAX_LENGTH = 260;
 
 export const STATUSES: InfobaseStatus[] = ["Active", "Maintenance", "Suspended"];
 
+// MLC-118 — предикаты безопасности символов, зеркальные backend'у
+// (InfobaseValidationRules: IsConnStrSafeName / IsSafeDatabaseName / IsSafeVirtualPath /
+// IsSafePhysicalPath). Проза-спека правил — docs/03_DOMAIN_MODEL.md (§1.1, §3.5).
+// Управляющие символы — U+0000–U+001F и U+007F (как char.IsControl на BE для ASCII-диапазона).
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHARS_PATTERN = /[\u0000-\u001f\u007f]/;
+
+// Infobase.Name → Ref=<name> строки соединения webinst: запрет «; = "» и control-символов.
+export function isConnStrSafeName(value: string): boolean {
+  const v = value.trim();
+  return !CONTROL_CHARS_PATTERN.test(v) && !/[;="]/.test(v);
+}
+
+// Infobase.DatabaseName → Path.Combine + SQL-идентификатор: запрет control, «..» и
+// служебных/path-метасимволов \ / : * ? " < > | ; ' [ ].
+export function isSafeDatabaseName(value: string): boolean {
+  const v = value.trim();
+  return !CONTROL_CHARS_PATTERN.test(v) && !v.includes("..") && !/[\\/:*?"<>|;'[\]]/.test(v);
+}
+
+// Publication.VirtualPath: запрет control, обратного слеша «\» и «..».
+export function isSafeVirtualPath(value: string): boolean {
+  const v = value.trim();
+  return !CONTROL_CHARS_PATTERN.test(v) && !v.includes("\\") && !v.includes("..");
+}
+
+// Publication.PhysicalPathOverride: запрет control, «..» и «; = "» (\ / : легитимны в абс. пути).
+export function isSafePhysicalPath(value: string): boolean {
+  const v = value.trim();
+  return !CONTROL_CHARS_PATTERN.test(v) && !v.includes("..") && !/[;="]/.test(v);
+}
+
 export function buildInfobaseFormSchema(t: (k: string) => string) {
   return z.object({
     tenantId: z
@@ -34,7 +66,9 @@ export function buildInfobaseFormSchema(t: (k: string) => string) {
       .string()
       .trim()
       .min(1, t("infobases.errors.nameRequired"))
-      .max(NAME_MAX_LENGTH, t("infobases.errors.nameTooLong")),
+      .max(NAME_MAX_LENGTH, t("infobases.errors.nameTooLong"))
+      // MLC-118 (BE-07/SEC-13): connstr-safe — без «; = "» и control-символов.
+      .refine(isConnStrSafeName, t("infobases.errors.nameInvalidChars")),
     clusterInfobaseId: z
       .string()
       .trim()
@@ -43,7 +77,9 @@ export function buildInfobaseFormSchema(t: (k: string) => string) {
       .string()
       .trim()
       .min(1, t("infobases.errors.databaseNameRequired"))
-      .max(DATABASE_NAME_MAX_LENGTH, t("infobases.errors.fieldTooLong")),
+      .max(DATABASE_NAME_MAX_LENGTH, t("infobases.errors.fieldTooLong"))
+      // MLC-118 (SEC-12/UX-11): без служебных/path-метасимволов и «..».
+      .refine(isSafeDatabaseName, t("infobases.errors.databaseNameInvalidChars")),
     status: z.enum(STATUSES),
     publication: z.object({
       siteName: z
@@ -55,16 +91,24 @@ export function buildInfobaseFormSchema(t: (k: string) => string) {
         .string()
         .trim()
         .min(1, t("publications.errors.virtualPathRequired"))
+        // MLC-118/FE-16: длина virtualPath теперь явно режется на форме.
+        .max(VIRTUAL_PATH_MAX_LENGTH, t("infobases.errors.fieldTooLong"))
         .startsWith("/", t("publications.errors.virtualPathLeadingSlash"))
-        .refine((v) => !/\s/.test(v), t("publications.errors.virtualPathNoSpaces")),
+        .refine((v) => !/\s/.test(v), t("publications.errors.virtualPathNoSpaces"))
+        // MLC-118 (SEC-11): без «\», «..» и control-символов.
+        .refine(isSafeVirtualPath, t("publications.errors.virtualPathInvalidChars")),
       platformVersion: z
         .string()
         .trim()
         .min(1, t("publications.errors.platformVersionRequired"))
+        // MLC-118/FE-16: длина platformVersion теперь явно режется на форме.
+        .max(PLATFORM_VERSION_MAX_LENGTH, t("infobases.errors.fieldTooLong"))
         .regex(PLATFORM_VERSION_PATTERN, t("publications.errors.platformVersionFormat")),
       physicalPathOverride: z
         .string()
         .max(PHYSICAL_PATH_MAX_LENGTH, t("publications.errors.physicalPathOverrideTooLong"))
+        // MLC-118 (SEC-11): без «..», «; = "» и control-символов (\ / : легитимны).
+        .refine(isSafePhysicalPath, t("publications.errors.physicalPathOverrideInvalidChars"))
         .optional(),
     }),
   });

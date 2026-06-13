@@ -479,14 +479,14 @@ public static partial class InfobasesEndpoints
         InfobaseStatus status)
     {
         var errors = new Dictionary<string, string[]>(StringComparer.Ordinal);
-        if (string.IsNullOrWhiteSpace(normalizedName))
-        {
-            errors[nameof(CreateInfobaseRequest.Name)] = ["Название инфобазы не может быть пустым."];
-        }
-        if (string.IsNullOrWhiteSpace(normalizedDbName))
-        {
-            errors[nameof(CreateInfobaseRequest.DatabaseName)] = ["Укажите имя БД."];
-        }
+        // MLC-118 — required/длина/символы Name и DatabaseName централизованы в
+        // InfobaseValidationRules (единый источник BE↔FE; тесты бьют по нему напрямую).
+        InfobaseValidationRules.AppendInfobaseFieldErrors(
+            errors,
+            nameof(CreateInfobaseRequest.Name),
+            nameof(CreateInfobaseRequest.DatabaseName),
+            normalizedName,
+            normalizedDbName);
         if (!Enum.IsDefined(status))
         {
             errors[nameof(CreateInfobaseRequest.Status)] = ["Недопустимый статус инфобазы."];
