@@ -7,7 +7,8 @@
     по $LASTEXITCODE; обход stderr-спама PowerShell 5.1). Шаги:
       1) если не -SkipPublish — гонит scripts\publish-release.ps1 (self-contained,
          single-file win-x64) → artifacts\<version>\backend;
-      2) ищет ISCC.exe (компилятор Inno Setup) по нескольким путям;
+      2) ищет ISCC.exe (компилятор Inno Setup): -IsccPath → $env:ISCC_PATH → PATH →
+         стандартные каталоги установки Inno Setup 6;
       3) вызывает ISCC с /DMyAppVersion и /DPublishDir, кладёт Setup.exe в -OutputDir;
       4) печатает путь и размер Setup.exe.
 
@@ -28,13 +29,18 @@
 .PARAMETER SkipPublish
     Не гонять publish-release.ps1 — переиспользовать готовый publish в
     artifacts\<version>\backend (быстрая пересборка только установщика).
+.PARAMETER IsccPath
+    Явный путь к ISCC.exe. Если задан и файл существует — используется в первую
+    очередь (до $env:ISCC_PATH и автопоиска). Альтернатива: переменная окружения
+    $env:ISCC_PATH.
 #>
 [CmdletBinding()]
 param(
     [ValidateSet('Debug','Release')]
     [string]$Configuration = 'Release',
     [string]$OutputDir,
-    [switch]$SkipPublish
+    [switch]$SkipPublish,
+    [string]$IsccPath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -68,14 +74,34 @@ function Resolve-AbsolutePath {
     return [System.IO.Path]::GetFullPath((Join-Path (Get-Location).Path $Path))
 }
 
-# Поиск компилятора Inno Setup. Порядок: PATH → per-user → 32-/64-bit Program Files.
+# Поиск компилятора Inno Setup.
+# Порядок резолва (REL-20, MLC-124):
+#   1. Параметр -IsccPath (явное указание при вызове скрипта)
+#   2. Переменная окружения $env:ISCC_PATH (CI / сборочная машина)
+#   3. PATH (Get-Command)
+#   4. Стандартные каталоги установки Inno Setup 6 (per-user и Program Files)
 function Find-Iscc {
+    param([string]$ExplicitPath)
+
+    # 1. Явный параметр -IsccPath
+    if (-not [string]::IsNullOrWhiteSpace($ExplicitPath)) {
+        if (Test-Path $ExplicitPath) { return $ExplicitPath }
+        throw "Указанный -IsccPath не найден: $ExplicitPath"
+    }
+
+    # 2. Переменная окружения ISCC_PATH
+    if (-not [string]::IsNullOrWhiteSpace($env:ISCC_PATH)) {
+        if (Test-Path $env:ISCC_PATH) { return $env:ISCC_PATH }
+        throw "ISCC_PATH задан, но файл не найден: $env:ISCC_PATH"
+    }
+
+    # 3. PATH
     $cmd = Get-Command 'ISCC.exe' -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Source }
 
+    # 4. Стандартные каталоги установки Inno Setup 6
     $candidates = @(
         (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe'),
-        "C:\Users\andre\AppData\Local\Programs\Inno Setup 6\ISCC.exe",
         (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
         (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe')
     )
@@ -143,7 +169,7 @@ Self-contained single-file публиш не содержит этих файл�
 Write-Host "Sanity-чек пройден: следов framework-dependent-режима не найдено." -ForegroundColor Green
 
 # --- Шаг 3: найти ISCC ---
-$iscc = Find-Iscc
+$iscc = Find-Iscc -ExplicitPath $IsccPath
 Write-Host ""
 Write-Host "==> ISCC: $iscc" -ForegroundColor Cyan
 

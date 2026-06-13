@@ -1,0 +1,70 @@
+name: Release
+
+# REL-12 (MLC-124): CI-гейт релизного пути (publish → ISCC → Setup.exe).
+# Запускается вручную или на push тега v* — тяжёлый job, не гоняется на каждый push.
+# ВАЖНО: GitHub Actions красный по биллингу (решение 2026-06-10); этот файл — авторинг,
+# вступает в силу при включении биллинга. Зелёный CI не входит в критерий приёмки MLC-124.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-installer:
+    name: Build installer (publish → ISCC → Setup.exe)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      DOTNET_NOLOGO: "true"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+      DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: backend/global.json
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.13"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Cache NuGet
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('backend/**/*.csproj', 'backend/Directory.Packages.props') }}
+          restore-keys: ${{ runner.os }}-nuget-
+
+      - name: Install Inno Setup 6
+        # choco доступен на windows-latest; ISCC.exe окажется в PATH после установки.
+        run: choco install innosetup -y --no-progress
+
+      - name: Build installer (publish-release + ISCC)
+        # Скрипт сам гонит publish-release.ps1 → ISCC.
+        # Успех нативных шагов внутри скрипта — по $LASTEXITCODE (PS 5.1).
+        shell: pwsh
+        run: scripts\build-installer.ps1
+
+      - name: Upload Setup.exe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MitLicenseCenter-Setup
+          path: artifacts\*\MitLicenseCenter-Setup-*.exe
+          if-no-files-found: error
+          retention-days: 30

@@ -1,0 +1,39 @@
+# REL-14/REL-21 (MLC-124): автоматические PR на обновление зависимостей.
+# Экосистемы: NuGet (backend), npm/pnpm (frontend), GitHub Actions (workflows).
+# Биллинг Actions красный (решение 2026-06-10) — dependabot создаёт PR в репо,
+# независимо от состояния Actions runner'ов.
+
+version: 2
+updates:
+  # NuGet — бэкенд
+  - package-ecosystem: nuget
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - backend
+
+  # npm/pnpm — фронтенд (dependabot читает pnpm-lock.yaml)
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - frontend
+
+  # GitHub Actions — workflows
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - ci
