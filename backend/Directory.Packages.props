@@ -27,7 +27,7 @@
     <PackageVersion Include="Swashbuckle.AspNetCore" Version="7.2.0" />
 
     <!-- Background jobs -->
-    <PackageVersion Include="Hangfire.Core" Version="1.8.18" />
+    <PackageVersion Include="Hangfire.Core" Version="1.8.23" />
     <PackageVersion Include="Hangfire.AspNetCore" Version="1.8.18" />
 
     <!-- Transitive pin (security): Hangfire.Core тянет Newtonsoft.Json 11.0.1 с известной
