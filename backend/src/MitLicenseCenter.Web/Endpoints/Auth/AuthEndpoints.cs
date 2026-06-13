@@ -22,7 +22,10 @@ public static class AuthEndpoints
             .HasApiVersion(new ApiVersion(1, 0))
             .WithTags("Auth");
 
-        group.MapPost("/login", LoginAsync).AllowAnonymous();
+        // MLC-125 (SEC-08) — per-IP rate limiting (10 req/min, ADR-42) поверх Identity-lockout
+        // (ADR-36). RequireRateLimiting("login") применяет политику "login" из AddRateLimiter.
+        // При флуде возвращает 429 до тела LoginAsync — аудит LoginFailed НЕ пишется.
+        group.MapPost("/login", LoginAsync).AllowAnonymous().RequireRateLimiting("login");
         group.MapPost("/logout", (Delegate)LogoutAsync).RequireAuthorization();
         group.MapGet("/me", MeAsync).RequireAuthorization();
         group.MapPost("/change-password", ChangePasswordAsync).RequireAuthorization();
