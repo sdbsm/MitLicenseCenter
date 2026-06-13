@@ -1,531 +1,680 @@
-# Operations Manual
+# Эксплуатация MitLicense Center
 
-This document covers tasks that live **outside** the MitLicense Center application — concerns the operator handles via platform tooling rather than in-app features. The application surface itself is documented in `docs/05_UI_REQUIREMENTS.md` and `docs/06_UI_DESIGN.md`.
+Руководство по повседневному обслуживанию: служба Windows, конфигурация,
+логи, диагностика отказов, бэкап/restore, права IIS, мониторинг.
 
-## Startup is fail-fast — the host never serves a half-initialized state
+---
 
-Bootstrap runs **synchronously before the host accepts traffic** ([ADR-18](DECISIONS.md#18-fail-fast-bootstrap)): the **database is created if it does not yet exist** (a raw `CREATE DATABASE` to `master`, an existing database is never touched), then EF Core migrations are applied, then roles and the first admin are seeded (`IdentitySeeder`), then the `dbo.Settings` catalog is seeded (`SettingsSeeder`). All of this happens before `app.Run()` binds the listener. If any step throws — unreachable / mis-configured database, a failed migration, an Identity error — the host logs a `Critical` line and the process **exits with a non-zero code without ever opening a port**. There is no "started but unusable" state: a running, listening process is a fully migrated and seeded one. **The database does not need to exist before first start** (MLC-106): point `ConnectionStrings:Default` at the instance and the panel creates the named database on first boot — the SQL principal needs `CREATE DATABASE` rights (`sysadmin`/`dbcreator`, already required for discovery/backups).
+## 1. Служба Windows
 
-Operationally this means:
+### Имя и идентификаторы
 
-- **A crash on startup is the expected signal of a bad database or config**, not a defect. Read the `Critical` log line: the stack trace names the failing step (`IdentitySeeder` → migrations, `SettingsSeeder` → settings catalog).
-- **The most common cause is the connection string.** `ConnectionStrings:Default` (domain + Identity + settings) and `ConnectionStrings:Hangfire` are both required and must point at a reachable SQL Server; a dead or wrong instance aborts startup. Hangfire's recurring-job registration also runs at startup and fails fast on the same dead connection.
-- **Run the host under a supervisor that surfaces the exit code** (Windows Service / IIS hosting / `sc.exe` / NSSM). A fail-fast exit should be visible and alert the operator, not be silently restarted into the same broken state.
-- **First-run admin password:** on the very first successful start against an empty database, `IdentitySeeder` creates the `admin` account. **If the operator set a password in the GUI installer wizard** (ADR-31, MLC-102), it is passed via the one-shot file `%ProgramData%\MitLicenseCenter\initial-admin.secret`: the seeder uses it, deletes the file, and logs only that an operator password was used (`EventId 1002`, no value) — so on an installer-driven install you sign in with the password you chose and the Event Log is **not** needed. **Otherwise** (dev, `db-reset`, manual deploy — no wizard ran) the seeder falls back to a random password written to the service log at `Warning` level (`EventId 1001`, same in Development and Production); capture it from the log on first boot and change it at first sign-in. The `.secret` file is transient (the seeder removes it on first start, and also deletes a lingering one if a user already exists).
+| Параметр | Значение | Источник |
+|---|---|---|
+| Имя службы (ServiceName) | `MitLicenseCenter` | `installer\MitLicenseCenter.iss`, строка `#define MyServiceName` |
+| Отображаемое имя | `MitLicense Center` | там же (`DisplayName`) |
+| Исполняемый файл | `<InstallDir>\MitLicenseCenter.Web.exe` | `#define MyExeName` |
+| Тип старта | Автоматический (`start= auto`) | `GetScCreateParams` в .iss |
+| Режим запуска | Windows-служба (`UseWindowsService`) | `Program.cs`, строка `builder.Host.UseWindowsService` |
 
-## Recovering admin access — `reset-admin` instead of a destructive reset
+Каталог установки по умолчанию: `%ProgramFiles%\MitLicense Center` (64-бит,
+`{autopf}` в Inno Setup).
 
-The first-run password is logged **once**. If it is lost and no one can sign in, **do not** reach for `scripts/db-reset.ps1` — that script **drops and recreates the database**, wiping every tenant, infobase, publication and audit row. Use the **`reset-admin`** utility instead: it resets an existing user's password **without touching any data**, through the same ASP.NET Identity `UserManager` the application uses, so the resulting hash and the password policy (length ≥ 12, upper/lower/digit/non-alphanumeric) are identical to a normal password change.
+### Управление службой
 
-The utility is a verb of the dev/test-only `MitLicenseCenter.Tools.PerfHarness` binary (not part of the production publish — the Web project does not reference it). Run it from the repository root:
+Команды выполняются с правами администратора **(не проверено на стенде)**:
 
 ```powershell
-# Generated password (printed to the console):
-scripts\reset-admin.ps1
+# Статус
+sc query MitLicenseCenter
+Get-Service MitLicenseCenter
 
-# Explicit password and/or a different user:
-scripts\reset-admin.ps1 -User admin -Password 'Choose-A-Strong-One!'
-
-# Also clear a lockout (5 failed sign-ins → 15-minute lockout):
-scripts\reset-admin.ps1 -Unlock
+# Запуск / остановка / перезапуск
+sc start MitLicenseCenter
+sc stop MitLicenseCenter
+Restart-Service MitLicenseCenter
 ```
 
-The wrapper invokes `dotnet run --project backend/tools/MitLicenseCenter.Tools.PerfHarness -- reset-admin …`; the same verb can be run directly. Flags: `--user` (default `admin`), `--password` (omit to generate a policy-compliant random one), `--unlock` (lift lockout + reset the failed-attempt counter), `--connection` (override the SQL connection string; defaults to the local instance, or the `ConnectionStrings__Default` env var).
+Через `services.msc`: найти «MitLicense Center», правая кнопка → Запустить / Остановить.
 
-Operationally:
+### Автозапуск и recovery
 
-- **The new password is printed to stdout only** (never to a file log sink), exactly like the first-run seeder — capture it from the console and change it at first sign-in.
-- **Data is preserved** — the command only rewrites the user's password hash (and, with `--unlock`, the lockout fields). Tenants, infobases and audit history are untouched.
-- **Exit codes:** `0` success · `2` user not found · `3` the chosen password fails the policy (the validation errors are printed). A non-zero exit means nothing was changed.
-- **On the production host** run the verb under the service account that owns the database and the key ring (the SQL connection and Data Protection paths must be reachable). On a dev box the wrapper sets `DOTNET_ENVIRONMENT=Development` so the local-profile key ring is used; the reset token is single-use and consumed in-process, so the key-ring location does not affect correctness.
+Автозапуск при загрузке сервера задаётся установщиком (`start= auto`).
+Recovery-политика (повтор после сбоя) в `.iss` явно **не настраивается** —
+используются дефолты Windows SCM (без повтора). Настроить через `sc failure`
+или `services.msc → Восстановление` оператор может вручную **(не проверено на стенде)**.
 
-## Deployment is manual — there is no deploy script
+### Зависимость от SQL Server
 
-Per [ADR-14](DECISIONS.md#14-cicd--github-actions-ci-only-no-cd-in-v1), v1 has CI only: **no deployment automation and no deploy script** ships in `scripts/`. `publish-release.ps1` is **packaging, not deployment** — it produces the installable artefact but never copies, stops, or starts anything on a host. Releasing a new version onto the single-node host (topology in `04_INFRASTRUCTURE.md`) is a manual operator procedure:
+Явная зависимость в SCM (`depend=`) в установщике **не прописана**. Служба
+стартует сама и при недоступном SQL падает с ошибкой в момент bootstrap
+(fail-fast: ADR-18): приложение применяет миграции, создаёт БД и засевает
+параметры до открытия трафика; сбой пишется в Журнал событий Windows (источник
+`MitLicenseCenter`) и процесс завершается с ненулевым кодом.
 
-1. **Build & verify** on a build machine — `scripts/build.ps1` (Release) restores, builds, tests and lints both backend and frontend. A red build is not deployed.
-2. **Publish the backend (SPA included)** — run `scripts/publish-release.ps1`, the repeatable wrapper over `dotnet publish` (used both by hand and by the future installer pipeline). By default it produces a **self-contained, single-file `win-x64`** artefact — the .NET 10 runtime is **embedded in `MitLicenseCenter.Web.exe`, so the host needs no .NET installed** — written to `artifacts\<version>\backend` (override with `-OutputDir`). For a host that already carries the .NET 10 runtime (ADR-12), `-FrameworkDependent` falls back to a smaller framework-dependent publish (no bundled runtime). **Trimming is not used** — EF Core / Hangfire / Identity are reflection-heavy and trimming breaks them. Either way the publish **also builds the frontend and lands it in `<OutputDir>\wwwroot\`** (ADR-30) — Kestrel serves the SPA itself, same-origin with the API, so there is **no separate static-site step and no IIS site for the panel page**. Publish-time precondition: **node ≥ 22.13 + pnpm 11** on the build machine (the publish runs `pnpm install --frozen-lockfile` + `pnpm build`); see "Backend hosts the SPA" below for the `-SkipSpaBuild` / `-PrebuiltSpaDist` opt-outs.
-3. **Stop the running backend** under its supervisor (Windows Service / NSSM — whatever wraps the host; see the fail-fast startup section above).
-4. **Copy artefacts** — replace the backend binaries with the new publish output (which already carries the SPA in `wwwroot/`). **Never overwrite** `appsettings.Production.json` or the Data Protection key ring under `%ProgramData%\MitLicenseCenter\keys\` (losing the key ring makes every secret in `dbo.Settings` unreadable — see below). The publish output **contains a template `appsettings.Production.json`** (placeholder `Server=YOUR-SQL-HOST`, hardened `Encrypt=True` / Swagger / `AllowedHosts` defaults — see "Transport hardening" below); on a redeploy **exclude it from the copy** so the operator-edited live file survives. On the very first deploy, copy it once and fill it in.
-5. **Back up first, then start.** Bootstrap is fail-fast: EF Core migrations and seeding run synchronously before the listener opens, so a schema upgrade is applied automatically on first start of the new version. **Take a database + key-ring backup before starting a version that carries migrations** — migrations are forward-only, so rollback of a schema change means restoring the pre-deploy backup. If migrations or seeding fail the process exits non-zero without serving; read the `Critical` log line, fix, and restart.
-6. **Smoke-check** — open the panel page at the backend origin (Kestrel serves the SPA), sign in, confirm the Dashboard RAS health card and the Sessions Monitor populate within ~30s.
+---
 
-Rolling back a release = redeploy the previous published artefacts; if the new version applied a migration, also restore the pre-deploy database backup (the app ships no down-migrations). Automating this procedure into a real `scripts/Deploy-MitLicenseCenter.ps1` is a deliberate future step tracked in the backlog, not a current artefact — CD intentionally waits until the deployment story stabilizes (ADR-14).
+## 2. Конфигурация в эксплуатации
 
-## Backend hosts the SPA (ADR-30)
+### appsettings.Production.json
 
-The backend (Kestrel) serves the built React SPA itself, same-origin with the API — **IIS is not needed to host the panel page** (IIS remains only for the managed 1C publications, two distinct roles; topology in `04_INFRASTRUCTURE.md` §3). This is the foundation of the GUI-installer track: the panel installs as **one Windows service**, no IIS site for the page.
-
-- **The release artefact is built by `scripts/publish-release.ps1`.** It wraps `dotnet publish` with the installer-ready flags: by default **self-contained, single-file `win-x64`** (`--self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true`), so the runtime is embedded and the host needs no installed .NET; `-FrameworkDependent` drops `-r`/`--self-contained`/single-file for a host that already has .NET 10. The single-file/self-contained flags live **in the script, not the csproj** — so ordinary `dotnet publish`, the inner loop, and the framework-dependent variant stay unaffected. **Trimming is deliberately off** (`PublishTrimmed` unset): EF Core / Hangfire / Identity are reflection-heavy and trimming breaks them.
-- **Build preconditions for `dotnet publish`.** Unless an opt-out is set (below), publish builds the frontend, so the build machine needs **node ≥ 22.13 + pnpm 11** (the same toolchain the frontend already requires — Tooling Constraints in `DECISIONS.md`). The publish runs `pnpm install --frozen-lockfile` + `pnpm build` and copies `frontend/dist` into `<OutputDir>\wwwroot\` via an `AfterTargets="Publish"` MSBuild target. Ordinary `dotnet build` / `dotnet test` and `dev.ps1` do **not** trigger this — the inner loop stays fast and needs no node/pnpm/`wwwroot`.
-  - `-SkipSpaBuild` (→ `-p:SkipSpaBuild=true`) — publish backend-only (empty `wwwroot`; the SPA route then returns `404`). For backend-only artefacts / CI where the page is not needed.
-  - `-PrebuiltSpaDist <path-to-dist>` (→ `-p:PrebuiltSpaDist=…`) — reuse an already-built `dist` **without invoking pnpm** (the SPA was built earlier in a CI / installer pipeline). The publish copies that folder into `wwwroot`.
-- **The SPA travels inside the artefact.** `<publish-dir>\wwwroot\` contains `index.html` + the hashed `assets\` — copy the publish output as one unit; there is no separate SPA copy step. (`backend/src/MitLicenseCenter.Web/wwwroot/` is git-ignored — it only exists in a publish output, never in the source tree.) The runtime host needs **no node** — the SPA is plain static files.
-- **Caching.** `index.html` is served `Cache-Control: no-cache, no-store, must-revalidate` (it references the hashed assets, so it must always be re-fetched to pick up a new build); the immutable `/assets/<hash>.*` are served by `UseStaticFiles` with long-lived caching. A browser hard-refresh is never required after a redeploy.
-- **Transport unchanged.** `Security:EnforceHttps` (and the rest of "Transport hardening" below) is untouched — static-file serving sits after the HSTS/redirect block and inherits whatever the operator configured. No CORS is involved (same-origin).
-- **Dev is unchanged.** `dev.ps1` still runs Vite on **:5173** (it proxies `/api` and `/hangfire` to the backend on :5080); the page is served by Vite in dev, not by Kestrel, and there is no `wwwroot` in a dev checkout.
-
-## GUI installer (ADR-31)
-
-The panel ships a GUI installer (`.exe` wizard, Inno Setup) that installs and upgrades the single-host deployment as **one Windows service** — no IIS site for the panel page (ADR-30). It packages the install/upgrade steps of the manual procedure above into a wizard; the manual procedure remains the fallback. It is **not** CD — the operator builds the `Setup.exe` and runs it on the host (ADR-14).
-
-- **Build it** on a build machine with `scripts/build-installer.ps1` (Release by default). The script (1) runs `publish-release.ps1` to produce the self-contained `win-x64` artefact in `artifacts\<version>\backend` (skip with `-SkipPublish` to reuse an existing publish), (2) locates `ISCC.exe` (PATH → `%LOCALAPPDATA%\Programs\Inno Setup 6` → `%ProgramFiles(x86)%` → `%ProgramFiles%`), (3) compiles `installer\MitLicenseCenter.iss`, and (4) prints the path + size of `MitLicenseCenter-Setup-<version>.exe` (default output `artifacts\<version>`). **Precondition:** Inno Setup 6 on the build machine — `winget install JRSoftware.InnoSetup` (plus the publish preconditions: node ≥ 22.13 + pnpm 11). Build-machine only — not a runtime dependency.
-- **Precondition — create the SQL principal first.** The installer **consumes** an account, it does not create one. Before running `Setup.exe`, create either (A) the **OS account** the service will run under, or (B) the **SQL login** the service will connect with, and give it rights on the SQL instance — `sysadmin` (as the panel already requires for backup/DMV, ADR-27; minimum = create + own the panel database). The wizard cannot provision this for you.
-- **Wizard steps.** After the standard welcome/destination pages the wizard asks for: (1) **SQL Server** — instance (default `.`) and database name (default `MitLicenseCenter`, auto-created on first start if absent); (2) **Authentication mode** — **(A) Windows authentication** (the service runs *under the named OS account* — a **Windows** account, `Trusted_Connection`) or **(B) SQL authentication** (the service stays LocalSystem and connects with a **SQL login**, e.g. `sa`, and password). **Pick (B) if your credential is a SQL login, (A) only if it is a Windows account** — choosing (A) with a SQL login fails service creation with error 1057 (see troubleshooting below). (3) **Credentials** — the account/login and password for the chosen mode, with a **"Проверить подключение"** button. Mode (B) runs a *full* connection test with the entered credentials (PowerShell `System.Data.SqlClient` → `master`); mode (A) tests *instance reachability* under the installer's own Windows identity and notes that the service account's own SQL rights are verified at first service start (look in the Event Log). **A passing test is required to continue.** (4) **Network** — TCP port (default `8080`, used for both `Urls=http://+:<port>` and the firewall rule) and `AllowedHosts` (default `*`, may be an FQDN); (5) **Administrator account** (clean install onto an empty database only) — the password for the first `admin` account, with confirmation, validated in-wizard against the Identity policy (≥12 chars + upper + lower + digit + special). This page is **skipped on upgrade** (the admin already exists) **and when the target database already holds a panel install** (see the existing-database note below). The finish page confirms you can sign in as `admin` with the password you chose and shows the panel URL `http://localhost:<port>/` (with an optional "open the panel" checkbox); it does **not** echo the password.
-- **Installing onto a database that already has a panel install.** "Clean install" (no service registered) is **not** the same as "empty database": the uninstaller never drops the SQL database, so a fresh `Setup.exe` run can target a database that still holds the previous install's accounts. When the wizard detects this (it probes the chosen database for users in `auth.Users` after the Network page), it **does not ask for an admin password** — it shows a one-time notice that the existing accounts are kept and the entered password will not be applied, then **skips** the admin-password page. Sign in with the **existing** credentials. To change the admin password on such a database, use `reset-admin` ("Recovering admin access" above) — or install onto a genuinely empty/new database, where the wizard collects the password and the seeder applies it. (The probe is fail-open: if the database is unreachable or not yet created, the wizard treats it as empty and the password page appears as normal.)
-- **What it installs.** Files into `{autopf}\MitLicense Center`; the service `MitLicenseCenter` running `MitLicenseCenter.Web.exe` (`start= auto`) **under the chosen OS account** (mode A, via `sc … obj= "<acct>" password= "…"`) or **LocalSystem** (mode B); `appsettings.Production.json` **generated from the wizard input** (connection strings per mode, `Urls=http://+:<port>`, `AllowedHosts`, `EnforceHttps=false`); an inbound firewall rule **"MitLicense Center"** allowing TCP on the chosen port; and the key-ring directory `%ProgramData%\MitLicenseCenter` (mode A additionally gets an `icacls` `Modify` grant for the OS account). It requires admin (UAC elevation). **The SQL/OS-account password is stored plaintext** — in the connection string inside `appsettings.Production.json` (mode B) and in the SCM service config (mode A). The protection is the file/`{app}` ACL, the same posture as dev; the Data Protection key ring encrypts `dbo.Settings`, **not** the connection string. If "Log on as a service" was not granted automatically and the service fails to start under the OS account, grant it via `secpol.msc` (Local Policies → User Rights Assignment → *Log on as a service*).
-- **Upgrade (re-run the new `Setup.exe` over the existing install).** A fixed `AppId` detects the install. The wizard **stops the service and waits** for it to stop (`PrepareToInstall`) so the locked `.exe` can be replaced, copies the new files, re-applies the chosen service account and firewall port (`sc config` / `netsh` — re-confirm them in the wizard), and starts the service again. **Preserved across upgrade:** `appsettings.Production.json` (excluded from the bulk copy; on upgrade the wizard's config writer **skips it when it already exists**, so your edits survive — on a *clean* install it is always (re)written from the wizard input, so a stale config from a previous install never lingers), the Data Protection key ring under `%ProgramData%\MitLicenseCenter` (never deleted), and the SQL database. On start, EF migrations apply **fail-fast** (ADR-18): a schema upgrade is applied synchronously or the service exits without serving — **take a database + key-ring backup before upgrading a version that carries migrations** (forward-only; rollback = restore the backup).
-- **Start menu + install log.** A clean install drops a Start-menu shortcut **"MitLicense Center"** (`{commonprograms}\MitLicense Center\MitLicense Center.url`) that opens the panel at `http://localhost:<port>/` in the default browser; it is removed on uninstall. The setup also keeps an **install log** (`SetupLogging=yes`) in the temp directory — useful when an install/upgrade misbehaves at the operator's site (find the most recent `Setup Log*.txt` under the user's `%TEMP%`).
-- **Uninstall** stops and deletes the service, removes the firewall rule, and removes the Start-menu shortcut. It then **asks whether to delete the config and encryption keys** in `%ProgramData%\MitLicenseCenter` — the prompt **defaults to No (keep)**: keeping them lets a reinstall reuse the key ring, while deleting them means the secrets in `dbo.Settings` can no longer be decrypted (do that only if the database is being decommissioned too — key ring + DB are one backup unit). The uninstaller **never touches the SQL database**: to fully remove the deployment, drop the database by hand (and answer "Yes" to the key-deletion prompt, or delete `%ProgramData%\MitLicenseCenter` manually) after confirming no other use of the key ring.
-- **Diagnosing service start.** The backend runs service-aware (`UseWindowsService`, ADR-31), so under the service its logs go to the **Windows Event Log** (Application source `MitLicenseCenter`), not a console. If the service fails to start or stops immediately, look there first: fail-fast bootstrap (ADR-18) writes a `Critical` entry explaining why it refused to serve (e.g. SQL unreachable, pending migration error). On an **installer-driven** first run the admin password is the one you set in the wizard — the Event Log is **not** needed for it (the seeder uses the one-shot `%ProgramData%\MitLicenseCenter\initial-admin.secret` file and deletes it, logging only `EventId 1002` without the value); only on a **non-installer** first run against a fresh database (no `.secret` file) is a random **initial `admin` password** emitted to the same log (`EventId 1001`). (If `sc start` itself times out with error 1053 the binary is not service-aware — but the shipped build always calls `UseWindowsService`, so that points to running a wrong/old `.exe`.)
-- **No code-signing** (ADR-31) — SmartScreen warns on first run of the unsigned `Setup.exe`; choose "More info → Run anyway". Accepted for LAN distribution.
-
-## Backup is operator responsibility
-
-Per [ADR-15](DECISIONS.md#15-backup-and-two-factor-authentication-scope-boundary), the application does not orchestrate its own backups. The operator is responsible for backing up three artefacts:
-
-| Artefact | Path | Notes |
-| --- | --- | --- |
-| MSSQL database | `MitLicenseCenter` (default catalog name on the SQL Server instance) | Standard `BACKUP DATABASE` / Maintenance Plan / Veeam / etc. Full + differential + transaction-log cadence per the operator's RPO. |
-| Data Protection key ring | `%ProgramData%\MitLicenseCenter\keys\` | **CRITICAL.** Without these keys, a restored database **cannot decrypt** its own `dbo.Settings` rows (1C cluster admin password, future RAS credentials). Back up at the same cadence as the database. |
-| Application config (optional) | `appsettings.Production.json` next to the deployed binary | Only required if it carries environment-specific settings the operator wants preserved. Most deployments keep runtime config in `dbo.Settings` instead. |
-
-### Recommended tooling
-
-- **MSSQL:** SQL Server Maintenance Plan (works on Express via the standalone Backup utility), Veeam, or Windows Server Backup. Schedule full + differential + transaction-log per the deployment's recovery objective. **Run a periodic restore drill against a non-production instance** — backups that have not been restored are not backups.
-- **Key ring + config:** Robocopy + Windows Task Scheduler (or any file-level backup tool) at the same cadence as the database. Veeam or Windows Server Backup also work; pick whichever is already running elsewhere in the environment.
-
-### Hard warning — key ring and database must be restored together
-
-The key ring and the database form **one logical backup unit**. A database backup without its matching key ring backup is an **unreadable** database: every `IsSecret=true` row in `dbo.Settings` was encrypted with the keys in `%ProgramData%\MitLicenseCenter\keys\`, and there is no recovery path without them.
-
-If the key ring is ever lost without a backup, the operator must re-enter every secret setting through the «Параметры» admin UI (currently: 1C cluster admin password; in the future: RAS credentials, any new secret added to the Settings catalog). The non-secret rows (URLs, intervals, paths) are unaffected — they live in `ValueText` as plaintext.
-
-## Authentication is delegated to the network edge
-
-Per [ADR-15](DECISIONS.md#15-backup-and-two-factor-authentication-scope-boundary) and [ADR-7](DECISIONS.md#7-admin-authentication), the application performs username + password + HttpOnly cookie session authentication and nothing more. Secondary factor protection is the responsibility of the deployment environment:
-
-- **Network reachability:** LAN-only or VPN. The application's HTTPS endpoint must not be exposed to the public internet.
-- **Perimeter:** firewall rules limiting source IPs to the operator network / VPN concentrator.
-- **Identity:** AD / SSO authentication at the network edge if the environment uses it.
-- **Physical:** restricted physical access to the operator workstations from which the panel is reached.
-
-If the deployment cannot satisfy these network-level controls, the operator should re-evaluate whether the panel is being used in its intended environment (internal 1C-hosting operator station) before requesting in-app 2FA — ADR-15 makes the latter explicitly off-limits without a deliberate revocation.
-
-## Transport hardening — HTTPS, SQL encryption, Swagger, AllowedHosts
-
-The shipped defaults in `appsettings.json` are tuned for **local development** (plain HTTP, a local SQL instance without a TLS certificate, browsable Swagger). Production hardening lives in **`appsettings.Production.json`** — the environment-specific file ASP.NET Core loads when `ASPNETCORE_ENVIRONMENT=Production`. It ships as a **template you edit on first deploy and never overwrite on redeploy** (same rule as the deployment section above). Every knob can also be supplied via environment variables (double-underscore form, e.g. `Security__EnforceHttps=true`, `ConnectionStrings__Default=…`), which override the file. The settings are config-gated rather than always-on by design ([ADR-22](DECISIONS.md#22-transport-hardening-is-config-gated)).
-
-### HTTPS redirect + HSTS — `Security:EnforceHttps` (default `false`)
-
-The app forces HTTPS (redirect `http→https` + an HSTS header) **only** when `Security:EnforceHttps=true`, and **never in Development**. Which value is correct depends on **who terminates TLS** — pick by your topology:
-
-- **Behind a terminating TLS reverse proxy** (IIS with ARR / Nginx / Caddy in front): the proxy holds the certificate, speaks HTTPS to the browser, and forwards plain HTTP to the app on `localhost`. The **proxy** does the redirect and HSTS. **Leave `EnforceHttps=false`** — if the app also redirects it double-works and can loop (the app on `localhost` only ever sees HTTP and cannot tell TLS was already terminated upstream).
-- **No proxy — Kestrel terminates TLS itself** (e.g. a direct port-forward to the service): first configure an **HTTPS endpoint with a certificate on Kestrel** (`Kestrel:Endpoints` / `ASPNETCORE_URLS=https://…` + a cert), **then** set `EnforceHttps=true` so the app redirects and emits HSTS. **Do not** set it `true` without a configured HTTPS listener — the redirect target would not answer and the panel becomes unreachable.
-
-HSTS is **sticky**: once a browser sees the header it refuses plain HTTP for the max-age window even if HTTPS later breaks. Enable it only once HTTPS is solidly in place. The auth cookie is already `Secure=Always` outside Development (ADR-7) independently of this flag.
-
-> Reminder (ADR-15, "Authentication is delegated to the network edge" above): this panel is meant for a **LAN/VPN** perimeter and must not be exposed to the public internet. A raw port-forward to the internet is the wrong topology — prefer VPN. `EnforceHttps` hardens the transport; it does not make public exposure acceptable.
-
-### SQL channel encryption — `Encrypt=True` in production
-
-The base `appsettings.json` connection strings carry `Encrypt=False` so **local development against a local SQL instance with no TLS certificate keeps working**. The `appsettings.Production.json` template flips both `ConnectionStrings:Default` and `ConnectionStrings:Hangfire` to **`Encrypt=True`**, encrypting the client↔SQL channel. `TrustServerCertificate=True` is kept because on the single-node host SQL typically presents a self-signed certificate — this **encrypts the channel but skips certificate-chain validation**, which is acceptable when SQL is reachable only at `localhost`. To validate the chain too, install a trusted certificate on the SQL instance and set `TrustServerCertificate=False`. Fill the placeholder `Server=YOUR-SQL-HOST` (and switch `Trusted_Connection` to a SQL login if the service account is not used) before first Production start — a wrong/unreachable connection string aborts the fail-fast bootstrap (see the startup section).
-
-### Swagger UI — `Security:EnableSwagger` (default `false` outside Development)
-
-Swagger UI at `/api/docs` exposes the full API map. It is served **always in Development** (it is the browsable reference contract the hand-written TS types are synced against — [ADR-10.1](DECISIONS.md#adr-101--hand-written-typescript-api-types-no-openapi-codegen)) and **closed in Production by default**. Set `Security:EnableSwagger=true` to reopen it on the internal admin-only perimeter if you need it for debugging.
-
-### `AllowedHosts` — narrow it in production
-
-The base default `*` (accept any `Host` header) is fine for dev. The production template narrows it to the panel's hostname (`panel.example.local`) — set it to the real FQDN(s) the panel answers on (comma-separated for several). This is a defense-in-depth Host-header filter on top of the network perimeter.
-
-## RAS adapter setup
-
-The 1C cluster is administered exclusively through RAS via `rac.exe` ([ADR-16](DECISIONS.md#16-ras-as-sole-1c-cluster-adapter)). To bring the adapter online:
-
-1. **Confirm `rac.exe` is installed.** On 1C 8.5 it lives at `C:\Program Files\1cv8\<version>\bin\rac.exe` (the legacy `1cv8\common\` path no longer ships it).
-2. **Confirm `ras.exe` is running as a Windows service** (`localhost:1545` by default); install via `racsvc.exe -instsrvc` if needed.
-3. **Grant the backend service account Read+Execute** on `1cv8\<version>\bin\`. `Network Service` is sufficient on stock installs; locked-down accounts may need an explicit ACL grant.
-4. In the «Параметры» admin UI set `OneC.RAS.ExePath` to the version-specific `rac.exe` path (no seeded default), verify `OneC.RAS.Endpoint` (`localhost:1545`), and set `OneC.Cluster.AdminUser` / `OneC.Cluster.AdminPassword` (leave both empty for a cluster with no registered administrators — `rac.exe` runs anonymously).
-5. On the Dashboard the RAS health card should flip to `OK` within 30s. If it stays `Сбой`, open "детали ошибки" for the `rac.exe` stderr — usually a wrong `OneC.RAS.ExePath`, `ras.exe` not running, or missing ACLs. The Sessions Monitor resumes from the next reconciliation cycle (≤ 30s).
-
-> **Session time zone.** `rac.exe` reports `started-at` in the **server's local time** (no offset). The backend interprets it in the host's local time zone and converts to UTC, so session durations are correct only when the backend and the 1C/RAS cluster share one time zone — the v1 single-Windows-Server assumption. A backend host in a different zone than the cluster would skew durations by the offset.
-
-## IIS publishing — required permissions
-
-The panel reads IIS state through `Microsoft.Web.Administration` (`ServerManager`) for the read-only status refresh (Hangfire cron `*/5 * * * *`) and the on-demand «Проверить сейчас». It also **writes** publication files for two explicit actions: «Опубликовать» runs `webinst.exe` (per platform version), and «Сменить платформу» rewrites `web.config`.
-
-`new ServerManager()` reads `%windir%\system32\inetsrv\config\applicationHost.config` and `redirection.config`, both ACL'd to `Administrators` / `SYSTEM`. The panel's process identity therefore **must** be privileged:
-
-- **Development** — run the backend from an **elevated** PowerShell. `scripts/dev.ps1` now launches the backend window with a UAC prompt by default (pass `-NoElevate` to skip when you are not touching IIS).
-- **Production** — the service account / IIS app-pool identity hosting the panel must be a member of local `Administrators`, **or** be granted explicit Read on `%windir%\system32\inetsrv\config\`, plus Read/Write on the publication folders (holding `default.vrd` / `web.config`, required for platform change) and **Execute** on `…\1cv8\<version>\bin\webinst.exe` for every published platform version. The cluster address for `webinst -connstr` is derived from the host of `Settings.OneC.RAS.Endpoint` (single-host, ADR-28 — the 1C cluster and RAS share the host); there is no separate cluster-address setting.
-
-**Symptom of insufficient permissions:** every publication shows status «Ошибка проверки» (`Error`), and `dbo.Publications.LastCheckDetails` (visible on hover over the status badge on the «Публикации» page) reads `Не удалось проверить публикацию: … redirection.config … отсутствия необходимых разрешений`.
-
-### IIS lifecycle management — additional permissions (MLC-047)
-
-The «Управление IIS» block (recycle/start/stop a pool, start/stop/restart a site, full `iisreset`) needs more than read access to the metabase:
-
-- **Pool / site commands** (`ServerManager.ApplicationPool.Recycle/Start/Stop`, `Site.Start/Stop`) require the same IIS-admin rights as the metabase reads above (local `Administrators`, or the equivalent IIS configuration write rights) — the local `Administrators` membership already covers them.
-- **`iisreset`** (restart / `/stop` / `/start`) runs `…\System32\iisreset.exe`, which **stops and starts the `W3SVC` and `WAS` Windows services** — this requires service-control rights on those services. Local `Administrators` has them; a narrowly-scoped service account may not, in which case grant start/stop on `W3SVC`/`WAS` explicitly.
-- **Blast radius.** `iisreset` (and stopping a shared site/pool) interrupts **every** site on the server, not just 1C publications. If the panel itself is hosted on the same IIS, an `iisreset` will briefly take the panel offline too — the confirmation dialog warns about this. Operations are serialized server-side (one at a time).
-
-### Bulk publish / change-platform (MLC-046)
-
-The «Публикации» page lets an admin select several publications and publish or change-platform them as a batch. Operationally:
-
-- **It is the same single operations, repeated.** A batch fires N idempotent calls to the per-publication endpoints; there is no separate bulk path. Audit, the overwrite gate, and status refresh behave exactly as for a single action.
-- **Throughput.** `webinst` spawns are capped at 3 concurrent server-side (`IWebinstConcurrencyGate`), and the UI runs the batch through a matching small pool. A batch of ~100 publications therefore takes on the order of tens of minutes (≈ 60s per `webinst`, three at a time); change-platform is far faster (a `web.config` edit). The progress dialog shows live per-publication status and a final «успешно / с ошибкой / пропущено» summary.
-- **The run is bound to the open browser tab** (like watching a deploy). Closing the tab or losing the network stops scheduling new items; the server keeps finishing any in-flight `webinst`. Because re-publish is idempotent and a now-`Webinst` publication no longer trips the overwrite gate, a partial run is safely finished by re-selecting the still-failed/unprocessed rows and running again — the dialog leaves successful items deselected for exactly this.
-- **Unattended / scheduled mass-publish is not supported** by design (would need the deferred Hangfire-job model, ADR-4). For now, run bulk operations interactively.
-
-## Быстродействие — required permissions
-
-The «Быстродействие» section attributes host load to process families (1С `rphost`/`ragent`/`rmngr` vs MSSQL vs OS-update vs antivirus vs other). For each process the probe (`OneCHostMetricsProbe`, MLC-064 / ADR-26) reads CPU time and working set via `System.Diagnostics.Process`. Reading a process owned by **another account** requires the backend process to be privileged.
-
-The backend that serves IIS already runs **elevated / as a local-`Administrators` service account** (see «IIS publishing — required permissions» above), so on a normal production install attribution is complete and no action is needed.
-
-**Symptom of insufficient permissions:** the start screen shows an amber banner «Недоступно процессов: N. … запустите backend с правами администратора», and the «Кто потребляет» attribution collapses toward «Прочее» (the backend can read its own processes but not the 1С/SQL service-account ones). This happens when the backend runs **non-elevated** — e.g. `scripts/dev.ps1 -NoElevate`, or a production service account that is neither in local `Administrators` nor granted the right to query other accounts' processes.
-
-- **Development** — run the backend from an **elevated** PowerShell (`scripts/dev.ps1` elevates by default; the banner appears only when you pass `-NoElevate`).
-- **Production** — the same local-`Administrators` membership that the IIS metabase reads require also covers reading other accounts' process metrics; no extra grant is needed beyond the IIS-publishing requirements.
-
-The count **excludes the kernel pseudo-processes Idle / System**, which are unreadable on every host regardless of privilege — so a correctly-elevated backend reports `0` inaccessible and the banner stays hidden.
-
-### SQL drill-down — `VIEW SERVER STATE` (MLC-068)
-
-The «1С грузит SQL?» drill-down (`GET /api/v1/performance/sql`, `SqlPerformanceProbe` / ADR-26) reads MSSQL dynamic-management views (`sys.dm_exec_requests`, `sys.dm_os_wait_stats`, `sys.dm_io_virtual_file_stats`, `sys.dm_exec_sql_text`). The probe connects with the account from `ConnectionStrings:Default` and `master` (single-node: the panel DB and the 1C infobase databases share one MSSQL instance). Reading server-scoped DMVs requires the **`VIEW SERVER STATE`** server permission.
-
-- **Symptom of the missing right:** the SQL drill-down shows a degraded banner (the response carries `status = "PermissionDenied"`) and no rows — the probe does not silently return an empty «всё спокойно».
-- **Grant (production):** `GRANT VIEW SERVER STATE TO [<login>];` for the **specific** login the backend runs under — not via a Windows group. A grant that arrives through `BUILTIN\Administrators` can be lost to UAC token-filtering when the backend runs without elevation, so an explicit per-login grant is the reliable path (MLC-063).
-- **Development / co-located prod where the backend account is `sysadmin`:** `VIEW SERVER STATE` is implied — no action needed.
-- **Unreachable SQL / unset connection string** surfaces as `status = "Unavailable"`, distinct from the permission case.
-
-## Бэкап — required permissions
-
-The on-demand database backup ([ADR-27](DECISIONS.md#27-on-demand-sql-database-backup-operator-initiated-copy_only), `SqlBackupAdapter` / 04 §8) runs entirely **server-side**: `BACKUP DATABASE … WITH COPY_ONLY` plus the file operations `xp_create_subdir` (per-database subfolder), `xp_fixeddrives` (free-space check) and `xp_delete_file` (keep-latest replacement and retention). The `xp_*` procedures require the **sysadmin** server role — `db_backupoperator` alone covers `BACKUP` but not the file operations.
-
-- **Grant (production):** make the panel's SQL login (the account from `ConnectionStrings:Default`) a member of `sysadmin` on the instance: `ALTER SERVER ROLE [sysadmin] ADD MEMBER [<login>];`. As with `VIEW SERVER STATE` above, grant the **specific login**, not a Windows group — a membership arriving through `BUILTIN\Administrators` can be lost to UAC token-filtering.
-- **Symptom of missing rights:** the backup fails immediately with the typed reason `PermissionDenied` («Учётной записи панели не выдана серверная роль sysadmin…») — an honest degraded signal, not a 500 (same pattern as the «Быстродействие» permission banners above).
-- **Backup folder (`Settings.Backup.FolderPath`)** must be a path on a **local disk of the SQL host** (e.g. `D:\Backups`) — the free-space check uses `xp_fixeddrives`, which lists only local drives; a UNC or relative path is rejected with an explicit error before anything runs. There is no seeded default: until the operator sets the key, backups are unavailable. The files are written by the **SQL Server service account** (not the panel's login) — `xp_create_subdir` creates the folders under that same account, so a default install needs no extra NTFS grants.
-- **Disk guard:** a backup starts only when free space ≥ the database's used-data estimate + `Settings.Backup.DiskSafetyMarginMb` (default 2048). If the estimate cannot be obtained, the backup **refuses to start** (`EstimateUnavailable`) rather than guessing.
-- **Layout & replacement:** one subfolder per database under the root, holding the latest `.bak` (`<база>_yyyyMMdd_HHmmss.bak`). A new backup replaces the previous file only **after** `RESTORE VERIFYONLY WITH CHECKSUM` passes — a failed backup never deletes the existing one. `Settings.Backup.TtlHours` (default 24) bounds how long backup files are kept.
-- **`COPY_ONLY` by design:** the panel's backup never resets the differential base, so it is safe to use alongside an external full+diff maintenance plan — it cannot break the operator's chain.
-
-## Сбор истории использования лицензий (`MLC-048`, ADR-25)
-
-Фундамент раздела «Отчёты»: панель копит time-series потребления лицензий клиентами.
-
-- **Каденция съёма ≈25 с.** Замер делается внутри cold-цикла `ReconciliationJob`
-  (троттл `Polling.ColdIntervalSeconds`, деф. 25 с) — переиспользует уже посчитанное
-  потребление цикла, **нового спавна `rac.exe` не добавляет** (бюджет ADR-3.3 не растёт).
-  Это ~36 замеров на 15-минутный бакет; в БД (`dbo.LicenseUsageSnapshots`) пишется один
-  агрегат на клиента за бакет (min/max/avg + лимит), не каждый замер.
-- **Данные появляются только после релиза сбора.** История не реконструируется задним
-  числом — график наполняется с момента, когда заработал cold-цикл с этой версией; на
-  свежей БД первые строки появятся после пересечения двух 15-минутных границ.
-- **Потеря текущего частичного бакета при рестарте — норма.** Накопление открытого бакета
-  живёт в памяти процесса; рестарт/редеплой теряет ещё не закрытый бакет (флаша на
-  graceful shutdown нет). Для телеметрии это допустимо (best-effort) — закрытые бакеты уже
-  в БД, теряется максимум последние <15 мин.
-- **Ретеншен** — `Settings.LicenseUsage.RetentionDays` (деф. 365, диапазон 30–3650),
-  настраивается оператором на странице «Параметры». Ночная джоба `license-usage-retention`
-  (03:30 UTC, фиксировано) удаляет замеры старше окна батчами; в аудит не пишет
-  (housekeeping). Смещена от `audit-retention` (03:00), чтобы ночные чистки не пересекались.
-- **Чтение** — собранный ряд отдаётся read-API `GET /api/v1/reports/license-usage[/{tenantId}]`
-  (Viewer): сводка по всем клиентам (сумма по тенантам на бакет, осиротевшие замеры
-  включены) и drill-down одного клиента. Диапазон `from`/`to` дефолтит на последние 7 дней,
-  кламп ширины — 31 день. Контракт — `03_DOMAIN_MODEL.md` §«Persistence & API Contracts».
-
-## Проверки готовности — liveness vs readiness (`MLC-040` / PERF-04)
-
-Два анонимных эндпоинта с разной семантикой и ценой:
-
-| Эндпоинт | Назначение | Что проверяет | Коды |
-| --- | --- | --- | --- |
-| `GET /api/v1/health` | **liveness** — процесс жив | ничего (дёшев, без зависимостей) | всегда `200` `{status, version, utcNow}` |
-| `GET /api/v1/health/ready` | **readiness** — зависимости готовы | БД, RAS, Hangfire-сторадж | `200` (`ready`/`degraded`) · `503` (`not_ready`) |
-
-Тело readiness санитизировано (анонимный вызов — без путей/имён серверов/текстов исключений,
-[ADR-4.1](DECISIONS.md) / MLC-009; полные детали сбоя пишутся в журнал сервера):
+Файл генерируется установщиком в каталоге установки. Пример структуры
+(из шаблона `WriteProductionConfig` в `installer\MitLicenseCenter.iss`):
 
 ```json
-{ "status": "ready|degraded|not_ready",
-  "utcNow": "…",
-  "checks": { "database": "ok|down", "ras": "ok|degraded|unknown", "hangfire": "ok|down" } }
+{
+  "ConnectionStrings": {
+    "Default":  "Server=<инстанс>;Database=<БД>;Trusted_Connection=True;...",
+    "Hangfire": "Server=<инстанс>;Database=<БД>;Trusted_Connection=True;..."
+  },
+  "Urls": "http://+:8080",
+  "Security": {
+    "EnforceHttps": false,
+    "EnableSwagger": false
+  },
+  "AllowedHosts": "*"
+}
 ```
 
-- **БД** (`CanConnectAsync`, под таймаутом 2с) — единственная зависимость, гейтящая
-  `not_ready`/`503`. Используйте код ответа в LB/мониторинге.
-- **RAS** — читается готовый снапшот `IRasHealthReader` (тот же 30с-пробер, что и карточка
-  Dashboard): `ok` / `degraded` (Сбой) / `unknown` (первые 30с). Readiness **не** делает новый
-  спавн `rac.exe` — счётчик `rac.exe.spawns` от health-запросов **не растёт** (растёт только от
-  фонового пробера). Это проверяется в DoD через `dotnet-counters` (см. ниже).
-- **Hangfire-сторадж** (`GetStatistics()`, под таймаутом 2с) — `ok` / `down`.
-- RAS-`Сбой` и Hangfire-`down` дают `degraded`, но остаются на `200`: single-node не имеет
-  смысла снимать из ротации из-за RAS — это уронит и сам Dashboard, где оператор видит ошибку.
+Ключевые поля:
 
-## Наблюдаемость перфа — метрики горячего пути (`dotnet-counters`)
+| Поле | Назначение |
+|---|---|
+| `ConnectionStrings.Default` | Основная строка подключения к SQL Server |
+| `ConnectionStrings.Hangfire` | Строка подключения для Hangfire (можно ту же БД) |
+| `Urls` | Адрес прослушивания Kestrel (по умолчанию `http://+:8080`) |
+| `Security.EnforceHttps` | `true` только если Kestrel сам терминирует TLS без реверс-прокси |
+| `Security.EnableSwagger` | `true` для отладки на внутреннем периметре (по умолчанию off) |
+| `AllowedHosts` | Фильтр допустимых имён хоста (`*` — любой) |
 
-Горячий путь (спавны `rac.exe` и цикл согласования) инструментирован встроенным
-`System.Diagnostics.Metrics` (MLC-037 / PERF-01). Никаких внешних телеметрических систем
-([ADR-15](DECISIONS.md#15-backup-and-two-factor-authentication-scope-boundary)) — метрики
-снимаются локально утилитой **`dotnet-counters`**. Без активного слушателя метрики имеют
-near-zero overhead (инструменты no-op, теги не вычисляются), поэтому их можно держать в проде
-всегда — а снимать только когда нужно подтвердить спавн-бюджет
-([ADR-3.3](DECISIONS.md#33-rac-cli-spawn-contract)) или латентность цикла.
+ACL файла ужесточены установщиком: только SYSTEM и Administrators получают
+доступ (plaintext-пароль SQL при режиме B). При изменении файла вручную
+перезапустите службу.
 
-### Инструменты
+#### Транспортная защита (`Security:EnforceHttps`)
 
-**Meter `MitLicenseCenter.Rac`** (единственная точка спавна — `SystemProcessRacRunner`):
+Логика определяется `TransportSecurity.cs`:
 
-| Инструмент | Тип | Единица | Теги | Что меряет |
-| --- | --- | --- | --- | --- |
-| `rac.exe.spawns` | Counter | `{spawn}` | `command` | каждый спавн процесса `rac.exe` (полный спавн-бюджет, включая health-ping) |
-| `rac.exe.invocation.duration` | Histogram | `ms` | `command`, `outcome` | длительность одного вызова `rac.exe` |
+```
+ShouldEnforceHttps = !isDevelopment && config["Security:EnforceHttps"] == true
+```
 
-- `command` ∈ `cluster.list` / `session.list` / `session.terminate` / `infobase.summary.list` / `other`.
-- `outcome` ∈ `ok` (exit 0) / `failed` (exit ≠ 0) / `timeout` (локальный 30s-дедлайн).
+**Сценарий 1 — реверс-прокси (nginx/IIS ARR) терминирует TLS:**
+`Security:EnforceHttps = false` (значение по умолчанию). HTTPS-редирект и
+HSTS выполняет сам прокси; дублировать их в Kestrel нельзя — иначе
+возникают двойные редиректы.
 
-**Meter `MitLicenseCenter.Reconciliation`** (цикл согласования):
+**Сценарий 2 — Kestrel сам терминирует TLS** (сертификат задан в `Urls`
+или Kestrel-конфиге):
+`Security:EnforceHttps = true`. Kestrel добавляет HTTPS-redirect middleware
+и выставляет HSTS-заголовок.
 
-| Инструмент | Тип | Единица | Что меряет |
-| --- | --- | --- | --- |
-| `reconciliation.cold.duration` | Histogram | `ms` | длительность успешного cold-цикла (`ReconciliationJob`) |
-| `reconciliation.hot.duration` | Histogram | `ms` | длительность hot-поллинга RAS-fetch (`HotTierPollingService`) |
-| `reconciliation.kills` | Counter | `{session}` | число завершённых сессий за цикл enforcement (rate ≈ kills/мин) |
-| `reconciliation.hot_tenants` | ObservableGauge | `{tenant}` | текущее число hot-тенантов |
+> **Предупреждение про «липкий» HSTS.** Если `EnforceHttps = true` и браузеры
+> уже получили HSTS-заголовок (`Strict-Transport-Security`) — они запоминают
+> его на весь `max-age` (по умолчанию ASP.NET Core — 30 дней). После
+> отключения HTTPS (например, при смене схемы деплоя) эти браузеры продолжат
+> требовать HTTPS ещё до истечения срока. Очистить HSTS вручную можно через
+> `chrome://net-internals/#hsts`.
 
-### Процедура снятия baseline
+**Строка подключения к SQL (`Encrypt=True` / `TrustServerCertificate=True`):**
+Шаблон `appsettings.Production.json` содержит `Encrypt=True;TrustServerCertificate=True`.
+`Encrypt=True` требует TLS-шифрования трафика между приложением и SQL Server
+(рекомендуется в production). `TrustServerCertificate=True` разрешает
+самоподписанные сертификаты SQL Server — при использовании корпоративного CA
+этот флаг следует убрать и задать `TrustServerCertificate=False`
+**(не проверено на стенде)**.
 
-1. Установить утилиту (однократно): `dotnet tool install --global dotnet-counters`.
-2. Запустить backend (под нагрузкой PERF-03 либо локальным прогоном цикла) и снять метрики по
-   имени Meter'ов:
+### Runtime-настройки в БД (таблица `dbo.Settings`)
 
-   ```powershell
-   dotnet-counters monitor -n MitLicenseCenter.Web --counters MitLicenseCenter.Rac,MitLicenseCenter.Reconciliation
+Все параметры подключения к 1С/RAS, IIS, SQL-хосту инфобаз, политики
+лицензий, интервалы опроса, параметры бэкапов хранятся в БД и редактируются
+в панели: **Параметры** (`/settings`, только роль Admin).
+
+Секретные настройки (пароли) шифруются через ASP.NET Data Protection
+(протектор `mlc.settings.v1`), ключи хранятся в `%ProgramData%\MitLicenseCenter\keys`.
+
+**Для применения изменений конфигурации перезапуск службы не требуется** —
+изменение через панель (`PUT /api/v1/settings/{key}`) сразу инвалидирует
+in-memory-снапшот настроек и применяется немедленно; TTL ≈ 30 с — окно устаревания
+лишь для правок в обход панели (прямо в БД).
+Исключение: изменение `Urls` / `AllowedHosts` в `appsettings.Production.json`
+вступает в силу только после перезапуска.
+
+---
+
+## 3. Логи и диагностика
+
+### Журнал событий Windows
+
+Под Windows-службой (`UseWindowsService`) ASP.NET Core направляет логи в
+**Журнал событий Windows**, раздел **Приложение**, источник **`MitLicenseCenter`**.
+
+Известные EventId (источник: `IdentitySeeder.cs`, `SettingsSeeder.cs`):
+
+| EventId | Уровень | Когда | Что означает |
+|---|---|---|---|
+| 1001 | Warning | Первый старт, нет файла `initial-admin.secret` | Создан admin со **случайным** паролем; пароль напечатан в тело события — **сразу запишите** |
+| 1002 | Warning | Первый старт, файл `initial-admin.secret` найден | Создан admin с паролем, заданным оператором в мастере (`IdentitySeeder`); пароль в лог не попадает |
+| 1002 | Information | Любой старт при изменении состава настроек | Засеяны N новых параметров в `dbo.Settings` (`SettingsSeeder`) |
+
+EventId 1002 используют два разных источника (`IdentitySeeder` и `SettingsSeeder`) —
+различать их следует по уровню (`Warning` против `Information`) и тексту сообщения.
+
+Остальные сообщения уровня Error/Critical (недоступность SQL, ошибки миграций,
+критические сбои bootstrap) пишутся через `LogCritical` без явного числового EventId
+(EventId = 0) и попадают в ту же точку — ищите по источнику `MitLicenseCenter` и уровню.
+
+### Чтение Журнала событий
+
+**(не проверено на стенде)** — команды выводятся из схемы Windows Event Log:
+
+```powershell
+# Последние 50 событий от службы (PowerShell)
+Get-EventLog -LogName Application -Source MitLicenseCenter -Newest 50
+
+# Только ошибки
+Get-EventLog -LogName Application -Source MitLicenseCenter -EntryType Error,Warning -Newest 20
+
+# Через Event Viewer (GUI): eventvwr.msc → Журналы Windows → Приложение, фильтр по источнику
+```
+
+### Health-эндпоинты
+
+Оба эндпоинта анонимны (без аутентификации), подходят для мониторинга.
+
+#### Liveness: `GET /api/v1/health`
+
+Возвращает `200 OK` с телом:
+
+```json
+{ "status": "ok", "version": "<версия сборки>", "utcNow": "<UTC-время>" }
+```
+
+Проверяет только: процесс отвечает. Зависимости не проверяются.
+Если процесс завис или упал — 200 не придёт.
+
+#### Readiness: `GET /api/v1/health/ready`
+
+Проверяет три зависимости (таймаут каждой пробы — 2 с):
+
+| Компонент | Статусы | Что означает |
+|---|---|---|
+| `database` | `ok` / `down` | `CanConnectAsync` к SQL Server — единственная зависимость, гейтящая `not_ready` |
+| `ras` | `ok` / `degraded` / `unknown` | Результат 30-секундного ping-цикла к `rac.exe`; `unknown` — первые ≈30 с после старта |
+| `hangfire` | `ok` / `down` | `GetStatistics()` Hangfire storage |
+
+Общий статус (`status`) и HTTP-код (логика `ReadinessEvaluator`):
+- `ready` → `200 OK` — все компоненты работают
+- `degraded` → `200 OK` — RAS недоступен (`degraded`) **или** Hangfire недоступен (`down`),
+  но БД работает. На single-host это мягкий сигнал: снимать узел из трафика бессмысленно
+  (это уронит и сам Dashboard), поэтому HTTP-код остаётся 200
+- `not_ready` → `503 Service Unavailable` — недоступна **только** БД (`database = "down"`)
+
+Промежуточного `207 Multi-Status` нет: единственный не-200 код — `503` при недоступной БД.
+
+Тело всегда содержит `checks.database`, `checks.ras`, `checks.hangfire`.
+
+---
+
+## 4. Диагностика типовых отказов
+
+### Служба не стартует
+
+**Симптом:** `sc start MitLicenseCenter` возвращает ненулевой код; `GET /api/v1/health` не отвечает.
+
+**Где смотреть:** Журнал событий Windows (Приложение, источник `MitLicenseCenter`).
+
+**Типичные причины:**
+
+1. **SQL недоступен** — приложение не может применить миграции. В Журнале событий:
+   ошибка подключения к SQL Server. Проверьте строку подключения в
+   `appsettings.Production.json` и доступность инстанса.
+
+2. **Учётная запись службы не имеет прав в SQL** (режим Windows-аутентификации) —
+   в Журнале событий: ошибка 18456 (Login failed). Выдайте учётке роль `sysadmin`
+   на SQL-инстансе **(не проверено на стенде)**.
+
+3. **Первый старт: случайный пароль admin в Журнале** — EventId 1001 в Журнале.
+   Это не ошибка, служба запустилась нормально; запишите пароль.
+
+**Действие:** Устраните причину → `sc start MitLicenseCenter` или через `services.msc`.
+
+### Нет связи с RAS / кластером 1С
+
+**Симптом:** `GET /api/v1/health/ready` возвращает `checks.ras = "degraded"`;
+дашборд показывает «RAS недоступен»; сеансы не обновляются.
+
+**Где смотреть:** Параметры панели (`/settings`) → `OneC.RAS.Endpoint` и
+`OneC.RAS.ExePath`; убедитесь, что `ras.exe` запущен на хосте.
+
+**Действие:** Проверьте и скорректируйте `OneC.RAS.Endpoint` (формат `host:port`,
+например `localhost:1545`) и путь к `rac.exe`. Изменение применяется без
+перезапуска службы (следующий цикл пробы через ≤ 30 с).
+
+#### Первоначальная настройка RAS
+
+После установки задайте следующие параметры в панели («Параметры», `/settings`):
+
+| Ключ | Описание | Значение по умолчанию |
+|---|---|---|
+| `OneC.RAS.Endpoint` | Адрес RAS-сервера в формате `host:port` | `localhost:1545` (сидируется автоматически) |
+| `OneC.RAS.ExePath` | Полный путь к `rac.exe` | нет дефолта — **задать обязательно** |
+| `OneC.Cluster.AdminUser` | Логин администратора кластера 1С | пусто |
+| `OneC.Cluster.AdminPassword` | Пароль администратора кластера 1С (хранится зашифрованным) | пусто |
+
+Имена ключей — из `SettingKey.cs` (wire-контракт; не меняются после релиза без миграции).
+
+**`OneC.RAS.ExePath` обязателен** — путь к `rac.exe` зависит от версии платформы
+и не задаётся установщиком. Пример: `C:\Program Files\1cv8\8.5.1.1302\bin\rac.exe`.
+До его заполнения `health/ready` возвращает `checks.ras = "degraded"`.
+
+**Учётные данные кластера:** Если в кластере не зарегистрированы администраторы,
+оставьте `OneC.Cluster.AdminUser` и `OneC.Cluster.AdminPassword` пустыми —
+`rac.exe` выполняется анонимно (подтверждено комментарием в `SettingKey.cs` и
+логикой `BuildArgsWithAuth` в `RacExecutableRasClusterClient.cs`).
+
+**Служба `ras` на хосте:** Служба RAS (`ras.exe` / `racsrv.exe`) должна быть
+запущена на хосте до первого обращения панели. Регистрация службы командой
+`racsvc.exe -instsrvc` и выдача прав R+X на каталог `bin` платформы —
+**не проверено на стенде** (операционные шаги вне кода панели).
+
+### Длительность сеансов 1С отображается некорректно (сдвиг на N часов)
+
+**Симптом:** Длительность сеанса в панели отличается от фактической на
+кратное значение (например, занижена на 3 часа на сервере UTC+3).
+
+**Причина:** `rac.exe` возвращает `started-at` в **локальном времени сервера**
+без указания offset. Backend конвертирует его в UTC через `TimeZoneInfo.Local`
+(метод `ParseUtc` в `RacExecutableRasClusterClient.cs`). Если backend и
+сервер кластера 1С находятся в **разных часовых поясах** — конвертация
+применяет неверный UTC-offset и длительность сеансов искажается.
+
+**Требование:** Backend (служба `MitLicenseCenter`) и кластер 1С (`ragent`,
+`rmngr`) должны работать на одном хосте или иметь одинаковый часовой пояс
+ОС. На single-host (ADR-28) это условие выполняется автоматически.
+
+### IIS-операции падают
+
+**Симптом:** Публикация / снятие публикации / recycle пула возвращают ошибку;
+в Журнале событий — исключения `UnauthorizedAccessException` от IIS ServerManager.
+
+**Причина:** Служба запущена под учётной записью без прав администратора IIS.
+
+**Действие:** Учётная запись, под которой работает служба, должна входить в
+группу **Administrators** локального хоста (или иметь эквивалентные права IIS).
+Для режима B (LocalSystem) это условие выполняется автоматически; для режима A
+(Windows-аккаунт) — выдайте нужные права **(не проверено на стенде)**.
+
+### SQL Server недоступен в рантайме
+
+**Симптом:** `GET /api/v1/health/ready` → `checks.database = "down"`, HTTP 503;
+все операции панели возвращают 5xx.
+
+**Где смотреть:** Состояние SQL-инстанса; наличие ресурсов (диск, память).
+
+**Действие:** Восстановите SQL Server. Панель автоматически начнёт отвечать
+после восстановления соединения — перезапуск службы не требуется (EF retry
+`EnableRetryOnFailure(3)` покрывает кратковременные сбои).
+
+### Раздел «Быстродействие» не показывает SQL-метрики
+
+**Симптом:** В разделе «Быстродействие» панели (вкладка SQL) вместо данных
+отображается баннер «Нет доступа» (или аналогичный деградированный статус).
+В ответе API поле `status` = `"PermissionDenied"` (код `SqlProbeStatus.PermissionDenied`).
+Данные активных запросов, wait-stats и IO-stall отсутствуют.
+
+**Причина:** Учётная запись, под которой работает служба (та же, что в
+`ConnectionStrings.Default`), не имеет права `VIEW SERVER STATE` на SQL-инстансе.
+Проба читает `sys.dm_exec_requests`, `sys.dm_os_wait_stats`,
+`sys.dm_io_virtual_file_stats` — все требуют `VIEW SERVER STATE` (выводится из
+кода `SqlPerformanceProbe.cs`).
+
+**Диагностика:**
+
+```sql
+-- Проверить текущего пользователя и наличие права (выполнять от учётки службы):
+SELECT SYSTEM_USER AS current_login,
+       HAS_PERMS_BY_NAME(NULL, NULL, 'VIEW SERVER STATE') AS has_view_server_state;
+-- 1 = есть, 0 = нет
+```
+
+**Исправление:** Выдать грант конкретному SQL-логину службы:
+
+```sql
+GRANT VIEW SERVER STATE TO [<login>];
+-- Пример для Windows-аутентификации:
+GRANT VIEW SERVER STATE TO [DOMAIN\MitLicenseSvc];
+-- Пример для SQL-аутентификации:
+GRANT VIEW SERVER STATE TO [mlc_service];
+```
+
+> **Важно.** Выдавайте грант конкретному SQL-логину, а **не** через Windows-группу.
+> Из-за UAC token filtering служба, запускаемая как Windows-служба, может не
+> унаследовать права группы, выданные в SQL Server **(не проверено на стенде,
+> общее предупреждение для Windows-аутентификации)**.
+
+После выдачи права перезапуск службы не требуется — следующий poll
+подхватит право автоматически.
+
+### Key ring повреждён или не соответствует БД
+
+**Симптом:** При открытии страницы «Параметры» или вызове API секретных
+настроек — ошибка 500 с текстом (из `SettingsStore.cs`):
+
+> Не удалось расшифровать секретную настройку «`<ключ>`». Вероятная причина —
+> key ring в `%ProgramData%\MitLicenseCenter\keys` утерян, заменён или не
+> соответствует базе данных…
+
+**Причина:** Key ring (`%ProgramData%\MitLicenseCenter\keys`) не соответствует
+зашифрованным значениям в `dbo.Settings` — типичный случай: БД восстановлена из
+бэкапа без парного key ring (или наоборот).
+
+**Действие:**
+1. Восстановите парный key ring из резервной копии (см. раздел «Бэкап/Restore»).
+2. Или заново задайте все секретные настройки через панель `/settings` — при
+   этом старые зашифрованные значения заменятся новыми ключами текущего key ring.
+
+---
+
+## 5. Бэкап / Restore
+
+> ADR-8: key ring `%ProgramData%\MitLicenseCenter\keys` и база данных панели
+> **являются единым бэкап-юнитом**. Ключи переносимы открытым текстом (защита —
+> NTFS ACL), поэтому секреты в `dbo.Settings` расшифровываются только с парным
+> key ring.
+
+### 5.1 Бэкап приложения: что входит в единый юнит
+
+| Компонент | Путь | Что содержит |
+|---|---|---|
+| Key ring | `%ProgramData%\MitLicenseCenter\keys\` | XML-файлы ключей ASP.NET Data Protection |
+| БД панели | SQL Server, `MitLicenseCenter` (или иное имя из установки) | Клиенты, инфобазы, публикации, аудит, настройки (в том числе зашифрованные секреты) |
+
+Бэкапить необходимо оба компонента **вместе** — иначе секреты не расшифруются.
+
+**Бэкап БД** **(не проверено на стенде)**:
+
+```sql
+BACKUP DATABASE [MitLicenseCenter]
+TO DISK = N'D:\Backups\MitLicenseCenter\MitLicenseCenter_<дата>.bak'
+WITH COPY_ONLY, COMPRESSION, CHECKSUM, FORMAT, INIT;
+
+RESTORE VERIFYONLY
+FROM DISK = N'D:\Backups\MitLicenseCenter\MitLicenseCenter_<дата>.bak'
+WITH CHECKSUM;
+```
+
+**Бэкап key ring** **(не проверено на стенде)**:
+
+```powershell
+Copy-Item -Path "$env:ProgramData\MitLicenseCenter\keys" `
+          -Destination "D:\Backups\MitLicenseCenter\keys_<дата>" `
+          -Recurse
+```
+
+Перед снятием бэкапа при возможности остановите службу, чтобы избежать
+разрыва между состоянием БД и key ring. Оба файла должны относиться к одному
+моменту времени.
+
+### 5.2 Restore: восстановление на той же машине
+
+**(не проверено на стенде)**
+
+1. Остановите службу: `sc stop MitLicenseCenter`.
+2. Восстановите БД:
+
+   ```sql
+   RESTORE DATABASE [MitLicenseCenter]
+   FROM DISK = N'D:\Backups\MitLicenseCenter\MitLicenseCenter_<дата>.bak'
+   WITH REPLACE, RECOVERY;
    ```
 
-   (или `dotnet-counters collect …` для дампа в CSV/JSON). Гистограммы рендерятся перцентилями
-   (P50/P95/P99) через `MetricsEventSource` — без внешних систем. По `-n MitLicenseCenter.Web`
-   утилита находит процесс по имени; при нескольких — указать `-p <PID>`.
-3. **Кросс-проверка спавнов.** Каждый неуспешный вызов `rac.exe` логируется на `Warning` с именем
-   команды (`rac.exe {Command} вернул exit=…`); успешные cold/hot-циклы — на `Debug`
-   (`LogColdSnapshot`/`LogHotOverlay`, поднять уровень `MitLicenseCenter.Infrastructure` до `Debug`).
-   Сумма `rac.exe.spawns` за интервал обязана совпасть с ручным подсчётом этих строк в логе.
+3. Восстановите key ring из парного бэкапа:
 
-### Пример baseline
+   ```powershell
+   Remove-Item "$env:ProgramData\MitLicenseCenter\keys\*" -Force
+   Copy-Item -Path "D:\Backups\MitLicenseCenter\keys_<дата>\*" `
+             -Destination "$env:ProgramData\MitLicenseCenter\keys\" -Recurse
+   ```
 
-Снят локально (idle-кластер: `OneC.RAS.ExePath` указывал на заглушку с ненулевым exit, чтобы
-вызвать спавны без живого RAS), окно ~104 c, `--refresh-interval 1`:
+4. Запустите службу: `sc start MitLicenseCenter`.
+5. Проверьте readiness: `GET /api/v1/health/ready` — `status: "ready"`.
+6. Откройте страницу «Параметры» — убедитесь, что секреты расшифровываются
+   (нет ошибок 500 при загрузке).
 
+### 5.3 Перенос на новое железо
+
+**(не проверено на стенде)**
+
+1. Установите MitLicense Center на новом хосте через штатный установщик,
+   указав **существующую** БД (мастер обнаружит, что `auth.Users` заполнены, и
+   пропустит шаг задания пароля admin).
+2. После установки **до первого старта службы** скопируйте парный key ring:
+
+   ```powershell
+   Copy-Item -Path "<резерв>\keys_<дата>\*" `
+             -Destination "$env:ProgramData\MitLicenseCenter\keys\" -Recurse
+   ```
+
+   Убедитесь, что ACL каталога корректны (установщик применяет их автоматически).
+3. Запустите службу. Проверьте страницу «Параметры» — секреты должны
+   расшифровываться.
+
+### 5.4 Контрольное восстановление (restore drill)
+
+Непроверенный бэкап не является бэкапом. Периодически выполняйте контрольное
+восстановление:
+
+- Восстановите БД из `.bak` на тестовой машине (или в изолированном SQL-инстансе)
+  и убедитесь, что `RESTORE DATABASE` завершается без ошибок, а данные читаемы.
+- Восстановите парный key ring и проверьте, что секретные настройки расшифровываются
+  (откройте страницу «Параметры» — нет ошибок 500).
+- Для автоматизации бэкапа и проверки целостности используются штатные инструменты:
+  планы обслуживания SQL Server, `RESTORE VERIFYONLY WITH CHECKSUM`, или стороннее
+  ПО резервного копирования (SQL Safe, Veeam Agent и т. п.). *(Организационная
+  рекомендация; выбор инструмента зависит от инфраструктуры оператора.)*
+- Каталог key ring (`%ProgramData%\MitLicenseCenter\keys`) включается в резервную
+  копию отдельно (файловый бэкап) — SQL Server его не знает. *(Организационная
+  рекомендация.)*
+
+### 5.5 Бэкапы инфобаз 1С через панель (не бэкап самого приложения)
+
+Это отдельная функция продукта — on-demand резервное копирование баз данных
+клиентских инфобаз. **Не является бэкапом самого MitLicense Center.**
+
+Запускается с карточки инфобазы (кнопка «Бэкап»). Выполняет:
+
+1. Проверку роли `sysadmin` для учётной записи панели (требование ADR-27).
+2. Оценку занятого места базы (FILEPROPERTY SpaceUsed).
+3. Проверку свободного места на диске SQL-хоста (`xp_fixeddrives`).
+4. `BACKUP DATABASE … WITH COPY_ONLY, COMPRESSION, CHECKSUM, FORMAT, INIT`
+5. `RESTORE VERIFYONLY WITH CHECKSUM` — проверка целостности нового файла.
+6. Удаление предыдущего `.bak` той же базы (keep-latest-1) только **после**
+   успешной проверки.
+
+Хранится один актуальный файл на базу в каталоге `Backup.FolderPath/<имя_базы>/`.
+Устаревшие файлы удаляются автоматически ночью (задание `backup-retention`,
+03:15 UTC), TTL задаётся параметром `Backup.TtlHours` (по умолчанию 24 ч).
+
+**Ответственность оператора:** за бэкап SQL-баз инфобаз 1С в рамках общей
+стратегии резервного копирования отвечает оператор — панель выполняет только
+COPY_ONLY on-demand по запросу, без планировщика и ротации цепочек
+дифференциальных копий.
+
+Параметры (задаются в «Параметрах», раздел «Бэкапы»):
+
+| Параметр | Ключ | Значение по умолчанию | Описание |
+|---|---|---|---|
+| Папка бэкапов | `Backup.FolderPath` | не задано (обязательно) | Локальный путь на диске SQL-хоста, например `D:\Backups` |
+| TTL файлов | `Backup.TtlHours` | 24 ч | Срок хранения файлов бэкапа |
+| Параллелизм | `Backup.MaxParallel` | 2 | Максимум одновременных бэкапов; перечитывается без рестарта |
+| Запас места | `Backup.DiskSafetyMarginMb` | 2048 МБ | Свободное место поверх оценки базы |
+
+Роль `sysadmin` на SQL-инстансе необходима для `xp_fixeddrives`,
+`xp_create_subdir`, `xp_delete_file` и `BACKUP DATABASE`. Без неё бэкап
+завершается ошибкой `PermissionDenied` с подсказкой в сообщении.
+
+---
+
+## 6. Права IIS
+
+Управление публикациями и IIS-операции (recycle пула, start/stop сайтов,
+`iisreset`) выполняются через `Microsoft.Web.Administration.ServerManager` и
+`iisreset.exe`. Оба требуют прав администратора.
+
+**Режим B (LocalSystem):** служба работает под LocalSystem — права Administrators
+есть автоматически.
+
+**Режим A (Windows-аккаунт):** сервис-аккаунт должен входить в локальную
+группу **Administrators** хоста. Установщик не проверяет это явно; если прав
+нет — операции в разделе IIS будут завершаться ошибкой 500, в Журнале событий
+появится `UnauthorizedAccessException` **(не проверено на стенде)**.
+
+### Blast radius операции `iisreset`
+
+> **Предупреждение.** `iisreset` (вызывается через кнопку «Перезапуск IIS»
+> в разделе IIS панели) останавливает службы **W3SVC и WAS** и затрагивает
+> **все сайты и пулы приложений** данного сервера — не только публикации 1С.
+> Это подтверждается кодом `OneCIisLifecycleService.cs`:
+> `iisreset.exe` спавнится без дополнительных флагов (полный restart).
+>
+> Если сама панель размещена на IIS (за обратным прокси или напрямую) —
+> HTTP-соединение с панелью прервётся в момент операции.
+>
+> Операция **сериализована** (`IisResetConcurrencyGate`, `SemaphoreSlim(1,1)`) —
+> два одновременных `iisreset` (или recycle во время iisreset) невозможны.
+>
+> Перед выполнением API требует явного флага `Confirm: true` в теле запроса
+> (серверный гейт, дополнительно к подтверждению в UI); без него возвращается
+> `409 Conflict`. Таймаут операции — 90 секунд.
+
+### Снятие публикации
+
+Штатный способ — через панель: карточка инфобазы → действие «Снять публикацию»
+(эндпоинт `POST /api/v1/publications/{id}/unpublish`, роль Admin). Панель вызывает
+`webinst -delete`, обновляет фактический статус на `NotPublished` и пишет аудит-событие
+`PublicationUnpublished`. При сбое `webinst` возвращается `409 Conflict` (код
+`UNPUBLISH_FAILED`), запись в БД не меняется.
+
+#### Ручное снятие публикации (аварийный runbook)
+
+Если панель недоступна и требуется снять публикацию инфобазы из IIS вручную
+**(не проверено на стенде)**:
+
+1. Откройте `inetmgr` (IIS Manager).
+2. В дереве сайтов найдите сайт и виртуальный каталог (VirtualPath)
+   публикации (например `/acme-bp` на сайте `Default Web Site`).
+3. Удалите виртуальное приложение правой кнопкой → «Удалить».
+4. Удалите каталог `<wwwroot>\<имя>` с диска, если нужно убрать файлы
+   `web.config` и `default.vrd`.
+
+---
+
+## 7. Мониторинг
+
+### Health-эндпоинты (опрос из системы мониторинга)
+
+| Эндпоинт | Периодичность рекомендуемая | Что сигнализирует |
+|---|---|---|
+| `GET /api/v1/health` | 30 с | Процесс живой |
+| `GET /api/v1/health/ready` | 60 с | Зависимости (БД, Hangfire, RAS) |
+
+HTTP 503 от `/health/ready` — надёжный алерт: недоступна БД (единственная причина 503).
+Недоступность RAS или Hangfire даёт `status: "degraded"` при HTTP 200 — это мягкий сигнал
+(частичная работа: при RAS-degraded сеансы не обновляются, остальное доступно), отслеживать
+его нужно по телу ответа (`status` / `checks.*`), а не по HTTP-коду.
+
+### Hangfire Dashboard
+
+Путь: `/hangfire` (требует роль Admin, cookie-аутентификация).
+
+Что смотреть:
+
+| Что | Норма | Отклонение |
+|---|---|---|
+| Recurring jobs | Все 5 джобов в статусе «Enqueued» / «Succeeded» | Задание в «Failed» — проверить стек ошибки в Hangfire UI |
+| `cold-snapshot` (каждую минуту) | Статус «Succeeded» | Если давно не было «Succeeded» — enforcement и опрос не работают |
+| `publication-status-refresh` (5 мин) | «Succeeded» | При сбоях статус публикаций устаревает |
+| Очередь / Failed | 0 / 0 | Рост Failed → ошибки фоновых операций |
+
+### Что мониторить на уровне хоста
+
+| Ресурс | Рекомендация |
+|---|---|
+| Состояние службы `MitLicenseCenter` | Алерт при остановке |
+| SQL Server (реплика приложения) | Доступность инстанса и размер БД |
+| Диск с бэкапами (`Backup.FolderPath`) | Свободное место |
+| Журнал событий Windows, источник `MitLicenseCenter` | Ошибки уровня Error/Critical |
+
+---
+
+## 8. Дополнительные операции
+
+### После обновления платформы 1С на хосте
+
+При установке новой версии 1С:Предприятие на хосте путь к `rac.exe` и
+`webinst.exe` может измениться.
+
+1. Откройте «Параметры» (`/settings`) → обновите `OneC.RAS.ExePath`
+   (путь к `rac.exe` новой версии).
+2. Для каждой инфобазы, публикацию которой нужно перевести на новую версию,
+   откройте её карточку → «Сменить версию платформы» → выберите новую версию
+   из списка (Discovery сканирует установленные версии).
+3. Повторная публикация (`webinst.exe` новой версии) обновит `web.config`
+   с новым путём к `wsisapi.dll`.
+
+### Сброс пароля admin (сохранение данных)
+
+> **Предупреждение.** Для сброса пароля используйте **только** `scripts\reset-admin.ps1`.
+> **Не применяйте** `scripts\db-reset.ps1` — этот скрипт пересоздаёт базу данных
+> (DROP + CREATE + EF migrate), уничтожая всех клиентов, инфобазы и аудит.
+> `db-reset.ps1` предназначен исключительно для локальной разработки.
+
+При утрате пароля учётной записи admin используйте скрипт
+`scripts\reset-admin.ps1` **(требует .NET 10 SDK на машине, не проверено на стенде)**:
+
+```powershell
+# Сбросить пароль admin (генерируется криптослучайный):
+.\scripts\reset-admin.ps1
+
+# Задать пароль явно (≥ 12 символов, заглавная/строчная/цифра/спецсимвол):
+.\scripts\reset-admin.ps1 -Password "Str0ng!Passw0rd"
+
+# Снять блокировку учётной записи (lockout) и обнулить счётчик неудачных входов:
+.\scripts\reset-admin.ps1 -Unlock
+
+# Задать другой логин или нестандартную строку подключения:
+.\scripts\reset-admin.ps1 -User admin -ConnectionString "Server=sql01;Database=MitLicenseCenter;Trusted_Connection=True;TrustServerCertificate=True;Encrypt=False"
 ```
-[MitLicenseCenter.Rac]
-    rac.exe.spawns ({spawn} / 1 sec)
-        command=cluster.list                              (см. ниже: 6 спавнов за окно)
-    rac.exe.invocation.duration (ms)
-        command=cluster.list  outcome=failed  P50/P95/P99  ≈ 63–66
 
-[MitLicenseCenter.Reconciliation]
-    reconciliation.cold.duration (ms)  P50/P95/P99         ≈ 64–65
-    reconciliation.hot_tenants ({tenant})                  0
-```
+**Параметры скрипта** (из `scripts\reset-admin.ps1`):
 
-Декомпозиция 6 спавнов за окно (счётчик rac.exe.spawns рендерится как rate/1s; сумма ненулевых
-отсчётов): **4 health-ping** (`RasHealthProbingService`, каждые 30 c) + **2 cold-цикла**
-(`ReconciliationJob`, ~каждые 60 c). Это совпадает с заложенной каденцией.
+| Параметр | Тип | Значение по умолчанию | Описание |
+|---|---|---|---|
+| `-User` | `string` | `admin` | Логин учётной записи администратора |
+| `-Password` | `string` | (генерируется) | Явный новый пароль; если не задан — генерируется криптослучайный |
+| `-Unlock` | `switch` | off | Снять lockout и обнулить счётчик неудачных входов |
+| `-ConnectionString` | `string` | локальный MSSQL / `MitLicenseCenter` | Строка подключения с `Database=` |
 
-**Кросс-проверка со логом.** Cold-спавны (через `ResolveClusterUuidAsync`) логируются на `Warning`
-(`rac.exe cluster list вернул exit=…`) и параллельно дают записи `reconciliation.cold.duration` —
-оба источника подтверждают cold-компоненту. Health-ping (`PingAsync`) **намеренно не логирует**
-неуспех, поэтому счётчик `rac.exe.spawns` — это **полный** спавн-бюджет (надмножество логов) и
-единственный надёжный источник для проверки бюджета ADR-3.3. На idle-кластере hot/kill-инструменты
-(`reconciliation.hot.duration`, `reconciliation.kills`, теги `session.list`/`session.terminate`)
-ожидаемо нулевые — они проявляются под нагрузкой с over-quota сессиями (seed-харнесс PERF-03).
+**Коды возврата:** `0` — успех; ненулевой — ошибка (скрипт бросает исключение с описанием).
 
-## Нагрузочный seed-харнесс — проверка роста (`MLC-039` / PERF-03)
+Скрипт использует инструментарный харнесс (команда `reset-admin`) — тот же
+Identity-хэш и парольную политику, что и само приложение. Клиенты, инфобазы
+и аудит не затрагиваются. **Новый пароль печатается в stdout** — запишите его
+и смените при первом входе.
 
-**Только для dev/test.** Воспроизводимо создаёт «рост» (много клиентов/баз/аудита/сессий), чтобы
-под синтетической нагрузкой снять метрики выше и ответить замером «держит ли рост». Реализован
-консольным проектом `backend/tools/MitLicenseCenter.Tools.PerfHarness` — **dev-only артефакт**: Web
-на него не ссылается, в `dotnet publish` Web он не попадает; прод-поведение 1:1 (прод: `OneC.RAS.ExePath`
-= реальный `rac.exe`). Никакого нового кластерного адаптера (ADR-16): заглушка стоит за существующим
-`SystemProcessRacRunner` как внешний субпроцесс, поэтому метрики `rac.exe.spawns` снимаются реально.
+### Управление параллелизмом бэкапов
 
-Два режима одного бинаря:
+Параметр `Backup.MaxParallel` (по умолчанию 2) ограничивает число одновременных
+on-demand бэкапов инфобаз. Лишние запросы встают в очередь. Параметр
+перечитывается оркестратором на каждом тике — изменение через «Параметры»
+применяется без перезапуска службы.
 
-- **seed** (`PerfHarness seed …`) — засевает dev-БД через реальный `AppDbContext` (FK, уникальные
-  индексы `IX Tenants.Name` / `IX_Infobases_TenantId_Name` / `IX_Infobases_ClusterInfobaseId`,
-  1:1 публикация — соблюдаются самой моделью; миграции не трогаются) и пишет `scenario.json`.
-- **rac-stub** (любые иные аргументы) — фейковый `rac.exe`: отвечает на `cluster list` / `session list`
-  / `session terminate` / `infobase summary list` синтетикой из `scenario.json`. Заглушка **stateless**
-  (те же сессии на каждый вызов) → over-limit тенанты остаются over-limit → устойчивый kill-поток.
+---
 
-### Ростовые точки
+## Связанные решения
 
-Панель — 5–20 пользователей. Дефолты = baseline (ожидаемый масштаб); ×10 = ростовая точка. «до→после»
-= baseline-прогон → ×10-прогон.
-
-| Параметр | Baseline | Ростовая точка (×10) | CLI-флаг |
-| --- | --- | --- | --- |
-| Клиенты | 20 | 200 | `--tenants` |
-| Инфобазы + публикации | 50 | 500 | `--infobases` |
-| Строки `AuditLogs` | 100 000 | 1 000 000 | `--audit` |
-| Активные сессии | 500 | 5 000 | `--sessions` |
-| Доля over-limit | ~30% | ~30% | `--over-limit-fraction` |
-
-Доп. флаги: `--audit-days` (горизонт давности аудита, дефолт 365), `--usage-days` (бэкфилл истории
-`/reports`, дефолт 0 в перф-режиме), `--realistic` (реалистичная демо-БД — см. подсекцию ниже).
-
-### Процедура прогона
-
-1. Пересоздать dev-БД: `scripts\db-reset.ps1` (миграции + admin/настройки). Рекомендуется отдельная
-   БД (напр. `MitLicenseCenter_Perf`), чтобы не смешивать с рабочими данными:
-   `scripts\db-reset.ps1 -DatabaseName MitLicenseCenter_Perf -Force`.
-2. Засеять (ростовая точка): `scripts\perf-seed.ps1 -Tenants 200 -Infobases 500 -Audit 1000000 -Sessions 5000 -ConnectionString '…;Database=MitLicenseCenter_Perf'`
-   → пишет `scenario.json` (по умолчанию `%LOCALAPPDATA%\MitLicenseCenter\perf\scenario.json`).
-3. Указать заглушку как адаптер: в «Параметры» (или прямо в `dbo.Settings`) задать
-   `OneC.RAS.ExePath` = путь к собранному `MitLicenseCenter.Tools.PerfHarness.exe`,
-   `OneC.RAS.Endpoint` оставить пустым. Если `scenario.json` лежит не в дефолтном пути — выставить
-   env `MLC_PERF_SCENARIO` в окружении backend (субпроцесс-заглушка наследует env).
-4. Запустить backend (`scripts\dev.ps1`/`dotnet run` на той же `ConnectionStrings__Default`).
-   Cold-цикл (Hangfire, троттл 25 c) и hot-поллинг (4 c при наличии hot-тенанта) запускаются сами;
-   ускорить — уменьшить `Polling.Cold.IntervalSeconds` или триггернуть `cold-snapshot` из Hangfire-дэшборда.
-5. Снять метрики: `scripts\perf-counters.ps1` (или напрямую `dotnet-counters` — см. раздел выше).
-   Зафиксировать спавны/мин по тегам `cluster.list`/`session.list`/`session.terminate`,
-   `reconciliation.cold.duration`/`hot.duration` (P50/P95/P99), `reconciliation.kills`, `hot_tenants`.
-6. Повторить п.2/5 на baseline-параметрах — это и есть «до→после».
-
-Под нагрузкой (в отличие от idle-кластера) hot/kill-инструменты становятся ненулевыми: over-limit
-тенанты промоутятся в hot (gauge `hot_tenants` > 0), hot-поллинг даёт `session.list`-спавны каждые 4 c,
-а `KillEnforcer` — `session.terminate`-спавны и `reconciliation.kills` (≤ 20/цикл, `MaxKillsPerCycle`).
-Рост числа сессий/баз отражается в длительностях цикла и в спавн-бюджете — это и есть демонстрация,
-что харнесс позволяет мерить рост.
-
-### Реалистичная демо-БД (флаг `-Realistic`)
-
-Тот же `seed`-режим с флагом `--realistic` (PS `scripts\perf-seed.ps1 -Realistic`) даёт **правдоподобную
-демо-БД «как будто системой пользовались»** вместо синтетической перф-нагрузки. Отличия от перф-режима:
-
-- **Лимиты клиентов** — СМБ-распределение 5..150 (≈60% мелких 5–20, 30% средних 25–60, 10% крупных
-  75–150) вместо перф-крайностей 1/1 000 000; правдоподобные названия (`ООО «…»`).
-- **История использования лицензий** (`dbo.LicenseUsageSnapshots`, источник графиков `/reports`)
-  бэкфилится за `--usage-days` (дефолт 365) 15-минутными бакетами с суточным/недельным профилем;
-  `snapshot.Limit = MaxConcurrentLicenses` клиента (coupled, как в проде `ReconciliationJob`).
-  Запись — `SqlBulkCopy` (миллионы строк).
-- **Доля over-limit** — `--over-limit-fraction` (дефолт в realistic **0.10**); часть таких клиентов
-  превышает лимит постоянно, часть — только в пики.
-- **Живые сессии** `scenario.json` = текущему потреблению каждого клиента (правый край `/reports`
-  совпадает с live-снимком дашборда), а не round-robin по `--sessions`.
-- **Аудит** размазан за `--audit-days` (дефолт 365).
-
-Данные детерминированы (`--seed`, дефолт 1039) → повтор команды даёт идентичную БД. Горизонты
-`--usage-days`/`--audit-days` по умолчанию совпадают с ретеншеном (`LicenseUsage.RetentionDays` /
-`Audit.RetentionDays` = 365), чтобы ночные retention-джобы не подчистили засеянное.
-
-Рецепт: `scripts\db-reset.ps1 -Force` → `scripts\perf-seed.ps1 -Realistic -Tenants 100 -Infobases 300`
-→ перезапустить backend. Для живых `/sessions` и `/dashboard` (сейчас) — выставить `OneC.RAS.ExePath`
-на собранный `PerfHarness.exe` (как в перф-процедуре выше); для истории `/reports` это не требуется.
-
-**Инвариант:** без `--realistic` режим перф 1:1 (лимиты 1/1e6, сессии round-robin по `--sessions`,
-история `LicenseUsageSnapshots` не бэкфилится) — замеры роста выше остаются валидны.
-
-## Профиль EF-запросов — baseline (`MLC-038` / PERF-02)
-
-**Только для диагностики, по умолчанию выключен.** Опт-ин профиль логирует сгенерированный EF SQL с
-таймингами для четырёх ключевых эндпоинтов, чтобы оптимизации (PERF-06 индекс аудита, PERF-07 batch в
-`DriftCheckJob`) опирались на план запроса, а не на догадку. Прод-поведение и прод-логи при выключенном
-флаге 1:1 (`Microsoft.EntityFrameworkCore.Database.Command` остаётся `Warning`).
-
-### Как включить
-
-| Флаг (config-ключ / env) | Дефолт | Что делает |
-| --- | --- | --- |
-| `Diagnostics:EfQueryProfiling` (`Diagnostics__EfQueryProfiling`) | `false` | навешивает `DbContextOptionsBuilder.LogTo` на событие `CommandExecuted` (Information) — «Executed DbCommand (Xms) … SQL» в файл-приёмник + Console |
-| `Diagnostics:EfSensitiveDataLogging` (`Diagnostics__EfSensitiveDataLogging`) | `false` | `EnableSensitiveDataLogging` — значения параметров в открытом виде. **Невозможен без включённого профиля** (gated); включается только явным opt-in, иначе секреты/значения не пишутся |
-| `Diagnostics:EfQueryProfilingLogPath` | `%LOCALAPPDATA%\MitLicenseCenter\perf\ef-profile.log` | путь файла-приёмника (создаётся лениво при первой записи) |
-
-Гейт — в `Infrastructure/DependencyInjection.cs` (лямбда `AddDbContext`); чистые предикаты —
-`Infrastructure/Diagnostics/EfQueryProfiling.cs` (юнит-тест `EfQueryProfilingTests`). Свой приёмник
-`LogTo` не зависит от секции `Logging` в appsettings — единственный гейт это флаг.
-
-### Процедура снятия baseline
-
-1. Засеять Perf-БД харнессом (см. раздел выше): baseline `--audit 100000` и ростовая точка
-   `--audit 1000000` (`db-reset.ps1 -DatabaseName MitLicenseCenter_Perf -Force` перед каждым засевом).
-2. Запустить backend с профилем: env `ConnectionStrings__Default=…MitLicenseCenter_Perf`,
-   `Diagnostics__EfQueryProfiling=true`, `Diagnostics__EfSensitiveDataLogging=true` (dev — чтобы видеть
-   параметры), `dotnet run`.
-3. Залогиниться (пароль admin печатается в лог при первом старте) и дёрнуть эндпоинты; усечь
-   `ef-profile.log` перед каждым вызовом, чтобы изолировать его SQL от фонового опроса.
-4. План запроса аудита — напрямую по Perf-БД (независимо от кэша EF): `SET STATISTICS XML ON` (Actual
-   Execution Plan: операторы, `ActualLogicalReads`, `MissingIndexes`) и/или `SET STATISTICS IO, TIME ON`.
-
-### Сгенерированный SQL (идентичен на baseline и ×10)
-
-- **`GET /tenants`** — `SELECT COUNT(*) FROM [Tenants]` + страница `… (SELECT COUNT(*) FROM [Infobases]
-  WHERE [TenantId]=[t].[Id]) … ORDER BY [Name] OFFSET/FETCH`. Коррелированный COUNT транслируется в
-  **один** SQL-стейтмент (подтверждено — НЕ N round-trips).
-- **`GET /infobases`** — `SELECT COUNT(*) FROM [Infobases] [WHERE TenantId=@tid]` + страница с **двумя
-  INNER JOIN** (`Tenants`, `Publications`) поверх пагинированного подзапроса, `ORDER BY [Name],[Id]`.
-- **`GET /audit`** — `SELECT COUNT(*) FROM [AuditLogs] [фильтры]` + страница `… WHERE [ActionType]=@action
-  AND [TenantId]=@tid AND [Timestamp] BETWEEN @from AND @to ORDER BY [Timestamp] DESC,[Id] DESC
-  OFFSET/FETCH`. Каждый фильтр опционален.
-- **`GET /sessions/snapshot`** — **0 EF-команд**: читает in-memory `IActiveSessionSnapshotStore.Current()`,
-  БД не трогает (подтверждённый отрицательный результат — оптимизации SQL тут неприменимы; рост — это
-  память снапшота, watch-item PERF-09).
-
-### Тайминги (warm EF DbCommand, мс: COUNT / страница)
-
-| Эндпоинт | baseline (100k аудита) | ×10 (1M аудита) |
-| --- | --- | --- |
-| `GET /tenants` | 0 / 0 | 0 / 0 |
-| `GET /infobases` | 0 / 0 | 0 / 1 |
-| `GET /infobases?tenantId=` | 0 / 0 | 0 / 0 |
-| `GET /audit` (без фильтра) | **5** / 0 | **43** / 0 |
-| `GET /audit?actionType=&tenantId=&from=&to=` (селективно) | 0 / 0 (cold first-touch COUNT ≈ 107) | 0 / 0 |
-| `GET /audit?tenantId=` (широкий фильтр) | 0 / **10** | 0 / **8** |
-| `GET /sessions/snapshot` | — (0 EF) | — (0 EF) |
-
-На обоих объёмах данные помещаются в buffer cache (1M строк аудита ≈ десятки МБ), поэтому warm-тайминги
-горячего пути ничтожны — кэшонезависимая метрика роста это **logical reads** из плана запроса (ниже).
-
-### План запроса `AuditLogs` (Actual Execution Plan; вход в PERF-06)
-
-Индексы на `dbo.AuditLogs`: три **одноколоночных** (`IX_AuditLogs_Timestamp`, `_ActionType`, `_TenantId`)
-+ кластерный `PK_AuditLogs (Id)`. Составного индекса под «фильтр + `ORDER BY Timestamp DESC, Id DESC`» нет.
-
-| Запрос | baseline (100k), logical reads | ×10 (1M), logical reads |
-| --- | --- | --- |
-| Страница **без фильтра** (`ORDER BY Timestamp DESC`) | Top + Index Scan `IX_Timestamp` + key lookup — **130** | то же — **129** (не растёт: индекс даёт порядок, `Top 50` обрывает рано) |
-| Страница **`TenantId`-only** | Clustered Index Scan + **Sort** — **2241** | `IX_TenantId` Seek + **Sort** + key lookup — **7480** + **Missing Index, impact 69.3%** |
-| Страница **`ActionType`+`TenantId`+range** (селективно) | Index Seek — **12** | Index Seek — **6** |
-| `COUNT(*)` **без фильтра** | Index Scan — **499** | Index Scan — **4461** (растёт ~линейно) |
-| `COUNT(*)` **`TenantId`-only** | — | `IX_TenantId` Seek — **22** |
-
-Missing-Index, который SQL Server выдал сам на `TenantId`-only ×10: ключ `TenantId`, include
-`Timestamp, ActionType, Initiator, Description, Reason` (impact 69.3%).
-
-### Вывод — какие запросы дорогие и почему
-
-- **Дорогой и растущий — фильтрованный список аудита по неселективному предикату** (`TenantId`) +
-  `ORDER BY Timestamp DESC, Id DESC`: вынуждает **Sort + key lookup**, logical reads растут
-  **2241 → 7480** при росте таблицы (при том же объёме на тенант), и оптимизатор сам просит индекс
-  (impact 69%). **Прямой вход в PERF-06:** составной индекс `(TenantId, Timestamp DESC, Id DESC)` (и по
-  аналогии `(ActionType, Timestamp DESC, Id DESC)`) убирает и Sort, и lookup. Авто-подсказка SQL держит
-  `Timestamp` в include (Sort не уберёт) — осознанный дизайн ключует `Timestamp DESC, Id DESC`.
-- **`COUNT(*)` без фильтра растёт линейно** (499 → 4461 reads, 5 → 43 мс) — это присуще offset-пагинации
-  (нужен полный счёт); составной индекс его не уберёт. Watch-item, не PERF-06.
-- **Список аудита без фильтра уже эффективен** (едет по `IX_Timestamp`, `Top` обрывает рано; ~130 reads,
-  не растёт) — действий не требует.
-- **Коррелированный COUNT в `/tenants`** — один SQL, sub-ms даже на ×10: подтверждено, что это **не N+1**
-  (watch-item, не задача).
-- **`/infobases`** (два JOIN) и **`/sessions/snapshot`** (0 EF) — на горячем пути не дорогие.
-- **PERF-07** (`DriftCheckJob` N round-trips) — **закрыт (MLC-043).** Это фоновый джоб, не один из
-  четырёх эндпоинтов; его проход раньше грузил публикации по схеме N+1 (1 запрос `Id` + по одному
-  `SELECT` на публикацию). Теперь `RunAllAsync` грузит все публикации **одним** проекционным
-  `AsNoTracking`-запросом (только поля проверки дрейфа, без тяжёлого `VrdCustomXml`), результат пишет
-  targeted-`UPDATE` по `Id` — поведение проверки 1:1. Замер реальными SQL round-trip'ами на
-  relational-провайдере (тот же план, что у MSSQL): на 25 публикациях **загрузочных SELECT/проход
-  26 → 1** (`DriftCheckBatchQueryTests`, регресс-гард).
-
+- **ADR-8** — key ring и NTFS ACL: ключи шифрования переносимы открытым текстом,
+  защита — права файловой системы; key ring + БД = единый бэкап-юнит.
+- **ADR-24** — IIS lifecycle: требования к правам службы для управления IIS.
+- **ADR-27** — бэкапы инфобаз: COPY_ONLY, VERIFYONLY, keep-latest, disk-guard.

@@ -1,61 +1,155 @@
 # MitLicense Center
 
-Веб-панель управления мультитенантной 1С-инфраструктурой (1С 8.3–8.5 на Windows Server + IIS + MSSQL): клиенты, базы, IIS-публикации, лимиты лицензий и автоматический контроль соблюдения квот.
+Веб-панель управления мультитенантной 1С-инфраструктурой для хостинг-провайдера.
+Панель непрерывно контролирует потребление лицензий по каждому клиенту, управляет
+публикациями инфобаз в IIS и предоставляет оперативный мониторинг сервера — без
+ручного входа на хост.
 
-Это не биллинговая система и не десктоп-приложение. Полная цель и ограничения зафиксированы в `docs/01_PROJECT_CONTEXT.md`. Архитектурные решения — в `docs/DECISIONS.md`. Навигация по всей документации — [`docs/00_INDEX.md`](docs/00_INDEX.md); краткая операционная справка для разработчика/агента (команды, гочи, конвенции) — [`CLAUDE.md`](CLAUDE.md); модель безопасности — [`SECURITY.md`](SECURITY.md).
+Полное описание продукта, границ и глоссарий: [`docs/01_OVERVIEW.md`](docs/01_OVERVIEW.md).
 
-## Требования к локальной среде
+(скриншот будет добавлен)
 
-- Windows 10/11 или Windows Server.
-- **.NET 10 SDK** (10.0.100+). Проверка: `dotnet --version`.
-  ```pwsh
-  winget install Microsoft.DotNet.SDK.10
-  ```
-- **Node.js 22.13+** (требование `pnpm` 11; на Node 20 падает с `No such built-in module: node:sqlite`). Проверка: `node --version`.
-  ```pwsh
-  winget install OpenJS.NodeJS.LTS
-  ```
-- **pnpm** (standalone-установка):
-  ```pwsh
-  winget install pnpm.pnpm
-  ```
-  Версия пнится через `packageManager` поле в `frontend/package.json`. Corepack тоже сработает на Linux/macOS или в elevated-shell на Windows, но обычному пользователю он не может записать в `C:\Program Files\nodejs\`, поэтому базовый путь — standalone-пакет.
-- **MSSQL** (Developer/Standard, локальный дефолтный экземпляр) с connection string `Server=.;Database=MitLicenseCenter;Trusted_Connection=True;TrustServerCertificate=True`. Перекрывается через User Secrets / переменные окружения `ConnectionStrings__Default` и `ConnectionStrings__Hangfire`.
-- **Git for Windows** (включает Git Bash — нужен pre-commit-хуку в `.husky/pre-commit`).
+---
 
-## Быстрый старт
+## Для кого
 
-```pwsh
-# 1. Сбросить и накатить локальную БД (первый запуск либо после изменений миграций):
-.\scripts\db-reset.ps1
+**Оператор хостинга / системный администратор** — роль **Admin**: полный доступ ко
+всем операциям (управление клиентами, инфобазами, публикациями IIS, параметрами
+системы, учётными записями, бэкапами, ручное завершение сеансов).
 
-# 2. Запустить бэкенд (dotnet watch) + фронтенд (pnpm dev) параллельно:
-.\scripts\dev.ps1
-```
+**Наблюдатель / дежурный** — роль **Viewer**: доступ на просмотр всех разделов
+(дашборд, сеансы, инфобазы, отчёты, аудит, бэкапы, быстродействие); запуск
+on-demand бэкапа доступен обеим ролям.
 
-После старта:
-- SPA — http://localhost:5173
-- API — http://localhost:5080
-- Swagger UI — http://localhost:5080/api/docs
-- Hangfire — http://localhost:5080/hangfire (только для роли `Admin`)
+Страницы «Параметры» и «Пользователи» — только Admin.
 
-При первом запуске бэкенд создаёт пользователя `admin` со случайным паролем и пишет его в лог одной строкой `WARN`. Залогиньтесь этим паролем и смените его.
+---
 
-## Проверка перед коммитом
+## Возможности
 
-```pwsh
-# Полный прогон: сборка, тесты, lint, type-check, build фронта:
-.\scripts\build.ps1
-```
+### Мониторинг
 
-Pre-commit-хук (`husky` + `lint-staged`) автоматически прогонит Prettier/ESLint на staged JS/TS файлах и `dotnet format --verify-no-changes` на staged `.cs`. Если что-то не проходит — коммит блокируется.
+- **Дашборд** (`/`) — KPI-карточки: клиенты, инфобазы, активные сеансы,
+  использование и остаток лицензий, статус RAS; топ клиентов по нагрузке; метрики хоста.
+- **Сеансы** (`/sessions`) — активные сеансы кластера 1С в реальном времени
+  (обновление каждые 5 с); ручное завершение сеанса; фильтр по клиенту/инфобазе.
+- **Отчёты** (`/reports`) — история потребления лицензий с шагом 15 минут; сводка
+  по всем клиентам и детализация по одному; экспорт CSV / Excel / HTML / PDF.
+- **Быстродействие** (`/performance`) — загрузка CPU / RAM / диска хоста; атрибуция
+  нагрузки по семьям процессов (1С, SQL Server, антивирус, прочее); активные сеансы
+  и рабочие процессы кластера; активные запросы SQL, ожидания, задержки диска.
+
+### Управление
+
+- **Клиенты** (`/tenants`) — CRUD клиентов (тенантов); лимиты лицензий;
+  автоматический контроль квот (enforcement: завершение избыточных сеансов
+  по принципу «newest-first» без участия оператора).
+- **Инфобазы** (`/infobases`) — CRUD инфобаз; публикация/снятие через `webinst.exe`;
+  смена версии платформы 1С; проверка статуса IIS; on-demand бэкап базы SQL;
+  разбор нераспределённых баз кластера; управление пулами приложений и сайтами IIS
+  (recycle, start, stop, iisreset).
+
+### Система
+
+- **Аудит** (`/audit`) — хронологический журнал всех операций с фильтрами по типу
+  действия, клиенту и дате.
+- **Пользователи** (`/users`) — CRUD учётных записей панели; сброс пароля;
+  смена роли Admin ↔ Viewer; отключение/включение (только Admin).
+- **Параметры** (`/settings`) — подключение к RAS, SQL Server, IIS; политика
+  лицензий; частота опроса; сроки хранения данных; параметры бэкапа (только Admin).
+
+---
+
+## Технологический стек
+
+| Слой | Технологии |
+|---|---|
+| Backend | .NET 10 (SDK 10.0.100), ASP.NET Core Minimal API, EF Core, Hangfire, ASP.NET Core Identity |
+| Frontend | React 19, Vite 8, TanStack Query 5, TypeScript 6, Tailwind CSS 4, shadcn/ui |
+| База данных | Microsoft SQL Server 2019 / 2022, три схемы: `dbo`, `auth`, `hangfire` |
+| Веб-сервер | Kestrel (служба Windows, self-contained single-file win-x64; IIS — управляемый объект) |
+| Интеграция 1С | `rac.exe`, `ras.exe` (Remote Administration Service), `webinst.exe` |
+
+Версия продукта: `0.1.0-beta` (единая для backend и frontend).
+
+---
+
+## Системные требования
+
+| Компонент | Требование |
+|---|---|
+| ОС | Windows Server 2019 / 2022 (x64) |
+| IIS | установлена и работает роль веб-сервера |
+| SQL Server | 2019 / 2022 (любая редакция; Express достаточен для малых нагрузок) |
+| Платформа 1С | установлена с утилитами `rac.exe`, `ras.exe`, `webinst.exe` |
+| .NET runtime | не требуется — рантайм вшит в дистрибутив (self-contained) |
+
+Полные требования, мастер установки и процедура обновления: [`docs/INSTALL.md`](docs/INSTALL.md).
+
+---
 
 ## Структура репозитория
 
 ```
-backend/    .NET 10 solution (Domain / Application / Infrastructure / Web + Tests.Unit)
-frontend/   React 19 + TS SPA (Vite, Tailwind v4, shadcn/ui)
-docs/       Проектная документация (01..06 + DECISIONS.md)
-scripts/    PowerShell-скрипты (build, dev, db-reset)
-.github/    CI workflow
+├── backend/       — .NET 10: Domain, Application, Infrastructure, Web (Minimal API)
+│   ├── src/
+│   ├── tests/     — юнит-тесты (xUnit)
+│   └── tools/     — PerfHarness (seed, reset-admin, rac-заглушка)
+├── frontend/      — React + TypeScript + Vite + Tailwind CSS 4
+├── scripts/       — PowerShell-скрипты: build, dev, db-reset, publish-release, build-installer и др.
+├── installer/     — Inno Setup .iss (GUI-установщик Windows)
+└── docs/          — документация v2 (01_OVERVIEW, INSTALL, DEVELOPMENT, OPERATIONS и др.)
 ```
+
+---
+
+## Быстрый старт для разработчика
+
+Пререквизиты: .NET SDK 10.0.100, Node.js ≥ 22.13, pnpm 11.0.8 (только через
+`winget install pnpm.pnpm`), локальный SQL Server.
+
+Запустить полный CI-прогон (lint + тесты + сборка):
+
+```powershell
+.\scripts\build.ps1
+```
+
+Запустить dev-сервер (backend на `http://localhost:5080`, frontend на `http://localhost:5173`):
+
+```powershell
+.\scripts\dev.ps1
+```
+
+Подробная инструкция, все скрипты и гочи: [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
+
+---
+
+## Документация
+
+Полная карта документации с маршрутами по ролям читателя — [`docs/00_INDEX.md`](docs/00_INDEX.md).
+
+| Документ | Описание |
+|---|---|
+| [`docs/00_INDEX.md`](docs/00_INDEX.md) | Навигационный индекс: полная карта документации |
+| [`docs/01_OVERVIEW.md`](docs/01_OVERVIEW.md) | Продукт, границы, глоссарий |
+| [`docs/INSTALL.md`](docs/INSTALL.md) | Системные требования, мастер установки, обновление |
+| [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) | Среда разработчика, скрипты, гочи |
+| [`docs/OPERATIONS.md`](docs/OPERATIONS.md) | Эксплуатация: мониторинг, диагностика, обслуживание |
+| [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) | Руководство оператора |
+| [`SECURITY.md`](SECURITY.md) | Политика безопасности, сообщение об уязвимостях |
+| [`docs/02_ARCHITECTURE.md`](docs/02_ARCHITECTURE.md) | Архитектура системы |
+| [`docs/03_DOMAIN_MODEL.md`](docs/03_DOMAIN_MODEL.md) | Доменная модель |
+| [`docs/04_BACKEND.md`](docs/04_BACKEND.md) | Backend: проекты, слои, API |
+| [`docs/05_FRONTEND.md`](docs/05_FRONTEND.md) | Frontend: структура, компоненты |
+| [`docs/DECISIONS.md`](docs/DECISIONS.md) | Архитектурные решения (ADR) |
+| [`docs/ROADMAP.md`](docs/ROADMAP.md) | Дорожная карта |
+
+---
+
+## Язык и локаль
+
+UI работает только на русском языке (ru-RU). Интернационализация других локалей
+не предусмотрена.
+
+Лицензия на сторонние компоненты: [`THIRD_PARTY_LICENSES.txt`](THIRD_PARTY_LICENSES.txt).
+Файл лицензии на сам продукт в репозитории отсутствует.
