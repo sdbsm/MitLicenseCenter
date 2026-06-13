@@ -19,8 +19,15 @@ interface StatusBadgeProps {
 }
 
 export function StatusBadge({ variant, children, className }: StatusBadgeProps) {
+  // data-variant — стабильный наблюдаемый признак выбранного варианта (FE-19, MLC-120):
+  // тесты привязываются к семантике status→variant, а не к Tailwind-классам (которые
+  // меняются при дизайн-рефакторе и давали ложно-красный). Поведение рендера не меняется.
   return (
-    <Badge className={cn(variantClass[variant], className)} variant="outline">
+    <Badge
+      data-variant={variant}
+      className={cn(variantClass[variant], className)}
+      variant="outline"
+    >
       {children}
     </Badge>
   );
