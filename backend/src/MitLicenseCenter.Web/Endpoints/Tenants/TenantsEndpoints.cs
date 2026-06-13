@@ -146,6 +146,10 @@ public static class TenantsEndpoints
             return TypedResults.Conflict(Problems.TenantNameDuplicate(normalized));
         }
 
+        // MLC-119 (BE-11) — фиксируем старый лимит ДО присвоения нового, чтобы при
+        // фактическом изменении дописать структурированное событие LimitChanged.
+        var oldLimit = tenant.MaxConcurrentLicenses;
+
         tenant.Name = normalized;
         tenant.MaxConcurrentLicenses = request.MaxConcurrentLicenses;
         tenant.IsActive = request.IsActive;
@@ -163,6 +167,17 @@ public static class TenantsEndpoints
         await httpContext.AuditAsync(audit, AuditActionType.TenantUpdated,
             init => AuditDescriptions.TenantUpdated(tenant.Name, init),
             tenant.Id, ct).ConfigureAwait(false);
+
+        // MLC-119 (BE-11) — смена лимита лицензий чувствительна (прямо влияет на enforcement)
+        // и неотличима от переименования в общем TenantUpdated. При фактическом изменении
+        // дописываем ДОПОЛНИТЕЛЬНОЕ структурированное событие LimitChanged со старым→новым
+        // значением (action-first, как TenantUpdated; PUT, меняющий и имя, и лимит, пишет обе).
+        if (oldLimit != tenant.MaxConcurrentLicenses)
+        {
+            await httpContext.AuditAsync(audit, AuditActionType.LimitChanged,
+                init => AuditDescriptions.LimitChanged(tenant.Name, oldLimit, tenant.MaxConcurrentLicenses, init),
+                tenant.Id, ct).ConfigureAwait(false);
+        }
 
         return TypedResults.Ok(tenant.ToResponse());
     }
@@ -186,13 +201,15 @@ public static class TenantsEndpoints
         }
 
         var name = tenant.Name;
-        // Запись аудита кладём ДО удаления, пока tenant ещё существует — FK SetNull
-        // потом сам обнулит TenantId в этой строке.
-        await httpContext.AuditAsync(audit, AuditActionType.TenantDeleted,
-            init => AuditDescriptions.TenantDeleted(name, init),
-            id, ct).ConfigureAwait(false);
-
+        // MLC-119 (BE-01) — удаление и аудит коммитятся ОДНИМ SaveChanges (атомарно: оба
+        // или ничего). Запись аудита enlist'им (без своего SaveChanges), чтобы при сбое
+        // удаления не оставалась ложная TenantDeleted. FK SetNull в той же транзакции
+        // обнулит TenantId в новой строке после удаления tenant — это корректно: запись
+        // остаётся, ссылка обнуляется.
         db.Tenants.Remove(tenant);
+        httpContext.EnlistAudit(audit, AuditActionType.TenantDeleted,
+            init => AuditDescriptions.TenantDeleted(name, init),
+            id);
         await db.SaveChangesAsync(ct).ConfigureAwait(false);
 
         return TypedResults.NoContent();

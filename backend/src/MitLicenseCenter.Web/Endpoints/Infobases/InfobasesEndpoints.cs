@@ -450,24 +450,30 @@ public static partial class InfobasesEndpoints
                 tenantId, ct).ConfigureAwait(false);
         }
 
-        // Аудит пишем ДО удаления — TenantId ещё валиден, FK не нарушается.
-        if (publication is not null)
-        {
-            await httpContext.AuditAsync(audit, AuditActionType.PublicationDeleted,
-                init => AuditDescriptions.PublicationDeletedWithInfobase(publicationLabel!, infobaseName, init),
-                tenantId, ct).ConfigureAwait(false);
-        }
-        await httpContext.AuditAsync(audit, AuditActionType.InfobaseDeleted,
-            init => AuditDescriptions.InfobaseDeleted(infobaseName, init),
-            tenantId, ct).ConfigureAwait(false);
-
-        // FK Publication→Infobase = Cascade на стороне БД, но InMemory-провайдер в
-        // тестах его не уважает. Сносим публикацию вручную — поведение одинаковое.
+        // MLC-119 (BE-01) — удаление строк и аудит коммитятся ОДНИМ SaveChanges (атомарно:
+        // оба или ничего). Записи PublicationDeleted/InfobaseDeleted enlist'им (без своего
+        // SaveChanges), чтобы при сбое финального SaveChanges не оставались ложные «удалена».
+        // PublicationUnpublished выше — наоборот, action-first: аудитит уже выполненный
+        // необратимый webinst-side-effect и должен записаться сразу, независимо от исхода
+        // удаления.
+        // FK Publication→Infobase = Cascade на стороне БД, но InMemory-провайдер в тестах
+        // его не уважает. Сносим публикацию вручную — поведение одинаковое.
         if (publication is not null)
         {
             db.Publications.Remove(publication);
         }
         db.Infobases.Remove(infobase);
+
+        if (publication is not null)
+        {
+            httpContext.EnlistAudit(audit, AuditActionType.PublicationDeleted,
+                init => AuditDescriptions.PublicationDeletedWithInfobase(publicationLabel!, infobaseName, init),
+                tenantId);
+        }
+        httpContext.EnlistAudit(audit, AuditActionType.InfobaseDeleted,
+            init => AuditDescriptions.InfobaseDeleted(infobaseName, init),
+            tenantId);
+
         await db.SaveChangesAsync(ct).ConfigureAwait(false);
 
         return TypedResults.NoContent();

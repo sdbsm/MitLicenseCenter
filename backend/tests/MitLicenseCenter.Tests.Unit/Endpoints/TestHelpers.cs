@@ -178,6 +178,18 @@ internal static class TestHelpers
             Entries.Add((action, initiator, description, tenantId, reason));
             return Task.CompletedTask;
         }
+
+        // MLC-119 — enlist захватываем в тот же список, синхронно (тест-дубль не моделирует
+        // отложенный SaveChanges; для проверок состава/числа записей этого достаточно).
+        public void Enlist(
+            AuditActionType action,
+            string initiator,
+            string description,
+            Guid? tenantId = null,
+            AuditReason? reason = null)
+        {
+            Entries.Add((action, initiator, description, tenantId, reason));
+        }
     }
 
     private sealed class FixedTimeProvider : TimeProvider

@@ -209,5 +209,16 @@ public sealed class HotColdEnforcementOverKillTests
                 _entries.Add((action, initiator, description, tenantId, reason));
             return Task.CompletedTask;
         }
+
+        public void Enlist(
+            AuditActionType action,
+            string initiator,
+            string description,
+            Guid? tenantId = null,
+            AuditReason? reason = null)
+        {
+            lock (_gate)
+                _entries.Add((action, initiator, description, tenantId, reason));
+        }
     }
 }

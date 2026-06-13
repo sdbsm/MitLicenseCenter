@@ -36,6 +36,21 @@ internal static class EndpointHelpers
         return audit.LogAsync(action, initiator, description(initiator), tenantId, ct: ct);
     }
 
+    // MLC-119 (BE-01) — синхронный enlist-аналог AuditAsync: резолвит initiator и кладёт
+    // аудит-запись в общий tracked-контекст БЕЗ собственного SaveChanges, чтобы она
+    // закоммитилась тем же SaveChangesAsync, что и сама операция (атомарность). reason —
+    // null, как в AuditAsync (парные/условные записи остаются раздельными вызовами).
+    public static void EnlistAudit(
+        this HttpContext httpContext,
+        IAuditLogger audit,
+        AuditActionType action,
+        Func<string, string> description,
+        Guid? tenantId = null)
+    {
+        var initiator = httpContext.ResolveInitiator();
+        audit.Enlist(action, initiator, description(initiator), tenantId);
+    }
+
     // MLC-004/ADR-19 — backstop уникальности поверх предварительного AnyAsync.
     // Сохраняем изменения; если БД подняла нарушение уникального индекса (гонка двух
     // вставок, проскочивших pre-check), мапим его в задокументированный 409 ProblemDetails

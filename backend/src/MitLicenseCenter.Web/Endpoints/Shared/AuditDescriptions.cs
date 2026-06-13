@@ -19,6 +19,11 @@ internal static class AuditDescriptions
     public static string TenantDeleted(string name, string initiator) =>
         $"Клиент «{name}» удалён администратором {initiator}.";
 
+    // MLC-119 (BE-11) — отдельное событие о смене лимита лицензий; старое→новое значение
+    // в описании обязательно (нужно при разборе «почему убиваются сессии»).
+    public static string LimitChanged(string name, int oldLimit, int newLimit, string initiator) =>
+        $"Лимит лицензий клиента «{name}» изменён с {oldLimit} на {newLimit} администратором {initiator}.";
+
     // ── Инфобазы (Infobase) ───────────────────────────────────────────────────────
     public static string InfobaseCreated(string name, string initiator) =>
         $"Инфобаза «{name}» создана администратором {initiator}.";
