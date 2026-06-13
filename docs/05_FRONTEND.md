@@ -232,6 +232,31 @@ invalidate: (infobaseId) => backupsQueryKey(infobaseId)
 Все «живые» запросы используют `placeholderData: (prev) => prev` — экран не
 мигает скелетоном между poll-ами.
 
+### 4.4 Live-оверлей потребления лицензий на клиента
+
+Список клиентов (`GET /api/v1/tenants`) и DTO клиента несут только лимит
+(`maxConcurrentLicenses`) — текущего потребления в контракте клиента нет. Чтобы
+акцентировать «нарушителя квоты» на `/tenants` и карточке `/tenants/:id`,
+потребление берётся live-оверлеем из снапшота сеансов: хук
+`useTenantConsumption()` (`features/tenants`) поверх `useSessionsSnapshot()`
+строит `Map<tenantId, consumed>` чистой функцией `buildConsumedByTenant(items)`
+(считает записи с `consumesLicense === true`, группирует по `tenantId`). Это
+намеренное небольшое дублирование канонического backend-метода
+`LicenseConsumption.CountByTenant`: на FE — визуальный оверлей, не контракт и не
+parity-правило (тот же снапшот питает серверный расчёт дашборда — значения
+совпадают). Клиент без сеансов → `consumed = 0`; первая загрузка снапшота → скелетон.
+
+Визуальный язык акцента (пороги 75/90, severity → `StatusBadge`-вариант) —
+единый источник `lib/quota.ts`; раскладка по экранам — `06_UI_GUIDE.md` §7.
+
+### 4.5 Инвалидация отчётов при смене лимита (FE-03)
+
+`useUpdateTenant` инвалидирует `[tenantsQueryKey, reportsQueryKey]`: смена лимита
+влияет на проценты в `/reports`, поэтому кэш отчётов сбрасывается вместе с
+клиентами. `reportsQueryKey` вынесен в `features/reports/reportsQueryKeys.ts`
+(а не в `useLicenseUsage.ts`), чтобы `useTenants` импортировал только константу
+без циклической зависимости через `useReportsPage`.
+
 ---
 
 ## 5. Zod и `omittable` (ADR-10.1)

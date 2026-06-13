@@ -354,7 +354,59 @@ Recharts не наследует CSS-переменные автоматичес
 
 ---
 
-## 7. Правила UI-текстов
+## 7. Единый визуальный язык квоты лицензий (MLC-122 / R6)
+
+### Пороги и severity
+
+Все экраны используют единственный источник правил — `frontend/src/lib/quota.ts`:
+
+| Порог | Severity | StatusBadge variant | Цвет прогресс-бара |
+|---|---|---|---|
+| `percent < 75` | `ok` | `neutral` (бейдж не показывается) | по умолчанию |
+| `75 ≤ percent < 90` | `warning` | `warning` (amber) | `bg-amber-500` |
+| `percent ≥ 90` | `danger` | `danger` (rose) | `bg-rose-500` |
+| `limit ≤ 0` (безлимит) | `ok` | — (бейдж не показывается) | — |
+
+Константы порогов: `QUOTA_WARNING_THRESHOLD = 75`, `QUOTA_DANGER_THRESHOLD = 90`.
+
+### Хелперы
+
+- `quotaPercent(consumed, limit)` — процент (0 при безлимите);
+- `quotaSeverity(consumed, limit)` — severity;
+- `severityToStatusBadgeVariant(severity)` — вариант `StatusBadge`;
+- `severityToProgressClass(severity)` — Tailwind-класс для `Progress`;
+- `quotaDisplay(consumed, limit)` — все четыре значения разом.
+
+### Применение по экранам
+
+| Экран | Что показывает |
+|---|---|
+| `/` (Дашборд) | Прогресс-бар топ-клиентов, цвет по `severityToProgressClass` |
+| `/tenants` (список) | Колонка «Лицензии»: `consumed / limit (percent%)` + `StatusBadge` при warning/danger |
+| `/tenants/:id` (карточка) | Строка рядом с лимитом: текущее потребление + `StatusBadge` |
+| `/reports` (отчёты) | Пиковое значение `ReportsStats` + `StatusBadge` при warning/danger |
+
+### Источник потребления на клиента (FE live-оверлей)
+
+На `/tenants` и `/tenants/:id` текущее потребление — live-оверлей, агрегированный на
+фронтенде из снапшота сеансов (`GET /api/v1/sessions/snapshot`, обновляется каждые 5 с).
+
+Хук `useTenantConsumption()` строит `Map<tenantId, consumed>` через функцию
+`buildConsumedByTenant(items)`: считает записи с `consumesLicense === true`, группирует
+по `tenantId`. Это намеренное небольшое дублирование канонического backend-метода
+`LicenseConsumption.CountByTenant` — на FE это визуальный оверлей, не контракт/не parity-правило.
+
+Клиент без сеансов в снапшоте → consumed = 0. Пока снапшот загружается впервые → скелетон
+(нет мигания при poll). Безлимитные клиенты (`maxConcurrentLicenses ≤ 0`) — нейтрально («—»).
+
+### Привязка тестов
+
+Тесты привязываются к `data-variant` атрибуту `StatusBadge` (FE-19, MLC-120) — семантика
+`severity → variant`, а не Tailwind-класс. Это защищает тесты от дизайн-рефакторов.
+
+---
+
+## 8. Правила UI-текстов
 
 ### Язык и тон
 

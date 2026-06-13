@@ -7,14 +7,16 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { severityToProgressClass, quotaSeverity } from "@/lib/quota";
 import { HostHealthCard } from "./HostHealthCard";
 import type { DashboardRasHealth, DashboardSummaryResponse, TenantConsumptionRow } from "./types";
 import { useDashboardSummary } from "./useDashboardSummary";
 
-function progressColorClass(percent: number): string {
-  if (percent >= 90) return "[&>[data-slot=progress-indicator]]:bg-rose-500";
-  if (percent >= 75) return "[&>[data-slot=progress-indicator]]:bg-amber-500";
-  return "";
+/** Цвет прогресс-бара по данным строки топа. Делегирует в quota.ts — единый
+ *  источник порогов 75/90. consumed/limit известны из строки дашборда; дашборд
+ *  считает их серверно из того же снапшота, что и FE-оверлей на /tenants. */
+function progressColorClass(row: TenantConsumptionRow): string {
+  return severityToProgressClass(quotaSeverity(row.consumed, row.limit));
 }
 
 export function DashboardPage() {
@@ -276,7 +278,7 @@ function TopTenantsCard({ data, isLoading }: TopTenantsCardProps) {
                   >
                     {row.tenantName}
                   </Link>
-                  <Progress value={row.percent} className={progressColorClass(row.percent)} />
+                  <Progress value={row.percent} className={progressColorClass(row)} />
                 </div>
                 <p className="text-muted-foreground text-sm tabular-nums">
                   {t("dashboard.topTenants.consumedOf", {

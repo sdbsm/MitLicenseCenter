@@ -9,6 +9,8 @@ import { PaginationBar } from "@/components/PaginationBar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { useMe } from "@/features/auth/useAuth";
+import { StatusBadge } from "@/components/ui/StatusBadge";
+import { quotaDisplay } from "@/lib/quota";
 import { BackupsDialog } from "@/features/backups/BackupsDialog";
 import { DeleteInfobaseDialog } from "@/features/infobases/DeleteInfobaseDialog";
 import { InfobaseFormDialog } from "@/features/infobases/InfobaseFormDialog";
@@ -18,6 +20,7 @@ import { ReassignInfobaseDialog } from "@/features/infobases/ReassignInfobaseDia
 import type { InfobaseListItem } from "@/features/infobases/types";
 import { INFOBASES_PAGE_SIZE, useInfobases } from "@/features/infobases/useInfobases";
 import { useAllTenants } from "./useTenants";
+import { useTenantConsumption } from "./useTenantConsumption";
 
 const NUMBER_FORMATTER = new Intl.NumberFormat("ru-RU");
 
@@ -29,6 +32,7 @@ export function TenantDetailPage() {
 
   const { data: tenantsData, isLoading: tenantsLoading } = useAllTenants();
   const tenant = useMemo(() => tenantsData?.items.find((tnt) => tnt.id === id), [tenantsData, id]);
+  const { consumedByTenant, isLoading: isSnapshotLoading } = useTenantConsumption();
 
   const [page, setPage] = useState(1);
   const { data, isLoading, isError, isFetching, refetch } = useInfobases(
@@ -99,11 +103,45 @@ export function TenantDetailPage() {
                 ))}
             </div>
             {tenant && (
-              <p className="text-muted-foreground text-sm">
-                {t("tenants.detail.licenseLimit", {
-                  count: NUMBER_FORMATTER.format(tenant.maxConcurrentLicenses),
-                })}
-              </p>
+              <div className="space-y-1">
+                <p className="text-muted-foreground text-sm">
+                  {t("tenants.detail.licenseLimit", {
+                    count: NUMBER_FORMATTER.format(tenant.maxConcurrentLicenses),
+                  })}
+                </p>
+                {/* Live-потребление из снапшота (MLC-122 / R6 / UX-02). */}
+                {tenant.maxConcurrentLicenses <= 0 ? (
+                  <p className="text-muted-foreground text-sm">
+                    {t("tenants.detail.licenseConsumptionUnlimited")}
+                  </p>
+                ) : isSnapshotLoading ? (
+                  <Skeleton className="h-4 w-48" />
+                ) : (() => {
+                    const consumed = consumedByTenant.get(tenant.id) ?? 0;
+                    const { percent, severity, badgeVariant } = quotaDisplay(
+                      consumed,
+                      tenant.maxConcurrentLicenses
+                    );
+                    return (
+                      <div className="flex items-center gap-2">
+                        <p className="text-muted-foreground text-sm">
+                          {t("tenants.detail.licenseConsumption", {
+                            consumed,
+                            limit: tenant.maxConcurrentLicenses,
+                            percent,
+                          })}
+                        </p>
+                        {severity !== "ok" && (
+                          <StatusBadge variant={badgeVariant}>
+                            {severity === "danger"
+                              ? t("common.quota.exceeded")
+                              : t("common.quota.nearLimit")}
+                          </StatusBadge>
+                        )}
+                      </div>
+                    );
+                  })()}
+              </div>
             )}
           </div>
           {isAdmin && tenant && (
