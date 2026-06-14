@@ -3,8 +3,9 @@ using Hangfire.Storage;
 
 namespace MitLicenseCenter.Web.Hangfire;
 
-// Hangfire-история — единственная схема в БД, растущая от высокочастотной джобы
-// (cold-snapshot тикает раз в минуту → ~1440 завершённых джоб/сутки). Hangfire
+// Hangfire-история — единственная схема в БД, растущая от рекуррентных джоб
+// (самая частая — publication-status-refresh каждые 5 мин → ~288 завершённых джоб/сутки).
+// MLC-154: cold-snapshot больше не Hangfire-recurring (ушёл в ColdTierPollingService). Hangfire
 // истекает завершённые джобы по ExpireAt, но дефолт (1 день) задаётся неявно в
 // библиотеке. Делаем срок детерминированным и документированным: succeeded/deleted
 // джобы живут 2 дня (пара дней истории в дэшборде, схема ограничена ~3k строк).

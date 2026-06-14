@@ -177,7 +177,8 @@ builder.Services.AddHangfire(cfg => cfg
     .UseSimpleAssemblyNameTypeSerializer()
     .UseRecommendedSerializerSettings()
     // Детерминированный срок хранения завершённых джоб (см. JobRetentionStateFilter):
-    // cold-snapshot раз в минуту иначе копит историю в схеме hangfire по неявному дефолту.
+    // recurring-джобы (напр. publication-status-refresh каждые 5 мин) иначе копят историю
+    // в схеме hangfire по неявному дефолту.
     .UseFilter(new JobRetentionStateFilter())
     .UseSqlServerStorage(hangfireConnectionString, new SqlServerStorageOptions
     {
@@ -357,10 +358,11 @@ app.MapFallback(async context =>
 // технически невозможно до этой точки выполнения Program.cs.
 if (!app.Environment.IsEnvironment("Test"))
 {
-    RecurringJob.AddOrUpdate<IReconciliationJob>(
-        "cold-snapshot",
-        j => j.RunColdAsync(CancellationToken.None),
-        "* * * * *"); // Every minute; internal throttle enforces ColdIntervalSeconds.
+    // MLC-154: cold-цикл согласования больше НЕ Hangfire-recurring — он перенесён в
+    // ColdTierPollingService (BackgroundService). Hangfire-CRON minimum = 1 мин делал
+    // настройку Polling.ColdIntervalSeconds инертной; таймер сервиса соблюдает её реально.
+    // Стартовый warm-up снимка теперь — немедленный первый прогон в ExecuteAsync сервиса.
+    RecurringJob.RemoveIfExists("cold-snapshot");
 
     // Publication status refresh (MLC-045): тикаем каждые 5 мин, внутри throttle до
     // Settings.Drift.IntervalMinutes. Read-only — читает факт публикаций в IIS и пишет
@@ -394,14 +396,6 @@ if (!app.Environment.IsEnvironment("Test"))
         "backup-retention",
         j => j.RunAsync(CancellationToken.None),
         "15 3 * * *");
-
-    // MLC-148: разовый прогрев снапшота сеансов на старте. Рекуррентная cold-snapshot
-    // тикает раз в минуту, поэтому на свежем старте/рестарте окно до первого срабатывания
-    // оставляет ActiveSessionSnapshotStore в исходном состоянии (CapturedAtUtc =
-    // DateTime.MinValue), а /sessions показывает пустой список с «обновлено ~2000 лет назад».
-    // Enqueue немедленной cold-реконсиляции наполняет снапшот сразу после старта воркера;
-    // внутренний throttle её не отсекает (ColdThrottleState стартует с MinValue).
-    BackgroundJob.Enqueue<IReconciliationJob>(j => j.RunColdAsync(CancellationToken.None));
 } // end if (!app.Environment.IsEnvironment("Test"))
 
 // Fail-fast bootstrap. Миграции и сидинг выполняются СИНХРОННО до открытия приёма

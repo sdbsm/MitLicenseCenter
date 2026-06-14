@@ -10,8 +10,11 @@ namespace MitLicenseCenter.Tests.Unit.Jobs;
 // [AutomaticRetry] Hangfire даёт дефолтные 10 ретраев — лишний красный шум при стойком сбое.
 // Атрибут обязан жить на методе ИНТЕРФЕЙСА: job'ы зарегистрированы через интерфейс
 // (RecurringJob.AddOrUpdate<TInterface>), и Hangfire берёт серверные фильтры именно с
-// зарегистрированного метода (тот же инвариант, что у DisableConcurrentExecution в
-// ReconciliationJobConcurrencyGuardTests).
+// зарегистрированного метода.
+//
+// MLC-154: IReconciliationJob.RunColdAsync здесь больше НЕ проверяется — cold-цикл ушёл из
+// Hangfire в ColdTierPollingService (BackgroundService), Hangfire-фильтры на нём неприменимы;
+// упавший тик самоисцеляется следующим тиком таймера сервиса.
 public sealed class JobRetryPolicyTests
 {
     [Theory]
@@ -32,7 +35,6 @@ public sealed class JobRetryPolicyTests
 
     [Theory]
     [InlineData(typeof(IPublicationStatusJob), nameof(IPublicationStatusJob.RefreshAllAsync))]
-    [InlineData(typeof(IReconciliationJob), nameof(IReconciliationJob.RunColdAsync))]
     public void Self_healing_high_frequency_jobs_do_not_retry(Type jobInterface, string method)
     {
         var attribute = GetRetryAttribute(jobInterface, method);

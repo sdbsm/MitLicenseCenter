@@ -222,10 +222,9 @@ public static class DependencyInjection
         // Snapshot store + hot-tier registry (singletons, PR 3.3).
         services.AddSingleton<IActiveSessionSnapshotStore, ActiveSessionSnapshotStore>();
         services.AddSingleton<IHotTierRegistry, HotTierRegistry>();
-        services.AddSingleton<ColdThrottleState>();
 
         // License usage accumulator (MLC-048, ADR-25): singleton — состояние текущего
-        // 15-мин бакета переживает scoped-инвокации cold-джобы (как ColdThrottleState).
+        // 15-мин бакета переживает scoped-инвокации cold-цикла.
         services.AddSingleton<ILicenseUsageAccumulator, LicenseUsageAccumulator>();
 
         // MLC-037 (PERF-01): метрики горячего пути (Meter'ы спавнов rac.exe и цикла
@@ -265,6 +264,15 @@ public static class DependencyInjection
         // CRON minimum = 1 мин, а нам нужно 3–5s). См. ADR-6.1.
         services.AddSingleton<HotTierPollingService>();
         services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<HotTierPollingService>());
+
+        // Cold-tier polling (MLC-154): BackgroundService для cold-обхода сессий. Раньше
+        // был рекуррентным Hangfire-джобом с CRON "* * * * *", но Hangfire-CRON minimum =
+        // 1 мин делал настройку Polling.ColdIntervalSeconds (10–300с) инертной. Таймер
+        // сервиса читает интервал каждый цикл → каданс реален. Лок Hangfire не нужен:
+        // single-host (ADR-28) + петля последовательна, cold↔hot сериализует IEnforcementGate.
+        // См. ADR-6.1.
+        services.AddSingleton<ColdTierPollingService>();
+        services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<ColdTierPollingService>());
 
         return services;
     }

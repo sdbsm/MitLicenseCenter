@@ -82,7 +82,7 @@ public sealed class HotColdEnforcementOverKillTests
 
         var cold = new ReconciliationJob(
             cluster, coldDb, store, registry, coldEnforcer, gate, settings,
-            new ColdThrottleState(), new LicenseUsageAccumulator(), clock, metrics,
+            new LicenseUsageAccumulator(), clock, metrics,
             NullLogger<ReconciliationJob>.Instance);
 
         var hot = new HotTierPollingService(
