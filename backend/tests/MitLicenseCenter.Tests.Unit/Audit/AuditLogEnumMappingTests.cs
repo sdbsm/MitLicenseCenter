@@ -93,6 +93,10 @@ public sealed class AuditLogEnumMappingTests
     [InlineData(AuditActionType.BackupFailed, 512)]
     [InlineData(AuditActionType.BackupDeleted, 513)]
     [InlineData(AuditActionType.BackupsPurged, 514)]
+    // MLC-159 (ADR-47) — 600-серия управления службой RAS (frozen-int).
+    [InlineData(AuditActionType.RasServiceRegistered, 600)]
+    [InlineData(AuditActionType.RasServiceUpdated, 601)]
+    [InlineData(AuditActionType.RasServiceStarted, 602)]
     public void AuditActionType_int_values_are_stable(AuditActionType action, int expected)
     {
         ((int)action).Should().Be(expected);

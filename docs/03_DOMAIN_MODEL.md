@@ -478,6 +478,9 @@ Defense-in-depth: `WebinstArgs.BuildConnStr` отдельно отвергает
 | 512 | BackupFailed | |
 | 513 | BackupDeleted | Ручное удаление администратором |
 | 514 | BackupsPurged | Ночная TTL-очистка устаревших файлов |
+| 600 | RasServiceRegistered | Управление службой RAS (ADR-47): регистрация (`sc create`) |
+| 601 | RasServiceUpdated | Перенастройка под платформу/порт (`sc config`) |
+| 602 | RasServiceStarted | Запуск остановленной службы |
 
 ### 5.2 `AuditReason`
 
