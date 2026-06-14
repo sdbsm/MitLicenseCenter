@@ -206,8 +206,9 @@ queryKey: [...infobasesQueryKey, { tenantId, publishStatus, page, pageSize }]
 платформы) живёт во внешнем `Map<id публикации, строка>` (а не в tanstack row-selection),
 поэтому переживает листание страниц и смену фильтра; чекбокс-колонка и «выбрать все»
 текущей страницы видны только админу. Статус публикации и метка «не найдена в кластере»
-(MLC-096) — через `StatusBadge`. Карточка клиента (`/tenants/:id`) использует тот же
-доменный ряд через общий `InfobaseRow` (shadcn `Table`) — её конверсия вне рамок 144b.
+(MLC-096) — через `StatusBadge`. Карточка клиента (`/tenants/:id`) показывает инфобазы
+клиента на том же `DataTable` через `buildInfobaseDetailColumns` (`infobaseDetailColumns.tsx`,
+MLC-144c); прежний общий компонент `InfobaseRow` удалён (MLC-146).
 
 **Клиентская сортировка и пагинация live-снапшотов (UX-14/15, MLC-131).** Сеансы
 (`/sessions`) и список «не найденных в кластере» баз (`MissingInfobasesDialog`) приходят
