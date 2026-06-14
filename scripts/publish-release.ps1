@@ -122,10 +122,21 @@ function Clear-OutputDir {
 Clear-OutputDir $OutputDir
 
 # Собираем аргументы dotnet publish.
+# REL-08 (MLC-126): подавляем артефакты, которые НЕ нужны в поставке и раскрывают
+# внутренности (information disclosure). Аргументы — ОБЩИЕ (до ветвления режима),
+# действуют и в self-contained, и в framework-dependent публише:
+#   DebugType=none / DebugSymbols=false → не генерировать *.pdb;
+#   IsTransformWebConfigDisabled=true   → не генерировать web.config (нужен только
+#     IIS-хостингу; панель хостит SPA сама — ADR-30, web.config мёртв).
+# appsettings.Development.json чистого publish-аргумента не имеет — удаляется дефензивно
+# после publish (ниже).
 $publishArgs = @(
     'publish', $WebProject,
     '-c', $Configuration,
-    '-o', $OutputDir
+    '-o', $OutputDir,
+    '-p:DebugType=none',
+    '-p:DebugSymbols=false',
+    '-p:IsTransformWebConfigDisabled=true'
 )
 
 if ($FrameworkDependent) {
@@ -179,6 +190,35 @@ if (-not (Test-Path -LiteralPath $licensesSource)) {
     throw "Не найден $licensesSource — файл сторонних лицензий обязателен в поставке (REL-10)."
 }
 Copy-Item -LiteralPath $licensesSource -Destination (Join-Path $OutputDir 'THIRD_PARTY_LICENSES.txt') -Force
+
+# --- REL-08 (MLC-126): дефензивная чистка appsettings.Development.json ---
+# Для этого файла чистого publish-аргумента нет, поэтому удаляем явно, если он
+# просочился в поставку (dev-конфиг в Setup.exe — information disclosure).
+$devSettings = Join-Path $OutputDir 'appsettings.Development.json'
+if (Test-Path -LiteralPath $devSettings) {
+    Write-Host "==> REL-08: удаляю appsettings.Development.json из поставки" -ForegroundColor Cyan
+    Remove-Item -LiteralPath $devSettings -Force
+}
+
+# --- REL-08 (MLC-126): sanity-чек состава поставки ---
+# После подавляющих publish-аргументов и дефензивной чистки в OutputDir не должно
+# остаться *.pdb / appsettings.Development.json / web.config (information disclosure).
+# Если что-то просочилось — падаем ДО упаковки с внятным списком (по образцу
+# forbidden-чека build-installer.ps1). Второй рубеж — sanity-чек build-installer.ps1.
+$secretsLeak = Get-ChildItem -Path $OutputDir -Recurse -File -Include '*.pdb', 'appsettings.Development.json', 'web.config' -ErrorAction SilentlyContinue
+if ($secretsLeak) {
+    $list = ($secretsLeak | ForEach-Object { '  - ' + $_.FullName.Substring($OutputDir.Length).TrimStart('\', '/') }) -join [Environment]::NewLine
+    throw @"
+REL-08 sanity-чек провален: в поставке найдены запрещённые артефакты (information disclosure).
+Каталог: $OutputDir
+Лишние файлы (*.pdb / appsettings.Development.json / web.config):
+$list
+Эти файлы не должны попадать в дистрибутив: pdb/web.config подавляются publish-аргументами
+(DebugType=none / DebugSymbols=false / IsTransformWebConfigDisabled=true), appsettings.Development.json
+удаляется дефензивно выше. Если они всё же появились — проверьте csproj/таргеты публиша.
+"@
+}
+Write-Host "REL-08 sanity-чек пройден: pdb / appsettings.Development.json / web.config в поставке нет." -ForegroundColor Green
 
 # --- Итоговый вывод: путь артефакта, размер exe, наличие SPA ---
 $exePath = Join-Path $OutputDir 'MitLicenseCenter.Web.exe'

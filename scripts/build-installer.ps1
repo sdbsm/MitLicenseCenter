@@ -145,28 +145,35 @@ else {
     }
 }
 
-# --- Шаг 2: sanity-чек состава publish-каталога (REL-01) ---
+# --- Шаг 2: sanity-чек состава publish-каталога (REL-01 + REL-08) ---
 # Этот скрипт собирает ТОЛЬКО self-contained single-file артефакт (рантайм вшит в exe).
-# В таком публише не должно быть следов framework-dependent-режима: *.deps.json /
-# *.runtimeconfig.json. Их наличие = в каталог уехал чужой/накопительный публиш →
-# падаем ДО ISCC с внятной ошибкой, чтобы в Setup.exe не уехал недетерминированный состав.
+# В таком публише не должно быть:
+#   - следов framework-dependent-режима: *.deps.json / *.runtimeconfig.json (REL-01) —
+#     их наличие = в каталог уехал чужой/накопительный публиш;
+#   - запрещённых артефактов поставки: *.pdb / appsettings.Development.json / web.config
+#     (REL-08, MLC-126) — information disclosure (debug-символы, dev-конфиг, мёртвый IIS-конфиг).
+# Любая находка → падаем ДО ISCC с внятной ошибкой, чтобы в Setup.exe не уехал ни
+# недетерминированный состав, ни запрещённые файлы. Это второй рубеж на пути установщика:
+# publish-release.ps1 чистит их сам, но build-installer.ps1 ловит и stale-каталог при -SkipPublish.
 # Чек работает и в ветке -SkipPublish (переиспользование), и после свежего publish.
 Write-Host ""
-Write-Host "==> Sanity-чек состава publish-каталога (self-contained, без framework-dependent следов)" -ForegroundColor Cyan
-$forbidden = Get-ChildItem -Path $PublishDir -Recurse -File -Include '*.deps.json', '*.runtimeconfig.json' -ErrorAction SilentlyContinue
+Write-Host "==> Sanity-чек состава publish-каталога (self-contained, без framework-dependent следов и REL-08-артефактов)" -ForegroundColor Cyan
+$forbidden = Get-ChildItem -Path $PublishDir -Recurse -File -Include '*.deps.json', '*.runtimeconfig.json', '*.pdb', 'appsettings.Development.json', 'web.config' -ErrorAction SilentlyContinue
 if ($forbidden) {
     $list = ($forbidden | ForEach-Object { '  - ' + $_.FullName.Substring($PublishDir.Length).TrimStart('\', '/') }) -join [Environment]::NewLine
     throw @"
-Sanity-чек провален: в self-contained publish-каталоге найдены следы framework-dependent-режима.
+Sanity-чек провален: в self-contained publish-каталоге найдены запрещённые файлы.
 Каталог: $PublishDir
-Лишние файлы (*.deps.json / *.runtimeconfig.json):
+Лишние файлы (framework-dependent-следы *.deps.json / *.runtimeconfig.json
+или REL-08-артефакты *.pdb / appsettings.Development.json / web.config):
 $list
-Self-contained single-file публиш не содержит этих файлов — значит каталог накопительный или
-собран в смешанном режиме. Пересоберите без -SkipPublish (publish-release.ps1 чистит каталог),
-либо удалите чужой publish-каталог вручную.
+Self-contained single-file публиш не содержит этих файлов. Значит каталог накопительный,
+собран в смешанном режиме, либо в нём остались debug-символы/dev-конфиг/IIS-конфиг.
+Пересоберите без -SkipPublish (publish-release.ps1 чистит каталог), либо удалите чужой
+publish-каталог вручную.
 "@
 }
-Write-Host "Sanity-чек пройден: следов framework-dependent-режима не найдено." -ForegroundColor Green
+Write-Host "Sanity-чек пройден: следов framework-dependent-режима и REL-08-артефактов не найдено." -ForegroundColor Green
 
 # --- Шаг 3: найти ISCC ---
 $iscc = Find-Iscc -ExplicitPath $IsccPath
