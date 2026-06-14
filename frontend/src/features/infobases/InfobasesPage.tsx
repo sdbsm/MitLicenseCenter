@@ -1,10 +1,11 @@
 import { getCoreRowModel, useReactTable } from "@tanstack/react-table";
-import { DatabaseIcon, PlusIcon } from "lucide-react";
+import { AlertTriangleIcon, DatabaseIcon, PlusIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { DataTable, useTableDensity } from "@/components/ui/data-table";
 import { PaginationBar } from "@/components/PaginationBar";
 import {
@@ -100,14 +101,21 @@ export function InfobasesPage() {
   const tenantIdParam = tenantFilter === ALL_TENANTS ? null : tenantFilter;
   const statusFilter = searchParams.get("publishStatus") ?? ALL_STATUSES;
   const publishStatusParam = statusFilter === ALL_STATUSES ? null : statusFilter;
+  // MLC-150 — серверный фильтр «не найдена в кластере» (обратный дрейф). Только для
+  // админа: при недоступном RAS показываем честное состояние, а не «0 найдено».
+  const notInClusterFilter = isAdmin && searchParams.get("notInCluster") === "true";
 
   const [page, setPage] = useState(1);
   const { data, isLoading, isError, isFetching, refetch } = useInfobases(
     tenantIdParam,
     publishStatusParam,
+    notInClusterFilter,
     page,
     PAGE_SIZE
   );
+  // BE заполняет clusterAvailable только при notInCluster=true; false ⇒ RAS недоступен,
+  // фильтрация не выполнена — показываем «не удалось проверить кластер» вместо пустого списка.
+  const clusterUnavailable = notInClusterFilter && data?.clusterAvailable === false;
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<InfobaseListItem | null>(null);
@@ -151,19 +159,24 @@ export function InfobasesPage() {
   const changeTenantFilter = (value: string) => changeFilterParam("tenantId", value, ALL_TENANTS);
   const changeStatusFilter = (value: string) =>
     changeFilterParam("publishStatus", value, ALL_STATUSES);
+  // MLC-150 — toggle «не найдена в кластере»: true пишет ключ, иначе удаляет (как sentinel-«всё»).
+  const toggleNotInClusterFilter = (checked: boolean) =>
+    changeFilterParam("notInCluster", checked ? "true" : "false", "false");
   const resetFilters = () => {
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev);
         next.delete("tenantId");
         next.delete("publishStatus");
+        next.delete("notInCluster");
         return next;
       },
       { replace: true }
     );
     setPage(1);
   };
-  const anyFilterActive = tenantFilter !== ALL_TENANTS || statusFilter !== ALL_STATUSES;
+  const anyFilterActive =
+    tenantFilter !== ALL_TENANTS || statusFilter !== ALL_STATUSES || notInClusterFilter;
 
   const items = useMemo<InfobaseListItem[]>(() => data?.items ?? [], [data]);
   const total = data?.total ?? 0;
@@ -409,6 +422,23 @@ export function InfobasesPage() {
             />
           )}
 
+          {/* MLC-150 — фильтр «не найдена в кластере» запрошен, но RAS недоступен:
+              честное состояние вместо вводящего в заблуждение «0 найдено». */}
+          {clusterUnavailable && (
+            <div className="flex flex-wrap items-center gap-3 rounded-md border border-amber-600/40 bg-amber-600/5 p-3 text-sm text-amber-700 dark:text-amber-300">
+              <AlertTriangleIcon className="size-5 shrink-0" />
+              <span className="font-medium">{t("infobases.filters.notInClusterUnavailable")}</span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="ml-auto"
+                onClick={() => void refetch()}
+              >
+                {t("common.refresh")}
+              </Button>
+            </div>
+          )}
+
           {isAdmin && selected.size > 0 && (
             <PublicationsBulkBar
               count={selected.size}
@@ -428,25 +458,29 @@ export function InfobasesPage() {
               columnLabel={(id) => table.getColumn(id)?.columnDef.meta?.label ?? id}
               renderSkeletonRow={() => <InfobaseSkeletonCells columnCount={columns.length} />}
               emptyState={
-                !isError ? (
+                isError || clusterUnavailable ? undefined : ( // RAS недоступен — баннер выше объясняет пустоту, ложный «нет инфобаз» не показываем
                   <div className="flex flex-col items-center justify-center gap-3 text-center">
                     <DatabaseIcon className="text-muted-foreground size-8" />
                     <div className="space-y-1">
-                      <p className="font-medium">{t("infobases.empty.title")}</p>
+                      <p className="font-medium">
+                        {notInClusterFilter
+                          ? t("infobases.filters.notInClusterEmpty")
+                          : t("infobases.empty.title")}
+                      </p>
                       <p className="text-muted-foreground text-sm">
                         {tenants.length === 0
                           ? t("infobases.empty.noTenantsHint")
                           : t("infobases.empty.hint")}
                       </p>
                     </div>
-                    {isAdmin && tenants.length > 0 && (
+                    {isAdmin && tenants.length > 0 && !notInClusterFilter && (
                       <Button size="sm" onClick={handleOpenAdd}>
                         <PlusIcon className="size-4" />
                         {t("infobases.actions.add")}
                       </Button>
                     )}
                   </div>
-                ) : undefined
+                )
               }
               toolbarChildren={
                 <>
@@ -480,6 +514,15 @@ export function InfobasesPage() {
                       ))}
                     </SelectContent>
                   </Select>
+                  {isAdmin && (
+                    <label className="flex items-center gap-2 text-sm whitespace-nowrap select-none">
+                      <Checkbox
+                        checked={notInClusterFilter}
+                        onCheckedChange={(checked) => toggleNotInClusterFilter(checked === true)}
+                      />
+                      {t("infobases.filters.notInCluster")}
+                    </label>
+                  )}
                   {anyFilterActive && (
                     <Button variant="ghost" size="sm" onClick={resetFilters}>
                       {t("common.reset")}

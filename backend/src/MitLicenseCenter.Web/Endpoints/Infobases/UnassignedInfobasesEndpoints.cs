@@ -49,12 +49,8 @@ public static partial class UnassignedInfobasesEndpoints
         [FromQuery] bool? refresh,
         CancellationToken ct)
     {
-        var now = clock.GetUtcNow().UtcDateTime;
-        if (refresh is true || !cache.TryGet(now, out var snapshot))
-        {
-            snapshot = await PollClusterAsync(cluster, loggerFactory, now, ct).ConfigureAwait(false);
-            cache.Store(snapshot);
-        }
+        var snapshot = await GetClusterSnapshotAsync(
+            cluster, cache, loggerFactory, clock, refresh, ct).ConfigureAwait(false);
 
         // Скрытые рендерятся из БД-снапшота (Name на момент скрытия) и отдаются всегда,
         // даже при Available:false — блок «Скрытые» в диалоге не зависит от RAS.
@@ -187,11 +183,34 @@ public static partial class UnassignedInfobasesEndpoints
         return TypedResults.NoContent();
     }
 
+    // TTL-кэш снапшота RAS перед опросом: единая точка для GET /infobases/unassigned и
+    // серверного фильтра «не найдена в кластере» на GET /infobases (MLC-150). Один спавн
+    // rac.exe на TTL делится между обоими маршрутами — спавн-бюджет ADR-3.3 соблюдён.
+    internal static async Task<UnassignedInfobasesCache.ClusterSnapshot> GetClusterSnapshotAsync(
+        IClusterClient cluster,
+        UnassignedInfobasesCache cache,
+        ILoggerFactory loggerFactory,
+        TimeProvider clock,
+        bool? refresh,
+        CancellationToken ct)
+    {
+        var now = clock.GetUtcNow().UtcDateTime;
+        if (refresh is true || !cache.TryGet(now, out var snapshot))
+        {
+            snapshot = await PollClusterAsync(cluster, loggerFactory, now, ct).ConfigureAwait(false);
+            cache.Store(snapshot);
+        }
+
+        return snapshot;
+    }
+
     // Опрос RAS с санитизацией: адаптер при сбое rac.exe кладёт в Error сырой stderr
     // (может нести имена серверов/пути) — наружу он не уходит, только в лог. Исключение
     // адаптера (неожиданное — контракт ListInfobasesAsync «не бросает») страхуем тем же
     // паттерном, что discovery-эндпоинты; отмену (MLC-009) пробрасываем.
-    private static async Task<UnassignedInfobasesCache.ClusterSnapshot> PollClusterAsync(
+    // internal: серверный фильтр «не найдена в кластере» на GET /infobases (MLC-150)
+    // переиспользует тот же снапшот через тот же кэш — без второго спавна rac.exe.
+    internal static async Task<UnassignedInfobasesCache.ClusterSnapshot> PollClusterAsync(
         IClusterClient cluster,
         ILoggerFactory loggerFactory,
         DateTime nowUtc,

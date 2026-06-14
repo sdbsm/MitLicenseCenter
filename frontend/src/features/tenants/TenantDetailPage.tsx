@@ -38,6 +38,7 @@ export function TenantDetailPage() {
   const { data, isLoading, isError, isFetching, refetch } = useInfobases(
     id,
     null,
+    false,
     page,
     INFOBASES_PAGE_SIZE
   );

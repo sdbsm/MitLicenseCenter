@@ -217,6 +217,20 @@ JSON на проводе: `PropertyNamingPolicy = CamelCase`, `DefaultIgnoreCond
 Enum'ы сериализуются по имени (`JsonStringEnumConverter`).
 Все `DateTime` выдаются с суффиксом `Z` (UTC) за счёт `UtcDateTimeConverter` в `AppDbContext`.
 
+#### Серверный фильтр «не найдена в кластере» (MLC-150)
+
+`GET /api/v1/infobases` принимает `notInCluster=true` рядом с `tenantId`/`publishStatus`:
+оставляет записи панели, чьего `ClusterInfobaseId` нет в снапшоте кластера 1С (обратный
+дрейф — «мёртвые души»). Снапшот берётся через **тот же** TTL-кэш (`UnassignedInfobasesCache`,
+`GetClusterSnapshotAsync`), что и `GET /infobases/unassigned` — без второго спавна rac.exe
+(спавн-бюджет ADR-3.3). Фильтр применяется до пагинации — `Total` честный.
+Развилка недоступности RAS: `InfobaseListResponse.ClusterAvailable` заполняется **только**
+при `notInCluster=true` (в остальных случаях `null` → опускается на проводе). При недоступном
+RAS (`Available=false`) эндпоинт **не** фильтрует по неполному снапшоту и возвращает пустой
+набор с `ClusterAvailable=false` — фронт показывает честное «не удалось проверить кластер»,
+а не вводящий в заблуждение «0 найдено» (нельзя отличить «нет пропавших» от «не знаем»; та же
+семантика, что у `Available` на `/infobases/unassigned`, MLC-095).
+
 ---
 
 ## 4. Валидация
