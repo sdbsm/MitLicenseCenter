@@ -54,6 +54,17 @@
     "dark": "Тёмная",
     "system": "Системная"
   },
+  "table": {
+    "density": {
+      "label": "Плотность",
+      "comfortable": "Комфортно",
+      "compact": "Компактно"
+    },
+    "columns": {
+      "label": "Колонки",
+      "toggle": "Видимость колонок"
+    }
+  },
   "auth": {
     "title": "Вход в систему",
     "subtitle": "MitLicense Center",

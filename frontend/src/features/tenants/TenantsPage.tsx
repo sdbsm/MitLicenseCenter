@@ -1,44 +1,29 @@
-import { format } from "date-fns";
-import { ru } from "date-fns/locale";
-import { Building2Icon, MoreHorizontalIcon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
+import { getCoreRowModel, useReactTable, type ColumnFiltersState } from "@tanstack/react-table";
+import { Building2Icon, PlusIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Link } from "react-router";
 import { toast } from "sonner";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DataTable, useTableDensity, useUrlTableFilters } from "@/components/ui/data-table";
 import { Input } from "@/components/ui/input";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { PaginationBar } from "@/components/PaginationBar";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { TableCell } from "@/components/ui/table";
 import { useMe } from "@/features/auth/useAuth";
-import { StatusBadge } from "@/components/ui/StatusBadge";
-import { quotaDisplay } from "@/lib/quota";
 import { DeleteTenantDialog } from "./DeleteTenantDialog";
+import { buildTenantColumns } from "./tenantColumns";
 import { TenantFormDialog } from "./TenantFormDialog";
 import type { Tenant } from "./types";
 import { TENANTS_PAGE_SIZE, useTenants } from "./useTenants";
 import { useTenantConsumption } from "./useTenantConsumption";
 
 const PAGE_SIZE = TENANTS_PAGE_SIZE;
-const NUMBER_FORMATTER = new Intl.NumberFormat("ru-RU");
 
-function formatDateTime(value: string | null | undefined): string {
-  if (!value) return "—";
-  return format(new Date(value), "dd.MM.yyyy HH:mm", { locale: ru });
+// Поиск по имени клиента живёт в URL-фильтре колонки `name` (?f_name=) через единый
+// механизм useUrlTableFilters (MLC-144) — отфильтрованный список шарится ссылкой.
+function readNameFilter(filters: ColumnFiltersState): string {
+  const f = filters.find((x) => x.id === "name");
+  return typeof f?.value === "string" ? f.value : "";
 }
 
 export function TenantsPage() {
@@ -46,19 +31,33 @@ export function TenantsPage() {
   const { data: me } = useMe();
   const isAdmin = me?.roles?.includes("Admin") ?? false;
 
+  const { density, toggleDensity } = useTableDensity();
+  const { columnFilters, onColumnFiltersChange } = useUrlTableFilters();
+  const urlSearch = readNameFilter(columnFilters);
+
+  // Серверная пагинация (manualPagination): страница — локальное состояние.
   const [page, setPage] = useState(1);
-  // UX-05 (MLC-130): поиск по имени клиента. Черновик в инпуте, коммит — после debounce;
+
+  // UX-05 (MLC-130): черновик в инпуте, коммит — после debounce в URL-фильтр;
   // при смене терма возвращаемся на первую страницу (иначе вторая может оказаться пустой).
-  const [searchDraft, setSearchDraft] = useState("");
-  const [search, setSearch] = useState("");
+  const [searchDraft, setSearchDraft] = useState(urlSearch);
+  // Внешнее изменение URL (назад/вперёд, шаринг ссылки) подтягиваем в инпут.
+  useEffect(() => {
+    setSearchDraft(urlSearch);
+  }, [urlSearch]);
   useEffect(() => {
     const id = setTimeout(() => {
-      setSearch(searchDraft.trim());
+      const next = searchDraft.trim();
+      if (next === urlSearch) return;
+      onColumnFiltersChange(next ? [{ id: "name", value: next }] : []);
       setPage(1);
     }, 300);
     return () => clearTimeout(id);
+    // urlSearch исключён намеренно: дебаунс реагирует на ввод, не на синхронизацию из URL.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchDraft]);
-  const { data, isLoading, isError, isFetching, refetch } = useTenants(page, PAGE_SIZE, search);
+
+  const { data, isLoading, isError, isFetching, refetch } = useTenants(page, PAGE_SIZE, urlSearch);
   const { consumedByTenant, isLoading: isSnapshotLoading } = useTenantConsumption();
 
   const [formOpen, setFormOpen] = useState(false);
@@ -74,11 +73,35 @@ export function TenantsPage() {
     setEditing(null);
     setFormOpen(true);
   };
-
   const handleOpenEdit = (tenant: Tenant) => {
     setEditing(tenant);
     setFormOpen(true);
   };
+
+  const columns = useMemo(
+    () =>
+      buildTenantColumns({
+        t,
+        isAdmin,
+        isSnapshotLoading,
+        consumedByTenant,
+        onEdit: handleOpenEdit,
+        onDelete: setDeleting,
+      }),
+    [t, isAdmin, isSnapshotLoading, consumedByTenant]
+  );
+
+  const table = useReactTable({
+    data: items,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+    // Серверная пагинация и фильтрация: tanstack не режет/не фильтрует данные сам.
+    manualPagination: true,
+    manualFiltering: true,
+    pageCount: totalPages,
+    state: { columnFilters },
+    onColumnFiltersChange,
+  });
 
   return (
     <div className="space-y-6">
@@ -94,15 +117,6 @@ export function TenantsPage() {
           </Button>
         )}
       </div>
-
-      <Input
-        type="search"
-        className="max-w-sm"
-        placeholder={t("tenants.searchPlaceholder")}
-        value={searchDraft}
-        onChange={(e) => setSearchDraft(e.target.value)}
-        aria-label={t("tenants.searchPlaceholder")}
-      />
 
       {isError && (
         <div className="border-destructive/40 bg-destructive/5 rounded-md border p-4 text-sm">
@@ -121,177 +135,42 @@ export function TenantsPage() {
         </div>
       )}
 
-      <div className="rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t("tenants.fields.name")}</TableHead>
-              <TableHead className="text-right">{t("tenants.fields.infobaseCount")}</TableHead>
-              <TableHead className="text-right">
-                {t("tenants.fields.maxConcurrentLicenses")}
-              </TableHead>
-              <TableHead>{t("tenants.quota.column")}</TableHead>
-              <TableHead>{t("tenants.fields.status")}</TableHead>
-              <TableHead>{t("tenants.fields.createdAt")}</TableHead>
-              <TableHead>{t("tenants.fields.updatedAt")}</TableHead>
-              <TableHead className="w-10" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isLoading
-              ? Array.from({ length: 4 }).map((_, idx) => (
-                  <TableRow key={`skeleton-${idx}`}>
-                    <TableCell>
-                      <Skeleton className="h-4 w-40" />
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Skeleton className="ml-auto h-4 w-8" />
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Skeleton className="ml-auto h-4 w-12" />
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton className="h-5 w-24" />
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton className="h-5 w-20" />
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton className="h-4 w-28" />
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton className="h-4 w-28" />
-                    </TableCell>
-                    <TableCell />
-                  </TableRow>
-                ))
-              : items.length === 0
-                ? !isError && (
-                    <TableRow>
-                      <TableCell colSpan={8} className="py-12">
-                        <div className="flex flex-col items-center justify-center gap-3 text-center">
-                          <Building2Icon className="text-muted-foreground size-8" />
-                          <div className="space-y-1">
-                            <p className="font-medium">{t("tenants.empty.title")}</p>
-                            <p className="text-muted-foreground text-sm">
-                              {t("tenants.empty.hint")}
-                            </p>
-                          </div>
-                          {isAdmin && (
-                            <Button size="sm" onClick={handleOpenCreate}>
-                              <PlusIcon className="size-4" />
-                              {t("tenants.actions.add")}
-                            </Button>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  )
-                : items.map((tenant) => (
-                    <TableRow key={tenant.id}>
-                      <TableCell className="font-medium">
-                        <Link
-                          to={`/tenants/${tenant.id}`}
-                          className="hover:text-primary hover:underline"
-                        >
-                          {tenant.name}
-                        </Link>
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {/* Счётчик баз ведёт на отфильтрованный список «Баз» (MLC-085);
-                            сгруппированного режима на /infobases больше нет. */}
-                        <Link
-                          to={`/infobases?tenantId=${tenant.id}`}
-                          className="hover:text-primary hover:underline"
-                        >
-                          {NUMBER_FORMATTER.format(tenant.infobaseCount)}
-                        </Link>
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {NUMBER_FORMATTER.format(tenant.maxConcurrentLicenses)}
-                      </TableCell>
-                      <TableCell>
-                        {/* Колонка квоты (MLC-122 / R6 / UX-02): live-оверлей из снапшота.
-                            Пока снапшот грузится — скелетон (не мигаем при poll). */}
-                        {isSnapshotLoading ? (
-                          <Skeleton className="h-5 w-24" />
-                        ) : tenant.maxConcurrentLicenses <= 0 ? (
-                          <span className="text-muted-foreground text-sm">
-                            {t("tenants.quota.unlimited")}
-                          </span>
-                        ) : (
-                          (() => {
-                            const consumed = consumedByTenant.get(tenant.id) ?? 0;
-                            const { percent, severity, badgeVariant } = quotaDisplay(
-                              consumed,
-                              tenant.maxConcurrentLicenses
-                            );
-                            return (
-                              <div className="flex items-center gap-2">
-                                <span className="text-muted-foreground text-sm tabular-nums">
-                                  {t("tenants.quota.value", {
-                                    consumed,
-                                    limit: tenant.maxConcurrentLicenses,
-                                    percent,
-                                  })}
-                                </span>
-                                {severity !== "ok" && (
-                                  <StatusBadge variant={badgeVariant}>
-                                    {severity === "danger"
-                                      ? t("common.quota.exceeded")
-                                      : t("common.quota.nearLimit")}
-                                  </StatusBadge>
-                                )}
-                              </div>
-                            );
-                          })()
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {tenant.isActive ? (
-                          <Badge className="border-transparent bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
-                            {t("tenants.status.active")}
-                          </Badge>
-                        ) : (
-                          <Badge variant="secondary">{t("tenants.status.inactive")}</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground tabular-nums">
-                        {formatDateTime(tenant.createdAt)}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground tabular-nums">
-                        {formatDateTime(tenant.updatedAt)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {isAdmin && (
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon" className="size-8">
-                                <MoreHorizontalIcon className="size-4" />
-                                <span className="sr-only">{t("common.details")}</span>
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem onSelect={() => handleOpenEdit(tenant)}>
-                                <PencilIcon className="size-4" />
-                                {t("common.edit")}
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                variant="destructive"
-                                onSelect={() => setDeleting(tenant)}
-                              >
-                                <Trash2Icon className="size-4" />
-                                {t("common.delete")}
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-          </TableBody>
-        </Table>
-      </div>
+      <DataTable
+        table={table}
+        density={density}
+        onToggleDensity={toggleDensity}
+        isLoading={isLoading}
+        skeletonRows={4}
+        columnLabel={(id) => table.getColumn(id)?.columnDef.meta?.label ?? id}
+        renderSkeletonRow={() => <TenantSkeletonCells />}
+        emptyState={
+          !isError ? (
+            <div className="flex flex-col items-center justify-center gap-3 text-center">
+              <Building2Icon className="text-muted-foreground size-8" />
+              <div className="space-y-1">
+                <p className="font-medium">{t("tenants.empty.title")}</p>
+                <p className="text-muted-foreground text-sm">{t("tenants.empty.hint")}</p>
+              </div>
+              {isAdmin && (
+                <Button size="sm" onClick={handleOpenCreate}>
+                  <PlusIcon className="size-4" />
+                  {t("tenants.actions.add")}
+                </Button>
+              )}
+            </div>
+          ) : undefined
+        }
+        toolbarChildren={
+          <Input
+            type="search"
+            className="max-w-sm"
+            placeholder={t("tenants.searchPlaceholder")}
+            value={searchDraft}
+            onChange={(e) => setSearchDraft(e.target.value)}
+            aria-label={t("tenants.searchPlaceholder")}
+          />
+        }
+      />
 
       <PaginationBar
         page={currentPage}
@@ -316,5 +195,35 @@ export function TenantsPage() {
         tenant={deleting}
       />
     </div>
+  );
+}
+
+// Скелетон строки повторяет форму реальных колонок клиента (8 ячеек).
+function TenantSkeletonCells() {
+  return (
+    <>
+      <TableCell>
+        <Skeleton className="h-4 w-40" />
+      </TableCell>
+      <TableCell className="text-right">
+        <Skeleton className="ml-auto h-4 w-8" />
+      </TableCell>
+      <TableCell className="text-right">
+        <Skeleton className="ml-auto h-4 w-12" />
+      </TableCell>
+      <TableCell>
+        <Skeleton className="h-5 w-24" />
+      </TableCell>
+      <TableCell>
+        <Skeleton className="h-5 w-20" />
+      </TableCell>
+      <TableCell>
+        <Skeleton className="h-4 w-28" />
+      </TableCell>
+      <TableCell>
+        <Skeleton className="h-4 w-28" />
+      </TableCell>
+      <TableCell />
+    </>
   );
 }

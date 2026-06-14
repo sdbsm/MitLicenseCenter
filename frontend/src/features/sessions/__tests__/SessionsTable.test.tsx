@@ -1,18 +1,20 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ReactNode } from "react";
+import {
+  getCoreRowModel,
+  getPaginationRowModel,
+  getSortedRowModel,
+  useReactTable,
+  type SortingState,
+} from "@tanstack/react-table";
+import { useState } from "react";
 import "@/i18n";
+import i18n from "@/i18n";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SessionsTable } from "../SessionsTable";
-import type { SessionSort, SessionSortKey } from "../useSessionsPage";
+import { buildSessionColumns } from "../sessionColumns";
 import type { SessionSnapshotEntry } from "../types";
-
-const DEFAULT_SORT: SessionSort = { key: "startedAt", dir: "desc" };
-
-function renderTable(ui: ReactNode) {
-  return render(<TooltipProvider>{ui}</TooltipProvider>);
-}
 
 function row(overrides: Partial<SessionSnapshotEntry>): SessionSnapshotEntry {
   return {
@@ -31,72 +33,68 @@ function row(overrides: Partial<SessionSnapshotEntry>): SessionSnapshotEntry {
   };
 }
 
-describe("SessionsTable", () => {
-  it("показывает реальное имя пользователя как есть", () => {
-    renderTable(
+// Тестовый хост: tanstack-таблица сеансов как в useSessionsPage (клиентская сортировка),
+// чтобы клики по заголовкам переключали состояние и компонент перерисовывался.
+function Host({ rows, isAdmin = false }: { rows: SessionSnapshotEntry[]; isAdmin?: boolean }) {
+  const [sorting, setSorting] = useState<SortingState>([{ id: "startedAt", desc: true }]);
+  const columns = buildSessionColumns({ t: i18n.t, isAdmin, onKill: vi.fn() });
+  const table = useReactTable({
+    data: rows,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    state: { sorting },
+    onSortingChange: setSorting,
+  });
+  return (
+    <TooltipProvider>
       <SessionsTable
-        rows={[row({ sessionId: "aaaa1111-1111-1111-1111-111111111111", userName: "Андрей" })]}
+        table={table}
         isLoading={false}
         isError={false}
-        isAdmin={false}
-        sort={DEFAULT_SORT}
-        onToggleSort={vi.fn()}
-        onKill={vi.fn()}
+        isAdmin={isAdmin}
+        density="comfortable"
+        onToggleDensity={vi.fn()}
       />
-    );
+    </TooltipProvider>
+  );
+}
 
+describe("SessionsTable", () => {
+  it("показывает реальное имя пользователя как есть", () => {
+    render(<Host rows={[row({ userName: "Андрей" })]} />);
     expect(screen.getByText("Андрей")).toBeInTheDocument();
   });
 
   it("пустое имя пользователя рендерит метку «без пользователя»", () => {
-    renderTable(
-      <SessionsTable
-        rows={[row({ sessionId: "bbbb2222-2222-2222-2222-222222222222", userName: "" })]}
-        isLoading={false}
-        isError={false}
-        isAdmin={false}
-        sort={DEFAULT_SORT}
-        onToggleSort={vi.fn()}
-        onKill={vi.fn()}
-      />
-    );
-
+    render(<Host rows={[row({ userName: "" })]} />);
     expect(screen.getByText("без пользователя")).toBeInTheDocument();
   });
 
-  it("клик по заголовку «Клиент» вызывает onToggleSort с ключом tenantName", async () => {
-    const onToggle = vi.fn();
+  it("клик по заголовку «Клиент» сортирует строки по tenantName (клиентская сортировка)", async () => {
     const user = userEvent.setup();
-    renderTable(
-      <SessionsTable
-        rows={[row({})]}
-        isLoading={false}
-        isError={false}
-        isAdmin={false}
-        sort={DEFAULT_SORT}
-        onToggleSort={onToggle}
-        onKill={vi.fn()}
-      />
-    );
+    render(<Host rows={[row({ tenantName: "Бета" }), row({ tenantName: "Альфа" })]} />);
+
+    // До сортировки порядок исходный (startedAt одинаков): Бета, затем Альфа
+    const before = screen
+      .getAllByRole("row")
+      .slice(1)
+      .map((r) => r.textContent ?? "");
+    expect(before[0]).toContain("Бета");
 
     await user.click(screen.getByRole("button", { name: /клиент/i }));
-    expect(onToggle).toHaveBeenCalledWith("tenantName" satisfies SessionSortKey);
+
+    const after = screen
+      .getAllByRole("row")
+      .slice(1)
+      .map((r) => r.textContent ?? "");
+    expect(after[0]).toContain("Альфа");
+    expect(after[1]).toContain("Бета");
   });
 
-  it("активная колонка сортировки отображает стрелку направления", () => {
-    renderTable(
-      <SessionsTable
-        rows={[]}
-        isLoading={false}
-        isError={false}
-        isAdmin={false}
-        sort={{ key: "tenantName", dir: "asc" }}
-        onToggleSort={vi.fn()}
-        onKill={vi.fn()}
-      />
-    );
-
-    // Кнопка «Клиент» рендерится — значит заголовок кликабелен
+  it("сортируемый заголовок рендерится как кликабельная кнопка", () => {
+    render(<Host rows={[row({})]} />);
     expect(screen.getByRole("button", { name: /клиент/i })).toBeInTheDocument();
   });
 });
