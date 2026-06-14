@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { InfoIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
@@ -9,6 +10,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Tooltip as UITooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type { FamilyShare } from "./attribution";
 import { familyColor, familyLabel } from "./familyColors";
 
@@ -86,7 +93,21 @@ export function ProcessFamilyAttribution({ families, measuring }: ProcessFamilyA
           <TableHeader>
             <TableRow>
               <TableHead>{t("performance.attribution.family")}</TableHead>
-              <TableHead className="text-right">{t("performance.attribution.cpu")}</TableHead>
+              <TableHead className="text-right">
+                <TooltipProvider delayDuration={150}>
+                  <UITooltip>
+                    <TooltipTrigger asChild>
+                      <span className="inline-flex cursor-help items-center justify-end gap-1">
+                        {t("performance.attribution.cpu")}
+                        <InfoIcon className="text-muted-foreground size-3.5" />
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-xs">
+                      {t("performance.attribution.cpuAveragedTooltip")}
+                    </TooltipContent>
+                  </UITooltip>
+                </TooltipProvider>
+              </TableHead>
               <TableHead className="text-right">{t("performance.attribution.ram")}</TableHead>
               <TableHead className="text-right">{t("performance.attribution.processes")}</TableHead>
             </TableRow>
