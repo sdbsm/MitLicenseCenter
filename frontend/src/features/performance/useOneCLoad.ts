@@ -9,11 +9,12 @@ export const oneCLoadQueryKey = ["performance", "onec-sessions"] as const;
 // сбор идёт, только пока вкладка открыта. 5с согласовано с host-снимком и `useSessionsSnapshot`
 // (near-realtime). placeholderData оставляет прежний снимок между poll'ами (без мигания).
 // Схема — критичная граница (MLC-016): perf-поля питают подсветку «кто грузит/заблокирован».
-export function useOneCLoad() {
+export function useOneCLoad(paused = false) {
   return useQuery({
     queryKey: oneCLoadQueryKey,
     queryFn: () => api("/api/v1/performance/onec-sessions", { schema: oneCLoadSnapshotSchema }),
-    refetchInterval: 5_000,
+    // MLC-156: при паузе страницы авто-обновление выключается (общий контрол LiveControls).
+    refetchInterval: paused ? false : 5_000,
     refetchOnWindowFocus: true,
     placeholderData: (prev) => prev,
   });

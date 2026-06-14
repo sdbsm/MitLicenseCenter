@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { LiveControls } from "@/components/LiveControls";
 import { PaginationBar } from "@/components/PaginationBar";
 import { RelativeTime } from "@/components/ui/RelativeTime";
 import { Button } from "@/components/ui/button";
@@ -17,6 +18,10 @@ export function SessionsPage() {
     isError,
     refetch,
     failureCount,
+    isPaused,
+    togglePause,
+    refreshNow,
+    isRefreshing,
     isAdmin,
     infobases,
     q,
@@ -42,16 +47,24 @@ export function SessionsPage() {
             <h2 className="text-2xl font-semibold tracking-tight">{t("sessions.title")}</h2>
             <p className="text-muted-foreground text-sm">{t("sessions.subtitle")}</p>
           </div>
-          {snapshot && (
-            <span className="text-muted-foreground flex items-center gap-1 text-sm">
-              {t("sessions.freshness.label")}{" "}
-              <RelativeTime
-                value={snapshot.capturedAt}
-                thresholdAmberSec={60}
-                isError={failureCount >= 2}
-              />
-            </span>
-          )}
+          <div className="flex items-center gap-3">
+            {snapshot && (
+              <span className="text-muted-foreground flex items-center gap-1 text-sm">
+                {t("sessions.freshness.label")}{" "}
+                <RelativeTime
+                  value={snapshot.capturedAt}
+                  thresholdAmberSec={60}
+                  isError={failureCount >= 2}
+                />
+              </span>
+            )}
+            <LiveControls
+              isPaused={isPaused}
+              onTogglePause={togglePause}
+              onRefreshNow={() => void refreshNow()}
+              isRefreshing={isRefreshing}
+            />
+          </div>
         </div>
 
         {/* Error banner */}

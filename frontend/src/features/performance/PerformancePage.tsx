@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { LiveControls } from "@/components/LiveControls";
 import { RelativeTime } from "@/components/ui/RelativeTime";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,8 +22,19 @@ import { usePerformancePage } from "./usePerformancePage";
  */
 export function PerformancePage() {
   const { t } = useTranslation();
-  const { snapshot, measuring, derived, isLoading, isError, refetch, failureCount } =
-    usePerformancePage();
+  const {
+    snapshot,
+    measuring,
+    derived,
+    isLoading,
+    isError,
+    refetch,
+    failureCount,
+    isPaused,
+    togglePause,
+    refreshNow,
+    isRefreshing,
+  } = usePerformancePage();
 
   return (
     <div className="space-y-6">
@@ -32,16 +44,24 @@ export function PerformancePage() {
           <h2 className="text-2xl font-semibold tracking-tight">{t("performance.title")}</h2>
           <p className="text-muted-foreground text-sm">{t("performance.subtitle")}</p>
         </div>
-        {snapshot && (
-          <span className="text-muted-foreground flex items-center gap-1 text-sm">
-            {t("performance.freshness")}{" "}
-            <RelativeTime
-              value={snapshot.capturedAtUtc}
-              thresholdAmberSec={30}
-              isError={failureCount >= 2}
-            />
-          </span>
-        )}
+        <div className="flex items-center gap-3">
+          {snapshot && (
+            <span className="text-muted-foreground flex items-center gap-1 text-sm">
+              {t("performance.freshness")}{" "}
+              <RelativeTime
+                value={snapshot.capturedAtUtc}
+                thresholdAmberSec={30}
+                isError={failureCount >= 2}
+              />
+            </span>
+          )}
+          <LiveControls
+            isPaused={isPaused}
+            onTogglePause={togglePause}
+            onRefreshNow={() => void refreshNow()}
+            isRefreshing={isRefreshing}
+          />
+        </div>
       </div>
 
       {/* Error-баннер — прежний снимок остаётся на экране (placeholderData) */}
@@ -94,11 +114,11 @@ export function PerformancePage() {
 
       {/* Drill-down «кто грузит внутри 1С» — собственный live-источник (MLC-067), не зависит
           от загрузки host-снимка: рендерится всегда, управляет своим состоянием сам. */}
-      <OneCLoadSection />
+      <OneCLoadSection paused={isPaused} />
 
       {/* Drill-down «1С грузит SQL?» — собственный live-источник (MLC-069), своя Zod-граница
           и degraded по статусу DMV-пробы; рендерится всегда, независимо от host/1С-снимков. */}
-      <SqlLoadSection />
+      <SqlLoadSection paused={isPaused} />
 
       {/* Запись по требованию (MLC-070/071) — единственный персистируемый источник: старт/стоп
           (Admin) + список расследований + просмотр (график host во времени + виновники за период). */}

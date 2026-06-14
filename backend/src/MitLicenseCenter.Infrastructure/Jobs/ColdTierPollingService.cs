@@ -18,11 +18,19 @@ namespace MitLicenseCenter.Infrastructure.Jobs;
 // [DisableConcurrentExecution] здесь избыточен — петля BackgroundService последовательна
 // сама по себе, а сериализацию cold↔hot обеспечивает общий IEnforcementGate внутри
 // ReconciliationJob.RunColdAsync. Зеркалит HotTierPollingService.
-internal sealed partial class ColdTierPollingService : BackgroundService
+internal sealed partial class ColdTierPollingService : BackgroundService, ISessionRefreshTrigger
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ISettingsSnapshot _settings;
     private readonly ILogger<ColdTierPollingService> _logger;
+
+    // MLC-156: live-форс cold-обхода по запросу («Обновить сейчас» на /sessions).
+    // _wakeSignal будит петлю ExecuteAsync досрочно (прерывает ожидание таймера), чтобы
+    // прогон шёл немедленно. _pendingRun под _gate коалесцирует несколько одновременных
+    // запросов в один ближайший прогон: все ждущие получают результат ОДНОГО тика.
+    private readonly SemaphoreSlim _wakeSignal = new(0, 1);
+    private readonly object _gate = new();
+    private TaskCompletionSource? _pendingRun;
 
     public ColdTierPollingService(
         IServiceScopeFactory scopeFactory,
@@ -32,6 +40,36 @@ internal sealed partial class ColdTierPollingService : BackgroundService
         _scopeFactory = scopeFactory;
         _settings = settings;
         _logger = logger;
+    }
+
+    // MLC-156: запросить немедленный cold-прогон и дождаться его завершения. Single-flight:
+    // несколько параллельных вызовов схлопываются в один _pendingRun (один ближайший тик
+    // петли), все ждущие завершаются вместе. Возвращает Task, который завершается, когда
+    // соответствующий прогон закончился (успех → завершён, ошибка → пробрасывает исключение).
+    public Task RunNowAsync(CancellationToken ct)
+    {
+        TaskCompletionSource tcs;
+        lock (_gate)
+        {
+            // Переиспользуем уже ожидающий запрос, если он есть (коалесцирование):
+            // следующий тик обслужит всех разом.
+            _pendingRun ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            tcs = _pendingRun;
+        }
+
+        // Будим петлю. Если сигнал уже взведён (CurrentCount == 1) — Release бросил бы
+        // SemaphoreFullException; просто не дублируем (один сигнал достаточен — тик и так
+        // заберёт _pendingRun).
+        try
+        {
+            _wakeSignal.Release();
+        }
+        catch (SemaphoreFullException)
+        {
+            // Сигнал уже взведён — ничего не делаем.
+        }
+
+        return tcs.Task.WaitAsync(ct);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -59,23 +97,56 @@ internal sealed partial class ColdTierPollingService : BackgroundService
         {
             var intervalSeconds = _settings.GetInt(SettingKey.PollingColdIntervalSeconds) ?? 15;
 
+            // MLC-156: ждём либо тик таймера (false по таймауту), либо сигнал «Обновить
+            // сейчас» (true — пробуждение досрочно). В обоих случаях прогоняем cold ниже.
             try
             {
-                await Task.Delay(TimeSpan.FromSeconds(intervalSeconds), stoppingToken).ConfigureAwait(false);
-                await RunOnceAsync(stoppingToken).ConfigureAwait(false);
+                await _wakeSignal.WaitAsync(TimeSpan.FromSeconds(intervalSeconds), stoppingToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
                 break;
             }
+
+            // Забираем ожидающий live-запрос ДО прогона: этот тик обслужит именно его.
+            var pending = TakePendingRun();
+
+            try
+            {
+                await RunOnceAsync(stoppingToken).ConfigureAwait(false);
+                pending?.TrySetResult();
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                pending?.TrySetCanceled(stoppingToken);
+                break;
+            }
             catch (Exception ex)
             {
                 // Не падаем: следующий тик самоисцелится (как прежний рекуррентный джоб).
+                // Ждущий live-запрос получает исключение — фронт покажет ошибку обновления.
                 LogColdFailed(_logger, ex);
+                pending?.TrySetException(ex);
             }
         }
 
+        // При остановке завершаем ещё не обслуженный live-запрос отменой, чтобы вызывающий
+        // RunNowAsync не завис навсегда.
+        TakePendingRun()?.TrySetCanceled(stoppingToken);
+
         LogStopped(_logger);
+    }
+
+    // Атомарно забирает текущий _pendingRun и обнуляет поле — следующие RunNowAsync
+    // создадут новый запрос для следующего тика.
+    private TaskCompletionSource? TakePendingRun()
+    {
+        lock (_gate)
+        {
+            var pending = _pendingRun;
+            _pendingRun = null;
+            return pending;
+        }
     }
 
     // Один прогон cold-цикла. Internal — детерминированный seam для теста (как

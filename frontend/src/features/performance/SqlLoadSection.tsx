@@ -21,9 +21,9 @@ import { useSqlPerformance } from "./useSqlPerformance";
  * тихого «всё спокойно». `measuring` (первый poll) → дельты ожиданий/IO ещё нет, показываем
  * «измеряю…», но активные запросы (мгновенны) рисуем сразу.
  */
-export function SqlLoadSection() {
+export function SqlLoadSection({ paused = false }: { paused?: boolean }) {
   const { t } = useTranslation();
-  const { data, isLoading, isError } = useSqlPerformance();
+  const { data, isLoading, isError } = useSqlPerformance(paused);
 
   const attributionMap = useMemo(
     () => buildAttributionMap(data?.databases ?? []),
