@@ -42,4 +42,21 @@ describe("RelativeTime", () => {
     const el = screen.getByText(/секунд/);
     expect(el.className).toContain("text-destructive");
   });
+
+  // MLC-148: холодный старт серверного снапшота — CapturedAtUtc = DateTime.MinValue.
+  it("shows the «not updated yet» label for DateTime.MinValue (0001-01-01)", () => {
+    render(<RelativeTime value="0001-01-01T00:00:00" />);
+    expect(screen.getByText("ещё не обновлялось")).toBeInTheDocument();
+    expect(screen.queryByText(/назад|лет/)).not.toBeInTheDocument();
+  });
+
+  it("shows the «not updated yet» label for the Unix epoch and earlier", () => {
+    render(<RelativeTime value={new Date(0)} />);
+    expect(screen.getByText("ещё не обновлялось")).toBeInTheDocument();
+  });
+
+  it("shows the «not updated yet» label for an invalid date string", () => {
+    render(<RelativeTime value="not-a-date" />);
+    expect(screen.getByText("ещё не обновлялось")).toBeInTheDocument();
+  });
 });

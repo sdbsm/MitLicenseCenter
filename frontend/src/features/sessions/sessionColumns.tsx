@@ -131,8 +131,16 @@ export function buildSessionColumns(ctx: ColumnContext): ColumnDef<SessionSnapsh
         headClassName: "w-40",
         cellClassName: "text-sm tabular-nums",
       },
-      cell: ({ row }) =>
-        format(new Date(row.original.startedAt), "dd.MM.yyyy HH:mm:ss", { locale: ru }),
+      cell: ({ row }) => {
+        // MLC-148: защита от «холодных»/незаданных дат (DateTime.MinValue → 01.01.0001,
+        // невалидный ISO → Invalid Date). До эпохи Unix — нет данных.
+        const date = new Date(row.original.startedAt);
+        const ms = date.getTime();
+        if (Number.isNaN(ms) || ms <= 0) {
+          return <span className="text-muted-foreground">{t("common.noData")}</span>;
+        }
+        return format(date, "dd.MM.yyyy HH:mm:ss", { locale: ru });
+      },
     },
     {
       id: "durationSeconds",

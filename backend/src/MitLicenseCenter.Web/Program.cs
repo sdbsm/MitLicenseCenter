@@ -394,6 +394,14 @@ if (!app.Environment.IsEnvironment("Test"))
         "backup-retention",
         j => j.RunAsync(CancellationToken.None),
         "15 3 * * *");
+
+    // MLC-148: разовый прогрев снапшота сеансов на старте. Рекуррентная cold-snapshot
+    // тикает раз в минуту, поэтому на свежем старте/рестарте окно до первого срабатывания
+    // оставляет ActiveSessionSnapshotStore в исходном состоянии (CapturedAtUtc =
+    // DateTime.MinValue), а /sessions показывает пустой список с «обновлено ~2000 лет назад».
+    // Enqueue немедленной cold-реконсиляции наполняет снапшот сразу после старта воркера;
+    // внутренний throttle её не отсекает (ColdThrottleState стартует с MinValue).
+    BackgroundJob.Enqueue<IReconciliationJob>(j => j.RunColdAsync(CancellationToken.None));
 } // end if (!app.Environment.IsEnvironment("Test"))
 
 // Fail-fast bootstrap. Миграции и сидинг выполняются СИНХРОННО до открытия приёма
