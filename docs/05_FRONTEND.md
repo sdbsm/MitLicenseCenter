@@ -543,7 +543,15 @@ const isAdmin = me?.roles.includes("Admin") ?? false;
 
 `AuditPage` (`features/audit`) держит фильтры и страницу в URL-state
 (`useSearchParams` → `auditUrlState.ts`), поэтому вид шарится ссылкой и переживает
-перезагрузку. `AuditFiltersBar` предлагает фильтры:
+перезагрузку.
+
+`AuditTable` использует `DataTable` (ADR-46, MLC-144d) с серверной пагинацией
+(`manualPagination: true`, `pageCount`). Колонки: Время, Действие, Инициатор, Клиент,
+Описание — все скрываемые через меню видимости; density-toggle сохраняется в
+`localStorage`. Бейджи типа действия реализованы через `Badge` с семантическими
+цветами (emerald/sky/rose/neutral по суффиксу `*Created`/`*Updated`/`*Deleted`/Auth).
+
+`AuditFiltersBar` (фильтры) передаётся в слот `toolbarChildren` `DataTable` и предлагает:
 
 - **Тип действия** и **Клиент** — searchable-списки (`components/ui/SearchableSelect`):
   поповер с полем фильтра по подстроке (case-insensitive) поверх Popover + Input +
@@ -559,6 +567,8 @@ const isAdmin = me?.roles.includes("Admin") ?? false;
 Любое изменение фильтра возвращает страницу на первую. Все термы передаются на
 backend (`GET /api/v1/audit`: `search`, `initiator` дополняют `actionType`/`tenantId`/
 `from`/`to`); сервер валидирует длину свободного текста и фильтрует выборку.
+URL-параметры фильтров (`actionType`, `tenantId`, `from`, `to`, `search`, `initiator`,
+`page`, `pageSize`) сохранены без изменений — shareable-ссылки остаются совместимы.
 
 `AuditPagination` поверх скользящего окна `pageLinkRange` добавляет переход на
 произвольную страницу: кнопки «первая»/«последняя» и поле ввода номера страницы

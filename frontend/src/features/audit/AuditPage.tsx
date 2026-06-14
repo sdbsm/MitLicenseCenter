@@ -50,8 +50,6 @@ export function AuditPage() {
           </Alert>
         )}
 
-        <AuditFiltersBar filters={filters} onChange={applyFilters} />
-
         {isError && (
           <div className="border-destructive/40 bg-destructive/5 rounded-md border p-4 text-sm">
             <p className="font-medium">{t("audit.errors.loadFailed")}</p>
@@ -69,11 +67,17 @@ export function AuditPage() {
           </div>
         )}
 
+        {/* AuditFiltersBar передаётся в слот toolbarChildren DataTable (MLC-144d).
+            Логика фильтров и URL-state сохранены 1:1 — только место рендера изменилось. */}
         <AuditTable
           items={items}
           isLoading={isLoading}
           isError={isError}
           tenantNameById={tenantNameById}
+          filters={filters}
+          total={total}
+          totalPages={totalPages}
+          toolbarChildren={<AuditFiltersBar filters={filters} onChange={applyFilters} />}
         />
 
         {total > filters.pageSize && (
