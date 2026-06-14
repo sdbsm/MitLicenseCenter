@@ -6,7 +6,7 @@ namespace MitLicenseCenter.Tests.Unit.Web;
 
 // MLC-125 (SEC-07) — интеграционные тесты security response headers через HTTP-пайплайн.
 // Проверяем, что UseSecurityHeaders middleware ставит нужные заголовки на реальные HTTP-ответы.
-// Используем MlcWebApplicationFactory (EF InMemory + Hangfire stub, без реального SQL Server).
+// Используем MlcWebApplicationFactory (EF InMemory, без реального SQL Server и Hangfire-джоб).
 [Collection("WebApp")]
 public sealed class SecurityHeadersIntegrationTests : IClassFixture<MlcWebApplicationFactory>
 {

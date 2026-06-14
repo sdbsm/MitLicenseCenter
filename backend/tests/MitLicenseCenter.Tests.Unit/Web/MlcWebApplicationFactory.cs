@@ -10,20 +10,27 @@ using MitLicenseCenter.Infrastructure.Persistence;
 
 namespace MitLicenseCenter.Tests.Unit.Web;
 
-// MLC-125 — общий WebApplicationFactory для интеграционных тестов middleware-пайплайна.
-// Загружает реальный хост из Program.cs, подменяя:
-//   • ConnectionStrings → фейковые, не ведущие к реальной БД;
-//   • AppDbContext      → EF InMemory (нет SQL Server);
-//   • Hangfire          → UseInMemoryStorage (Hangfire.InMemory v1.0) — нет SQL;
-//   • Hangfire server   → удалён (BackgroundJobServer не стартует);
-//   • Seeders           → работают поверх InMemory DbContext (IdentitySeeder + SettingsSeeder).
+// MLC-125 — общий WebApplicationFactory для интеграционных тестов middleware-пайплайна
+// (security-заголовки + rate-limiter). Поднимает реальный хост из Program.cs под средой
+// "Test", подменяя через DI всё, что иначе ходило бы в реальную инфраструктуру:
+//   • Среда "Test"      → Program.cs пропускает регистрацию рекуррентных Hangfire-джоб и
+//                         сидеров (IdentitySeeder/SettingsSeeder): и то и другое требует
+//                         реального SQL Server (RecurringJob.AddOrUpdate → JobStorage.Current
+//                         (SqlServerStorage); IdentitySeeder → EF MigrateAsync). Это позволяет
+//                         хосту подняться на EF InMemory без БД и без Hangfire-стораджа.
+//   • ConnectionStrings → фейковые непустые (см. ниже) — нужны лишь чтобы пройти гейты
+//                         AddInfrastructure/AddHangfire, которые бросают на пустой строке;
+//                         к реальной БД они не ведут.
+//   • AppDbContext      → EF InMemory (нет SQL Server).
+//   • IHostedService'ы  → удалены (BackgroundJobServer, HotTier/RasHealth/BackupPump/PerfRecording
+//                         ходят в SQL/1С/WMI и упали бы при старте).
 //
 // Стратегия строк подключения:
-//   ConnectionStrings:Default  = "Server=.;Encrypt=false;" (без InitialCatalog → DatabaseBootstrapper no-op)
-//   ConnectionStrings:Hangfire = "Server=.;Encrypt=false;" (без InitialCatalog → подменяется InMemory)
-// AddInfrastructure получает непустую строку → проходит свой гейт; потом DbContext заменяется.
-// AddHangfire(.UseSqlServerStorage(..)) регистрируется из Program.cs, но потом ConfigureTestServices
-// переопределяет GlobalConfiguration на InMemory — RecurringJob.AddOrUpdate видит InMemory storage.
+//   ConnectionStrings:Default  = "Server=.;Encrypt=false;" — непустая (проходит гейты),
+//                                без InitialCatalog → DatabaseBootstrapper.GetDatabaseName()=="" → no-op.
+//   ConnectionStrings:Hangfire = "Server=.;Encrypt=false;" — непустая (AddHangfire не бросает);
+//                                JobStorage никогда не используется (джобы не регистрируются в "Test",
+//                                BackgroundJobServer удалён) → реального коннекта к SQL нет.
 public sealed class MlcWebApplicationFactory : WebApplicationFactory<MitLicenseCenter.Web.Program>
 {
     // Фейковая строка: непустая (гейт AddInfrastructure/Hangfire проходит),

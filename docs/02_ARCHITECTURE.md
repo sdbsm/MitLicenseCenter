@@ -371,9 +371,10 @@ flowchart TB
   через security-stamp с ревалидацией куки.
 - **Middleware-конвейер (порядок).** Конвейер ASP.NET Core в продакшен-среде выстроен
   в следующем порядке (сокращённо):
-  `UseExceptionHandler` → `UseHttpsRedirection`/`UseHsts` (при `EnforceHttps=true`) →
-  `UseSecurityHeaders` → `UseRateLimiter` → `UseStaticFiles` → `UseRouting` →
-  `UseCors` → `UseAuthentication` → `UseAuthorization` → эндпоинты + SPA-fallback.
+  `UseExceptionHandler` → `UseSecurityHeaders` → `UseHsts`/`UseHttpsRedirection`
+  (при `EnforceHttps=true`) → `UseStaticFiles` → `UseAuthentication` → `UseAuthorization`
+  → `UseRateLimiter` → эндпоинты + SPA-fallback. CORS-middleware нет — фронтенд и API
+  same-origin (ADR-30).
   `UseSecurityHeaders` (ADR-41) выставляет `X-Content-Type-Options: nosniff`,
   `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY` и `Content-Security-Policy`
   (CSP) на все ответы кроме путей Swagger (`/api/docs*`), где CSP и X-Frame-Options
