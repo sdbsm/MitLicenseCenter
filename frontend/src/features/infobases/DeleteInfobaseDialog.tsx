@@ -12,18 +12,18 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ApiError } from "@/lib/api";
 import type { PublicationPublishStatus } from "@/features/publications/types";
 import { useDeleteInfobase } from "./useInfobases";
 
-// Диалог удаления читает только id (мутация) и name (подтверждение по имени), поэтому
+// Диалог удаления читает только id (мутация) и name (отображение), поэтому
 // принимает минимальный контракт — это позволяет переиспользовать его и из диалога
 // обратного дрейфа (MLC-096), где полного InfobaseListItem нет (запись может быть на
 // другой странице пагинации). publishStatus (MLC-113) опционален: когда он определён,
 // показываем чекбокс «снять публикацию из IIS» (по умолчанию отмечен при Published);
 // в диалоге обратного дрейфа статус неизвестен — чекбокс скрыт (снимать нечего).
+// ADR-45: необратимое действие — «да/нет» с явным предупреждением; ручной ввод убран.
 export interface DeletableInfobase {
   id: string;
   name: string;
@@ -38,7 +38,6 @@ interface DeleteInfobaseDialogProps {
 
 export function DeleteInfobaseDialog({ open, onOpenChange, infobase }: DeleteInfobaseDialogProps) {
   const { t } = useTranslation();
-  const [confirmation, setConfirmation] = useState("");
   // Чекбокс показываем только когда статус публикации известен (страница «Базы»).
   // По умолчанию отмечен, если публикация сейчас на месте (Published) — типичный сценарий
   // «удаляю базу целиком, чищу и IIS». При других статусах снимать обычно нечего → unchecked.
@@ -49,8 +48,6 @@ export function DeleteInfobaseDialog({ open, onOpenChange, infobase }: DeleteInf
   if (!infobase) {
     return null;
   }
-
-  const matched = confirmation.trim() === infobase.name;
 
   const handleConfirm = async () => {
     try {
@@ -81,18 +78,9 @@ export function DeleteInfobaseDialog({ open, onOpenChange, infobase }: DeleteInf
           </AlertDialogDescription>
         </AlertDialogHeader>
 
-        <div className="grid gap-2">
-          <Label htmlFor="confirm-infobase-name" className="text-sm">
-            {t("infobases.delete.confirmLabel", { name: infobase.name })}
-          </Label>
-          <Input
-            id="confirm-infobase-name"
-            autoComplete="off"
-            value={confirmation}
-            onChange={(e) => setConfirmation(e.target.value)}
-            placeholder={infobase.name}
-          />
-        </div>
+        <p className="text-destructive text-sm font-medium">
+          {t("infobases.delete.irreversibleWarning")}
+        </p>
 
         {showUnpublishOption && (
           <div className="flex items-start gap-2">
@@ -114,7 +102,7 @@ export function DeleteInfobaseDialog({ open, onOpenChange, infobase }: DeleteInf
         <AlertDialogFooter>
           <AlertDialogCancel disabled={remove.isPending}>{t("common.cancel")}</AlertDialogCancel>
           <AlertDialogAction
-            disabled={!matched || remove.isPending}
+            disabled={remove.isPending}
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:ring-destructive/20"
             onClick={(e) => {
               e.preventDefault();

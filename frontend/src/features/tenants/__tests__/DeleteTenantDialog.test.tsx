@@ -60,8 +60,7 @@ describe("DeleteTenantDialog", () => {
     mockedApi.mockResolvedValueOnce(null);
     const { invalidateSpy, onOpenChange, user } = setup();
 
-    // Кнопка удаления активируется только при точном совпадении имени.
-    await user.type(screen.getByRole("textbox"), sampleTenant.name);
+    // ADR-45: ручной ввод имени убран — удаление подтверждается одним кликом «Удалить».
     await user.click(screen.getByRole("button", { name: "Удалить" }));
 
     await waitFor(() =>
@@ -80,7 +79,6 @@ describe("DeleteTenantDialog", () => {
     );
     const { onOpenChange, user } = setup();
 
-    await user.type(screen.getByRole("textbox"), sampleTenant.name);
     await user.click(screen.getByRole("button", { name: "Удалить" }));
 
     await waitFor(() =>

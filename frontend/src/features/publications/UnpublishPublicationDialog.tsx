@@ -1,4 +1,3 @@
-import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
@@ -11,8 +10,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { ApiError } from "@/lib/api";
 import type { PublicationListItem } from "./types";
 import { useUnpublish } from "./usePublications";
@@ -29,25 +26,21 @@ interface UnpublishPublicationDialogProps {
   publication: PublicationListItem | null;
 }
 
-// Диалог снятия публикации из IIS через webinst -delete (MLC-113, UX-43). Подтверждение
-// токеном (имя сайта + путь), деструктивная кнопка — снятие удаляет приложение IIS,
-// default.vrd и web.config; инфобаза в кластере не затрагивается.
+// Диалог снятия публикации из IIS через webinst -delete (MLC-113, UX-43). Простое «да/нет»
+// без ручного ввода токена (ADR-45: снятие публикации — обратимое действие; результат
+// восстановим переопубликацией). Снятие удаляет приложение IIS, default.vrd и web.config;
+// инфобаза в кластере не затрагивается.
 export function UnpublishPublicationDialog({
   open,
   onOpenChange,
   publication,
 }: UnpublishPublicationDialogProps) {
   const { t } = useTranslation();
-  const cancelRef = useRef<HTMLButtonElement>(null);
-  const [confirmation, setConfirmation] = useState("");
   const unpublish = useUnpublish();
 
   if (!publication) {
     return null;
   }
-
-  const token = `${publication.siteName}${publication.virtualPath}`;
-  const matched = confirmation.trim() === token;
 
   const handleConfirm = async () => {
     try {
@@ -78,25 +71,12 @@ export function UnpublishPublicationDialog({
           </AlertDialogDescription>
         </AlertDialogHeader>
 
-        <div className="grid gap-2">
-          <Label htmlFor="confirm-unpublish-token" className="text-sm">
-            {t("publications.unpublish.confirmLabel", { token })}
-          </Label>
-          <Input
-            id="confirm-unpublish-token"
-            autoComplete="off"
-            value={confirmation}
-            onChange={(e) => setConfirmation(e.target.value)}
-            placeholder={token}
-          />
-        </div>
-
         <AlertDialogFooter>
-          <AlertDialogCancel ref={cancelRef} disabled={unpublish.isPending}>
+          <AlertDialogCancel disabled={unpublish.isPending}>
             {t("publications.unpublish.cancel")}
           </AlertDialogCancel>
           <AlertDialogAction
-            disabled={!matched || unpublish.isPending}
+            disabled={unpublish.isPending}
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:ring-destructive/20"
             onClick={(e) => {
               e.preventDefault();

@@ -1,4 +1,3 @@
-import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
@@ -11,8 +10,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { ApiError } from "@/lib/api";
 import type { PublicationListItem } from "./types";
 import { usePublish } from "./usePublications";
@@ -29,7 +26,8 @@ interface PublishPublicationDialogProps {
   publication: PublicationListItem | null;
 }
 
-// Диалог публикации через webinst (MLC-045). Подтверждение токеном (имя сайта + путь).
+// Диалог публикации через webinst (MLC-045). Простое «да/нет» без ручного ввода токена
+// (ADR-45: публикация — обратимое действие; результат восстановим переопубликацией).
 // Если публикация сделана не панелью (source ≠ Webinst) — показываем предупреждение о
 // перезаписи ручной конфигурации; confirm=true отправляется всегда (явное действие).
 export function PublishPublicationDialog({
@@ -38,16 +36,12 @@ export function PublishPublicationDialog({
   publication,
 }: PublishPublicationDialogProps) {
   const { t } = useTranslation();
-  const cancelRef = useRef<HTMLButtonElement>(null);
-  const [confirmation, setConfirmation] = useState("");
   const publish = usePublish();
 
   if (!publication) {
     return null;
   }
 
-  const token = `${publication.siteName}${publication.virtualPath}`;
-  const matched = confirmation.trim() === token;
   const isOverwrite = publication.source !== "Webinst";
 
   const handleConfirm = async () => {
@@ -84,25 +78,12 @@ export function PublishPublicationDialog({
           </AlertDialogDescription>
         </AlertDialogHeader>
 
-        <div className="grid gap-2">
-          <Label htmlFor="confirm-publish-token" className="text-sm">
-            {t("publications.publish.confirmLabel", { token })}
-          </Label>
-          <Input
-            id="confirm-publish-token"
-            autoComplete="off"
-            value={confirmation}
-            onChange={(e) => setConfirmation(e.target.value)}
-            placeholder={token}
-          />
-        </div>
-
         <AlertDialogFooter>
-          <AlertDialogCancel ref={cancelRef} disabled={publish.isPending}>
+          <AlertDialogCancel disabled={publish.isPending}>
             {t("publications.publish.cancel")}
           </AlertDialogCancel>
           <AlertDialogAction
-            disabled={!matched || publish.isPending}
+            disabled={publish.isPending}
             onClick={(e) => {
               e.preventDefault();
               void handleConfirm();
