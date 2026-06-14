@@ -47,7 +47,9 @@ export function StopRecordingDialog({ recordingId, open, onOpenChange }: StopRec
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel disabled={stop.isPending}>{t("common.cancel")}</AlertDialogCancel>
+          {/* MLC-138/UX-26: остановка записи — деструктивное необратимое действие */}
           <AlertDialogAction
+            variant="destructive"
             disabled={stop.isPending}
             onClick={(e) => {
               e.preventDefault();
