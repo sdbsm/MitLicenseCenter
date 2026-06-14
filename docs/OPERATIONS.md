@@ -224,16 +224,13 @@ in-memory-снапшот настроек и применяется немедл
 Под Windows-службой (`UseWindowsService`) ASP.NET Core направляет логи в
 **Журнал событий Windows**, раздел **Приложение**, источник **`MitLicenseCenter`**.
 
-Известные EventId (источник: `IdentitySeeder.cs`, `SettingsSeeder.cs`):
+Известные EventId (источник: `IdentitySeeder.cs` диапазон 100x, `SettingsSeeder.cs` диапазон 110x):
 
 | EventId | Уровень | Когда | Что означает |
 |---|---|---|---|
-| 1001 | Warning | Первый старт, нет файла `initial-admin.secret` | Создан admin со **случайным** паролем; пароль напечатан в тело события — **сразу запишите** |
+| 1001 | Warning | Первый старт, нет файла `initial-admin.secret` | Создан admin со **случайным** паролем (`IdentitySeeder`); пароль напечатан в тело события — **сразу запишите** |
 | 1002 | Warning | Первый старт, файл `initial-admin.secret` найден | Создан admin с паролем, заданным оператором в мастере (`IdentitySeeder`); пароль в лог не попадает |
-| 1002 | Information | Любой старт при изменении состава настроек | Засеяны N новых параметров в `dbo.Settings` (`SettingsSeeder`) |
-
-EventId 1002 используют два разных источника (`IdentitySeeder` и `SettingsSeeder`) —
-различать их следует по уровню (`Warning` против `Information`) и тексту сообщения.
+| 1100 | Information | Любой старт при изменении состава настроек | Засеяны N новых параметров в `dbo.Settings` (`SettingsSeeder`) |
 
 Остальные сообщения уровня Error/Critical (недоступность SQL, ошибки миграций,
 критические сбои bootstrap) пишутся через `LogCritical` без явного числового EventId

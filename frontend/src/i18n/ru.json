@@ -19,7 +19,6 @@
     "copied": "Скопировано",
     "loading": "Загрузка…",
     "noData": "Нет данных",
-    "comingSoon": "Этот раздел появится в следующих PR Stage 2.",
     "pagination": {
       "summary": "{{from}}–{{to}} из {{total}}",
       "refreshing": "Обновление…"

@@ -17,6 +17,8 @@ public static partial class IdentitySeeder
     // на temp-файл; в dev/ops файла по дефолтному ProgramData-пути нет → ветка random (как раньше).
     private const string InitialAdminPasswordFileKey = "Seed:InitialAdminPasswordFile";
 
+    // EventId конвенция IdentitySeeder: диапазон 100x.
+    // 1001 — создан admin со случайным паролем (dev/fallback); 1002 — с паролем оператора.
     [LoggerMessage(
         EventId = 1001,
         Level = LogLevel.Warning,
