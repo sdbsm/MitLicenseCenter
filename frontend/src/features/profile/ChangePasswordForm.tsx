@@ -64,6 +64,9 @@ interface ChangePasswordFormProps {
   submitLabel?: string;
   /** Показывать ли кнопку «Сбросить» (на экране форс-смены не нужна). */
   showReset?: boolean;
+  /** Колбэк кнопки «Отмена». Если не передан — кнопка не показывается
+   *  (на блокирующем экране форс-смены выход заблокирован, «Отмена» не нужна). */
+  onCancel?: () => void;
 }
 
 /**
@@ -76,6 +79,7 @@ export function ChangePasswordForm({
   onSuccess,
   submitLabel,
   showReset = true,
+  onCancel,
 }: ChangePasswordFormProps) {
   const { t } = useTranslation();
   const changePassword = useChangePassword();
@@ -168,6 +172,16 @@ export function ChangePasswordForm({
               onClick={() => form.reset()}
             >
               {t("common.reset")}
+            </Button>
+          )}
+          {onCancel && (
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={changePassword.isPending}
+              onClick={onCancel}
+            >
+              {t("common.cancel")}
             </Button>
           )}
           <Button type="submit" disabled={changePassword.isPending}>
