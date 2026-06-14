@@ -1,3 +1,4 @@
+import type React from "react";
 import { useTranslation } from "react-i18next";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
@@ -19,7 +20,8 @@ const VALUE_CLASS: Record<Saturation, string> = {
 };
 
 interface MetricGaugeProps {
-  label: string;
+  // Строка или ReactNode (например, с тултипом-пояснением).
+  label: React.ReactNode;
   // Читаемое значение (например «42 %» или «18 мс»); скрыто при measuring.
   valueText: string;
   // Заполнение шкалы 0–100.

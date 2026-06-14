@@ -56,6 +56,27 @@ public sealed class SqlPerformanceProbeDeltaTests
     }
 
     [Fact]
+    public void ComputeWaitDeltas_excludes_SOS_WORK_DISPATCHER()
+    {
+        // MLC-142: SOS_WORK_DISPATCHER — idle планировщика SQLOS, ложно лидировал в топе.
+        var previous = new Dictionary<string, SqlPerformanceProbe.WaitRaw>(StringComparer.Ordinal)
+        {
+            ["SOS_WORK_DISPATCHER"] = new("SOS_WORK_DISPATCHER", 1_000_000, 100),
+            ["LCK_M_X"] = new("LCK_M_X", 500, 5),
+        };
+        var current = new[]
+        {
+            new SqlPerformanceProbe.WaitRaw("SOS_WORK_DISPATCHER", 2_000_000, 200), // большой прирост — но benign
+            new SqlPerformanceProbe.WaitRaw("LCK_M_X", 1500, 9),
+        };
+
+        var deltas = SqlPerformanceProbe.ComputeWaitDeltas(previous, current, top: 10);
+
+        deltas.Should().ContainSingle().Which.WaitType.Should().Be("LCK_M_X",
+            "SOS_WORK_DISPATCHER — idle планировщика, не должен появляться в топе ожиданий");
+    }
+
+    [Fact]
     public void ComputeWaitDeltas_skips_new_types_and_nonpositive_and_counter_reset()
     {
         var previous = new Dictionary<string, SqlPerformanceProbe.WaitRaw>(StringComparer.Ordinal)

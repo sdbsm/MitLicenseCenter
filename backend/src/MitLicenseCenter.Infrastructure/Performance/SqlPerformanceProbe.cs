@@ -343,6 +343,8 @@ GROUP BY vfs.database_id;";
         "SQLTRACE_INCREMENTAL_FLUSH_SLEEP", "SQLTRACE_WAIT_ENTRIES", "WAIT_FOR_RESULTS",
         "WAITFOR", "WAIT_XTP_HOST_WAIT", "WAIT_XTP_OFFLINE_CKPT_NEW_LOG", "WAIT_XTP_CKPT_CLOSE",
         "XE_DISPATCHER_JOIN", "XE_DISPATCHER_WAIT", "XE_TIMER_EVENT",
+        // Планировщик SQLOS: фоновое idle диспетчера задач (MLC-142 — ложно лидировало в топе).
+        "SOS_WORK_DISPATCHER",
     };
 
     // ── Чтение nullable-колонок ──────────────────────────────────────────────────────

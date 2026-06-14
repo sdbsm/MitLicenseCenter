@@ -1,5 +1,7 @@
+import { InfoIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { MetricGauge } from "./MetricGauge";
 import {
   cpuSaturation,
@@ -27,6 +29,22 @@ export function SaturationGauges({ snapshot }: SaturationGaugesProps) {
   const ramUsed = ramUsedPercent(memory);
   const diskMs = Math.round(diskMaxLatencySec(disk) * 1000);
 
+  const cpuLabel = (
+    <TooltipProvider delayDuration={150}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="inline-flex cursor-help items-center gap-1">
+            {t("performance.saturation.cpu")}
+            <InfoIcon className="text-muted-foreground size-3.5" />
+          </span>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs">
+          {t("performance.saturation.cpuInstantTooltip")}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+
   return (
     <Card>
       <CardHeader>
@@ -34,7 +52,7 @@ export function SaturationGauges({ snapshot }: SaturationGaugesProps) {
       </CardHeader>
       <CardContent className="grid grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-3">
         <MetricGauge
-          label={t("performance.saturation.cpu")}
+          label={cpuLabel}
           valueText={t("performance.units.percent", { value: Math.round(cpu.totalPercent) })}
           fillPercent={cpu.totalPercent}
           saturation={cpuSaturation(cpu)}
