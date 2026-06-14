@@ -34,12 +34,20 @@
 | `UpdatedAt` | `DateTime?` | Момент последнего изменения; `null` до первого изменения. |
 | `RowVersion` | `byte[]?` | Токен оптимистической блокировки (SQL Server `rowversion`). |
 
-**Инвариант (оптимистическая блокировка).** `Tenant` несёт rowversion-токен: форма
-редактирования читает его и возвращает при сохранении (`PUT /tenants/{id}`). Конкурентный
-апдейт с устаревшим токеном (клиент изменён другим пользователем между чтением и записью)
-отклоняется с **409** (`TENANT_CONCURRENCY_CONFLICT`) — потерянного обновления не происходит.
-Токен опционален в запросе: при его отсутствии апдейт выполняется без проверки версии
-(обратная совместимость). `Infobase`/`Publication` пока без токена (follow-up).
+**Инвариант (оптимистическая блокировка).** `Tenant`, `Infobase` и `Publication` несут
+rowversion-токен: форма редактирования читает его и возвращает при сохранении. Конкурентный
+апдейт с устаревшим токеном (запись изменена другим пользователем между чтением и записью)
+отклоняется с **409** — потерянного обновления не происходит. Коды конфликта различают
+сущность: `TENANT_CONCURRENCY_CONFLICT` (`PUT /tenants/{id}`), `INFOBASE_CONCURRENCY_CONFLICT`
+(`PUT /infobases/{id}` — aggregate-апдейт корня и его публикации одним запросом),
+`PUBLICATION_CONCURRENCY_CONFLICT` (самостоятельный `PUT /publications/{id}`). Токен опционален
+в запросе: при его отсутствии апдейт выполняется без проверки версии (обратная совместимость).
+
+`Publication` получает собственный токен (а не защищается только транзитивно через
+`Infobase`), потому что у неё есть самостоятельный путь правки `PUT /publications/{id}`
+(SiteName/VirtualPath/PlatformVersion/PhysicalPathOverride) помимо вложенного апдейта через
+aggregate инфобазы. В `PUT /infobases/{id}` проверяются оба токена: корня (`RowVersion`) и
+вложенной публикации (`Publication.RowVersion`).
 
 **Infobase — информационная база.**
 
@@ -52,6 +60,7 @@
 | `DatabaseName` | `string` (обяз.) | Имя базы в SQL Server. SQL-инстанс задаётся одной настройкой `Sql.Server` (single-host), серверного поля у базы нет. |
 | `Status` | `InfobaseStatus` | Операционный статус в панели. |
 | `CreatedAt` / `UpdatedAt` | `DateTime` / `DateTime?` | Метки создания/изменения. |
+| `RowVersion` | `byte[]?` | Токен оптимистической блокировки (SQL Server `rowversion`). |
 
 **Publication — публикация инфобазы в IIS.** Одна инфобаза — одна публикация
 (связь 1-к-1, обязательная).
@@ -69,6 +78,7 @@
 | `LastCheckDetails` | `string?` | Текстовая детализация проверки. |
 | `PhysicalPathOverride` | `string?` | Переопределение физического пути приложения IIS; `null`/пусто → путь по convention. |
 | `CreatedAt` / `UpdatedAt` | `DateTime` / `DateTime?` | Метки создания/изменения. |
+| `RowVersion` | `byte[]?` | Токен оптимистической блокировки (SQL Server `rowversion`). |
 
 **HiddenClusterInfobase — скрытая нераспределённая база кластера.** Игнор-лист
 служебных баз кластера, которые оператор сознательно не заводит в панель и
@@ -541,8 +551,8 @@ Defense-in-depth: `WebinstArgs.BuildConnStr` отдельно отвергает
 | Таблица | Назначение | Заметки по столбцам |
 |---|---|---|
 | `Tenants` | Клиенты | `Name nvarchar(200)`; `RowVersion rowversion` (токен оптимистической блокировки). |
-| `Infobases` | Инфобазы | `Name nvarchar(200)`, `DatabaseName nvarchar(200)`; `Status int`. |
-| `Publications` | Публикации IIS | `SiteName`/`VirtualPath nvarchar(200)`, `PlatformVersion nvarchar(50)`, `PhysicalPathOverride nvarchar(260)` (MAX_PATH); `Source`/`LastCheckStatus int`; `LastCheckDetails nvarchar(max)`. |
+| `Infobases` | Инфобазы | `Name nvarchar(200)`, `DatabaseName nvarchar(200)`; `Status int`; `RowVersion rowversion` (токен оптимистической блокировки). |
+| `Publications` | Публикации IIS | `SiteName`/`VirtualPath nvarchar(200)`, `PlatformVersion nvarchar(50)`, `PhysicalPathOverride nvarchar(260)` (MAX_PATH); `Source`/`LastCheckStatus int`; `LastCheckDetails nvarchar(max)`; `RowVersion rowversion` (токен оптимистической блокировки). |
 | `AuditLogs` | Журнал аудита | `Initiator nvarchar(256)`, `Description nvarchar(max)`; `ActionType int`, `Reason int?`; `Timestamp` DEFAULT `SYSUTCDATETIME()`. |
 | `LicenseUsageSnapshots` | История потребления | `ConsumedMin/Max int`, `ConsumedAvg float`, `Limit int`. |
 | `PerfRecordings` | Записи быстродействия | `StartedBy nvarchar(256)`; `Status int`, `StopReason int?`. |

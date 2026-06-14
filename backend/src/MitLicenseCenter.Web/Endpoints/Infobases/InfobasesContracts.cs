@@ -12,7 +12,11 @@ public sealed record InfobaseResponse(
     string DatabaseName,
     InfobaseStatus Status,
     DateTime CreatedAt,
-    DateTime? UpdatedAt);
+    DateTime? UpdatedAt,
+    // MLC-151 — токен оптимистической блокировки (зеркаль TenantResponse/MLC-136).
+    // byte[] сериализуется как base64; при null поле опускается (WhenWritingNull).
+    // Под EF InMemory токен не материализуется → omittable на фронте.
+    byte[]? RowVersion = null);
 
 public sealed record InfobaseListItemResponse(
     Guid Id,
@@ -63,7 +67,12 @@ public sealed record UpdateInfobaseRequest(
     [property: Required] Guid ClusterInfobaseId,
     [property: Required, StringLength(InfobaseValidationRules.DatabaseNameMaxLength, MinimumLength = 1)] string DatabaseName,
     [property: Required] InfobaseStatus Status,
-    [property: Required] UpdatePublicationRequest Publication);
+    [property: Required] UpdatePublicationRequest Publication,
+    // MLC-151 — токен оптимистической блокировки инфобазы, прочитанный клиентом при загрузке
+    // формы. ОПЦИОНАЛЕН: null оставляет обратную совместимость (старые клиенты / InMemory-тесты).
+    // Непустой токен выставляется как OriginalValue → конкурентный апдейт → 409.
+    // Вложенный Publication.RowVersion защищает публикацию в составе того же aggregate-апдейта.
+    byte[]? RowVersion = null);
 
 public sealed record ReassignInfobaseRequest(
     [property: Required] Guid TargetTenantId);
@@ -71,7 +80,8 @@ public sealed record ReassignInfobaseRequest(
 internal static class InfobaseMappings
 {
     public static InfobaseResponse ToResponse(this Infobase x) =>
-        new(x.Id, x.TenantId, x.Name, x.ClusterInfobaseId, x.DatabaseName, x.Status, x.CreatedAt, x.UpdatedAt);
+        new(x.Id, x.TenantId, x.Name, x.ClusterInfobaseId, x.DatabaseName, x.Status, x.CreatedAt, x.UpdatedAt,
+            RowVersion: x.RowVersion);
 
     public static InfobaseDetailResponse ToDetailResponse(this Infobase infobase, Publication publication) =>
         new(infobase.ToResponse(), publication.ToResponse());

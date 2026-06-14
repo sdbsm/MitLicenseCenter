@@ -124,26 +124,37 @@ Frontend опирается на эти коды для локализованн
 `USER_USERNAME_DUPLICATE`, `USER_NOT_FOUND`, `USER_CANNOT_DISABLE_SELF`, `USER_LAST_ACTIVE`, `USER_CANNOT_CHANGE_OWN_ROLE`,
 `RECORDING_ACTIVE`, `BACKUP_ACTIVE`, `BACKUP_FOLDER_NOT_CONFIGURED`, `BACKUP_DELETE_FAILED`,
 `SQL_SERVER_NOT_CONFIGURED`, `UNASSIGNED_ALREADY_ASSIGNED`, `UNASSIGNED_ALREADY_HIDDEN`,
-`TENANT_CONCURRENCY_CONFLICT`.
+`TENANT_CONCURRENCY_CONFLICT`, `INFOBASE_CONCURRENCY_CONFLICT`, `PUBLICATION_CONCURRENCY_CONFLICT`.
 
 Технические детали (пути, имена серверов, текст COM/IO-исключений) в `detail` не попадают —
 только санитизированные русскоязычные сообщения. Исключение `CLUSTER_UNAVAILABLE` возвращает
 502 вместо 409.
 
-### 3.4 Оптимистическая блокировка `Tenant`
+### 3.4 Оптимистическая блокировка `Tenant`, `Infobase`, `Publication`
 
-`Tenant` несёт rowversion-токен (`RowVersion byte[]?`, SQL Server `rowversion`,
-`IsRowVersion()` в `AppDbContext`). `PUT /tenants/{id}` принимает опциональный `RowVersion`:
-если он задан, endpoint выставляет его как ожидаемую версию
-(`db.Entry(tenant).Property(t => t.RowVersion).OriginalValue = …`) перед `SaveChanges`.
+`Tenant`, `Infobase` и `Publication` несут rowversion-токен (`RowVersion byte[]?`, SQL Server
+`rowversion`, `IsRowVersion()` в `AppDbContext`). Update-эндпоинт принимает опциональный
+`RowVersion`: если он задан, endpoint выставляет его как ожидаемую версию
+(`db.Entry(entity).Property(x => x.RowVersion).OriginalValue = …`) перед `SaveChanges`.
 SQL Server добавляет к UPDATE условие `WHERE RowVersion = @original`; при затронутых 0 строках
 (строку успели изменить) EF бросает `DbUpdateConcurrencyException`, которую endpoint ловит
-**отдельным** `try/catch` вокруг `SaveWithUniquenessBackstopAsync` и мапит в **409**
-`TENANT_CONCURRENCY_CONFLICT`. Concurrency-исключение — подкласс `DbUpdateException`, но
-uniqueness-backstop его не проглатывает: `DbUniqueViolation.Identify` вернёт `None` (нет имени
-индекса) и пробросит дальше, где его перехватывает concurrency-catch. Пустой `RowVersion`
-(старый клиент / без проверки версии) сохраняет прежнее поведение и оставляет существующие
-тесты зелёными. `Infobase`/`Publication` пока без токена (follow-up).
+`try/catch` вокруг `SaveChanges` и мапит в **409**. Пустой `RowVersion` (старый клиент / без
+проверки версии) сохраняет прежнее поведение.
+
+Коды конфликта по сущности:
+
+- `PUT /tenants/{id}` → `TENANT_CONCURRENCY_CONFLICT`. Catch ставится **отдельным** `try/catch`
+  вокруг `SaveWithUniquenessBackstopAsync`. Concurrency-исключение — подкласс `DbUpdateException`,
+  но uniqueness-backstop его не проглатывает: `DbUniqueViolation.Identify` вернёт `None` (нет
+  имени индекса) и пробросит дальше, где его перехватывает concurrency-catch.
+- `PUT /infobases/{id}` → `INFOBASE_CONCURRENCY_CONFLICT`. Это aggregate-апдейт: один запрос
+  правит и инфобазу (корень), и её публикацию. Проверяются **оба** токена — `RowVersion`
+  инфобазы и вложенный `Publication.RowVersion`; устаревание любого даёт один и тот же 409.
+  Catch — тоже отдельным `try/catch` вокруг uniqueness-backstop (как у `Tenant`).
+- `PUT /publications/{id}` → `PUBLICATION_CONCURRENCY_CONFLICT`. Самостоятельный путь правки
+  публикации (есть помимо aggregate-апдейта инфобазы), поэтому у публикации собственный токен,
+  а не только транзитивная защита через инфобазу. Здесь catch — вокруг обычного `SaveChanges`
+  (uniqueness-backstop в этом эндпоинте не применяется).
 
 ### 3.5 Контракт discovery-ответов
 

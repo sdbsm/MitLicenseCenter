@@ -15,7 +15,10 @@ public sealed record PublicationResponse(
     PublicationPublishStatus LastCheckStatus,
     DateTime? LastCheckAt,
     string? LastCheckDetails,
-    string? PhysicalPathOverride);
+    string? PhysicalPathOverride,
+    // MLC-151 — токен оптимистической блокировки публикации (зеркаль TenantResponse/MLC-136).
+    // base64 на проводе; null опускается (WhenWritingNull); под InMemory не материализуется.
+    byte[]? RowVersion = null);
 
 // Ответ проверки/смены платформы — текущий read-only статус публикации.
 public sealed record PublicationStatusResponse(
@@ -41,7 +44,11 @@ public sealed record UpdatePublicationRequest(
     [property: Required, StringLength(InfobaseValidationRules.SiteNameMaxLength, MinimumLength = 1)] string SiteName,
     [property: Required, StringLength(InfobaseValidationRules.VirtualPathMaxLength, MinimumLength = 1)] string VirtualPath,
     [property: Required, StringLength(InfobaseValidationRules.PlatformVersionMaxLength, MinimumLength = 1)] string PlatformVersion,
-    [property: StringLength(InfobaseValidationRules.PhysicalPathMaxLength)] string? PhysicalPathOverride);
+    [property: StringLength(InfobaseValidationRules.PhysicalPathMaxLength)] string? PhysicalPathOverride,
+    // MLC-151 — токен оптимистической блокировки публикации, прочитанный клиентом при
+    // загрузке. ОПЦИОНАЛЕН (omit-null, backward-compat). Используется и самостоятельным
+    // PUT /publications/{id}, и вложенным апдейтом публикации в PUT /infobases/{id}.
+    byte[]? RowVersion = null);
 
 internal static class PublicationMappings
 {
@@ -58,5 +65,6 @@ internal static class PublicationMappings
             x.LastCheckStatus,
             x.LastCheckAt,
             x.LastCheckDetails,
-            x.PhysicalPathOverride);
+            x.PhysicalPathOverride,
+            RowVersion: x.RowVersion);
 }

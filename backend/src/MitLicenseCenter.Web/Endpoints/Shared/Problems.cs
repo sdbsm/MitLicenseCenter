@@ -69,6 +69,14 @@ public static class ProblemCodes
     // rowversion-токеном (данные изменены другим пользователем между чтением формы и
     // сохранением). Фронт по этому коду показывает тост «обновите страницу и повторите».
     public const string TenantConcurrencyConflict = "TENANT_CONCURRENCY_CONFLICT";
+
+    // MLC-151 — оптимистическая блокировка инфобазы и публикации (зеркаль MLC-136).
+    // Апдейт с устаревшим rowversion-токеном (данные изменены другим пользователем между
+    // чтением формы и сохранением). Фронт по коду показывает тост «обновите и повторите».
+    // Инфобаза — корень aggregate'а (PUT /infobases/{id} правит и инфобазу, и публикацию);
+    // публикация — собственный код, т.к. у неё есть самостоятельный PUT /publications/{id}.
+    public const string InfobaseConcurrencyConflict = "INFOBASE_CONCURRENCY_CONFLICT";
+    public const string PublicationConcurrencyConflict = "PUBLICATION_CONCURRENCY_CONFLICT";
 }
 
 public static class Problems
@@ -284,6 +292,23 @@ public static class Problems
             ProblemCodes.TenantConcurrencyConflict,
             "Данные клиента изменены",
             "Данные клиента изменены другим пользователем. Обновите страницу и повторите.");
+
+    // MLC-151 — оптимистическая блокировка инфобазы: rowversion инфобазы, прочитанный при
+    // загрузке формы, устарел (запись изменена другим пользователем). 409 — оператору
+    // нужно перечитать актуальные данные и повторить.
+    public static ProblemDetails InfobaseConcurrencyConflict() =>
+        Conflict(
+            ProblemCodes.InfobaseConcurrencyConflict,
+            "Данные инфобазы изменены",
+            "Данные инфобазы изменены другим пользователем. Обновите страницу и повторите.");
+
+    // MLC-151 — оптимистическая блокировка публикации (самостоятельный PUT /publications/{id}):
+    // rowversion публикации, прочитанный при загрузке, устарел.
+    public static ProblemDetails PublicationConcurrencyConflict() =>
+        Conflict(
+            ProblemCodes.PublicationConcurrencyConflict,
+            "Данные публикации изменены",
+            "Данные публикации изменены другим пользователем. Обновите страницу и повторите.");
 
     // 404 для несуществующей учётки. Не 409, поэтому отдельный helper со Status=404 и
     // machine-readable code (frontend сопоставляет код, как и с конфликтами).

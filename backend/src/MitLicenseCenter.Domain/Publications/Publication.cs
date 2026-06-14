@@ -31,4 +31,11 @@ public sealed class Publication : IEntity
     // к папке IIS-приложения вместо convention {IIS.DefaultVrdRoot}/{siteName}/{virtualPath}.
     // NULL/empty → fallback на convention (нет migration noise для существующих строк).
     public string? PhysicalPathOverride { get; set; }
+
+    // MLC-151 — токен оптимистической блокировки (зеркаль Tenant/MLC-136). У публикации
+    // есть САМОСТОЯТЕЛЬНЫЙ путь правки (PUT /publications/{id}) помимо вложенного апдейта
+    // через aggregate инфобазы (PUT /infobases/{id}), поэтому собственный токен оправдан
+    // (вариант (b) развилки). Конкурентный апдейт с устаревшим токеном →
+    // DbUpdateConcurrencyException → 409. Nullable: см. Infobase.RowVersion.
+    public byte[]? RowVersion { get; set; }
 }
