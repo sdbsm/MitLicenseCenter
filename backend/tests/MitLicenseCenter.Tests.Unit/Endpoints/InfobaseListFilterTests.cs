@@ -195,6 +195,51 @@ public sealed class InfobaseListFilterTests
         ok.Value.Total.Should().Be(0);
     }
 
+    // MLC-151: списочная проекция доносит rowversion-токены (инфобазы и её публикации) до
+    // формы редактирования, которая открывается из элемента списка. Без этого FE прислал бы
+    // null → OriginalValue не выставится → оптимистическая блокировка молча не сработала бы.
+    [Fact]
+    public async Task List_carries_rowversion_tokens_for_infobase_and_publication()
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+        var tenant = NewTenant("Acme");
+        db.Tenants.Add(tenant);
+
+        var ibToken = new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 };
+        var pubToken = new byte[] { 8, 7, 6, 5, 4, 3, 2, 1 };
+        var ib = new Infobase
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenant.Id,
+            Name = "WithTokens",
+            ClusterInfobaseId = Guid.NewGuid(),
+            DatabaseName = "db",
+            Status = InfobaseStatus.Active,
+            CreatedAt = Now,
+            RowVersion = ibToken,
+        };
+        db.Infobases.Add(ib);
+        db.Publications.Add(new Publication
+        {
+            Id = Guid.NewGuid(),
+            InfobaseId = ib.Id,
+            SiteName = "Default Web Site",
+            VirtualPath = "/db",
+            PlatformVersion = "8.3.23.1865",
+            LastCheckStatus = PublicationPublishStatus.Published,
+            CreatedAt = Now,
+            RowVersion = pubToken,
+        });
+        await db.SaveChangesAsync();
+
+        var result = await ListAsync(db);
+
+        var item = result.Result.Should().BeOfType<Ok<InfobaseListResponse>>()
+            .Subject.Value!.Items.Should().ContainSingle().Subject;
+        item.RowVersion.Should().Equal(ibToken);
+        item.Publication.RowVersion.Should().Equal(pubToken);
+    }
+
     private static void AddBase(
         AppDbContext db, Guid tenantId, string name, PublicationPublishStatus status,
         Guid? clusterId = null)

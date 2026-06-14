@@ -28,7 +28,11 @@ public sealed record InfobaseListItemResponse(
     InfobaseStatus Status,
     DateTime CreatedAt,
     DateTime? UpdatedAt,
-    PublicationResponse Publication);
+    PublicationResponse Publication,
+    // MLC-151 — токен инфобазы для формы редактирования (открывается из элемента списка):
+    // без него FE прислал бы null → OriginalValue не выставится → защита от гонки молча не
+    // сработала бы. omit-null: под InMemory токен не материализуется.
+    byte[]? RowVersion = null);
 
 // MLC-150 — ClusterAvailable заполняется ТОЛЬКО при фильтре notInCluster=true: это
 // признак доступности снапшота RAS, по которому отбираются «не найденные в кластере»

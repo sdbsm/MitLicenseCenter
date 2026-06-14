@@ -151,7 +151,11 @@ public static partial class InfobasesEndpoints
                         pub.LastCheckStatus,
                         pub.LastCheckAt,
                         pub.LastCheckDetails,
-                        pub.PhysicalPathOverride)))
+                        pub.PhysicalPathOverride,
+                        // MLC-151 — токены для формы редактирования (открывается из элемента
+                        // списка); без них оптимистическая блокировка молча не сработала бы.
+                        pub.RowVersion),
+                    x.Infobase.RowVersion))
             .ToListAsync(ct).ConfigureAwait(false);
 
         return TypedResults.Ok(new InfobaseListResponse(items, total, p, ps, clusterAvailable));
