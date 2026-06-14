@@ -351,6 +351,24 @@ AuditLog { Id, Timestamp, ActionType, Reason?, Initiator, Description, TenantId?
 
 Список типов действий (`AuditActionType`) с frozen-int значениями — в `docs/03_DOMAIN_MODEL.md`.
 
+### 6.5 Frozen-int enum'ы (HasConversion&lt;int&gt;)
+
+Следующие enum'ы хранятся в БД через `HasConversion<int>` — int-значения заморожены: не
+переназначать, не переиспользовать, новые члены добавлять только в конец с явным числом.
+На проводе все они идут строкой (`JsonStringEnumConverter`).
+
+| Enum | Файл | Члены (int) |
+|---|---|---|
+| `AuditActionType` | `Domain/Audit/AuditActionType.cs` | полный список — `docs/03_DOMAIN_MODEL.md` |
+| `AuditReason` | `Domain/Audit/AuditReason.cs` | `LimitExceeded = 1`, `ManualByAdmin = 2` |
+| `BackupStatus` | `Application/Backups/BackupModels.cs` | `Queued = 0`, `Running = 1`, `Succeeded = 2`, `Failed = 3` |
+| `BackupFailureReason` | `Application/Backups/BackupModels.cs` | `None = 0` … `TimedOut = 6` |
+| `PerfRecordingStatus` | `Application/Performance/PerfRecordingModels.cs` | `Active = 0`, `Stopped = 1`, `Interrupted = 2` |
+| `PerfRecordingStopReason` | `Application/Performance/PerfRecordingModels.cs` | `Manual = 0`, `TimeLimit = 1`, `SampleLimit = 2` |
+
+Freeze-тесты: `AuditLogEnumMappingTests` (BE-14), `BackupModelsTests` (MLC-076),
+`PerfRecordingEnumFreezeTests` (MLC-135/BE-13).
+
 ---
 
 ## 7. EF Core и миграции
