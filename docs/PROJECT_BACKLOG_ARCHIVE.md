@@ -242,3 +242,13 @@
 ### Вне трека (после релиза 0.4.0-beta)
 
 - `MLC-146` — Уборка мёртвого кода после MLC-144: удалён осиротевший `InfobaseRow.tsx` (`InfobaseRow`/`InfobaseTableHeader`/`InfobaseHeaderSelection`) + неиспользуемый `infobaseColumnCount` из `infobaseFormat.ts` (`statusBadgeClass` оставлен); поведение не менялось — Done (2026-06-14)
+
+### Релиз 0.5.0-beta — MLC-147..152, 027 (2026-06-14)
+
+- `MLC-149` — Версия панели в подвале сайдбара из анонимного `/api/v1/health` (хук `useHealth`, скрыт при недоступном health) — Done (2026-06-14, PR #221) · `7596205`
+- `MLC-148` — Холодный старт `/sessions`: прогрев cold-снапшота на старте + `RelativeTime` чинит `DateTime.MinValue` («ещё не обновлялось») holistically — Done (2026-06-14, PR #222) · `29a72ea`
+- `MLC-147` — xlsx (SheetJS) → CDN-tarball `0.20.3` (обе high закрыты, `pnpm audit` 0); сборка зависит от cdn.sheetjs.com (DEVELOPMENT.md) — Done (2026-06-14, PR #220) · `bf6ac85`
+- `MLC-027` — `i18n/ru.json` разнесён на 19 per-feature файлов `i18n/ru/*.json`, сборка в один namespace в `index.ts` (побайтово идентично) — Done (2026-06-14, PR #224) · `8beece9`
+- `MLC-150` — Серверный фильтр «Базы» `notInCluster=true` (общий TTL-снапшот RAS, `ClusterAvailable`-флаг, честный баннер при недоступном RAS) — Done (2026-06-14, PR #226) · `c96a9f7`
+- `MLC-151` — Optimistic concurrency на Infobase/Publication (rowversion→409, вариант b: токен и у Publication; фикс — токены в списочной проекции) — Done (2026-06-14, PR #228) · `b431ad9`
+- `MLC-152` — SQL least-privilege: бэкап с `xp_*` переведён на .NET (`BackupFileStore`), sysadmin снят (db_owner + VIEW SERVER STATE), скрипт `sql-setup-least-privilege.sql`; трасса подтвердила admin-неизбежность для IIS (ADR-44) — Done (2026-06-14, PR #230) · `96ad04a`
