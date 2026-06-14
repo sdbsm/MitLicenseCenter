@@ -22,9 +22,13 @@ const GUID_PATTERN =
 // Серверная пагинация (MLC-015). queryKey включает фильтры и page/pageSize; префикс
 // остаётся `["infobases"]`, поэтому мутации инвалидируют все страницы/фильтры разом.
 // publishStatus (MLC-090) — фильтр по статусу публикации; пусто/null → без фильтра.
+// notInCluster (MLC-150) — серверный фильтр «не найдена в кластере» (обратный дрейф):
+// true добавляет ?notInCluster=true; BE отдаёт clusterAvailable как признак доступности
+// снапшота RAS (при недоступном — пустой набор + clusterAvailable:false, а не ложный «0»).
 export function useInfobases(
   tenantId?: string | null,
   publishStatus?: string | null,
+  notInCluster = false,
   page = 1,
   pageSize = INFOBASES_PAGE_SIZE
 ) {
@@ -35,10 +39,19 @@ export function useInfobases(
   if (publishStatus) {
     qs.set("publishStatus", publishStatus);
   }
+  if (notInCluster) {
+    qs.set("notInCluster", "true");
+  }
   return useQuery({
     queryKey: [
       ...infobasesQueryKey,
-      { tenantId: tenantId ?? null, publishStatus: publishStatus ?? null, page, pageSize },
+      {
+        tenantId: tenantId ?? null,
+        publishStatus: publishStatus ?? null,
+        notInCluster,
+        page,
+        pageSize,
+      },
     ],
     queryFn: () =>
       api(`/api/v1/infobases?${qs.toString()}`, { schema: infobaseListResponseSchema }),

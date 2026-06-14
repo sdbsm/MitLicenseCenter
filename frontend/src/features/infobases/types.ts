@@ -39,8 +39,15 @@ export const infobaseListItemSchema = infobaseSchema.extend({
  * Список инфобаз (`GET /api/v1/infobases`). Критичная граница (MLC-016):
  * пагинированный конверт со вложенной публикацией валидируется runtime-схемой.
  * Типы выводятся из схем (`z.infer`) — единый источник правды.
+ *
+ * MLC-150: `clusterAvailable` приходит ТОЛЬКО при фильтре `notInCluster=true`
+ * (признак доступности снапшота RAS); BE опускает его (null) в остальных случаях —
+ * поэтому `omittable`. `false` ⇒ кластер недоступен, фильтрация не выполнена: UI
+ * показывает честное «не удалось проверить кластер», а не пустой «0 найдено».
  */
-export const infobaseListResponseSchema = pagedResponseSchema(infobaseListItemSchema);
+export const infobaseListResponseSchema = pagedResponseSchema(infobaseListItemSchema).extend({
+  clusterAvailable: omittable(z.boolean()),
+});
 
 export type Publication = z.infer<typeof publicationSchema>;
 export type Infobase = z.infer<typeof infobaseSchema>;

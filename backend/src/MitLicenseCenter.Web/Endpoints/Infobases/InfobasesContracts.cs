@@ -26,11 +26,18 @@ public sealed record InfobaseListItemResponse(
     DateTime? UpdatedAt,
     PublicationResponse Publication);
 
+// MLC-150 — ClusterAvailable заполняется ТОЛЬКО при фильтре notInCluster=true: это
+// признак доступности снапшота RAS, по которому отбираются «не найденные в кластере»
+// записи. null (опускается на проводе) при фильтре по статусу/клиенту/без фильтра —
+// доступность кластера в этих случаях нерелевантна. false при notInCluster=true и
+// недоступном RAS: фронт показывает честное «не удалось проверить кластер», а не
+// вводящий в заблуждение пустой список (нельзя отличить «нет пропавших» от «не знаем»).
 public sealed record InfobaseListResponse(
     IReadOnlyList<InfobaseListItemResponse> Items,
     int Total,
     int Page,
-    int PageSize);
+    int PageSize,
+    bool? ClusterAvailable = null);
 
 public sealed record InfobaseDetailResponse(
     InfobaseResponse Infobase,

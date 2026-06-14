@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using MitLicenseCenter.Application.Auditing;
+using MitLicenseCenter.Application.Clusters;
 using MitLicenseCenter.Application.Publishing;
 using MitLicenseCenter.Domain.Audit;
 using MitLicenseCenter.Domain.Infobases;
@@ -37,8 +38,13 @@ public static partial class InfobasesEndpoints
 
     internal static async Task<Results<Ok<InfobaseListResponse>, ValidationProblem>> ListAsync(
         AppDbContext db,
+        [FromServices] IClusterClient cluster,
+        [FromServices] UnassignedInfobasesCache clusterCache,
+        [FromServices] ILoggerFactory loggerFactory,
+        [FromServices] TimeProvider clock,
         [FromQuery] Guid? tenantId,
         [FromQuery] string? publishStatus,
+        [FromQuery] bool? notInCluster,
         [FromQuery] int? page,
         [FromQuery] int? pageSize,
         CancellationToken ct)
@@ -76,6 +82,34 @@ public static partial class InfobasesEndpoints
             // Публикация 1:1 с инфобазой — коррелированный EXISTS по статусу её проверки.
             baseQuery = baseQuery.Where(x =>
                 db.Publications.Any(pub => pub.InfobaseId == x.Id && pub.LastCheckStatus == status));
+        }
+
+        // MLC-150: серверный фильтр «не найдена в кластере» (обратный дрейф). Снапшот RAS
+        // берём через общий TTL-кэш (тот же, что у /infobases/unassigned) — без второго
+        // спавна rac.exe (ADR-3.3). При недоступном RAS НЕ возвращаем ложный пустой список:
+        // фильтр не применяем, ClusterAvailable=false — фронт показывает честное «не удалось
+        // проверить кластер», а не «0 найдено» (отличить «нет пропавших» от «не знаем»
+        // нельзя). Доступность кластера отдаётся в ответе только при запрошенном фильтре.
+        bool? clusterAvailable = null;
+        if (notInCluster is true)
+        {
+            var snapshot = await UnassignedInfobasesEndpoints.GetClusterSnapshotAsync(
+                cluster, clusterCache, loggerFactory, clock, refresh: null, ct).ConfigureAwait(false);
+            clusterAvailable = snapshot.Available;
+            if (snapshot.Available)
+            {
+                // !IN по списку UUID кластера: записи панели, чьего ClusterInfobaseId нет в
+                // снапшоте. Фильтр до пагинации/счёта — Total честный для отфильтрованного набора.
+                var clusterIds = snapshot.Infobases.Select(i => i.Id).ToList();
+                baseQuery = baseQuery.Where(x => !clusterIds.Contains(x.ClusterInfobaseId));
+            }
+            else
+            {
+                // RAS недоступен — отдаём пустой набор с ClusterAvailable=false (не фильтруем
+                // по неполному снапшоту, не показываем вводящий в заблуждение «0»).
+                return TypedResults.Ok(new InfobaseListResponse(
+                    Array.Empty<InfobaseListItemResponse>(), 0, p, ps, ClusterAvailable: false));
+            }
         }
 
         var orderedQuery = baseQuery.OrderBy(x => x.Name).ThenBy(x => x.Id);
@@ -120,7 +154,7 @@ public static partial class InfobasesEndpoints
                         pub.PhysicalPathOverride)))
             .ToListAsync(ct).ConfigureAwait(false);
 
-        return TypedResults.Ok(new InfobaseListResponse(items, total, p, ps));
+        return TypedResults.Ok(new InfobaseListResponse(items, total, p, ps, clusterAvailable));
     }
 
     // Занятость базы кластера для формы добавления/редактирования инфобазы. Возвращает
