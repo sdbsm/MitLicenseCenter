@@ -197,9 +197,11 @@ Tenants (page/pageSize + `PaginationBar`); R11 добивает остаток.
   (UX-20, `search`/`initiator` query, plain `Contains`→LIKE), переход на страницу N / первую-последнюю
   (UX-35), searchable-списки действий (UX-37) и клиентов (UX-38, новый `SearchableSelect`). Канон 05 §7.4.
   Урок: EF Core SQL Server не транслирует `Contains` со StringComparison (память).
-- **Кластер b `MLC-130`** — пагинация `/backups` + `/performance/recordings` (BE-17 — оба без Skip/Take)
-  и поиск клиентов на `/tenants` (UX-05 — High, locus /tenants; recordings с клиентом не связаны). ← _текущий_
-- **Кластер c `MLC-131`** — таблица сеансов + диалог «не найдены»: пагинация и сортировка (UX-14/15).
+✅ **Кластер b** — закрыто `MLC-130` (2026-06-14): серверная пагинация `/backups` +
+  `/performance/recordings` (BE-17, paged-конверты, FE consume `.items`); поиск клиентов на `/tenants`
+  (UX-05 — `search`, plain `Contains`→LIKE + поле поиска). Канон 05.
+- **Кластер c `MLC-131`** — таблица сеансов + диалог «не найдены»: **client-side** сортировка/пагинация
+  (сеансы/missing — live-снапшоты) + searchable фильтр клиентов сеансов (UX-14/15/38). Frontend-only. ← _текущий_
 - **Кластер d `MLC-132`** — FE-09: Zod-схемная валидация ~35 эндпоинтов вместо `payload as T`
   (расширяет 3 текущие Zod-границы, ADR-10.1; учесть omit-null wire-контракта ADR-32).
 
