@@ -369,6 +369,19 @@ flowchart TB
   флаг остаётся выключенным. Cookie auth настроена под SPA: 401 JSON вместо редиректа,
   `HttpOnly`, `SameSite=Strict`, `Secure=Always` в проде; немедленный отзыв доступа —
   через security-stamp с ревалидацией куки.
+- **Middleware-конвейер (порядок).** Конвейер ASP.NET Core в продакшен-среде выстроен
+  в следующем порядке (сокращённо):
+  `UseExceptionHandler` → `UseSecurityHeaders` → `UseHsts`/`UseHttpsRedirection`
+  (при `EnforceHttps=true`) → `UseStaticFiles` → `UseAuthentication` → `UseAuthorization`
+  → `UseRateLimiter` → эндпоинты + SPA-fallback. CORS-middleware нет — фронтенд и API
+  same-origin (ADR-30).
+  `UseSecurityHeaders` (ADR-41) выставляет `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY` и `Content-Security-Policy`
+  (CSP) на все ответы кроме путей Swagger (`/api/docs*`), где CSP и X-Frame-Options
+  намеренно опускаются для корректной работы Swagger UI.
+  `UseRateLimiter` (ADR-42) применяет политику `"login"` — фиксированное окно 10 запросов
+  в минуту на IP — только к `/api/v1/auth/login`; исчерпание лимита возвращает `429 Too
+  Many Requests`.
 - **Bootstrap.** На старте, до приёма трафика, синхронно: создание БД при отсутствии,
   миграции и сидинг администратора и дефолтных настроек. Любая ошибка инициализации —
   fail-fast (процесс падает, не начиная принимать запросы).

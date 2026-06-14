@@ -1230,6 +1230,82 @@ round-trip'ы в БД); больший интервал (расширяет ок
 
 ---
 
+## ADR-41. Security response headers — CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy
+
+**Контекст.** Панель — same-origin SPA (ADR-1, ADR-30): React-фронтенд и API живут на одном
+origin. Браузерные атаки (XSS, clickjacking, MIME-sniffing) требуют дефенс-ин-депт слоя на
+уровне ответа — вне зависимости от прикладной защиты. Swagger UI (`/api/docs`, ADR-12) исторически
+использует inline-скрипты и inline-стили, несовместимые со строгим `script-src`.
+
+**Решение.** Ранний middleware `SecurityHeaders.UseSecurityHeaders` (MLC-125, SEC-07) ставит
+четыре заголовка на **все** ответы (SPA, статика, API, fallback — до `UseStaticFiles`):
+
+- `X-Content-Type-Options: nosniff` — запрет MIME-sniffing.
+- `Referrer-Policy: no-referrer` — не утекать Referer на внешние ресурсы.
+- `Content-Security-Policy` — same-origin политика (см. ниже). **Исключается** на путях `/api/docs/*`.
+- `X-Frame-Options: DENY` — запрет встраивания в iframe. **Исключается** на `/api/docs/*`.
+
+Content Security Policy (жёстко прошита — single-host, SPA-бандл известен):
+```
+default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none';
+img-src 'self' data:; font-src 'self' data:; style-src 'self' 'unsafe-inline';
+script-src 'self'; connect-src 'self'
+```
+
+Обоснование отдельных директив:
+- `script-src 'self'` — без `unsafe-inline`: Vite-бандл в проде не содержит inline-script'ов.
+- `style-src 'self' 'unsafe-inline'` — нужен для React/CSS-in-JS инлайновых стилей компонентов.
+- `frame-ancestors 'none'` — дублирует `X-Frame-Options DENY` для современных браузеров.
+- `object-src 'none'` — запрет Flash/embed.
+- `img-src / font-src` + `data:` — иконки и шрифты могут быть base64 data URI.
+- `connect-src 'self'` — XHR/fetch только к своему origin (API same-origin).
+
+Исключение `/api/docs*`: SwaggerUI использует inline-скрипты — строгий `script-src 'self'` его ломает.
+`nosniff` и `Referrer-Policy` остаются даже на Swagger-путях. HSTS/HTTPS-redirect управляются
+отдельно через `EnforceHttps` (ADR-12) — не дублируются.
+Значения зашиты жёстко — не tuneable оператором (single-host, SPA-бандл предсказуем).
+
+**Последствия.** Браузеры применяют политику ко всем ответам панели. Swagger `/api/docs`
+не сломан: CSP и XFO исключены. Прод-SPA не сломан: `script-src 'self'` совместим с
+Vite-бандлом, `style-src 'unsafe-inline'` — с React CSS-in-JS. Покрыт интеграционными
+тестами через `WebApplicationFactory<Program>` (`SecurityHeadersIntegrationTests`) и
+юнит-тестами на `ApplyHeaders`/`IsSwaggerPath` (`SecurityHeadersTests`).
+
+**Статус:** принят (MLC-125).
+
+---
+
+## ADR-42. Rate limiting на POST /auth/login — per-IP fixed window поверх Identity-lockout
+
+**Контекст.** Identity-lockout (ADR-36) защищает учётную запись: после 5 неудачных попыток за
+15 минут учётка блокируется. Это создаёт риск lockout-DoS: атакующий может намеренно заблокировать
+учётку легитимного пользователя, слая 5 запросов с разных адресов. Кроме того, перебор паролей
+через одного клиента не ограничивается — lock'ается только учётка, а не источник запросов.
+
+**Решение.** Встроенный `Microsoft.AspNetCore.RateLimiting` (.NET 10) с политикой `"login"`:
+per-IP fixed window, `PermitLimit=10`, `Window=1 min`, `QueueLimit=0` (MLC-125, SEC-08).
+Партиционирование по `RemoteIpAddress` — троттлинг источника, не учётки.
+Middleware `UseRateLimiter` ставится после `UseAuthorization` и перед маппингом эндпоинтов;
+политика применяется только к `POST /api/v1/auth/login` через `RequireRateLimiting("login")`.
+При превышении → `429 Too Many Requests` ДО тела `LoginAsync` (без входа в SignInManager →
+`AuditActionType.LoginFailed` не пишется — это не «неудачный вход», это rate-limit reject).
+Значения (10/мин) зашиты — не tuneable оператором.
+
+Слои защиты входа (дефенс-ин-депт):
+1. Rate-limit: **троттлит источник** (до хендлера, аудит не пишется) — ADR-42.
+2. Identity-lockout: **защищает учётку** (внутри хендлера, аудит `LoginFailed` пишется) — ADR-36.
+3. Cookie SameSite=Strict + SecurePolicy=Always — защита сессии.
+
+**Последствия.** Автоматический перебор с одного IP блокируется на 10-й попытке за минуту.
+Легитимный пользователь с нормальной активностью (несколько попыток войти) лимит не замечает.
+Lockout-DoS через флуд не масштабируется — источник режется до бизнес-логики.
+Покрыт интеграционными тестами: флуд → 429 (`LoginRateLimitFloodTests`), штатный запрос не
+429 (`LoginRateLimitSingleTests`).
+
+**Статус:** принят (MLC-125).
+
+---
+
 ## Заблокированные операционные ограничения (binding)
 
 - **Приоритет kill:** при `Consumed > Limit` завершаются сеансы по `StartedAt DESC` (newest-first)

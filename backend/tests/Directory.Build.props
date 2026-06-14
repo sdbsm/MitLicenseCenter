@@ -5,8 +5,9 @@
     <!--
       CA1707: snake_case в именах test-методов — общепринятая xUnit-конвенция.
       CA2007: ConfigureAwait не нужен в тестах.
+      CA1822: методы реализации интерфейсов в sealed private stub-классах не могут быть static.
     -->
-    <NoWarn>$(NoWarn);CA1707;CA2007</NoWarn>
+    <NoWarn>$(NoWarn);CA1707;CA2007;CA1822</NoWarn>
   </PropertyGroup>
 
 </Project>

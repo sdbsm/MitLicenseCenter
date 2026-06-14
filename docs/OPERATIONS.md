@@ -144,6 +144,28 @@ HSTS выполняет сам прокси; дублировать их в Kest
 > требовать HTTPS ещё до истечения срока. Очистить HSTS вручную можно через
 > `chrome://net-internals/#hsts`.
 
+#### Security-заголовки (ADR-41, MLC-125)
+
+Middleware `UseSecurityHeaders` выставляет на каждый ответ (кроме путей `/api/docs*`):
+
+| Заголовок | Значение |
+|---|---|
+| `X-Content-Type-Options` | `nosniff` |
+| `Referrer-Policy` | `no-referrer` |
+| `X-Frame-Options` | `DENY` |
+| `Content-Security-Policy` | `default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; img-src 'self' data:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'` |
+
+Значения захардкожены в `Security/SecurityHeaders.cs` и не меняются через конфиг.
+Swagger UI (`/api/docs*`) получает только `X-Content-Type-Options` и `Referrer-Policy`;
+CSP и `X-Frame-Options` на этих путях отсутствуют — иначе Swagger UI не отображается.
+
+#### Rate limiting на логин (ADR-42, MLC-125)
+
+Политика `"login"` (фиксированное окно): не более 10 запросов за 1 минуту с одного IP
+на `POST /api/v1/auth/login`. При превышении — `429 Too Many Requests`.
+Лимит и окно захардкожены в `Program.cs`; тюнинг через конфиг не предусмотрен.
+Rate limiting — первый рубеж защиты; второй — lockout ASP.NET Identity (ADR-36).
+
 **Строка подключения к SQL (`Encrypt=True` / `TrustServerCertificate=True`):**
 Шаблон `appsettings.Production.json` содержит `Encrypt=True;TrustServerCertificate=True`.
 `Encrypt=True` требует TLS-шифрования трафика между приложением и SQL Server

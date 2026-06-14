@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
 using Asp.Versioning;
 using Asp.Versioning.Builder;
 using Hangfire;
@@ -8,6 +9,7 @@ using Hangfire.SqlServer;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.OpenApi.Models;
 using MitLicenseCenter.Application;
 using MitLicenseCenter.Application.Jobs;
@@ -18,6 +20,7 @@ using MitLicenseCenter.Infrastructure.Settings;
 using MitLicenseCenter.Web;
 using MitLicenseCenter.Web.Endpoints;
 using MitLicenseCenter.Web.Hangfire;
+using MitLicenseCenter.Web.Security;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -131,6 +134,28 @@ builder.Services
         o.SubstituteApiVersionInUrl = true;
     });
 
+// MLC-125 (SEC-08) — per-IP rate limiting на /auth/login (fixed window).
+// Троттлит источник перебора, не блокирует учётку (в отличие от Identity-lockout ADR-36).
+// 429 возвращается ещё до тела LoginAsync — аудит LoginFailed НЕ пишется (reject до SignInManager).
+// Константы вынесены для читаемости и юнит-тестирования; значения не tuneable оператором.
+const string LoginRateLimitPolicy = "login";
+const int LoginPermitLimit = 10;          // запросов за окно
+const int LoginWindowMinutes = 1;         // длина окна (минуты)
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy(LoginRateLimitPolicy, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = LoginPermitLimit,
+                Window = TimeSpan.FromMinutes(LoginWindowMinutes),
+                QueueLimit = 0,
+            }));
+});
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(o =>
 {
@@ -203,6 +228,13 @@ if (!string.IsNullOrWhiteSpace(defaultConnectionString))
 // русский ProblemDetails, а полное исключение логируется этим же middleware.
 app.UseExceptionHandler();
 
+// MLC-125 (SEC-07) — security response headers на все ответы (SPA, статика, API, fallback).
+// Ставится рано — до UseStaticFiles, UseAuthentication и маппинга эндпоинтов, чтобы
+// заголовки попали на все ответы, включая ассеты и index.html. CSP исключается на /api/docs
+// (Swagger UI использует inline-скрипты); прочие заголовки (nosniff, Referrer-Policy) —
+// на всех путях. X-Frame-Options DENY дублирует CSP frame-ancestors для старых браузеров.
+app.UseSecurityHeaders();
+
 // MLC-012 — прод-хардненинг транспорта (HSTS + HTTPS-redirect) за флагом, НЕ безусловно.
 // Single-node может стоять либо за терминирующим TLS реверс-прокси (IIS/Nginx), либо без
 // него с HTTPS прямо на Kestrel. Включать redirect/HSTS в приложении нужно ТОЛЬКО во
@@ -230,6 +262,11 @@ app.UseStaticFiles();
 
 app.UseAuthentication();
 app.UseAuthorization();
+
+// MLC-125 (SEC-08) — rate-limiting middleware. Ставится после UseAuthorization и ПЕРЕД
+// маппингом эндпоинтов: rate-limiter не зависит от auth (пропускает до LoginAsync),
+// главное — до эндпоинтов, чтобы политика "login" срабатывала на /auth/login.
+app.UseRateLimiter();
 
 var versionSet = app.NewApiVersionSet()
     .HasApiVersion(new ApiVersion(1, 0))
@@ -312,43 +349,52 @@ app.MapFallback(async context =>
 // НЕ заменять CancellationToken.None на захваченный токен — это сломает подстановку и
 // джоба получит токен, который никогда не сигналит при shutdown. Контракт «тело
 // уважает ct» зафиксирован характеризующим тестом (JobCancellationContractTests).
-RecurringJob.AddOrUpdate<IReconciliationJob>(
-    "cold-snapshot",
-    j => j.RunColdAsync(CancellationToken.None),
-    "* * * * *"); // Every minute; internal throttle enforces ColdIntervalSeconds.
+//
+// MLC-125: пропускаем регистрацию рекуррентных джоб в тест-среде (WebApplicationFactory
+// использует "Test" environment). Производственный Hangfire Storage (SqlServer) не
+// доступен при интеграционных тестах — RecurringJob.AddOrUpdate использует JobStorage.Current
+// (статический синглтон), который в тест-среде заменить на InMemory через ConfigureTestServices
+// технически невозможно до этой точки выполнения Program.cs.
+if (!app.Environment.IsEnvironment("Test"))
+{
+    RecurringJob.AddOrUpdate<IReconciliationJob>(
+        "cold-snapshot",
+        j => j.RunColdAsync(CancellationToken.None),
+        "* * * * *"); // Every minute; internal throttle enforces ColdIntervalSeconds.
 
-// Publication status refresh (MLC-045): тикаем каждые 5 мин, внутри throttle до
-// Settings.Drift.IntervalMinutes. Read-only — читает факт публикаций в IIS и пишет
-// LastCheck*; ничего не меняет и не пишет аудит (enforcement удалён).
-RecurringJob.AddOrUpdate<IPublicationStatusJob>(
-    "publication-status-refresh",
-    j => j.RefreshAllAsync(CancellationToken.None),
-    "*/5 * * * *");
-RecurringJob.RemoveIfExists("drift-check");
+    // Publication status refresh (MLC-045): тикаем каждые 5 мин, внутри throttle до
+    // Settings.Drift.IntervalMinutes. Read-only — читает факт публикаций в IIS и пишет
+    // LastCheck*; ничего не меняет и не пишет аудит (enforcement удалён).
+    RecurringJob.AddOrUpdate<IPublicationStatusJob>(
+        "publication-status-refresh",
+        j => j.RefreshAllAsync(CancellationToken.None),
+        "*/5 * * * *");
+    RecurringJob.RemoveIfExists("drift-check");
 
-// Audit retention (PR 4.3): ежедневно в 03:00 UTC. CRON фиксирован — retention
-// window настраивается через Settings.Audit.RetentionDays, cadence — нет
-// (operational noise zero, не tuneable оператором).
-RecurringJob.AddOrUpdate<IAuditRetentionJob>(
-    "audit-retention",
-    j => j.RunAsync(CancellationToken.None),
-    "0 3 * * *");
+    // Audit retention (PR 4.3): ежедневно в 03:00 UTC. CRON фиксирован — retention
+    // window настраивается через Settings.Audit.RetentionDays, cadence — нет
+    // (operational noise zero, не tuneable оператором).
+    RecurringJob.AddOrUpdate<IAuditRetentionJob>(
+        "audit-retention",
+        j => j.RunAsync(CancellationToken.None),
+        "0 3 * * *");
 
-// License usage retention (MLC-048): ежедневно в 03:30 UTC, смещён от audit-retention
-// (03:00), чтобы ночные housekeeping-джобы не пересекались. Retention window —
-// Settings.LicenseUsage.RetentionDays; cadence фиксирован.
-RecurringJob.AddOrUpdate<ILicenseUsageRetentionJob>(
-    "license-usage-retention",
-    j => j.RunAsync(CancellationToken.None),
-    "30 3 * * *");
+    // License usage retention (MLC-048): ежедневно в 03:30 UTC, смещён от audit-retention
+    // (03:00), чтобы ночные housekeeping-джобы не пересекались. Retention window —
+    // Settings.LicenseUsage.RetentionDays; cadence фиксирован.
+    RecurringJob.AddOrUpdate<ILicenseUsageRetentionJob>(
+        "license-usage-retention",
+        j => j.RunAsync(CancellationToken.None),
+        "30 3 * * *");
 
-// Backup retention (MLC-077, ADR-27): ежедневно в 03:15 UTC — смещён от 03:00
-// audit-retention и 03:30 license-usage, чтобы ночные housekeeping-джобы не
-// пересекались. TTL — Settings.Backup.TtlHours; cadence фиксирован.
-RecurringJob.AddOrUpdate<IBackupRetentionJob>(
-    "backup-retention",
-    j => j.RunAsync(CancellationToken.None),
-    "15 3 * * *");
+    // Backup retention (MLC-077, ADR-27): ежедневно в 03:15 UTC — смещён от 03:00
+    // audit-retention и 03:30 license-usage, чтобы ночные housekeeping-джобы не
+    // пересекались. TTL — Settings.Backup.TtlHours; cadence фиксирован.
+    RecurringJob.AddOrUpdate<IBackupRetentionJob>(
+        "backup-retention",
+        j => j.RunAsync(CancellationToken.None),
+        "15 3 * * *");
+} // end if (!app.Environment.IsEnvironment("Test"))
 
 // Fail-fast bootstrap. Миграции и сидинг выполняются СИНХРОННО до открытия приёма
 // трафика (до app.RunAsync()), каждый в собственном DI-scope внутри сидера. Порядок
@@ -359,15 +405,21 @@ RecurringJob.AddOrUpdate<IBackupRetentionJob>(
 // кодом и НИКОГДА не начинает принимать запросы «полузасеянным» (без admin'а или с
 // неприменёнными миграциями). Это устраняет прежний fire-and-forget Task.Run, в котором
 // throw оставался unobserved и хост тихо стартовал в нерабочем состоянии.
-try
+// MLC-125: в тест-среде ("Test") сидеры тоже пропускаются — IdentitySeeder вызывает
+// EF MigrateAsync (требует SQL Server); InMemory DbContext мигрировать нельзя.
+// Тест-хост поднимается без admin'а — нам нужны только middleware-пайплайн и rate-limiter.
+if (!app.Environment.IsEnvironment("Test"))
 {
-    await IdentitySeeder.EnsureSeededAsync(app.Services).ConfigureAwait(false);
-    await SettingsSeeder.EnsureSeededAsync(app.Services).ConfigureAwait(false);
-}
-catch (Exception ex)
-{
-    app.Logger.LogCritical(ex, "Не удалось засеять первого администратора или параметры по умолчанию.");
-    throw;
+    try
+    {
+        await IdentitySeeder.EnsureSeededAsync(app.Services).ConfigureAwait(false);
+        await SettingsSeeder.EnsureSeededAsync(app.Services).ConfigureAwait(false);
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogCritical(ex, "Не удалось засеять первого администратора или параметры по умолчанию.");
+        throw;
+    }
 }
 
 await app.RunAsync().ConfigureAwait(false);
