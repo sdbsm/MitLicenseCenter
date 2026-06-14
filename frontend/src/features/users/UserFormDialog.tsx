@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
@@ -53,6 +54,14 @@ export function UserFormDialog({ open, onOpenChange, onPasswordGenerated }: User
     resolver: zodResolver(buildSchema(t)),
     defaultValues: { userName: "", role: "Admin" },
   });
+
+  // FE-07: диалог смонтирован постоянно (UsersPage); useForm живёт вместе с ним,
+  // поэтому при закрытии/повторном открытии значения остаются. Сбрасываем при открытии.
+  useEffect(() => {
+    if (open) {
+      form.reset({ userName: "", role: "Admin" });
+    }
+  }, [open, form]);
 
   const onSubmit = form.handleSubmit(async (values) => {
     const input: CreateUserInput = { userName: values.userName.trim(), role: values.role };
