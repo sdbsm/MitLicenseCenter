@@ -441,35 +441,37 @@ deferred». Каждая итерация R-N = одна задача = один
 
 ## NEXT TASK
 
-> **`MLC-130` — R11b: Серверная пагинация + поиск `/backups` и `/performance/recordings` (UX-05/BE-17).**
-> Backend+Frontend · P3 · Medium. Второй кластер R11 (R11a закрыт `MLC-129`). Оба list-эндпоинта сейчас
-> возвращают **полный** `IReadOnlyList<>` без пагинации:
-> - `BackupsEndpoints.ListAsync` → `Ok<IReadOnlyList<BackupSummary>>`, фильтр только `infobaseId`,
->   `OrderByDescending(RequestedAtUtc)`.
-> - `PerformanceEndpoints.ListRecordingsAsync` → `Ok<IReadOnlyList<RecordingSummary>>`, без фильтров,
->   `OrderByDescending(StartedAtUtc)`.
-> Состав:
-> - **BE-17:** перевести оба на **серверную пагинацию** по шаблону, уже принятому в проекте
->   (`AuditEndpoints`/`InfobasesEndpoints`: query `page`/`pageSize`, `AllowedPageSizes`/`MaxPageSize`,
->   `CountAsync` + `Skip/Take`, ответ-record вида `{ items, total, page, pageSize }`). Контракты
->   `BackupsContracts`/`PerformanceContracts` дополнить paged-record (по образцу `AuditPagedResponse`).
-> - **UX-05:** **поиск по клиенту** — query-параметр `search` (подстрочный по имени клиента/инфобазы;
->   связи: backup→infobase→tenant, recording→infobase). **Только plain `Contains`→`LIKE`, НЕ
->   StringComparison-перегрузка** (память `efcore-stringcomparison-not-translated`: OrdinalIgnoreCase
->   роняет SQL Server в рантайме, InMemory маскирует; регистр — за CI-collation). Валидация длины терма.
-> - **FE:** оба списка (`useBackups`, `useRecordings` + их страницы) — на пагинацию (переиспользовать
->   `PaginationBar`/`pageLinkRange` и/или `AuditPagination`-паттерн) + поле поиска по клиенту
->   (переиспользовать `SearchableSelect` из R11a, если уместен список клиентов, или текст-поиск с debounce).
+> **`MLC-130` — R11b: Пагинация `/backups` + `/performance/recordings` (BE-17) и поиск клиентов на `/tenants` (UX-05).**
+> Backend+Frontend · P3 · Medium. Второй кластер R11 (R11a закрыт `MLC-129`). Точный маппинг находок
+> (исправлено куратором — A1·BE-17 ≠ A4·UX-05):
+> - **BE-17** (списки без пагинации): `BackupsEndpoints.ListAsync` (`Ok<IReadOnlyList<BackupSummary>>`,
+>   фильтр `infobaseId`, `OrderByDescending(RequestedAtUtc)`) и `PerformanceEndpoints.ListRecordingsAsync`
+>   (`Ok<IReadOnlyList<RecordingSummary>>`, без фильтров, `OrderByDescending(StartedAtUtc)`) материализуют
+>   **всю** таблицу без `Skip/Take`. Перевести оба на **серверную пагинацию** по принятому в проекте
+>   шаблону (`AuditEndpoints`/`InfobasesEndpoints`: query `page`/`pageSize`, `AllowedPageSizes`/`MaxPageSize`,
+>   `CountAsync` + `Skip/Take`, paged-record `{ items, total, page, pageSize }`). Контракты
+>   `BackupsContracts`/`PerformanceContracts` дополнить paged-record (образец `AuditPagedResponse`).
+>   ВАЖНО: `RecordingSummary` — host-уровневая запись, **с клиентом НЕ связана** → поиска по клиенту у
+>   recordings нет (только пагинация). У backups при желании можно добавить подстрочный поиск по
+>   `DatabaseName` (опционально, plain `Contains`).
+> - **UX-05** (High, locus — `/tenants`): на странице клиентов **нет поиска**. `TenantsEndpoints.ListAsync`
+>   уже пагинирован (page/pageSize), но без `search`. Добавить query-параметр `search` (подстрочный по
+>   `Tenant.Name`, **plain `Contains`→`LIKE`, НЕ StringComparison** — память
+>   `efcore-stringcomparison-not-translated`; регистр за CI-collation; валидация длины) + поле поиска на
+>   `TenantsPage` (debounce, сброс page→1). Дашборд/иные потребители `useTenants` не ломать.
+> - **FE:** `BackupsPage`/recordings-страница — на пагинацию (переиспользовать `PaginationBar`/
+>   `AuditPagination`-паттерн); `useBackups`/`useRecordings` — page/pageSize в query + paged-тип;
+>   `TenantsPage` — поле поиска.
 > Parity BE↔FE: типы/Zod ответов и query-сериализация — синхронно; **API опускает null-поля** →
 > nullable как `.nullish()` (память `api-omits-null-fields`). Замороженные enum (`PerfRecordingStatus`/
-> `PerfRecordingStopReason`/`BackupFailureReason`) НЕ трогать. Канон 05 (разделы бэкапов/быстродействия) +
+> `PerfRecordingStopReason`/`BackupFailureReason`) НЕ трогать. Канон 05 (бэкапы/быстродействие/клиенты) +
 > 04 (контракты эндпоинтов) — в том же PR.
-> Критерии готовности: оба эндпоинта пагинированы сервер-сайд + поиск по клиенту работает (plain Contains);
-> FE-таблицы листаются и ищут; parity-тесты зелёные; канон обновлён; `build.ps1` зелёный. Исполнитель —
-> субагент (worktree); модель выбирает куратор.
+> Критерии готовности: `/backups` и `/performance/recordings` пагинированы сервер-сайд; `/tenants` имеет
+> рабочий поиск по имени (plain Contains); FE-таблицы листаются/ищут; parity-тесты зелёные; канон обновлён;
+> `build.ps1` зелёный. Исполнитель — субагент (worktree); модель выбирает куратор.
 >
 > **План кластеров R11** (R11a ✅ `MLC-129`):
-> - **R11b `MLC-130`** — пагинация + поиск `/backups`, `/performance/recordings` (UX-05/BE-17). ← _текущий_
+> - **R11b `MLC-130`** — пагинация /backups+/recordings (BE-17) + поиск клиентов на /tenants (UX-05). ← _текущий_
 > - **R11c `MLC-131`** — таблица сеансов + диалог «не найдены»: пагинация и сортировка (UX-14/15);
 >   sessions-фильтр клиентов получает `SearchableSelect` (хвост UX-38).
 > - **R11d `MLC-132`** — FE-09: Zod-схемная валидация ~35 эндпоинтов вместо `payload as T`
