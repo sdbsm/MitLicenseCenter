@@ -40,15 +40,16 @@ const summary: RecordingSummary = {
 describe("useRecordings", () => {
   beforeEach(() => mockedApi.mockReset());
 
-  it("requests the recordings list with a runtime schema (MLC-016 boundary)", async () => {
-    mockedApi.mockResolvedValueOnce([summary]);
+  it("requests a recordings page with a runtime schema (MLC-016 boundary)", async () => {
+    const paged = { items: [summary], total: 1, page: 1, pageSize: 100 };
+    mockedApi.mockResolvedValueOnce(paged);
 
     const { result } = renderHook(() => useRecordings(), { wrapper: makeWrapper() });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data).toEqual([summary]);
+    expect(result.current.data).toEqual(paged);
     expect(mockedApi).toHaveBeenCalledWith(
-      "/api/v1/performance/recordings",
+      "/api/v1/performance/recordings?page=1&pageSize=100",
       expect.objectContaining({ schema: expect.anything() })
     );
   });

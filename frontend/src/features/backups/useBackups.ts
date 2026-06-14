@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useInvalidatingMutation } from "@/lib/useInvalidatingMutation";
-import { backupListSchema, backupSummarySchema, type BackupSummary } from "./types";
+import { backupsPagedSchema, backupSummarySchema, type BackupSummary } from "./types";
 
 // Ключ всегда параметризован инфобазой (для id=null — плейсхолдер), чтобы НЕ коллидировать
 // между диалогами разных баз и с disabled-запросом закрытого диалога (урок MLC-071:
@@ -13,12 +13,17 @@ export const backupsQueryKey = (infobaseId: string | null) =>
  * Бэкапы одной инфобазы (MLC-078, ADR-27). Чтение = Viewer. Поллим 5с, пока диалог открыт
  * (`enabled` по id) — статус Queued→Running→Succeeded двигает оркестратор на бэкенде, и
  * прогресс должен быть виден без ручного обновления. Свежие сверху (порядок задаёт бэкенд).
- * Схема — критичная граница (MLC-016).
+ * Схема — критичная граница (MLC-016). Эндпоинт пагинирован (BE-17): бэкапы одной инфобазы
+ * ограничены keep-latest retention, поэтому запрашиваем одну страницу с запасом (pageSize=100)
+ * и читаем `.items` — отдельной UI-листалки в диалоге нет.
  */
 export function useBackups(infobaseId: string | null) {
   return useQuery({
     queryKey: backupsQueryKey(infobaseId),
-    queryFn: () => api(`/api/v1/backups?infobaseId=${infobaseId}`, { schema: backupListSchema }),
+    queryFn: () =>
+      api(`/api/v1/backups?infobaseId=${infobaseId}&page=1&pageSize=100`, {
+        schema: backupsPagedSchema,
+      }),
     enabled: infobaseId !== null,
     refetchInterval: 5_000,
     placeholderData: (prev) => prev,

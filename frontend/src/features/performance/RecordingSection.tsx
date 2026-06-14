@@ -28,7 +28,7 @@ export function RecordingSection() {
   const { data, isLoading, isError } = useRecordings();
   const start = useStartRecording();
 
-  const recordings = useMemo<RecordingSummary[]>(() => data ?? [], [data]);
+  const recordings = useMemo<RecordingSummary[]>(() => data?.items ?? [], [data]);
   const active = recordings.find((r) => r.status === "Active") ?? null;
 
   const [viewing, setViewing] = useState<string | null>(null);

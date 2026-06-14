@@ -248,6 +248,17 @@ export const recordingSummarySchema = z.object({
 
 export const recordingListSchema = z.array(recordingSummarySchema);
 
+// Серверная пагинация (MLC-130, BE-17): ответ-конверт `{ items, total, page, pageSize }`
+// (паритет с `RecordingsPagedResponse` бэкенда). Расследований немного (создаются оператором
+// по требованию), поэтому раздел запрашивает одну страницу с запасом (pageSize=100) и читает
+// `.items` — отдельной UI-листалки нет; эндпоинт более не материализует всю таблицу.
+export const recordingsPagedSchema = z.object({
+  items: z.array(recordingSummarySchema),
+  total: z.number(),
+  page: z.number(),
+  pageSize: z.number(),
+});
+
 export const recordingSampleSchema = z.object({
   sampleUtc: z.string(),
   measuring: z.boolean(),

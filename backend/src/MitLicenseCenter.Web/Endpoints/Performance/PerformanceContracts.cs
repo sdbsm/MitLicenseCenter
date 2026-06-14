@@ -17,6 +17,13 @@ public sealed record RecordingSummary(
     PerfRecordingStopReason? StopReason,
     int SampleCount);
 
+// Пагинированный список расследований (MLC-130, BE-17): конверт {items, total, page, pageSize}.
+public sealed record RecordingsPagedResponse(
+    IReadOnlyList<RecordingSummary> Items,
+    int Total,
+    int Page,
+    int PageSize);
+
 // Просмотр записи = метаданные + полный ряд сэмплов по времени (график host + топ-виновники за период).
 public sealed record RecordingDetail(
     RecordingSummary Recording,

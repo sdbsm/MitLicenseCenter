@@ -1,12 +1,13 @@
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import { Building2Icon, MoreHorizontalIcon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -46,7 +47,18 @@ export function TenantsPage() {
   const isAdmin = me?.roles?.includes("Admin") ?? false;
 
   const [page, setPage] = useState(1);
-  const { data, isLoading, isError, isFetching, refetch } = useTenants(page, PAGE_SIZE);
+  // UX-05 (MLC-130): поиск по имени клиента. Черновик в инпуте, коммит — после debounce;
+  // при смене терма возвращаемся на первую страницу (иначе вторая может оказаться пустой).
+  const [searchDraft, setSearchDraft] = useState("");
+  const [search, setSearch] = useState("");
+  useEffect(() => {
+    const id = setTimeout(() => {
+      setSearch(searchDraft.trim());
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(id);
+  }, [searchDraft]);
+  const { data, isLoading, isError, isFetching, refetch } = useTenants(page, PAGE_SIZE, search);
   const { consumedByTenant, isLoading: isSnapshotLoading } = useTenantConsumption();
 
   const [formOpen, setFormOpen] = useState(false);
@@ -82,6 +94,15 @@ export function TenantsPage() {
           </Button>
         )}
       </div>
+
+      <Input
+        type="search"
+        className="max-w-sm"
+        placeholder={t("tenants.searchPlaceholder")}
+        value={searchDraft}
+        onChange={(e) => setSearchDraft(e.target.value)}
+        aria-label={t("tenants.searchPlaceholder")}
+      />
 
       {isError && (
         <div className="border-destructive/40 bg-destructive/5 rounded-md border p-4 text-sm">
@@ -198,7 +219,8 @@ export function TenantsPage() {
                           <span className="text-muted-foreground text-sm">
                             {t("tenants.quota.unlimited")}
                           </span>
-                        ) : (() => {
+                        ) : (
+                          (() => {
                             const consumed = consumedByTenant.get(tenant.id) ?? 0;
                             const { percent, severity, badgeVariant } = quotaDisplay(
                               consumed,
@@ -206,7 +228,7 @@ export function TenantsPage() {
                             );
                             return (
                               <div className="flex items-center gap-2">
-                                <span className="text-muted-foreground tabular-nums text-sm">
+                                <span className="text-muted-foreground text-sm tabular-nums">
                                   {t("tenants.quota.value", {
                                     consumed,
                                     limit: tenant.maxConcurrentLicenses,
@@ -222,7 +244,8 @@ export function TenantsPage() {
                                 )}
                               </div>
                             );
-                          })()}
+                          })()
+                        )}
                       </TableCell>
                       <TableCell>
                         {tenant.isActive ? (

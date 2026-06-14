@@ -3,7 +3,7 @@ import { api } from "@/lib/api";
 import { useInvalidatingMutation } from "@/lib/useInvalidatingMutation";
 import {
   recordingDetailSchema,
-  recordingListSchema,
+  recordingsPagedSchema,
   recordingSummarySchema,
   type RecordingSummary,
 } from "./types";
@@ -14,10 +14,13 @@ export const recordingDetailQueryKey = (id: string) => ["performance", "recordin
 // Список расследований (MLC-070/071, ADR-26). Чтение = Viewer. Поллим 5с, чтобы пока идёт запись
 // её индикатор и счётчик сэмплов оставались свежими (в одном ритме с live-источниками раздела);
 // расследований немного и persisted-список дёшев. Схема — критичная граница (MLC-016).
+// Эндпоинт пагинирован (BE-17): запрашиваем одну страницу с запасом (pageSize=100) и читаем
+// `.items` — UI-листалки нет, но эндпоинт более не материализует всю таблицу.
 export function useRecordings() {
   return useQuery({
     queryKey: recordingsQueryKey,
-    queryFn: () => api("/api/v1/performance/recordings", { schema: recordingListSchema }),
+    queryFn: () =>
+      api("/api/v1/performance/recordings?page=1&pageSize=100", { schema: recordingsPagedSchema }),
     refetchInterval: 5_000,
     placeholderData: (prev) => prev,
   });

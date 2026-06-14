@@ -41,15 +41,16 @@ const summary: BackupSummary = {
 describe("useBackups", () => {
   beforeEach(() => mockedApi.mockReset());
 
-  it("запрашивает список бэкапов инфобазы с runtime-схемой (граница MLC-016)", async () => {
-    mockedApi.mockResolvedValueOnce([summary]);
+  it("запрашивает страницу бэкапов инфобазы с runtime-схемой (граница MLC-016)", async () => {
+    const paged = { items: [summary], total: 1, page: 1, pageSize: 100 };
+    mockedApi.mockResolvedValueOnce(paged);
 
     const { result } = renderHook(() => useBackups(infobaseId), { wrapper: makeWrapper() });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data).toEqual([summary]);
+    expect(result.current.data).toEqual(paged);
     expect(mockedApi).toHaveBeenCalledWith(
-      `/api/v1/backups?infobaseId=${infobaseId}`,
+      `/api/v1/backups?infobaseId=${infobaseId}&page=1&pageSize=100`,
       expect.objectContaining({ schema: expect.anything() })
     );
   });
