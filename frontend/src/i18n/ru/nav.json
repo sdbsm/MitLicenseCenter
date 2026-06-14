@@ -1,0 +1,19 @@
+{
+  "nav": {
+    "dashboard": "Обзор",
+    "sessions": "Сеансы",
+    "tenants": "Клиенты",
+    "infobases": "Базы",
+    "reports": "Отчёты",
+    "performance": "Быстродействие",
+    "audit": "Аудит",
+    "users": "Пользователи",
+    "settings": "Параметры",
+    "version": "Версия {{version}}",
+    "groups": {
+      "monitoring": "Мониторинг",
+      "management": "Управление",
+      "system": "Система"
+    }
+  }
+}

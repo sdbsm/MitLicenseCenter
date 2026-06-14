@@ -1,0 +1,13 @@
+{
+  "table": {
+    "density": {
+      "label": "Плотность",
+      "comfortable": "Комфортно",
+      "compact": "Компактно"
+    },
+    "columns": {
+      "label": "Колонки",
+      "toggle": "Видимость колонок"
+    }
+  }
+}

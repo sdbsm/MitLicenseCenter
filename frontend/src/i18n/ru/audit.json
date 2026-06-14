@@ -1,0 +1,93 @@
+{
+  "audit": {
+    "title": "Аудит",
+    "subtitle": "Журнал всех изменений и значимых событий системы.",
+    "filters": {
+      "actionType": "Тип действия",
+      "anyAction": "Любое действие",
+      "searchAction": "Поиск действия…",
+      "tenant": "Клиент",
+      "anyTenant": "Любой клиент",
+      "searchTenant": "Поиск клиента…",
+      "search": "Поиск",
+      "searchPlaceholder": "По описанию и инициатору…",
+      "initiator": "Инициатор",
+      "initiatorPlaceholder": "Имя или System",
+      "from": "С даты",
+      "to": "По дату",
+      "pageSize": "Размер страницы"
+    },
+    "fields": {
+      "timestamp": "Время",
+      "actionType": "Действие",
+      "initiator": "Инициатор",
+      "tenant": "Клиент",
+      "description": "Описание"
+    },
+    "actions": {
+      "TenantCreated": "Клиент создан",
+      "TenantUpdated": "Клиент изменён",
+      "TenantDeleted": "Клиент удалён",
+      "InfobaseCreated": "Инфобаза создана",
+      "InfobaseUpdated": "Инфобаза изменена",
+      "InfobaseDeleted": "Инфобаза удалена",
+      "InfobaseReassigned": "Инфобаза перенесена",
+      "PublicationCreated": "Публикация создана",
+      "PublicationUpdated": "Публикация изменена",
+      "PublicationDeleted": "Публикация удалена",
+      "PublicationUnpublished": "Публикация снята с IIS",
+      "PublicationDriftDetected": "Расхождение публикации обнаружено",
+      "PublicationReconciled": "Публикация согласована",
+      "PublicationPublished": "Публикация через webinst",
+      "PublicationPlatformChanged": "Версия платформы изменена",
+      "AdminLoggedIn": "Вход администратора",
+      "AdminLoggedOut": "Выход администратора",
+      "AdminPasswordChanged": "Смена пароля",
+      "LoginFailed": "Неудачная попытка входа",
+      "UserCreated": "Учётная запись создана",
+      "UserDisabled": "Учётная запись отключена",
+      "UserPasswordReset": "Пароль сброшен",
+      "UserEnabled": "Учётная запись включена",
+      "UserRoleChanged": "Роль изменена",
+      "SessionKilled": "Сеанс завершён",
+      "LimitChanged": "Лимит изменён",
+      "ClusterAdapterCircuitOpened": "Цепь к 1С разомкнута",
+      "ClusterAdapterCircuitClosed": "Цепь к 1С замкнута",
+      "SettingChanged": "Параметр изменён",
+      "AuditLogsPurged": "Очистка журнала аудита",
+      "BackupRequested": "Бэкап запрошен",
+      "BackupSucceeded": "Бэкап выполнен",
+      "BackupFailed": "Бэкап не выполнен",
+      "BackupDeleted": "Бэкап удалён",
+      "BackupsPurged": "Очистка устаревших бэкапов",
+      "IisApplicationPoolRecycled": "Пул приложений перезапущен",
+      "IisApplicationPoolStarted": "Пул приложений запущен",
+      "IisApplicationPoolStopped": "Пул приложений остановлен",
+      "IisSiteStarted": "Сайт IIS запущен",
+      "IisSiteStopped": "Сайт IIS остановлен",
+      "IisSiteRestarted": "Сайт IIS перезапущен",
+      "IisReset": "Полный перезапуск IIS",
+      "IisStopped": "Полная остановка IIS",
+      "IisStarted": "Полный запуск IIS"
+    },
+    "empty": {
+      "title": "Записей нет",
+      "hint": "Сбросьте фильтры или подождите, пока появятся события."
+    },
+    "pagination": {
+      "summary": "{{from}}–{{to}} из {{total}}",
+      "refreshing": "Обновление…",
+      "goToPage": "Страница",
+      "ofTotal": "из {{total}}",
+      "first": "Первая страница",
+      "last": "Последняя страница"
+    },
+    "errors": {
+      "loadFailed": "Не удалось загрузить журнал аудита."
+    },
+    "retention": {
+      "bannerTitle": "Фильтр выходит за период хранения",
+      "bannerText": "Записи аудита старше {{date}} удаляются автоматически. Возможно, выбранный диапазон вернёт неполные результаты."
+    }
+  }
+}

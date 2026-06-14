@@ -52,8 +52,8 @@ frontend/src/
     pagination.ts         — pageLinkRange()
     utils.ts              — cn() (clsx + tailwind-merge)
   i18n/
-    index.ts              — инициализация i18next (lng: "ru")
-    ru.json               — единственный файл локализации
+    index.ts              — инициализация i18next (lng: "ru") + сборка словаря из ru/
+    ru/                   — UI-тексты, по одному файлу на top-level ключ (common.json, nav.json, …)
   test/setup.ts           — jsdom-заглушки (ResizeObserver, matchMedia, …)
 ```
 
@@ -599,8 +599,15 @@ SPA поддерживает только русский язык.
 Ключ `returnNull: false` гарантирует, что пропущенный ключ вернёт строку,
 а не `null`.
 
-`i18n/ru.json` — единственный файл UI-текстов; все строки интерфейса берутся
-оттуда через `useTranslation()` и хук `t(key)`.
+UI-тексты разнесены по per-feature файлам `i18n/ru/<topLevelKey>.json` (по одному
+файлу на каждый top-level ключ: `common.json`, `nav.json`, `auth.json`, …; каждый
+файл оборачивает свой ключ). `i18n/index.ts` собирает их обратно в ОДИН объект
+`ru` (через spread) и регистрирует единственный namespace `"translation"` —
+полноценные i18next-namespaces не вводятся (RU-only, выгоды нет). Структура
+итогового словаря идентична прежнему плоскому `ru.json`. Все строки интерфейса
+берутся через `useTranslation()` и хук `t(key)` без аргумента-namespace.
+Целостность сборки (наличие всех срезов и ключевых вложенных ключей) страхует
+тест `i18n/__tests__/resources.test.ts`.
 
 ### Конвенция ключей
 

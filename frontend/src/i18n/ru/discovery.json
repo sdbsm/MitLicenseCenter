@@ -1,0 +1,13 @@
+{
+  "discovery": {
+    "selectPlaceholder": "Выберите из списка…",
+    "loading": "Загрузка…",
+    "refresh": "Обновить",
+    "retry": "Повторить",
+    "empty": "Ничего не найдено.",
+    "unavailable": "Список недоступен — введите вручную.",
+    "chooseFromList": "Выбрать из списка",
+    "enterManually": "Ввести вручную",
+    "racNotFound": "rac.exe не найден в стандартных каталогах."
+  }
+}
