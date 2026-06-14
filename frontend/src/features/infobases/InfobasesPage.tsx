@@ -1,9 +1,11 @@
+import { getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import { DatabaseIcon, PlusIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { DataTable, useTableDensity } from "@/components/ui/data-table";
 import { PaginationBar } from "@/components/PaginationBar";
 import {
   Select,
@@ -13,8 +15,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
+import { TableCell } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { useMe } from "@/features/auth/useAuth";
 import { BackupsDialog } from "@/features/backups/BackupsDialog";
 import { BulkChangePlatformDialog } from "@/features/publications/BulkChangePlatformDialog";
@@ -33,9 +36,8 @@ import { useCheckStatus } from "@/features/publications/usePublications";
 import type { BulkItemState } from "@/features/publications/useBulkOperation";
 import { useAllTenants } from "@/features/tenants/useTenants";
 import { DeleteInfobaseDialog, type DeletableInfobase } from "./DeleteInfobaseDialog";
+import { buildInfobaseColumns } from "./infobaseColumns";
 import { InfobaseFormDialog } from "./InfobaseFormDialog";
-import { infobaseColumnCount } from "./infobaseFormat";
-import { InfobaseRow, InfobaseTableHeader } from "./InfobaseRow";
 import { ReassignInfobaseDialog } from "./ReassignInfobaseDialog";
 import type { InfobaseListItem } from "./types";
 import type { InfobaseFormPrefill } from "./useInfobaseForm";
@@ -66,11 +68,19 @@ const PUBLISH_STATUS_FILTERS: PublicationPublishStatus[] = [
  * «IIS» с управлением пулами/сайтами/iisreset (MLC-047). Grouped-режим «По клиенту»
  * снят (MLC-085, аудит §3.2): сгруппированный взгляд — паспорт клиента /tenants/:id,
  * здесь — flat-список с фильтром по клиенту (?tenantId= — ссылки извне).
+ *
+ * Таблица — на общем `DataTable` (MLC-144b, ADR-46): серверная пагинация
+ * (`manualPagination` + `pageCount`), URL-фильтры клиента/статуса в слоте тулбара,
+ * меню видимости колонок и density из тулбара. Bulk-выбор живёт во внешнем
+ * `Map<id, PublicationListItem>` (переживает листание и смену фильтра), а не в
+ * tanstack row-selection.
  */
 export function InfobasesPage() {
   const { t } = useTranslation();
   const { data: me } = useMe();
   const isAdmin = me?.roles?.includes("Admin") ?? false;
+
+  const { density, toggleDensity } = useTableDensity();
 
   const { data: tenantsData } = useAllTenants();
   const tenants = useMemo(() => tenantsData?.items ?? [], [tenantsData]);
@@ -284,10 +294,8 @@ export function InfobasesPage() {
       ? "indeterminate"
       : false;
 
-  const isEmpty = !isLoading && !isError && items.length === 0;
-
-  // Публикационные операции и выделение передаются только админу; Viewer видит
-  // read-only таблицу (бэкапы доступны обеим ролям, ADR-27).
+  // Публикационные операции передаются только админу; Viewer видит read-only таблицу
+  // (бэкапы доступны обеим ролям, ADR-27).
   const rowPublicationProps = isAdmin
     ? {
         onCheck: (p: PublicationListItem) => void handleCheck(p),
@@ -296,6 +304,53 @@ export function InfobasesPage() {
         onChangePlatform: setPlatformTarget,
       }
     : {};
+
+  const columns = useMemo(
+    () =>
+      buildInfobaseColumns({
+        t,
+        isAdmin,
+        tenantNameById,
+        checkingId,
+        missingSet,
+        missingCheckedAtUtc: unassigned.data?.checkedAtUtc,
+        isSelected: (id) => selected.has(id),
+        onToggleSelect: toggleSelect,
+        headerChecked,
+        onToggleAll: toggleAll,
+        selectionDisabled: items.length === 0,
+        onEdit: handleOpenEdit,
+        onDelete: handleOpenDelete,
+        onReassign: tenants.length > 1 ? setReassigning : undefined,
+        onBackups: setBackupsFor,
+        ...rowPublicationProps,
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      t,
+      isAdmin,
+      tenantNameById,
+      checkingId,
+      missingSet,
+      unassigned.data?.checkedAtUtc,
+      selected,
+      headerChecked,
+      items,
+      tenants.length,
+    ]
+  );
+
+  const table = useReactTable({
+    data: items,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+    // Серверная пагинация и фильтрация: tanstack не режет/не фильтрует данные сам.
+    manualPagination: true,
+    manualFiltering: true,
+    pageCount: totalPages,
+    // Стабильный id строки по инфобазе — выделение и data-state не «прыгают» при пагинации.
+    getRowId: (row) => row.id,
+  });
 
   return (
     <div className="space-y-6">
@@ -319,40 +374,6 @@ export function InfobasesPage() {
         </TabsList>
 
         <TabsContent value="bases" className="space-y-6">
-          <div className="flex flex-wrap items-center gap-3">
-            <Select value={tenantFilter} onValueChange={changeTenantFilter}>
-              <SelectTrigger className="w-72">
-                <SelectValue placeholder={t("infobases.filters.tenant")} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL_TENANTS}>{t("infobases.filters.allTenants")}</SelectItem>
-                {tenants.map((tenant) => (
-                  <SelectItem key={tenant.id} value={tenant.id}>
-                    {tenant.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={statusFilter} onValueChange={changeStatusFilter}>
-              <SelectTrigger className="w-56">
-                <SelectValue placeholder={t("infobases.filters.publishStatus")} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL_STATUSES}>{t("infobases.filters.allStatuses")}</SelectItem>
-                {PUBLISH_STATUS_FILTERS.map((status) => (
-                  <SelectItem key={status} value={status}>
-                    {t(`infobases.filters.publishStatusOptions.${status}`)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {anyFilterActive && (
-              <Button variant="ghost" size="sm" onClick={resetFilters}>
-                {t("common.reset")}
-              </Button>
-            )}
-          </div>
-
           {isError && (
             <div className="border-destructive/40 bg-destructive/5 rounded-md border p-4 text-sm">
               <p className="font-medium">{t("infobases.errors.loadFailed")}</p>
@@ -397,76 +418,77 @@ export function InfobasesPage() {
             />
           )}
 
-          {isEmpty ? (
-            <div className="rounded-md border">
-              <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
-                <DatabaseIcon className="text-muted-foreground size-8" />
-                <div className="space-y-1">
-                  <p className="font-medium">{t("infobases.empty.title")}</p>
-                  <p className="text-muted-foreground text-sm">
-                    {tenants.length === 0
-                      ? t("infobases.empty.noTenantsHint")
-                      : t("infobases.empty.hint")}
-                  </p>
-                </div>
-                {isAdmin && tenants.length > 0 && (
-                  <Button size="sm" onClick={handleOpenAdd}>
-                    <PlusIcon className="size-4" />
-                    {t("infobases.actions.add")}
-                  </Button>
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="rounded-md border">
-              <Table>
-                <InfobaseTableHeader
-                  showTenant
-                  selection={
-                    isAdmin
-                      ? {
-                          checked: headerChecked,
-                          onToggleAll: toggleAll,
-                          disabled: items.length === 0,
-                        }
-                      : undefined
-                  }
-                />
-                <TableBody>
-                  {isLoading
-                    ? Array.from({ length: 4 }).map((_, idx) => (
-                        <TableRow key={`skeleton-${idx}`}>
-                          {Array.from({ length: infobaseColumnCount(true, isAdmin) }).map(
-                            (__, cidx) => (
-                              <TableCell key={cidx}>
-                                <Skeleton className="h-4 w-24" />
-                              </TableCell>
-                            )
-                          )}
-                        </TableRow>
-                      ))
-                    : items.map((item) => (
-                        <InfobaseRow
-                          key={item.id}
-                          item={item}
-                          tenantName={tenantNameById.get(item.tenantId) ?? item.tenantName}
-                          isAdmin={isAdmin}
-                          onEdit={handleOpenEdit}
-                          onDelete={handleOpenDelete}
-                          onReassign={tenants.length > 1 ? setReassigning : undefined}
-                          onBackups={setBackupsFor}
-                          isChecking={checkingId === item.publication.id}
-                          selected={selected.has(item.publication.id)}
-                          onToggleSelect={isAdmin ? toggleSelect : undefined}
-                          missing={missingSet.has(item.clusterInfobaseId)}
-                          missingCheckedAtUtc={unassigned.data?.checkedAtUtc}
-                          {...rowPublicationProps}
-                        />
+          <TooltipProvider delayDuration={150}>
+            <DataTable
+              table={table}
+              density={density}
+              onToggleDensity={toggleDensity}
+              isLoading={isLoading}
+              skeletonRows={4}
+              columnLabel={(id) => table.getColumn(id)?.columnDef.meta?.label ?? id}
+              renderSkeletonRow={() => <InfobaseSkeletonCells columnCount={columns.length} />}
+              emptyState={
+                !isError ? (
+                  <div className="flex flex-col items-center justify-center gap-3 text-center">
+                    <DatabaseIcon className="text-muted-foreground size-8" />
+                    <div className="space-y-1">
+                      <p className="font-medium">{t("infobases.empty.title")}</p>
+                      <p className="text-muted-foreground text-sm">
+                        {tenants.length === 0
+                          ? t("infobases.empty.noTenantsHint")
+                          : t("infobases.empty.hint")}
+                      </p>
+                    </div>
+                    {isAdmin && tenants.length > 0 && (
+                      <Button size="sm" onClick={handleOpenAdd}>
+                        <PlusIcon className="size-4" />
+                        {t("infobases.actions.add")}
+                      </Button>
+                    )}
+                  </div>
+                ) : undefined
+              }
+              toolbarChildren={
+                <>
+                  <Select value={tenantFilter} onValueChange={changeTenantFilter}>
+                    <SelectTrigger className="w-72">
+                      <SelectValue placeholder={t("infobases.filters.tenant")} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ALL_TENANTS}>
+                        {t("infobases.filters.allTenants")}
+                      </SelectItem>
+                      {tenants.map((tenant) => (
+                        <SelectItem key={tenant.id} value={tenant.id}>
+                          {tenant.name}
+                        </SelectItem>
                       ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
+                    </SelectContent>
+                  </Select>
+                  <Select value={statusFilter} onValueChange={changeStatusFilter}>
+                    <SelectTrigger className="w-56">
+                      <SelectValue placeholder={t("infobases.filters.publishStatus")} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ALL_STATUSES}>
+                        {t("infobases.filters.allStatuses")}
+                      </SelectItem>
+                      {PUBLISH_STATUS_FILTERS.map((status) => (
+                        <SelectItem key={status} value={status}>
+                          {t(`infobases.filters.publishStatusOptions.${status}`)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {anyFilterActive && (
+                    <Button variant="ghost" size="sm" onClick={resetFilters}>
+                      {t("common.reset")}
+                    </Button>
+                  )}
+                </>
+              }
+            />
+          </TooltipProvider>
 
           <PaginationBar
             page={currentPage}
@@ -582,5 +604,18 @@ export function InfobasesPage() {
         </>
       )}
     </div>
+  );
+}
+
+// Скелетон строки повторяет число колонок страницы (включая чекбокс для админа).
+function InfobaseSkeletonCells({ columnCount }: { columnCount: number }) {
+  return (
+    <>
+      {Array.from({ length: columnCount }).map((_, idx) => (
+        <TableCell key={idx}>
+          <Skeleton className="h-4 w-24" />
+        </TableCell>
+      ))}
+    </>
   );
 }
