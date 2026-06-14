@@ -6,36 +6,30 @@ using MitLicenseCenter.Application.Backups;
 
 namespace MitLicenseCenter.Infrastructure.Backups;
 
-// Реальный адаптер on-demand бэкапа базы SQL (MLC-076, ADR-27/28). Исполняет весь безопасный
-// цикл одной операции. По ADR-28 (single-host) панель и SQL Server живут на ОДНОМ узле, поэтому
-// файловые шаги (свободное место, создание каталога, удаление старых .bak) выполняются обычными
-// .NET-вызовами от имени аккаунта панели — без расширенных процедур xp_fixeddrives /
-// xp_create_subdir / xp_delete_file, которые требовали серверной роли sysadmin (MLC-152).
-// В SQL остаются только операции, покрываемые db_owner: BACKUP DATABASE и RESTORE VERIFYONLY.
+// Реальный адаптер on-demand бэкапа базы SQL (MLC-076, ADR-27). Исполняет весь безопасный
+// цикл одной операции server-side (панель не трогает файловую систему SQL-хоста):
+//   (0) sysadmin-проверка IS_SRVROLEMEMBER — без роли xp_* недоступны → честный PermissionDenied;
 //   (1) база существует в sys.databases;
-//   (2) право BACKUP DATABASE по базе (HAS_PERMS_BY_NAME); нет права → честный PermissionDenied
-//       (а не загадочная ошибка BACKUP на полпути);
-//   (3) оценка размера = занятые ROWS-страницы (FILEPROPERTY 'SpaceUsed'); нет оценки → НЕ стартуем;
-//   (4) свободное место — .NET DriveInfo по корню каталога бэкапа; требуем оценку + запас
-//       (disk-guard ADR-27);
-//   (5) Directory.CreateDirectory подпапки базы (идемпотентно);
-//   (6) BACKUP DATABASE … WITH COPY_ONLY, COMPRESSION, CHECKSUM, FORMAT, INIT (COPY_ONLY —
+//   (2) оценка размера = занятые ROWS-страницы (FILEPROPERTY 'SpaceUsed'); нет оценки → НЕ стартуем;
+//   (3) folderRoot — только локальный диск SQL-хоста; свободное место через xp_fixeddrives,
+//       требуем оценку + запас (disk-guard ADR-27);
+//   (4) xp_create_subdir подпапки базы (идемпотентно);
+//   (5) BACKUP DATABASE … WITH COPY_ONLY, COMPRESSION, CHECKSUM, FORMAT, INIT (COPY_ONLY —
 //       несущая опция: не сбрасывает differential base, не ломает внешнюю дифф-цепочку);
-//   (7) RESTORE VERIFYONLY WITH CHECKSUM — ДО удаления старого;
-//   (8) только после verify — File.Delete прошлых .bak базы (keep-latest-1,
+//   (6) RESTORE VERIFYONLY WITH CHECKSUM — ДО удаления старого;
+//   (7) только после verify — xp_delete_file прошлых .bak базы (keep-latest-1,
 //       новый-перед-удалением, никогда наоборот);
-//   (9) размер готового файла — File.Length по факту (best-effort: нет файла → null, не провал).
+//   (8) размер готового файла из msdb.dbo.backupset (best-effort: не нашли → null, не провал).
 //
 // Инъекции исключены конструктивно: имя базы — идентификатор, проверяется по sys.databases и
-// попадает в динамический SQL только через QUOTENAME; путь — всегда строковый параметр или
-// локальная файловая операция.
+// попадает в динамический SQL только через QUOTENAME; путь — всегда строковый параметр.
 //
 // Подключение наследует параметры из ConnectionStrings:Default (как SqlPerformanceProbe/
 // SqlDatabaseDiscovery): DataSource=server вызова, InitialCatalog=master. «Never throws» —
 // инфраструктурный сбой деградирует в типизированный SqlBackupResult/SqlDeleteResult
-// (catch SqlException/InvalidOperationException/IOException/UnauthorizedAccessException), отмена
-// (OperationCanceledException) пробрасывается. НЕ Windows-only: чистый ADO.NET + System.IO, без
-// [SupportedOSPlatform]/CA1416. Stateless → singleton.
+// (catch SqlException/InvalidOperationException), отмена (OperationCanceledException)
+// пробрасывается. НЕ Windows-only: чистый ADO.NET, без [SupportedOSPlatform]/CA1416.
+// Stateless → singleton.
 internal sealed partial class SqlBackupAdapter : ISqlBackupService
 {
     private const int ConnectTimeoutSeconds = 15;
@@ -43,6 +37,7 @@ internal sealed partial class SqlBackupAdapter : ISqlBackupService
     // BACKUP/VERIFY больших баз идут десятки минут и часы — таймаут пробы (5с) здесь
     // категорически не годится.
     private const int BackupCommandTimeoutSeconds = 4 * 60 * 60;
+    private const int DeleteCommandTimeoutSeconds = 10 * 60;
 
     private readonly string? _baseConnectionString;
     private readonly TimeProvider _clock;
@@ -70,6 +65,16 @@ internal sealed partial class SqlBackupAdapter : ISqlBackupService
             await using var connection = new SqlConnection(BuildConnectionString(server));
             await connection.OpenAsync(ct).ConfigureAwait(false);
 
+            // (0) Честный degraded-сигнал вместо загадочных ошибок xp_* на полпути
+            // (паттерн HasViewServerStateAsync пробы MLC-068).
+            if (!await IsSysadminAsync(connection, ct).ConfigureAwait(false))
+            {
+                return Fail(BackupFailureReason.PermissionDenied,
+                    "Учётной записи панели не выдана серверная роль sysadmin — BACKUP и файловые " +
+                    "операции (xp_create_subdir/xp_fixeddrives/xp_delete_file) недоступны. " +
+                    "См. OPERATIONS.md «Бэкап — required permissions».");
+            }
+
             // (1)
             if (!await DatabaseExistsAsync(connection, databaseName, ct).ConfigureAwait(false))
             {
@@ -77,18 +82,7 @@ internal sealed partial class SqlBackupAdapter : ISqlBackupService
                     $"База «{databaseName}» не найдена на сервере «{server}».");
             }
 
-            // (2) Честный degraded-сигнал вместо загадочной ошибки BACKUP на полпути
-            // (паттерн HasViewServerStateAsync пробы MLC-068). sysadmin БОЛЬШЕ НЕ НУЖЕН
-            // (MLC-152, ADR-28): достаточно права BACKUP DATABASE (входит в db_owner).
-            if (!await HasBackupPermissionAsync(connection, databaseName, ct).ConfigureAwait(false))
-            {
-                return Fail(BackupFailureReason.PermissionDenied,
-                    $"Учётной записи панели не выдано право BACKUP DATABASE по базе «{databaseName}» " +
-                    "(требуется членство в роли db_owner этой базы). " +
-                    "См. OPERATIONS.md «Бэкап — required permissions».");
-            }
-
-            // (3) Оценка по занятым данным — сознательный over-estimate (COMPRESSION ужмёт
+            // (2) Оценка по занятым данным — сознательный over-estimate (COMPRESSION ужмёт
             // реальный .bak); NULL → не стартуем (ADR-27: нет оценки — нет бэкапа).
             var estimateKb = await ReadUsedDataKbAsync(connection, databaseName, ct).ConfigureAwait(false);
             if (estimateKb is null or <= 0)
@@ -98,16 +92,21 @@ internal sealed partial class SqlBackupAdapter : ISqlBackupService
                     "без оценки бэкап не стартует (защита диска).");
             }
 
-            // (4) Свободное место — .NET DriveInfo по корню каталога бэкапа. На single-host
-            // (ADR-28) каталог — локальный диск этого же узла; UNC/относительный путь не имеет
-            // корня диска → отклоняем явно, а не пропуском проверки места.
-            var freeMb = TryGetFreeSpaceMb(folderRoot);
+            // (3) xp_fixeddrives видит только локальные диски — UNC/относительный путь
+            // отклоняем явно, а не пропуском проверки места.
+            if (!TryGetDriveLetter(folderRoot, out var drive))
+            {
+                return Fail(BackupFailureReason.BackupFailed,
+                    $"Папка бэкапов «{folderRoot}» должна указывать на локальный диск SQL-сервера " +
+                    "в виде «D:\\Backups» (UNC и относительные пути не поддерживаются).");
+            }
+
+            var freeMb = await ReadFreeMbAsync(connection, drive, ct).ConfigureAwait(false);
             if (freeMb is null)
             {
                 return Fail(BackupFailureReason.BackupFailed,
-                    $"Не удалось определить свободное место для каталога бэкапов «{folderRoot}». " +
-                    "Путь должен указывать на локальный диск этого узла в виде «D:\\Backups» " +
-                    "(UNC и относительные пути не поддерживаются).");
+                    $"Диск «{drive}:» не найден среди локальных дисков SQL-сервера (xp_fixeddrives) — " +
+                    "проверка свободного места невозможна.");
             }
 
             var estimateMb = estimateKb.Value / 1024;
@@ -115,36 +114,34 @@ internal sealed partial class SqlBackupAdapter : ISqlBackupService
             if (freeMb.Value < requiredMb)
             {
                 return Fail(BackupFailureReason.InsufficientSpace,
-                    $"Недостаточно места для каталога «{folderRoot}»: свободно {freeMb.Value} МБ, требуется " +
+                    $"Недостаточно места на диске «{drive}:»: свободно {freeMb.Value} МБ, требуется " +
                     $"не менее {requiredMb} МБ (данные базы ≈{estimateMb} МБ + запас {safetyMarginMb} МБ).");
             }
 
-            // (5)
+            // (4)
             var subfolder = Path.Combine(folderRoot, databaseName);
-            Directory.CreateDirectory(subfolder);
+            await CreateSubdirAsync(connection, subfolder, ct).ConfigureAwait(false);
 
-            // База времени файловых операций — ЛОКАЛЬНОЕ время этого узла. Панель и SQL
-            // co-located на одном хосте (single-node, ADR-28), удаление старых .bak делает
-            // сама панель (File.Delete), поэтому сравнение идёт с LastWriteTimeUtc файлов.
-            // Имя файла несёт момент старта BACKUP — служит cutoff'ом keep-latest-1:
+            // База времени файловых операций — ЛОКАЛЬНОЕ время SQL-хоста: xp_delete_file
+            // сравнивает cutoff с файловыми timestamp'ами в местном времени, а панель и SQL
+            // co-located на одном хосте (single-node, ADR-26/27) → локальное время панели
+            // и SQL-хоста совпадает. Момент старта BACKUP служит cutoff'ом keep-latest-1:
             // прошлый .bak старше старта — удаляется, новый (создан после) — переживает.
             var startedAtLocal = _clock.GetLocalNow().DateTime;
-            var startedAtUtc = _clock.GetUtcNow().UtcDateTime;
             var fileName = string.Create(CultureInfo.InvariantCulture,
                 $"{databaseName}_{startedAtLocal:yyyyMMdd_HHmmss}.bak");
             var path = Path.Combine(subfolder, fileName);
 
-            // (6) + (7)
+            // (5) + (6)
             await RunBackupAsync(connection, databaseName, path, ct).ConfigureAwait(false);
             await VerifyBackupAsync(connection, path, ct).ConfigureAwait(false);
 
-            // (8) Только после успешного verify — иначе провал нового бэкапа оставил бы
-            // базу вовсе без бэкапа. Удаляем .bak строго старше момента старта → только что
-            // созданный файл переживает (keep-latest-1).
-            BackupFileStore.DeleteBackupsOlderThan(subfolder, startedAtUtc, _logger);
+            // (7) Только после успешного verify — иначе провал нового бэкапа оставил бы
+            // базу вовсе без бэкапа.
+            await DeleteFilesOlderThanAsync(connection, subfolder, startedAtLocal, ct).ConfigureAwait(false);
 
-            // (9)
-            var sizeBytes = TryReadFileSize(path);
+            // (8)
+            var sizeBytes = await TryReadBackupSizeAsync(connection, path, ct).ConfigureAwait(false);
             return new SqlBackupResult(true, BackupFailureReason.None, path, sizeBytes, null);
         }
         catch (SqlException ex)
@@ -158,44 +155,43 @@ internal sealed partial class SqlBackupAdapter : ISqlBackupService
             LogBackupFailed(_logger, server, databaseName, ex);
             return Fail(BackupFailureReason.BackupFailed, ex.Message);
         }
-        catch (IOException ex)
-        {
-            // CreateDirectory/проверка места упали на файловом уровне.
-            LogBackupFailed(_logger, server, databaseName, ex);
-            return Fail(BackupFailureReason.BackupFailed, ex.Message);
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            // Аккаунту панели не хватает NTFS-прав на каталог бэкапов.
-            LogBackupFailed(_logger, server, databaseName, ex);
-            return Fail(BackupFailureReason.PermissionDenied,
-                $"Аккаунту панели не хватает прав на каталог бэкапов: {ex.Message}");
-        }
     }
 
-    public Task<SqlDeleteResult> DeleteBackupsOlderThanAsync(
+    public async Task<SqlDeleteResult> DeleteBackupsOlderThanAsync(
         string server, string folderPath, DateTime cutoffUtc, CancellationToken ct)
     {
-        // server-параметр сохранён в контракте (ISqlBackupService) для симметрии и совместимости
-        // с BackupAsync; на single-host (ADR-28) удаление — чисто файловая операция этого узла,
-        // SQL-подключение не требуется.
-        ct.ThrowIfCancellationRequested();
+        if (string.IsNullOrWhiteSpace(_baseConnectionString))
+        {
+            return new SqlDeleteResult(false, "Строка подключения ConnectionStrings:Default не настроена.");
+        }
 
         try
         {
-            var deleted = BackupFileStore.DeleteBackupsOlderThan(folderPath, cutoffUtc, _logger);
-            LogDeleted(_logger, server, folderPath, deleted);
-            return Task.FromResult(new SqlDeleteResult(true, null));
+            await using var connection = new SqlConnection(BuildConnectionString(server));
+            await connection.OpenAsync(ct).ConfigureAwait(false);
+
+            if (!await IsSysadminAsync(connection, ct).ConfigureAwait(false))
+            {
+                return new SqlDeleteResult(false,
+                    "Учётной записи панели не выдана серверная роль sysadmin — xp_delete_file недоступна. " +
+                    "См. OPERATIONS.md «Бэкап — required permissions».");
+            }
+
+            // UTC контракта порта → локальное время SQL-хоста (см. комментарий в BackupAsync).
+            var cutoffLocal = TimeZoneInfo.ConvertTimeFromUtc(
+                DateTime.SpecifyKind(cutoffUtc, DateTimeKind.Utc), TimeZoneInfo.Local);
+            await DeleteFilesOlderThanAsync(connection, folderPath, cutoffLocal, ct).ConfigureAwait(false);
+            return new SqlDeleteResult(true, null);
         }
-        catch (IOException ex)
+        catch (SqlException ex)
         {
             LogDeleteFailed(_logger, server, folderPath, ex);
-            return Task.FromResult(new SqlDeleteResult(false, ex.Message));
+            return new SqlDeleteResult(false, ex.Message);
         }
-        catch (UnauthorizedAccessException ex)
+        catch (InvalidOperationException ex)
         {
             LogDeleteFailed(_logger, server, folderPath, ex);
-            return Task.FromResult(new SqlDeleteResult(false, ex.Message));
+            return new SqlDeleteResult(false, ex.Message);
         }
     }
 
@@ -210,72 +206,35 @@ internal sealed partial class SqlBackupAdapter : ISqlBackupService
             ConnectTimeout = ConnectTimeoutSeconds,
         }.ConnectionString;
 
-    // Свободное место в МБ по корню каталога бэкапа через .NET DriveInfo (MLC-152: замена
-    // xp_fixeddrives, не требует sysadmin). На single-host (ADR-28) каталог — локальный диск
-    // этого узла. UNC/относительный путь не имеет корня вида «D:\» → null (как раньше отклоняли).
-    internal static long? TryGetFreeSpaceMb(string folderRoot)
+    // folderRoot обязан быть путём на локальном диске вида «D:\…» — буква нужна для
+    // проверки места по xp_fixeddrives.
+    internal static bool TryGetDriveLetter(string folderRoot, out char drive)
     {
-        var root = TryGetLocalDriveRoot(folderRoot);
-        if (root is null)
-        {
-            return null;
-        }
-
-        try
-        {
-            var drive = new DriveInfo(root);
-            if (!drive.IsReady)
-            {
-                return null;
-            }
-
-            return drive.AvailableFreeSpace / (1024 * 1024);
-        }
-        catch (ArgumentException)
-        {
-            return null;
-        }
-        catch (IOException)
-        {
-            return null;
-        }
-    }
-
-    // Корень локального диска вида «D:\» из пути «D:\Backups…». UNC и относительные пути
-    // корня не имеют → null. Буква нормализуется в верхний регистр.
-    internal static string? TryGetLocalDriveRoot(string folderRoot)
-    {
+        drive = default;
         if (folderRoot.Length < 3 || folderRoot[1] != ':' || folderRoot[2] is not ('\\' or '/'))
         {
-            return null;
+            return false;
         }
 
         if (!char.IsAsciiLetter(folderRoot[0]))
         {
-            return null;
+            return false;
         }
 
-        return string.Create(CultureInfo.InvariantCulture, $"{char.ToUpperInvariant(folderRoot[0])}:\\");
+        drive = char.ToUpperInvariant(folderRoot[0]);
+        return true;
     }
 
-    private static long? TryReadFileSize(string path)
+    // ── SQL-шаги цикла ──────────────────────────────────────────────────────────────
+
+    private static async Task<bool> IsSysadminAsync(SqlConnection connection, CancellationToken ct)
     {
-        try
-        {
-            var info = new FileInfo(path);
-            return info.Exists ? info.Length : null;
-        }
-        catch (IOException)
-        {
-            return null;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return null;
-        }
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT IS_SRVROLEMEMBER('sysadmin');";
+        command.CommandTimeout = MetadataCommandTimeoutSeconds;
+        var value = await command.ExecuteScalarAsync(ct).ConfigureAwait(false);
+        return value is int i && i == 1;
     }
-
-    // ── SQL-шаги цикла (db_owner-покрытие) ──────────────────────────────────────────
 
     private static async Task<bool> DatabaseExistsAsync(
         SqlConnection connection, string databaseName, CancellationToken ct)
@@ -286,21 +245,6 @@ internal sealed partial class SqlBackupAdapter : ISqlBackupService
         command.Parameters.AddWithValue("@db", databaseName);
         var value = await command.ExecuteScalarAsync(ct).ConfigureAwait(false);
         return value is not null;
-    }
-
-    // Лёгкая проба права BACKUP DATABASE по конкретной базе (MLC-152: заменяет sysadmin-precheck).
-    // HAS_PERMS_BY_NAME(db, 'DATABASE', 'BACKUP DATABASE') → 1, если у логина есть это право
-    // (член db_owner его имеет). Возвращает честный PermissionDenied ДО запуска BACKUP.
-    private static async Task<bool> HasBackupPermissionAsync(
-        SqlConnection connection, string databaseName, CancellationToken ct)
-    {
-        await using var command = connection.CreateCommand();
-        command.CommandText =
-            "SELECT HAS_PERMS_BY_NAME(QUOTENAME(@db), N'DATABASE', N'BACKUP DATABASE');";
-        command.CommandTimeout = MetadataCommandTimeoutSeconds;
-        command.Parameters.AddWithValue("@db", databaseName);
-        var value = await command.ExecuteScalarAsync(ct).ConfigureAwait(false);
-        return value is int i && i == 1;
     }
 
     // Занятые ROWS-страницы базы в КБ (страница = 8 КБ). Контекст базы — через динамический
@@ -324,6 +268,33 @@ EXEC sys.sp_executesql @sql, N'@est bigint OUTPUT', @est = @estKb OUTPUT;";
 
         await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         return output.Value is long kb ? kb : null;
+    }
+
+    // Свободное место диска в МБ из xp_fixeddrives (выводит только локальные диски).
+    private static async Task<long?> ReadFreeMbAsync(
+        SqlConnection connection, char drive, CancellationToken ct)
+    {
+        const string sql = @"
+CREATE TABLE #drives (drive char(1) PRIMARY KEY, free_mb bigint NOT NULL);
+INSERT INTO #drives (drive, free_mb) EXEC master.dbo.xp_fixeddrives;
+SELECT free_mb FROM #drives WHERE drive = @drive;";
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        command.CommandTimeout = MetadataCommandTimeoutSeconds;
+        command.Parameters.AddWithValue("@drive", drive.ToString());
+        var value = await command.ExecuteScalarAsync(ct).ConfigureAwait(false);
+        return value is long mb ? mb : null;
+    }
+
+    private static async Task CreateSubdirAsync(
+        SqlConnection connection, string folder, CancellationToken ct)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = "EXEC master.dbo.xp_create_subdir @folder;";
+        command.CommandTimeout = MetadataCommandTimeoutSeconds;
+        command.Parameters.AddWithValue("@folder", folder);
+        await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
 
     private static async Task RunBackupAsync(
@@ -352,11 +323,50 @@ EXEC sys.sp_executesql @sql, N'@path nvarchar(512)', @path = @path;";
         await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
 
+    // xp_delete_file удаляет в папке только распознанные файлы бэкапа (читает заголовок)
+    // старше cutoff — чужой файл с расширением .bak не тронет. cutoff — в локальном
+    // времени SQL-хоста.
+    private static async Task DeleteFilesOlderThanAsync(
+        SqlConnection connection, string folder, DateTime cutoffLocal, CancellationToken ct)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = "EXEC master.dbo.xp_delete_file 0, @folder, N'BAK', @cutoff;";
+        command.CommandTimeout = DeleteCommandTimeoutSeconds;
+        command.Parameters.AddWithValue("@folder", folder);
+        command.Parameters.AddWithValue("@cutoff", cutoffLocal);
+        await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+    }
+
+    // Размер сжатого .bak из истории msdb — best-effort: нет строки/сбой чтения → null,
+    // бэкап уже состоялся и провалом это не считается.
+    private static async Task<long?> TryReadBackupSizeAsync(
+        SqlConnection connection, string path, CancellationToken ct)
+    {
+        const string sql = @"
+SELECT TOP (1) bs.compressed_backup_size
+FROM msdb.dbo.backupset bs
+JOIN msdb.dbo.backupmediafamily mf ON mf.media_set_id = bs.media_set_id
+WHERE mf.physical_device_name = @path
+ORDER BY bs.backup_finish_date DESC;";
+
+        try
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = sql;
+            command.CommandTimeout = MetadataCommandTimeoutSeconds;
+            command.Parameters.AddWithValue("@path", path);
+            var value = await command.ExecuteScalarAsync(ct).ConfigureAwait(false);
+            // compressed_backup_size — numeric(20,0) → decimal.
+            return value is null or DBNull ? null : Convert.ToInt64(value, CultureInfo.InvariantCulture);
+        }
+        catch (SqlException)
+        {
+            return null;
+        }
+    }
+
     [LoggerMessage(Level = LogLevel.Warning, Message = "Бэкап БД: операция провалилась (сервер {Server}, база {Database})")]
     private static partial void LogBackupFailed(ILogger logger, string server, string database, Exception ex);
-
-    [LoggerMessage(Level = LogLevel.Information, Message = "Бэкап БД: удалено {Deleted} устаревших файлов (сервер {Server}, папка {Folder})")]
-    private static partial void LogDeleted(ILogger logger, string server, string folder, int deleted);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Бэкап БД: удаление устаревших файлов провалилось (сервер {Server}, папка {Folder})")]
     private static partial void LogDeleteFailed(ILogger logger, string server, string folder, Exception ex);
