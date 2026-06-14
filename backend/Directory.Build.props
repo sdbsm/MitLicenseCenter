@@ -31,7 +31,7 @@
     строку не добавляем, чтобы health показывал чистый «0.1.0-beta», а не «…+<sha>».
   -->
   <PropertyGroup>
-    <Version>0.2.0-beta</Version>
+    <Version>0.3.0-beta</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 
