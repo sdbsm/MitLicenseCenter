@@ -10,11 +10,3 @@ export function statusBadgeClass(status: InfobaseStatus): string {
       return "border-transparent bg-rose-500/15 text-rose-700 dark:text-rose-300";
   }
 }
-
-/** Число колонок таблицы инфобаз — для colSpan пустых/скелетон-строк.
- *  База 6: Название · Статус · Публикация · Версия платформы · Проверено ·
- *  Действия; +1 «Клиент», +1 чекбоксы bulk-выбора (MLC-081). Колонка «Сервер БД»
- *  снята (MLC-082, single-host). */
-export function infobaseColumnCount(showTenant: boolean, selectable = false): number {
-  return 6 + (showTenant ? 1 : 0) + (selectable ? 1 : 0);
-}
