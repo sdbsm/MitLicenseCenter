@@ -1,6 +1,6 @@
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
-import { MonitorPlayIcon } from "lucide-react";
+import { ArrowDownIcon, ArrowUpIcon, ArrowUpDownIcon, MonitorPlayIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import type { SessionSort, SessionSortKey } from "./useSessionsPage";
 import type { SessionSnapshotEntry } from "./types";
 
 function formatDuration(seconds: number): string {
@@ -30,30 +31,94 @@ function formatDuration(seconds: number): string {
   return mins > 0 ? `${hours}ч ${mins}м` : `${hours}ч`;
 }
 
+interface SortableHeadProps {
+  sortKey: SessionSortKey;
+  sort: SessionSort;
+  onToggle: (key: SessionSortKey) => void;
+  children: React.ReactNode;
+  className?: string;
+}
+
+function SortableHead({ sortKey, sort, onToggle, children, className }: SortableHeadProps) {
+  const isActive = sort.key === sortKey;
+  return (
+    <TableHead className={className}>
+      <button
+        type="button"
+        onClick={() => onToggle(sortKey)}
+        className="hover:text-foreground flex items-center gap-1 transition-colors select-none"
+      >
+        {children}
+        {isActive ? (
+          sort.dir === "asc" ? (
+            <ArrowUpIcon className="size-3.5 shrink-0" />
+          ) : (
+            <ArrowDownIcon className="size-3.5 shrink-0" />
+          )
+        ) : (
+          <ArrowUpDownIcon className="size-3.5 shrink-0 opacity-40" />
+        )}
+      </button>
+    </TableHead>
+  );
+}
+
 interface SessionsTableProps {
   rows: SessionSnapshotEntry[];
   isLoading: boolean;
   isError: boolean;
   isAdmin: boolean;
+  sort: SessionSort;
+  onToggleSort: (key: SessionSortKey) => void;
   onKill: (session: SessionSnapshotEntry) => void;
 }
 
-/** Таблица сессий: шапка, скелет загрузки, пустое состояние и строки. */
-export function SessionsTable({ rows, isLoading, isError, isAdmin, onKill }: SessionsTableProps) {
+/** Таблица сессий: шапка с сортировкой по колонкам, скелет загрузки, пустое состояние и строки. */
+export function SessionsTable({
+  rows,
+  isLoading,
+  isError,
+  isAdmin,
+  sort,
+  onToggleSort,
+  onKill,
+}: SessionsTableProps) {
   const { t } = useTranslation();
   return (
     <div className="rounded-md border">
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>{t("sessions.table.tenant")}</TableHead>
-            <TableHead>{t("sessions.table.infobase")}</TableHead>
+            <SortableHead sortKey="tenantName" sort={sort} onToggle={onToggleSort}>
+              {t("sessions.table.tenant")}
+            </SortableHead>
+            <SortableHead sortKey="infobaseName" sort={sort} onToggle={onToggleSort}>
+              {t("sessions.table.infobase")}
+            </SortableHead>
             <TableHead className="w-28">{t("sessions.table.sessionId")}</TableHead>
             <TableHead className="w-28">{t("sessions.table.appId")}</TableHead>
-            <TableHead>{t("sessions.table.user")}</TableHead>
-            <TableHead className="w-40">{t("sessions.table.startedAt")}</TableHead>
-            <TableHead className="w-24">{t("sessions.table.duration")}</TableHead>
-            <TableHead className="w-28">{t("sessions.table.consumesLicense")}</TableHead>
+            <SortableHead sortKey="userName" sort={sort} onToggle={onToggleSort}>
+              {t("sessions.table.user")}
+            </SortableHead>
+            <SortableHead sortKey="startedAt" sort={sort} onToggle={onToggleSort} className="w-40">
+              {t("sessions.table.startedAt")}
+            </SortableHead>
+            <SortableHead
+              sortKey="durationSeconds"
+              sort={sort}
+              onToggle={onToggleSort}
+              className="w-24"
+            >
+              {t("sessions.table.duration")}
+            </SortableHead>
+            <SortableHead
+              sortKey="consumesLicense"
+              sort={sort}
+              onToggle={onToggleSort}
+              className="w-28"
+            >
+              {t("sessions.table.consumesLicense")}
+            </SortableHead>
             {isAdmin && <TableHead className="w-36">{t("sessions.table.action")}</TableHead>}
           </TableRow>
         </TableHeader>

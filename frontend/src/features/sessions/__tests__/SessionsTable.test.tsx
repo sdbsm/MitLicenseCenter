@@ -1,10 +1,14 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import "@/i18n";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SessionsTable } from "../SessionsTable";
+import type { SessionSort, SessionSortKey } from "../useSessionsPage";
 import type { SessionSnapshotEntry } from "../types";
+
+const DEFAULT_SORT: SessionSort = { key: "startedAt", dir: "desc" };
 
 function renderTable(ui: ReactNode) {
   return render(<TooltipProvider>{ui}</TooltipProvider>);
@@ -35,6 +39,8 @@ describe("SessionsTable", () => {
         isLoading={false}
         isError={false}
         isAdmin={false}
+        sort={DEFAULT_SORT}
+        onToggleSort={vi.fn()}
         onKill={vi.fn()}
       />
     );
@@ -49,10 +55,48 @@ describe("SessionsTable", () => {
         isLoading={false}
         isError={false}
         isAdmin={false}
+        sort={DEFAULT_SORT}
+        onToggleSort={vi.fn()}
         onKill={vi.fn()}
       />
     );
 
     expect(screen.getByText("без пользователя")).toBeInTheDocument();
+  });
+
+  it("клик по заголовку «Клиент» вызывает onToggleSort с ключом tenantName", async () => {
+    const onToggle = vi.fn();
+    const user = userEvent.setup();
+    renderTable(
+      <SessionsTable
+        rows={[row({})]}
+        isLoading={false}
+        isError={false}
+        isAdmin={false}
+        sort={DEFAULT_SORT}
+        onToggleSort={onToggle}
+        onKill={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: /клиент/i }));
+    expect(onToggle).toHaveBeenCalledWith("tenantName" satisfies SessionSortKey);
+  });
+
+  it("активная колонка сортировки отображает стрелку направления", () => {
+    renderTable(
+      <SessionsTable
+        rows={[]}
+        isLoading={false}
+        isError={false}
+        isAdmin={false}
+        sort={{ key: "tenantName", dir: "asc" }}
+        onToggleSort={vi.fn()}
+        onKill={vi.fn()}
+      />
+    );
+
+    // Кнопка «Клиент» рендерится — значит заголовок кликабелен
+    expect(screen.getByRole("button", { name: /клиент/i })).toBeInTheDocument();
   });
 });

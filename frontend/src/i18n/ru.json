@@ -1046,7 +1046,8 @@
     "filters": {
       "search": "Поиск по клиенту или пользователю…",
       "infobase": "Инфобаза",
-      "allInfobases": "Все инфобазы"
+      "allInfobases": "Все инфобазы",
+      "searchInfobase": "Поиск по инфобазе…"
     },
     "kill": {
       "title": "Завершить сеанс?",

@@ -1,12 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SearchableSelect, type SearchableSelectOption } from "@/components/ui/SearchableSelect";
 import type { InfobaseListItem } from "@/features/infobases/types";
 
 interface SessionsFiltersBarProps {
@@ -16,7 +10,7 @@ interface SessionsFiltersBarProps {
   onChange: (next: { q?: string; infobaseId?: string }) => void;
 }
 
-/** Панель фильтров сессий: текстовый поиск (клиент/пользователь) + выбор инфобазы. */
+/** Панель фильтров сессий: текстовый поиск (клиент/пользователь) + searchable-выбор инфобазы (UX-38). */
 export function SessionsFiltersBar({
   q,
   infobaseId,
@@ -24,6 +18,12 @@ export function SessionsFiltersBar({
   onChange,
 }: SessionsFiltersBarProps) {
   const { t } = useTranslation();
+
+  const infobaseOptions: SearchableSelectOption[] = infobases.map((ib) => ({
+    value: ib.id,
+    label: ib.name,
+  }));
+
   return (
     <div className="flex flex-wrap gap-3">
       <Input
@@ -32,22 +32,15 @@ export function SessionsFiltersBar({
         value={q}
         onChange={(e) => onChange({ q: e.target.value })}
       />
-      <Select
-        value={infobaseId || "_all"}
-        onValueChange={(v) => onChange({ infobaseId: v === "_all" ? "" : v })}
-      >
-        <SelectTrigger className="w-52">
-          <SelectValue placeholder={t("sessions.filters.allInfobases")} />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="_all">{t("sessions.filters.allInfobases")}</SelectItem>
-          {infobases.map((ib) => (
-            <SelectItem key={ib.id} value={ib.id}>
-              {ib.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <SearchableSelect
+        options={infobaseOptions}
+        value={infobaseId || null}
+        onChange={(v) => onChange({ infobaseId: v ?? "" })}
+        placeholder={t("sessions.filters.allInfobases")}
+        searchPlaceholder={t("sessions.filters.searchInfobase")}
+        aria-label={t("sessions.filters.infobase")}
+        triggerClassName="w-52"
+      />
     </div>
   );
 }
