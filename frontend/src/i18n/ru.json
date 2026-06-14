@@ -104,7 +104,12 @@
     "topTenants": {
       "title": "Топ клиентов по нагрузке",
       "empty": "Нет данных по активным сеансам.",
-      "consumedOf": "{{consumed}} / {{limit}}"
+      "consumedOf": "{{consumed}} / {{limit}}",
+      "chart": {
+        "consumed": "Использовано",
+        "axisLicenses": "лицензий",
+        "limit": "Лимит: {{limit}}"
+      }
     },
     "refresh": {
       "updated": "Обновлено",

@@ -3,21 +3,13 @@ import { Link } from "react-router";
 import { RelativeTime } from "@/components/ui/RelativeTime";
 import { StatusBadge, type StatusBadgeVariant } from "@/components/ui/StatusBadge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { severityToProgressClass, quotaSeverity } from "@/lib/quota";
 import { HostHealthCard } from "./HostHealthCard";
+import { TopTenantsChart, TopTenantsLegend } from "./TopTenantsChart";
 import type { DashboardRasHealth, DashboardSummaryResponse, TenantConsumptionRow } from "./types";
 import { useDashboardSummary } from "./useDashboardSummary";
-
-/** Цвет прогресс-бара по данным строки топа. Делегирует в quota.ts — единый
- *  источник порогов 75/90. consumed/limit известны из строки дашборда; дашборд
- *  считает их серверно из того же снапшота, что и FE-оверлей на /tenants. */
-function progressColorClass(row: TenantConsumptionRow): string {
-  return severityToProgressClass(quotaSeverity(row.consumed, row.limit));
-}
 
 export function DashboardPage() {
   const { t } = useTranslation();
@@ -250,6 +242,9 @@ interface TopTenantsCardProps {
   isLoading: boolean;
 }
 
+// MLC-143: прогресс-бары заменены на горизонтальную recharts-диаграмму.
+// Имена клиентов — кликабельные ссылки (инвариант MLC-085 сохранён).
+// TopTenantsLegend рендерит ссылки вне SVG, TopTenantsChart — бары с Cell-цветами.
 function TopTenantsCard({ data, isLoading }: TopTenantsCardProps) {
   const { t } = useTranslation();
 
@@ -268,28 +263,16 @@ function TopTenantsCard({ data, isLoading }: TopTenantsCardProps) {
         ) : !data || data.length === 0 ? (
           <p className="text-muted-foreground text-sm">{t("dashboard.topTenants.empty")}</p>
         ) : (
-          <ul className="space-y-3">
-            {data.map((row) => (
-              <li key={row.tenantId} className="grid grid-cols-[1fr_auto] items-center gap-3">
-                <div className="min-w-0 space-y-1.5">
-                  <Link
-                    to={`/tenants/${row.tenantId}`}
-                    className="hover:text-primary block truncate text-sm font-medium hover:underline"
-                  >
-                    {row.tenantName}
-                  </Link>
-                  <Progress value={row.percent} className={progressColorClass(row)} />
-                </div>
-                <p className="text-muted-foreground text-sm tabular-nums">
-                  {t("dashboard.topTenants.consumedOf", {
-                    consumed: row.consumed,
-                    limit: row.limit,
-                  })}{" "}
-                  ({row.percent}%)
-                </p>
-              </li>
-            ))}
-          </ul>
+          <div className="flex gap-3">
+            {/* Список кликабельных имён клиентов (инвариант: навигация на /tenants/:id). */}
+            <div className="shrink-0">
+              <TopTenantsLegend data={data} />
+            </div>
+            {/* Горизонтальная recharts-диаграмма — бары с цветами severity квоты. */}
+            <div className="min-w-0 flex-1">
+              <TopTenantsChart data={data} />
+            </div>
+          </div>
         )}
       </CardContent>
     </Card>

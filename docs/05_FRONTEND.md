@@ -63,7 +63,7 @@ frontend/src/
 | `audit` | `/audit` — журнал операций |
 | `auth` | `/login`, `ProtectedRoute`, `ForcePasswordChange` |
 | `backups` | диалог бэкапов на карточке инфобазы |
-| `dashboard` | `/` — KPI-карточки, здоровье хоста |
+| `dashboard` | `/` — KPI-карточки (кликабельны), recharts-график топ-клиентов, здоровье хоста |
 | `discovery` | `DiscoveryField` — общий компонент автоподстановки |
 | `infobases` | `/infobases` — CRUD инфобаз и публикаций |
 | `performance` | `/performance` — метрики хоста, 1С, SQL |
