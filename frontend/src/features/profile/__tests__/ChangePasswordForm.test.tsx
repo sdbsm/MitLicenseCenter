@@ -82,4 +82,23 @@ describe("ChangePasswordForm", () => {
     expect(onSuccess).not.toHaveBeenCalled();
     expect(mockedToastError).not.toHaveBeenCalled();
   });
+
+  describe("кнопка Отмена (UX-39)", () => {
+    it("показывается и вызывает onCancel при клике", async () => {
+      const onCancel = vi.fn();
+      const { u } = setup({ onCancel });
+
+      const cancelBtn = screen.getByRole("button", { name: "Отмена" });
+      expect(cancelBtn).toBeInTheDocument();
+
+      await u.click(cancelBtn);
+      expect(onCancel).toHaveBeenCalledTimes(1);
+      expect(mockedApi).not.toHaveBeenCalled();
+    });
+
+    it("не показывается когда onCancel не передан (форс-экран)", () => {
+      setup({});
+      expect(screen.queryByRole("button", { name: "Отмена" })).not.toBeInTheDocument();
+    });
+  });
 });

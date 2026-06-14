@@ -106,7 +106,11 @@ export function Topbar() {
             <DialogTitle>{t("profile.password.title")}</DialogTitle>
             <DialogDescription>{t("profile.password.subtitle")}</DialogDescription>
           </DialogHeader>
-          <ChangePasswordForm showReset={false} onSuccess={() => setPasswordDialogOpen(false)} />
+          <ChangePasswordForm
+            showReset={false}
+            onSuccess={() => setPasswordDialogOpen(false)}
+            onCancel={() => setPasswordDialogOpen(false)}
+          />
         </DialogContent>
       </Dialog>
     </header>
