@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import ru from "@/i18n/ru.json";
+import { ru } from "@/i18n";
 import { AUDIT_ACTION_TYPES, type AuditActionType } from "../types";
 
 /**

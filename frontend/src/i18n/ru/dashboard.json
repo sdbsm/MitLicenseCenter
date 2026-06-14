@@ -1,0 +1,45 @@
+{
+  "dashboard": {
+    "title": "Обзор",
+    "subtitle": "Клиенты, лицензии и здоровье хоста — с переходами в разделы.",
+    "kpi": {
+      "tenants": "Клиенты",
+      "tenantsLabel": "активных из {{total}}",
+      "infobases": "Инфобазы",
+      "sessions": "Активные сеансы",
+      "consumed": "Использовано лицензий",
+      "available": "Свободно лицензий",
+      "rasStatus": "Статус RAS"
+    },
+    "ras": {
+      "ok": "OK",
+      "failed": "Сбой",
+      "checking": "Проверка…",
+      "lastError": "детали ошибки",
+      "lastChecked": "проверено",
+      "hint": "Нет связи с кластером 1С. Проверьте адрес RAS в разделе «Параметры».",
+      "settingsLink": "Открыть «Параметры»",
+      "consecutiveFailures_one": "{{count}} ошибка подряд",
+      "consecutiveFailures_few": "{{count}} ошибки подряд",
+      "consecutiveFailures_many": "{{count}} ошибок подряд"
+    },
+    "host": {
+      "title": "Здоровье хоста",
+      "error": "Не удалось получить метрики хоста."
+    },
+    "topTenants": {
+      "title": "Топ клиентов по нагрузке",
+      "empty": "Нет данных по активным сеансам.",
+      "consumedOf": "{{consumed}} / {{limit}}",
+      "chart": {
+        "consumed": "Использовано",
+        "axisLicenses": "лицензий",
+        "limit": "Лимит: {{limit}}"
+      }
+    },
+    "refresh": {
+      "updated": "Обновлено",
+      "error": "Не удалось загрузить данные дашборда."
+    }
+  }
+}
