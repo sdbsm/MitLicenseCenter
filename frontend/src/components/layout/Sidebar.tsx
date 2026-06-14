@@ -13,6 +13,7 @@ import { useTranslation } from "react-i18next";
 import {
   Sidebar as SidebarRoot,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -20,6 +21,7 @@ import {
   SidebarMenu,
 } from "@/components/ui/sidebar";
 import { useMe } from "@/features/auth/useAuth";
+import { useHealth } from "@/features/health/useHealth";
 import { NavLinkItem } from "./NavLinkItem";
 
 // Группировка MLC-084 (UX-аудит §3.5): Обзор вне групп, далее Мониторинг /
@@ -28,6 +30,10 @@ export function Sidebar() {
   const { t } = useTranslation();
   const { data: me } = useMe();
   const isAdmin = me?.roles?.includes("Admin") ?? false;
+  // MLC-149: версия установленной панели из анонимного /api/v1/health. При
+  // недоступном /health `version` остаётся undefined — строка не рендерится,
+  // шелл не ломается.
+  const { data: health } = useHealth();
 
   return (
     <SidebarRoot collapsible="icon">
@@ -81,6 +87,14 @@ export function Sidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+
+      {health?.version && (
+        <SidebarFooter className="border-sidebar-border border-t group-data-[collapsible=icon]:hidden">
+          <span className="text-sidebar-foreground/50 px-2 text-xs">
+            {t("nav.version", { version: health.version })}
+          </span>
+        </SidebarFooter>
+      )}
     </SidebarRoot>
   );
 }

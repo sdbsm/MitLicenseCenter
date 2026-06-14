@@ -35,7 +35,7 @@ frontend/src/
   App.tsx                 — корень: провайдеры QueryClient, I18n, Router, Toaster
   main.tsx                — точка входа
   routes/router.tsx       — createBrowserRouter, lazy-импорты страниц
-  features/               — 14 фич (см. ниже)
+  features/               — 15 фич (см. ниже)
   components/
     layout/               — AppShell, Sidebar, Topbar, ThemeToggle
     ui/                   — shadcn/radix примитивы (button, dialog, form, …)
@@ -57,7 +57,7 @@ frontend/src/
   test/setup.ts           — jsdom-заглушки (ResizeObserver, matchMedia, …)
 ```
 
-### 14 фич (`features/`)
+### 15 фич (`features/`)
 
 | Фича | Страница / роль |
 |---|---|
@@ -66,6 +66,7 @@ frontend/src/
 | `backups` | диалог бэкапов на карточке инфобазы |
 | `dashboard` | `/` — KPI-карточки (кликабельны), recharts-график топ-клиентов, здоровье хоста |
 | `discovery` | `DiscoveryField` — общий компонент автоподстановки |
+| `health` | версия панели в подвале сайдбара (анонимный `/api/v1/health`) |
 | `infobases` | `/infobases` — CRUD инфобаз и публикаций |
 | `performance` | `/performance` — метрики хоста, 1С, SQL |
 | `profile` | форма смены пароля (в ForcePasswordChange и профиле) |

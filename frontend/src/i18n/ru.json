@@ -42,6 +42,7 @@
     "audit": "Аудит",
     "users": "Пользователи",
     "settings": "Параметры",
+    "version": "Версия {{version}}",
     "groups": {
       "monitoring": "Мониторинг",
       "management": "Управление",
