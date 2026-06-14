@@ -35,6 +35,7 @@ const sampleTenant: Tenant = {
   createdAt: "2026-01-01T00:00:00Z",
   updatedAt: null,
   infobaseCount: 0,
+  rowVersion: null,
 };
 
 function setup(tenant?: Tenant | null) {
@@ -90,6 +91,49 @@ describe("TenantFormDialog", () => {
     );
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: tenantsQueryKey });
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("MLC-136 — в режиме редактирования шлёт прочитанный rowVersion в теле PUT", async () => {
+    const withToken: Tenant = { ...sampleTenant, rowVersion: "AAAAAAAAB9E=" };
+    mockedApi.mockResolvedValueOnce({ ...withToken, name: "Acme 2" });
+    const { user } = setup(withToken);
+
+    const nameInput = screen.getByRole("textbox");
+    await user.clear(nameInput);
+    await user.type(nameInput, "Acme 2");
+    await user.click(screen.getByRole("button", { name: "Сохранить" }));
+
+    await waitFor(() =>
+      expect(mockedApi).toHaveBeenCalledWith(`/api/v1/tenants/${withToken.id}`, {
+        method: "PUT",
+        body: {
+          name: "Acme 2",
+          maxConcurrentLicenses: 10,
+          isActive: true,
+          rowVersion: "AAAAAAAAB9E=",
+        },
+      })
+    );
+  });
+
+  it("MLC-136 — 409 TENANT_CONCURRENCY_CONFLICT → тост, диалог открыт, не ошибка поля", async () => {
+    mockedApi.mockRejectedValueOnce(
+      new ApiError(409, "conflict", { code: "TENANT_CONCURRENCY_CONFLICT" })
+    );
+    const withToken: Tenant = { ...sampleTenant, rowVersion: "AAAAAAAAB9E=" };
+    const { onOpenChange, user } = setup(withToken);
+
+    const nameInput = screen.getByRole("textbox");
+    await user.clear(nameInput);
+    await user.type(nameInput, "Acme 2");
+    await user.click(screen.getByRole("button", { name: "Сохранить" }));
+
+    await waitFor(() =>
+      expect(mockedToastError).toHaveBeenCalledWith(
+        "Данные клиента изменены другим пользователем. Обновите страницу и повторите."
+      )
+    );
+    expect(onOpenChange).not.toHaveBeenCalled();
   });
 
   it("409 NAME_DUPLICATE → локализованная ошибка на поле «Название», диалог открыт", async () => {

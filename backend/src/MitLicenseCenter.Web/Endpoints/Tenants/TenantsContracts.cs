@@ -10,7 +10,12 @@ public sealed record TenantResponse(
     bool IsActive,
     DateTime CreatedAt,
     DateTime? UpdatedAt,
-    int InfobaseCount = 0);
+    int InfobaseCount = 0,
+    // MLC-136 (R12c) — токен оптимистической блокировки. System.Text.Json сериализует
+    // byte[] как base64-строку; при null поле опускается (WhenWritingNull). Под EF
+    // InMemory токен не материализуется (null → поле отсутствует), что согласуется с
+    // omit-null дисциплиной фронта (omittable).
+    byte[]? RowVersion = null);
 
 public sealed record TenantListResponse(
     IReadOnlyList<TenantResponse> Items,
@@ -26,10 +31,16 @@ public sealed record CreateTenantRequest(
 public sealed record UpdateTenantRequest(
     [property: Required, StringLength(200, MinimumLength = 1)] string Name,
     [property: Range(0, 100_000)] int MaxConcurrentLicenses,
-    bool IsActive);
+    bool IsActive,
+    // MLC-136 (R12c) — токен оптимистической блокировки, прочитанный клиентом при
+    // загрузке формы (base64 → byte[]). ОПЦИОНАЛЕН: null оставляет обратную совместимость
+    // (старые клиенты / InMemory-тесты без токена сохраняются как раньше). Непустой токен
+    // выставляется как OriginalValue → конкурентный апдейт ловится DbUpdateConcurrencyException.
+    byte[]? RowVersion = null);
 
 internal static class TenantMappings
 {
     public static TenantResponse ToResponse(this Tenant t) =>
-        new(t.Id, t.Name, t.MaxConcurrentLicenses, t.IsActive, t.CreatedAt, t.UpdatedAt);
+        new(t.Id, t.Name, t.MaxConcurrentLicenses, t.IsActive, t.CreatedAt, t.UpdatedAt,
+            RowVersion: t.RowVersion);
 }

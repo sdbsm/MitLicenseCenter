@@ -81,7 +81,8 @@ public static class TenantsEndpoints
                 t.IsActive,
                 t.CreatedAt,
                 t.UpdatedAt,
-                db.Infobases.Count(x => x.TenantId == t.Id)))
+                db.Infobases.Count(x => x.TenantId == t.Id),
+                t.RowVersion))
             .ToListAsync(ct).ConfigureAwait(false);
 
         return TypedResults.Ok(new TenantListResponse(items, total, p, ps));
@@ -182,10 +183,31 @@ public static class TenantsEndpoints
         tenant.IsActive = request.IsActive;
         tenant.UpdatedAt = clock.GetUtcNow().UtcDateTime;
 
+        // MLC-136 (R12c) — оптимистическая блокировка. Если клиент прислал прочитанный им
+        // rowversion, выставляем его как ОЖИДАЕМУЮ версию (OriginalValue). SQL Server при
+        // UPDATE добавит `WHERE RowVersion = @original`; если строку успели изменить —
+        // 0 затронутых строк → EF бросает DbUpdateConcurrencyException, ловим ниже → 409.
+        // RowVersion == null (старый клиент / InMemory-тест) оставляет поведение прежним.
+        if (request.RowVersion is not null)
+        {
+            db.Entry(tenant).Property(t => t.RowVersion).OriginalValue = request.RowVersion;
+        }
+
         // MLC-004 — backstop на гонке (см. CreateAsync): нарушение IX_Tenants_Name мапим
-        // в тот же 409, что и предварительный AnyAsync.
-        var conflict = await db.SaveWithUniquenessBackstopAsync(ct,
-            (UniqueIndexViolation.TenantName, () => Problems.TenantNameDuplicate(normalized))).ConfigureAwait(false);
+        // в тот же 409, что и предварительный AnyAsync. MLC-136 — concurrency-исключение
+        // ловим ОТДЕЛЬНЫМ try/catch вокруг того же SaveChanges: DbUpdateConcurrencyException —
+        // подкласс DbUpdateException, но uniqueness-backstop его не проглатывает (Identify
+        // вернёт None и пробросит), поэтому здесь оно долетит наружу и смапится в свой 409.
+        ProblemDetails? conflict;
+        try
+        {
+            conflict = await db.SaveWithUniquenessBackstopAsync(ct,
+                (UniqueIndexViolation.TenantName, () => Problems.TenantNameDuplicate(normalized))).ConfigureAwait(false);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return TypedResults.Conflict(Problems.TenantConcurrencyConflict());
+        }
         if (conflict is not null)
         {
             return TypedResults.Conflict(conflict);

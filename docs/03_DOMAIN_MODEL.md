@@ -32,6 +32,14 @@
 | `IsActive` | `bool` | Активен ли клиент. Enforcement применяется только к активным. |
 | `CreatedAt` | `DateTime` | Момент создания. |
 | `UpdatedAt` | `DateTime?` | Момент последнего изменения; `null` до первого изменения. |
+| `RowVersion` | `byte[]?` | Токен оптимистической блокировки (SQL Server `rowversion`). |
+
+**Инвариант (оптимистическая блокировка).** `Tenant` несёт rowversion-токен: форма
+редактирования читает его и возвращает при сохранении (`PUT /tenants/{id}`). Конкурентный
+апдейт с устаревшим токеном (клиент изменён другим пользователем между чтением и записью)
+отклоняется с **409** (`TENANT_CONCURRENCY_CONFLICT`) — потерянного обновления не происходит.
+Токен опционален в запросе: при его отсутствии апдейт выполняется без проверки версии
+(обратная совместимость). `Infobase`/`Publication` пока без токена (follow-up).
 
 **Infobase — информационная база.**
 
@@ -532,7 +540,7 @@ Defense-in-depth: `WebinstArgs.BuildConnStr` отдельно отвергает
 
 | Таблица | Назначение | Заметки по столбцам |
 |---|---|---|
-| `Tenants` | Клиенты | `Name nvarchar(200)`. |
+| `Tenants` | Клиенты | `Name nvarchar(200)`; `RowVersion rowversion` (токен оптимистической блокировки). |
 | `Infobases` | Инфобазы | `Name nvarchar(200)`, `DatabaseName nvarchar(200)`; `Status int`. |
 | `Publications` | Публикации IIS | `SiteName`/`VirtualPath nvarchar(200)`, `PlatformVersion nvarchar(50)`, `PhysicalPathOverride nvarchar(260)` (MAX_PATH); `Source`/`LastCheckStatus int`; `LastCheckDetails nvarchar(max)`. |
 | `AuditLogs` | Журнал аудита | `Initiator nvarchar(256)`, `Description nvarchar(max)`; `ActionType int`, `Reason int?`; `Timestamp` DEFAULT `SYSUTCDATETIME()`. |

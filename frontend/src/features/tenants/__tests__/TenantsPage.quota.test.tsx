@@ -29,9 +29,7 @@ vi.mock("react-router", async (importOriginal) => {
   const actual = await importOriginal<typeof ReactRouterModule>();
   return {
     ...actual,
-    Link: ({ children, to }: { children: ReactNode; to: string }) => (
-      <a href={to}>{children}</a>
-    ),
+    Link: ({ children, to }: { children: ReactNode; to: string }) => <a href={to}>{children}</a>,
   };
 });
 
@@ -43,11 +41,7 @@ function makePagedResponse(items: Tenant[]) {
   return { items, total: items.length, page: 1, pageSize: 25 };
 }
 
-function makeTenant(
-  id: string,
-  name: string,
-  maxConcurrentLicenses: number
-): Tenant {
+function makeTenant(id: string, name: string, maxConcurrentLicenses: number): Tenant {
   return {
     id,
     name,
@@ -56,12 +50,11 @@ function makeTenant(
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: null,
     infobaseCount: 0,
+    rowVersion: null,
   };
 }
 
-function makeSnapshotResponse(
-  entries: Array<{ tenantId: string; consumesLicense: boolean }>
-) {
+function makeSnapshotResponse(entries: Array<{ tenantId: string; consumesLicense: boolean }>) {
   return {
     items: entries.map((e, i) => ({
       sessionId: `session-${i}`,
@@ -120,18 +113,13 @@ describe("TenantsPage — quota column (MLC-122)", () => {
 
     // Проверяем наличие badge с data-variant="danger"
     const dangerBadge = await screen.findByText("Превышение лимита");
-    expect(dangerBadge.closest("[data-variant]")).toHaveAttribute(
-      "data-variant",
-      "danger"
-    );
+    expect(dangerBadge.closest("[data-variant]")).toHaveAttribute("data-variant", "danger");
   });
 
   it("безлимитный клиент (limit=0) — без акцента, показывает «—»", async () => {
     const unlimitedTenant = makeTenant("t-unlimited", "Без лимита", 0);
 
-    const snapshot = makeSnapshotResponse([
-      { tenantId: "t-unlimited", consumesLicense: true },
-    ]);
+    const snapshot = makeSnapshotResponse([{ tenantId: "t-unlimited", consumesLicense: true }]);
 
     mockedApi.mockImplementation((path: string) => {
       if (typeof path === "string" && path.includes("snapshot")) {

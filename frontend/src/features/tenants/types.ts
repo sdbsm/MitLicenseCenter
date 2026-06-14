@@ -9,6 +9,11 @@ export const tenantSchema = z.object({
   createdAt: z.string(),
   updatedAt: omittable(z.string()),
   infobaseCount: z.number(),
+  // MLC-136 (R12c) — токен оптимистической блокировки (SQL Server rowversion → base64).
+  // Форма редактирования шлёт его обратно; конкурентный апдейт с устаревшим токеном → 409
+  // (TENANT_CONCURRENCY_CONFLICT). API опускает null-поля (omit-null, [[api-omits-null-fields]]):
+  // под InMemory-тестами/до первой записи токена нет — omittable принимает отсутствие/null.
+  rowVersion: omittable(z.string()),
 });
 
 /**
@@ -26,4 +31,8 @@ export interface TenantInput {
   name: string;
   maxConcurrentLicenses: number;
   isActive: boolean;
+  // MLC-136 (R12c) — прочитанный клиентом rowversion, отправляемый обратно при
+  // редактировании (опционально: при создании отсутствует). Сервер сверяет его как
+  // ожидаемую версию; рассинхрон → 409 TENANT_CONCURRENCY_CONFLICT.
+  rowVersion?: string;
 }
