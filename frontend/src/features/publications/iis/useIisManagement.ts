@@ -2,17 +2,21 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useInvalidatingMutation } from "@/lib/useInvalidatingMutation";
 import { infobasesQueryKey } from "@/features/infobases/useInfobases";
-import type {
-  IisAppPool,
-  IisDiscoveryResponse,
-  IisOperationResponse,
-  IisServerStatus,
-  IisSiteState,
+import {
+  iisAppPoolsResponseSchema,
+  iisServerStatusSchema,
+  iisSitesResponseSchema,
+  type IisAppPoolsResponse,
+  type IisOperationResponse,
+  type IisServerStatus,
+  type IisSitesResponse,
 } from "./iisTypes";
 
 // MLC-047 (ADR-24): хуки управления жизненным циклом IIS. Discovery (пулы/сайты) +
 // мутации recycle/start/stop/restart/iisreset. После мутации инвалидируем discovery
 // (бейджи состояний) и список инфобаз (iisreset/stop меняют статус публикаций в нём).
+// MLC-132: read-ответы проходят Zod-валидацию (схемы в iisTypes.ts); enum state
+// forward-compatible (незнакомое будущее значение не роняет список).
 export const iisServerQueryKey = ["iis", "server"] as const;
 export const iisPoolsQueryKey = ["iis", "pools"] as const;
 export const iisSitesQueryKey = ["iis", "sites"] as const;
@@ -28,7 +32,7 @@ const invalidateIis = () => [
 export function useIisServerStatus() {
   return useQuery({
     queryKey: iisServerQueryKey,
-    queryFn: () => api<IisServerStatus>("/api/v1/iis/server"),
+    queryFn: () => api<IisServerStatus>("/api/v1/iis/server", { schema: iisServerStatusSchema }),
     refetchInterval: 30_000,
     refetchOnWindowFocus: true,
   });
@@ -37,7 +41,10 @@ export function useIisServerStatus() {
 export function useIisAppPools() {
   return useQuery({
     queryKey: iisPoolsQueryKey,
-    queryFn: () => api<IisDiscoveryResponse<IisAppPool>>("/api/v1/iis/application-pools"),
+    queryFn: () =>
+      api<IisAppPoolsResponse>("/api/v1/iis/application-pools", {
+        schema: iisAppPoolsResponseSchema,
+      }),
     refetchInterval: 30_000,
     refetchOnWindowFocus: true,
   });
@@ -46,7 +53,7 @@ export function useIisAppPools() {
 export function useIisSites() {
   return useQuery({
     queryKey: iisSitesQueryKey,
-    queryFn: () => api<IisDiscoveryResponse<IisSiteState>>("/api/v1/iis/sites"),
+    queryFn: () => api<IisSitesResponse>("/api/v1/iis/sites", { schema: iisSitesResponseSchema }),
     refetchInterval: 30_000,
     refetchOnWindowFocus: true,
   });
@@ -54,6 +61,9 @@ export function useIisSites() {
 
 // Recycle пула — разрушительная операция: confirm:true обязателен (серверный гейт),
 // токен-подтверждение обеспечивает UI перед вызовом.
+// Мутации возвращают IisOperationResponse (echo-ответ с именем и новым state);
+// значимость схемы здесь ниже (state читается фоновым refetch discovery), поэтому
+// валидацию на мутациях пропускаем (see MLC-132 PR body).
 export function useRecyclePool() {
   return useInvalidatingMutation({
     mutationFn: (name: string) =>

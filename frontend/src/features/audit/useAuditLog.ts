@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { AuditFilters, AuditPagedResponse } from "./types";
+import { auditPagedResponseSchema, type AuditFilters, type AuditPagedResponse } from "./types";
 
 export const auditQueryKey = ["audit"] as const;
 
@@ -29,12 +29,16 @@ function buildQuery(filters: AuditFilters): string {
   return qs.toString();
 }
 
+// MLC-132: ответ проходит Zod-валидацию (auditPagedResponseSchema).
+// reason/tenantId опускаются бэкендом при null (WhenWritingNull) → omittable().
+// actionType forward-compatible: незнакомое будущее значение пропускается как сырая строка.
 export function useAuditLog(filters: AuditFilters) {
   return useQuery({
-    // Сериализованные фильтры → стабильный ключ кэша, который меняется только при
-    // изменении самих фильтров (URL-state синхронизирован через useSearchParams).
     queryKey: [...auditQueryKey, filters],
-    queryFn: () => api<AuditPagedResponse>(`/api/v1/audit?${buildQuery(filters)}`),
+    queryFn: () =>
+      api<AuditPagedResponse>(`/api/v1/audit?${buildQuery(filters)}`, {
+        schema: auditPagedResponseSchema,
+      }),
     placeholderData: (prev) => prev,
   });
 }

@@ -47,15 +47,23 @@ export type Infobase = z.infer<typeof infobaseSchema>;
 export type InfobaseListItem = z.infer<typeof infobaseListItemSchema>;
 export type InfobaseListResponse = z.infer<typeof infobaseListResponseSchema>;
 
-export interface InfobaseDetail {
-  infobase: Infobase;
-  publication: Publication;
-}
+/**
+ * Zod-схемы ответов detail/availability (MLC-132, FE-09).
+ * InfobaseDetailResponse = { infobase: InfobaseResponse, publication: PublicationResponse }.
+ * ClusterIdAvailabilityResponse: takenByTenantName=null → ключ отсутствует → omittable().
+ */
+export const infobaseDetailSchema = z.object({
+  infobase: infobaseSchema,
+  publication: publicationSchema,
+});
 
-export interface ClusterIdAvailability {
-  taken: boolean;
-  takenByTenantName: string | null;
-}
+export const clusterIdAvailabilitySchema = z.object({
+  taken: z.boolean(),
+  takenByTenantName: omittable(z.string()),
+});
+
+export type InfobaseDetail = z.infer<typeof infobaseDetailSchema>;
+export type ClusterIdAvailability = z.infer<typeof clusterIdAvailabilitySchema>;
 
 // Тела запросов (не ответы) — runtime-валидация не нужна, оставляем рукописными.
 export interface PublicationInput {

@@ -50,7 +50,8 @@ describe("useLicenseUsage", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data).toEqual(sample);
     expect(mockedApi).toHaveBeenCalledWith(
-      "/api/v1/reports/license-usage?from=2026-06-01T00%3A00%3A00Z&to=2026-06-07T23%3A59%3A59Z"
+      "/api/v1/reports/license-usage?from=2026-06-01T00%3A00%3A00Z&to=2026-06-07T23%3A59%3A59Z",
+      expect.objectContaining({ schema: expect.anything() })
     );
   });
 
@@ -59,7 +60,12 @@ describe("useLicenseUsage", () => {
 
     renderHook(() => useLicenseUsage({ from: null, to: null }), { wrapper: makeWrapper() });
 
-    await waitFor(() => expect(mockedApi).toHaveBeenCalledWith("/api/v1/reports/license-usage"));
+    await waitFor(() =>
+      expect(mockedApi).toHaveBeenCalledWith(
+        "/api/v1/reports/license-usage",
+        expect.objectContaining({ schema: expect.anything() })
+      )
+    );
   });
 
   it("surfaces an error state when the api throws", async () => {
@@ -85,7 +91,10 @@ describe("useLicenseUsageByTenant", () => {
     );
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(mockedApi).toHaveBeenCalledWith("/api/v1/reports/license-usage/tenant-1");
+    expect(mockedApi).toHaveBeenCalledWith(
+      "/api/v1/reports/license-usage/tenant-1",
+      expect.objectContaining({ schema: expect.anything() })
+    );
   });
 
   it("stays disabled (no request) when no tenant is selected", async () => {

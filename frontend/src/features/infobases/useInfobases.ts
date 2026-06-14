@@ -3,6 +3,8 @@ import { api } from "@/lib/api";
 import { useInvalidatingMutation } from "@/lib/useInvalidatingMutation";
 import { tenantsQueryKey } from "@/features/tenants/useTenants";
 import {
+  clusterIdAvailabilitySchema,
+  infobaseDetailSchema,
   infobaseListResponseSchema,
   type ClusterIdAvailability,
   type CreateInfobaseInput,
@@ -45,9 +47,8 @@ export function useInfobases(
   });
 }
 
-// Точечная проверка занятости базы кластера (MLC-015) — вместо выгрузки всех баз во
-// фронтовой форме. Дёргается при выборе/вводе валидного GUID базы; `excludeId` исключает
-// собственную базу в режиме редактирования.
+// Точечная проверка занятости базы кластера (MLC-015). takenByTenantName=null →
+// бэкенд опускает ключ (WhenWritingNull) → clusterIdAvailabilitySchema с omittable().
 export function useClusterIdAvailability(
   clusterInfobaseId: string,
   excludeId?: string,
@@ -65,15 +66,23 @@ export function useClusterIdAvailability(
       { clusterInfobaseId, excludeId: excludeId ?? null },
     ],
     queryFn: () =>
-      api<ClusterIdAvailability>(`/api/v1/infobases/cluster-id-availability?${qs.toString()}`),
+      api<ClusterIdAvailability>(`/api/v1/infobases/cluster-id-availability?${qs.toString()}`, {
+        schema: clusterIdAvailabilitySchema,
+      }),
     enabled: enabled && isGuid,
   });
 }
 
+// MLC-132: create/update/reassign возвращают InfobaseDetailResponse — схема подключена.
+// Это позволяет поймать дрейф контракта infobase/publication при обновлении бэкенда.
 export function useCreateInfobase() {
   return useInvalidatingMutation({
     mutationFn: (input: CreateInfobaseInput) =>
-      api<InfobaseDetail>("/api/v1/infobases", { method: "POST", body: input }),
+      api<InfobaseDetail>("/api/v1/infobases", {
+        method: "POST",
+        body: input,
+        schema: infobaseDetailSchema,
+      }),
     invalidate: infobasesQueryKey,
   });
 }
@@ -81,7 +90,11 @@ export function useCreateInfobase() {
 export function useUpdateInfobase() {
   return useInvalidatingMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateInfobaseInput }) =>
-      api<InfobaseDetail>(`/api/v1/infobases/${id}`, { method: "PUT", body: input }),
+      api<InfobaseDetail>(`/api/v1/infobases/${id}`, {
+        method: "PUT",
+        body: input,
+        schema: infobaseDetailSchema,
+      }),
     invalidate: infobasesQueryKey,
   });
 }
@@ -92,6 +105,7 @@ export function useReassignInfobase() {
       api<InfobaseDetail>(`/api/v1/infobases/${id}/reassign`, {
         method: "POST",
         body: { targetTenantId },
+        schema: infobaseDetailSchema,
       }),
     // Счётчики баз на странице клиентов зависят от привязки — обновляем их тоже.
     invalidate: [infobasesQueryKey, tenantsQueryKey],
@@ -101,6 +115,7 @@ export function useReassignInfobase() {
 // MLC-113 (UX-43): unpublishFromIis=true добавляет ?unpublishFromIis=true — бэкенд
 // СНАЧАЛА снимает публикацию из IIS через webinst -delete и при сбое возвращает 409,
 // не удаляя инфобазу (защита от молчаливого сиротства публикации в IIS).
+// DELETE возвращает 204 No Content (null body) — схема не нужна.
 export function useDeleteInfobase() {
   return useInvalidatingMutation({
     mutationFn: ({ id, unpublishFromIis }: { id: string; unpublishFromIis?: boolean }) =>

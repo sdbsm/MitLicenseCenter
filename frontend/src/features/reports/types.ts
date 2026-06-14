@@ -1,29 +1,39 @@
-// Зеркало контракта MLC-049 `LicenseUsageSeriesResponse` (camelCase JSON,
-// JsonStringEnum/camelCase — дефолт ASP.NET). Оба эндпоинта (сводка и drill-down)
-// возвращают ОДНУ форму, поэтому график рисуется одним компонентом.
+import { z } from "zod";
+import { omittable } from "@/lib/apiSchema";
 
-export interface LicenseUsageBucketPoint {
-  bucketStartUtc: string;
-  consumedAvg: number;
-  consumedMax: number;
-  limit: number;
-}
+/**
+ * Zod-схемы ответов отчётов (MLC-132, FE-09).
+ * Зеркало LicenseUsageSeriesResponse / LicenseUsageBucketPoint (ReportsContracts.cs).
+ * Backend опускает null-поля (JsonIgnoreCondition.WhenWritingNull, ADR-32):
+ * peakAtUtc=null (нет данных) → ключ отсутствует → omittable().
+ * Оба эндпоинта (/reports/license-usage и /reports/license-usage/:tenantId) возвращают
+ * одну форму — одна схема покрывает оба.
+ */
 
-export interface LicenseUsageSeriesResponse {
-  buckets: LicenseUsageBucketPoint[];
-  // Эффективный диапазон ПОСЛЕ дефолта/клампа на сервере (7 дней / 31 день) —
-  // показываем его, а не запрошенный (см. ReportsEndpoints.ResolveRange).
-  fromUtc: string;
-  toUtc: string;
-  peakConsumed: number;
-  peakLimit: number;
-  peakAtUtc: string | null;
-  averageConsumed: number;
-  // MLC-054: сервер обрезал запрошенную ширину до maxSpanDays (сдвинул from вперёд) —
-  // FE показывает плашку обрезки. Дефолтное окно/диапазон ≤ предела → clamped=false.
-  clamped: boolean;
-  maxSpanDays: number;
-}
+export const licenseUsageBucketPointSchema = z.object({
+  bucketStartUtc: z.string(),
+  consumedAvg: z.number(),
+  consumedMax: z.number(),
+  limit: z.number(),
+});
+
+export const licenseUsageSeriesResponseSchema = z.object({
+  buckets: z.array(licenseUsageBucketPointSchema),
+  // Эффективный диапазон ПОСЛЕ дефолта/клампа на сервере (7 дней / 31 день).
+  fromUtc: z.string(),
+  toUtc: z.string(),
+  peakConsumed: z.number(),
+  peakLimit: z.number(),
+  // peakAtUtc=null → бэкенд опускает ключ (нет данных в периоде).
+  peakAtUtc: omittable(z.string()),
+  averageConsumed: z.number(),
+  // MLC-054: clamped=true → сервер обрезал запрошенную ширину до maxSpanDays.
+  clamped: z.boolean(),
+  maxSpanDays: z.number(),
+});
+
+export type LicenseUsageBucketPoint = z.infer<typeof licenseUsageBucketPointSchema>;
+export type LicenseUsageSeriesResponse = z.infer<typeof licenseUsageSeriesResponseSchema>;
 
 // UI-состояние страницы: общий период (date-only из `<input type="date">`) +
 // выбранный для детализации клиент. Период применяется к обеим секциям, tenantId —

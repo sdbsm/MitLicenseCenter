@@ -50,7 +50,10 @@ describe("useIisManagement · query hooks", () => {
     });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(mockedApi).toHaveBeenCalledWith("/api/v1/iis/server");
+    expect(mockedApi).toHaveBeenCalledWith(
+      "/api/v1/iis/server",
+      expect.objectContaining({ schema: expect.anything() })
+    );
     expect(result.current.data?.state).toBe("Started");
   });
 
@@ -59,7 +62,10 @@ describe("useIisManagement · query hooks", () => {
     const { result } = renderHook(() => useIisAppPools(), { wrapper: makeWrapper(makeClient()) });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(mockedApi).toHaveBeenCalledWith("/api/v1/iis/application-pools");
+    expect(mockedApi).toHaveBeenCalledWith(
+      "/api/v1/iis/application-pools",
+      expect.objectContaining({ schema: expect.anything() })
+    );
   });
 
   it("useIisSites читает /iis/sites", async () => {
@@ -67,7 +73,10 @@ describe("useIisManagement · query hooks", () => {
     const { result } = renderHook(() => useIisSites(), { wrapper: makeWrapper(makeClient()) });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(mockedApi).toHaveBeenCalledWith("/api/v1/iis/sites");
+    expect(mockedApi).toHaveBeenCalledWith(
+      "/api/v1/iis/sites",
+      expect.objectContaining({ schema: expect.anything() })
+    );
   });
 });
 

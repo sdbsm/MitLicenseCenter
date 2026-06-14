@@ -1,14 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useInvalidatingMutation } from "@/lib/useInvalidatingMutation";
-import type { SettingDescriptor } from "./types";
+import { settingsListSchema, type SettingDescriptor } from "./types";
 
 export const settingsQueryKey = ["settings"] as const;
 
+// MLC-132: список настроек проходит Zod-валидацию (settingsListSchema).
+// value/description опускаются бэкендом при null (WhenWritingNull) → omittable().
 export function useSettings() {
   return useQuery({
     queryKey: settingsQueryKey,
-    queryFn: () => api<SettingDescriptor[]>("/api/v1/settings"),
+    queryFn: () => api<SettingDescriptor[]>("/api/v1/settings", { schema: settingsListSchema }),
   });
 }
 

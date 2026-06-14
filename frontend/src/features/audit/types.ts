@@ -1,8 +1,18 @@
-// AuditActionType / AuditReason приходят как строковые имена (см. backend
-// JsonStringEnumConverter). Union-тип — ПОЛНОЕ зеркало Domain/Audit/AuditActionType
-// (включая legacy/frozen действия), чтобы исторические строки рендерились в колонке.
-// Обновляется при пополнении enum. AUDIT_ACTION_TYPES ниже — подмножество только
-// активно пишущихся действий (опции фильтра + валидация URL).
+import { z } from "zod";
+import { omittable } from "@/lib/apiSchema";
+
+/**
+ * AuditActionType / AuditReason приходят как строковые имена (backend
+ * JsonStringEnumConverter). Union-тип — ПОЛНОЕ зеркало Domain/Audit/AuditActionType
+ * (включая legacy/frozen действия), чтобы исторические строки рендерились в колонке.
+ * Обновляется при пополнении enum. AUDIT_ACTION_TYPES ниже — подмножество только
+ * активно пишущихся действий (опции фильтра + валидация URL).
+ *
+ * Zod-схемы (MLC-132, FE-09): enum-поля описаны через z.enum + строковую ветку —
+ * незнакомое будущее значение не роняет весь список (деградирует к сырой строке).
+ * Backend опускает null-поля (ADR-32): reason=null → ключ отсутствует → omittable();
+ * tenantId=null → ключ отсутствует → omittable().
+ */
 export type AuditActionType =
   | "TenantCreated"
   | "TenantUpdated"
@@ -97,22 +107,39 @@ export const AUDIT_ACTION_TYPES: readonly AuditActionType[] = [
 
 export type AuditReason = "LimitExceeded" | "ManualByAdmin";
 
-export interface AuditEntry {
-  id: string;
-  timestamp: string;
-  actionType: AuditActionType;
-  reason: AuditReason | null;
-  initiator: string;
-  description: string;
-  tenantId: string | null;
-}
+// Zod-схемы: enum-поля forward-compatible (строковая ветка пропускает неизвестное значение).
+// Инвариант «enum аудита заморожен» (CLAUDE.md): int-значения не переназначаются,
+// новые действия получают новые числа — здесь влияет только на строковое имя на wire.
+export const auditActionTypeSchema = z
+  .enum([...AUDIT_ACTION_TYPES] as [AuditActionType, ...AuditActionType[]])
+  .or(z.string().transform((v) => v as AuditActionType));
 
-export interface AuditPagedResponse {
-  items: AuditEntry[];
-  total: number;
-  page: number;
-  pageSize: number;
-}
+export const auditReasonSchema = z
+  .enum(["LimitExceeded", "ManualByAdmin"] as const)
+  .or(z.string().transform((v) => v as AuditReason));
+
+// Backend опускает null-поля (ADR-32):
+// reason=null (большинство действий без причины) → ключ отсутствует.
+// tenantId=null (системные действия без клиента) → ключ отсутствует.
+export const auditEntrySchema = z.object({
+  id: z.string(),
+  timestamp: z.string(),
+  actionType: auditActionTypeSchema,
+  reason: omittable(auditReasonSchema),
+  initiator: z.string(),
+  description: z.string(),
+  tenantId: omittable(z.string()),
+});
+
+export const auditPagedResponseSchema = z.object({
+  items: z.array(auditEntrySchema),
+  total: z.number(),
+  page: z.number(),
+  pageSize: z.number(),
+});
+
+export type AuditEntry = z.infer<typeof auditEntrySchema>;
+export type AuditPagedResponse = z.infer<typeof auditPagedResponseSchema>;
 
 export interface AuditFilters {
   actionType: AuditActionType | null;
