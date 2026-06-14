@@ -238,3 +238,7 @@
   - `MLC-144c` — инфобазы клиента (TenantDetailPage) — PR #211 · `13a13cd`
   - `MLC-144d` — Аудит (AuditTable): фильтры через auditUrlState, бейдж типа 1:1 — PR #213 · `084d2d5`
   - `MLC-144e` — Пользователи (UsersPage) — PR #210 · `54ba5b8`
+
+### Вне трека (после релиза 0.4.0-beta)
+
+- `MLC-146` — Уборка мёртвого кода после MLC-144: удалён осиротевший `InfobaseRow.tsx` (`InfobaseRow`/`InfobaseTableHeader`/`InfobaseHeaderSelection`) + неиспользуемый `infobaseColumnCount` из `infobaseFormat.ts` (`statusBadgeClass` оставлен); поведение не менялось — Done (2026-06-14)

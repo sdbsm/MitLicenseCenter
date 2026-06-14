@@ -7,7 +7,8 @@ import "@/i18n";
 import type * as UseInfobasesModule from "../useInfobases";
 
 // Тяжёлые дочерние диалоги заглушаем — тест про гейтинг баннера обратного дрейфа и метку
-// на строке, не про диалоги. InfobaseRow НЕ мокаем — проверяем рендер метки по membership.
+// на строке, не про диалоги. Таблицу (DataTable + infobaseColumns) НЕ мокаем —
+// проверяем рендер метки по membership.
 vi.mock("@/features/infobases/InfobaseFormDialog", () => ({ InfobaseFormDialog: () => null }));
 vi.mock("@/features/infobases/unassigned/UnassignedInfobasesDialog", () => ({
   UnassignedInfobasesDialog: () => null,
