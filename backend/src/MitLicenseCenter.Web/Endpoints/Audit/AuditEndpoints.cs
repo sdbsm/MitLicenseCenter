@@ -114,13 +114,17 @@ public static class AuditEndpoints
         }
         if (!string.IsNullOrEmpty(searchTerm))
         {
-            // Case-insensitive подстрочный поиск по описанию И инициатору.
-            // OrdinalIgnoreCase-перегрузка: EF Core SQL Server-провайдер транслирует
-            // её в LIKE (нечувствителен к регистру по дефолтной collation), InMemory
-            // выполняет регистронезависимый Contains клиентски — единое поведение.
+            // Подстрочный поиск по описанию И инициатору обычным string.Contains →
+            // EF Core SQL Server-провайдер транслирует его в `LIKE '%term%'`.
+            // Регистронезависимость обеспечивает РЕГИСТРОНЕЗАВИСИМАЯ collation БД
+            // (дефолтная *_CI_*), а не код. Перегрузку с StringComparison.OrdinalIgnoreCase
+            // использовать НЕЛЬЗЯ: SQL Server-провайдер EF Core её НЕ транслирует и бросает в
+            // рантайме (подтверждено доками MS — CA1862 для EF-запросов положено подавлять;
+            // OrdinalIgnoreCase-Contains добавлен только в Cosmos-провайдер, не SQL Server).
+#pragma warning disable CA1862 // EF-запрос: трансляция в SQL LIKE, регистр — за collation БД
             query = query.Where(x =>
-                x.Description.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)
-                || x.Initiator.Contains(searchTerm, StringComparison.OrdinalIgnoreCase));
+                x.Description.Contains(searchTerm) || x.Initiator.Contains(searchTerm));
+#pragma warning restore CA1862
         }
         if (!string.IsNullOrEmpty(initiatorTerm))
         {

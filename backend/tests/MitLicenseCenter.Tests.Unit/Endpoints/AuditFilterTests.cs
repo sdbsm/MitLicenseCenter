@@ -161,7 +161,9 @@ public sealed class AuditFilterTests
             tenantId: null,
             from: null,
             to: null,
-            search: "альфа",
+            // Тот же регистр, что в сиде («Альфа»): на InMemory-провайдере Contains
+            // ordinal/регистрозависимый. Регистронезависимость — за collation БД (см. ниже).
+            search: "Альфа",
             initiator: null,
             page: null,
             pageSize: null,
@@ -195,22 +197,25 @@ public sealed class AuditFilterTests
         ok.Value.Items.Should().HaveCount(1);
     }
 
+    // Регистронезависимость поиска делегирована РЕГИСТРОНЕЗАВИСИМОЙ collation SQL Server
+    // (дефолтная *_CI_*): запрос использует обычный string.Contains → LIKE, семантику регистра
+    // даёт БД, а не код (OrdinalIgnoreCase-перегрузку SQL Server-провайдер EF Core не транслирует
+    // — бросил бы в рантайме). InMemory-провайдер делает ordinal/регистрозависимый Contains и НЕ
+    // воспроизводит CI-поведение боевой БД — здесь фиксируем именно эту границу: на InMemory другой
+    // регистр НЕ находит, тогда как на SQL Server с CI-collation — нашёл бы. Тест сторожит от
+    // «починки» обратно на OrdinalIgnoreCase (рантайм-краш на SQL Server).
     [Fact]
-    public async Task Search_is_case_insensitive()
+    public async Task Search_case_sensitivity_is_delegated_to_db_collation()
     {
         using var db = TestHelpers.NewInMemoryDb();
         await SeedSearchableAsync(db);
 
-        var lower = await AuditEndpoints.ListAsync(
-            db, null, null, null, null, search: "альфа", initiator: null,
-            page: null, pageSize: null, ct: CancellationToken.None);
         var upper = await AuditEndpoints.ListAsync(
             db, null, null, null, null, search: "АЛЬФА", initiator: null,
             page: null, pageSize: null, ct: CancellationToken.None);
 
-        var okLower = lower.Result.Should().BeOfType<Ok<AuditPagedResponse>>().Subject;
         var okUpper = upper.Result.Should().BeOfType<Ok<AuditPagedResponse>>().Subject;
-        okUpper.Value!.Total.Should().Be(okLower.Value!.Total).And.Be(1);
+        okUpper.Value!.Total.Should().Be(0);
     }
 
     [Fact]
