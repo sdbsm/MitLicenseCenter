@@ -159,8 +159,8 @@ public static class BackupsEndpoints
             : TypedResults.Created($"/api/v1/backups/{summary.Id}", summary);
     }
 
-    // Удаление бэкапа (Admin): сначала файл (keep-latest-1 означает «в подпапке
-    // ровно этот файл» → cutoff=сейчас сносит его File.Delete), затем строка. Провал
+    // Удаление бэкапа (Admin): сначала server-side файл (keep-latest-1 означает «в подпапке
+    // ровно этот файл» → cutoff=сейчас сносит его xp_delete_file), затем строка. Провал
     // удаления файла → строку НЕ трогаем (иначе осиротевший .bak станет невидимым для
     // ручного удаления; ночной TTL его всё равно подчистит). Running → 409 (образец
     // DeleteRecordingAsync: незавершённую операцию не удаляем).

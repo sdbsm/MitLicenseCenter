@@ -15,8 +15,7 @@ public enum BackupStatus
 // Типизированная причина провала бэкапа — честный degraded-сигнал адаптера (паттерн
 // SqlProbeStatus MLC-068): None — успех/ещё не завершён; InsufficientSpace — на диске
 // нет места под оценку + запас; EstimateUnavailable — оценку размера получить не удалось
-// (без оценки не стартуем, ADR-27); PermissionDenied — учётке панели не выдано право
-// BACKUP DATABASE (db_owner) либо не хватает NTFS-прав на каталог бэкапов (MLC-152);
+// (без оценки не стартуем, ADR-27); PermissionDenied — учётка панели не sysadmin;
 // BackupFailed — сам BACKUP/VERIFY или инфраструктура упали; Interrupted — рестарт
 // панели оборвал выполнявшийся бэкап (файл может быть неполным); TimedOut — бэкап завис в
 // Running дольше потолка времени выполнения, TTL-reaper насоса принудительно закрыл строку

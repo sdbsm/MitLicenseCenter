@@ -11,8 +11,8 @@ using MitLicenseCenter.Infrastructure.Persistence;
 
 namespace MitLicenseCenter.Infrastructure.Jobs;
 
-// MLC-077 (ADR-27/28): ночная TTL-очистка бэкапов. Два прохода: (а) файловое удаление .bak
-// старше cutoff (File.Delete через ISqlBackupService) по подпапкам всех известных баз;
+// MLC-077 (ADR-27): ночная TTL-очистка бэкапов. Два прохода: (а) server-side удаление .bak
+// старше cutoff (xp_delete_file через ISqlBackupService) по подпапкам всех известных баз;
 // (б) reap строк DatabaseBackups старше cutoff — батчи provider-portable (паттерн
 // LicenseUsageRetentionJob), каждый обёрнут в CreateExecutionStrategy().ExecuteAsync
 // (MLC-074: иначе ручная транзакция падает под EnableRetryOnFailure на проде). Аудит
@@ -59,7 +59,7 @@ internal sealed partial class BackupRetentionJob : IBackupRetentionJob
         var cutoff = _clock.GetUtcNow().UtcDateTime.AddHours(-ttlHours);
 
         // (а) Файлы: подпапка каждой известной пары server+db. Идущие/свежие файлы
-        // не тронем (сравнение по LastWriteTimeUtc файла); вызов «never throws».
+        // xp_delete_file не тронет (сравнивает по времени файла); вызов «never throws».
         var targets = await _db.DatabaseBackups
             .Select(b => new { b.DatabaseServer, b.DatabaseName })
             .Distinct()
