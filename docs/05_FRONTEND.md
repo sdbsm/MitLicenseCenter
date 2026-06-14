@@ -360,6 +360,15 @@ Runtime-валидация через `api(..., { schema })` включена н
 | `reports` | `licenseUsageSeriesResponseSchema` | `useLicenseUsage`, `useLicenseUsageByTenant` |
 | `audit` | `auditPagedResponseSchema`, `auditRetentionResponseSchema` | `useAuditLog`, `useAuditRetention` |
 
+**Read-границы, валидируемые с более ранних задач (учтены FE-09, MLC-133):** эти схемы
+подключены до появления трека FE-09 и потому не входили в свип MLC-132 — но read-граница
+у обеих фич полная:
+
+| Фича | Схема | Хук | Откуда |
+|---|---|---|---|
+| `users` | `userListResponseSchema` | `useUsers` | MLC-060 |
+| `infobases/unassigned` | `unassignedInfobasesResponseSchema` | `useUnassignedInfobases` | MLC-093 |
+
 **Пропущены (мутации с тривиальным/echo/`null` телом):** мутации IIS
 (recycle/start/stop/restart/iisreset — echo `IisOperationResponse`, реальное состояние
 приходит фоновым refetch discovery), `useDeleteInfobase` (204 No Content),
