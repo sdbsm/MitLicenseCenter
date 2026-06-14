@@ -13,8 +13,10 @@ namespace MitLicenseCenter.Infrastructure.Settings;
 // заполняет через UI «Параметры».
 public static partial class SettingsSeeder
 {
+    // EventId конвенция SettingsSeeder: диапазон 110x.
+    // 1100 — засеяны новые параметры.
     [LoggerMessage(
-        EventId = 1002,
+        EventId = 1100,
         Level = LogLevel.Information,
         Message = "Засеяно {Count} новых параметров.")]
     private static partial void LogSeeded(ILogger logger, int count);

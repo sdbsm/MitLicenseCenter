@@ -7,9 +7,10 @@ using MitLicenseCenter.Infrastructure.Diagnostics;
 namespace MitLicenseCenter.Infrastructure.Clusters;
 
 // Единственная production-реализация IRacProcessRunner. Тонкая обёртка над
-// System.Diagnostics.Process: UTF-8 кодировка для stdout/stderr (rac.exe пишет
-// UTF-8 без BOM, верифицировано в ADR-3.3), entireProcessTree:true на отмену
-// (rac.exe может спавнить child для gRPC-диалога с RAS, иначе остался бы orphan),
+// System.Diagnostics.Process: stdout/stderr читаются сырым потоком и декодируются по
+// активной OEM-кодовой странице процесса (CP866 на RU Windows) с откатом на UTF-8 —
+// согласно ADR-3.3 (детали декода — в комментарии к OemEncoding ниже), entireProcessTree:true
+// на отмену (rac.exe может спавнить child для gRPC-диалога с RAS, иначе остался бы orphan),
 // фиксированный 30s deadline (rac→ras→ragent дольше REST hop'а).
 internal sealed class SystemProcessRacRunner : IRacProcessRunner
 {
