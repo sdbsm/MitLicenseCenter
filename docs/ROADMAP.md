@@ -203,8 +203,10 @@ Tenants (page/pageSize + `PaginationBar`); R11 добивает остаток.
 ✅ **Кластер c** — закрыто `MLC-131` (2026-06-14): client-side сортировка/пагинация таблицы сеансов
   (`SessionsTable`/`useSessionsPage`) и диалога «не найдены» (`MissingInfobasesDialog`) — сеансы/missing
   это live-снапшоты; searchable фильтр клиентов сеансов (UX-14/15/38). Frontend-only.
-- **Кластер d `MLC-132`** — FE-09: Zod-схемная валидация ~35 эндпоинтов вместо `payload as T`
-  (расширяет текущие Zod-границы, ADR-10.1; учесть omit-null ADR-32 + enum-строки). Завершает R11. ← _текущий_
+✅ **Кластер d (основная часть)** — закрыто `MLC-132` (2026-06-14): Zod-валидация read-границ фич
+  audit/discovery/infobases/publications/iis/reports/settings (omit-null + forward-compatible enum,
+  типы `z.infer`); IIS-мутации сознательно без схемы. Канон 05 §5.3.
+- **Хвост R11d `MLC-133`** — FE-09 на `useUsers` + `useUnassignedInfobases` (завершает R11). ← _текущий_
 
 **Состав:** UX-05 / BE-17 (серверный поиск по клиентам + пагинация `/backups`, `/performance/recordings`); UX-14 / 15 (пагинация и сортировка таблицы сеансов и диалога «не найдены»); UX-20 / 35 / 37 / 38 (аудит: текстовый поиск, фильтр по инициатору, переход на страницу N); FE-09 (схемная валидация ~35 эндпоинтов через Zod вместо `payload as T`).
 
