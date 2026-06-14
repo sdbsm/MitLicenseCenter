@@ -1,7 +1,9 @@
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { SearchableSelect, type SearchableSelectOption } from "@/components/ui/SearchableSelect";
 import {
   Select,
   SelectContent,
@@ -19,8 +21,7 @@ import {
   DEFAULT_AUDIT_PAGE_SIZE,
 } from "./types";
 
-const ANY_ACTION = "__any_action__";
-const ANY_TENANT = "__any_tenant__";
+const SEARCH_DEBOUNCE_MS = 300;
 
 interface AuditFiltersBarProps {
   filters: AuditFilters;
@@ -38,12 +39,57 @@ export function AuditFiltersBar({ filters, onChange }: AuditFiltersBarProps) {
     onChange({ ...filters, ...patch, page: patch.page ?? 1 });
   };
 
+  // Локальный буфер строки поиска: набор не дёргает запрос на каждый символ,
+  // коммит фильтра — после debounce. Синхронизируемся, если filters.search
+  // изменился извне (reset / переход по shareable-ссылке).
+  const [searchDraft, setSearchDraft] = useState(filters.search ?? "");
+  const committedSearch = useRef(filters.search ?? "");
+  useEffect(() => {
+    if ((filters.search ?? "") !== committedSearch.current) {
+      committedSearch.current = filters.search ?? "";
+      setSearchDraft(filters.search ?? "");
+    }
+  }, [filters.search]);
+
+  useEffect(() => {
+    const next = searchDraft.trim() === "" ? null : searchDraft.trim();
+    if ((next ?? "") === committedSearch.current) return;
+    const id = setTimeout(() => {
+      committedSearch.current = next ?? "";
+      update({ search: next });
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchDraft]);
+
+  const [initiatorDraft, setInitiatorDraft] = useState(filters.initiator ?? "");
+  const committedInitiator = useRef(filters.initiator ?? "");
+  useEffect(() => {
+    if ((filters.initiator ?? "") !== committedInitiator.current) {
+      committedInitiator.current = filters.initiator ?? "";
+      setInitiatorDraft(filters.initiator ?? "");
+    }
+  }, [filters.initiator]);
+
+  const commitInitiator = () => {
+    const next = initiatorDraft.trim() === "" ? null : initiatorDraft.trim();
+    if ((next ?? "") === committedInitiator.current) return;
+    committedInitiator.current = next ?? "";
+    update({ initiator: next });
+  };
+
   const reset = () => {
+    committedSearch.current = "";
+    committedInitiator.current = "";
+    setSearchDraft("");
+    setInitiatorDraft("");
     onChange({
       actionType: null,
       tenantId: null,
       from: null,
       to: null,
+      search: null,
+      initiator: null,
       page: 1,
       pageSize: DEFAULT_AUDIT_PAGE_SIZE,
     });
@@ -53,54 +99,76 @@ export function AuditFiltersBar({ filters, onChange }: AuditFiltersBarProps) {
     filters.actionType !== null ||
     filters.tenantId !== null ||
     filters.from !== null ||
-    filters.to !== null;
+    filters.to !== null ||
+    filters.search !== null ||
+    filters.initiator !== null;
+
+  const actionOptions: SearchableSelectOption[] = AUDIT_ACTION_TYPES.map((action) => ({
+    value: action,
+    label: t(`audit.actions.${action}`),
+  }));
+  const tenantOptions: SearchableSelectOption[] = tenants.map((tenant) => ({
+    value: tenant.id,
+    label: tenant.name,
+  }));
 
   return (
-    <div className="flex flex-wrap items-end gap-3 rounded-md border bg-muted/30 p-3">
+    <div className="bg-muted/30 flex flex-wrap items-end gap-3 rounded-md border p-3">
       <div className="grid gap-1.5">
         <Label className="text-xs font-medium">{t("audit.filters.actionType")}</Label>
-        <Select
-          value={filters.actionType ?? ANY_ACTION}
-          onValueChange={(value) =>
-            update({
-              actionType: value === ANY_ACTION ? null : (value as AuditActionType),
-            })
-          }
-        >
-          <SelectTrigger className="w-60">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ANY_ACTION}>{t("audit.filters.anyAction")}</SelectItem>
-            {AUDIT_ACTION_TYPES.map((action) => (
-              <SelectItem key={action} value={action}>
-                {t(`audit.actions.${action}`)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <SearchableSelect
+          options={actionOptions}
+          value={filters.actionType}
+          onChange={(value) => update({ actionType: (value as AuditActionType) ?? null })}
+          placeholder={t("audit.filters.anyAction")}
+          searchPlaceholder={t("audit.filters.searchAction")}
+          aria-label={t("audit.filters.actionType")}
+          triggerClassName="w-60"
+        />
       </div>
 
       <div className="grid gap-1.5">
         <Label className="text-xs font-medium">{t("audit.filters.tenant")}</Label>
-        <Select
-          value={filters.tenantId ?? ANY_TENANT}
-          onValueChange={(value) =>
-            update({ tenantId: value === ANY_TENANT ? null : value })
-          }
-        >
-          <SelectTrigger className="w-60">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ANY_TENANT}>{t("audit.filters.anyTenant")}</SelectItem>
-            {tenants.map((tenant) => (
-              <SelectItem key={tenant.id} value={tenant.id}>
-                {tenant.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <SearchableSelect
+          options={tenantOptions}
+          value={filters.tenantId}
+          onChange={(value) => update({ tenantId: value })}
+          placeholder={t("audit.filters.anyTenant")}
+          searchPlaceholder={t("audit.filters.searchTenant")}
+          aria-label={t("audit.filters.tenant")}
+          triggerClassName="w-60"
+        />
+      </div>
+
+      <div className="grid gap-1.5">
+        <Label className="text-xs font-medium" htmlFor="audit-search">
+          {t("audit.filters.search")}
+        </Label>
+        <Input
+          id="audit-search"
+          type="search"
+          className="w-60"
+          placeholder={t("audit.filters.searchPlaceholder")}
+          value={searchDraft}
+          onChange={(e) => setSearchDraft(e.target.value)}
+        />
+      </div>
+
+      <div className="grid gap-1.5">
+        <Label className="text-xs font-medium" htmlFor="audit-initiator">
+          {t("audit.filters.initiator")}
+        </Label>
+        <Input
+          id="audit-initiator"
+          className="w-40"
+          placeholder={t("audit.filters.initiatorPlaceholder")}
+          value={initiatorDraft}
+          onChange={(e) => setInitiatorDraft(e.target.value)}
+          onBlur={commitInitiator}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commitInitiator();
+          }}
+        />
       </div>
 
       <div className="grid gap-1.5">
@@ -133,9 +201,7 @@ export function AuditFiltersBar({ filters, onChange }: AuditFiltersBarProps) {
         <Label className="text-xs font-medium">{t("audit.filters.pageSize")}</Label>
         <Select
           value={String(filters.pageSize)}
-          onValueChange={(value) =>
-            update({ pageSize: Number(value) as AuditPageSize, page: 1 })
-          }
+          onValueChange={(value) => update({ pageSize: Number(value) as AuditPageSize, page: 1 })}
         >
           <SelectTrigger className="w-24">
             <SelectValue />
