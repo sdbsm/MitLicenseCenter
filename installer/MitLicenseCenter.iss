@@ -78,7 +78,12 @@ Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 ; Self-contained артефакт целиком, КРОМЕ appsettings.Production.json — его генерирует
 ; [Code] из ввода мастера (ниже), чтобы апгрейд не затирал правки оператора, а чистая
 ; установка получила рабочую строку подключения и сетевые параметры.
-Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion; Excludes: "appsettings.Production.json"
+; REL-08 (MLC-126): дополнительно исключаем *.pdb / appsettings.Development.json / web.config —
+; defense-in-depth от information disclosure. Эти файлы уже подавлены/удалены в
+; publish-release.ps1 и ловятся sanity-чеком build-installer.ps1, но Excludes гарантирует,
+; что даже stale publish-каталог (сборка с -SkipPublish поверх старого артефакта) не утащит
+; их в Setup.exe. Формат Excludes — список через запятую в двойных кавычках, поддерживает wildcard.
+Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion; Excludes: "appsettings.Production.json,*.pdb,appsettings.Development.json,web.config"
 
 [Dirs]
 ; Data Protection key ring живёт здесь (purpose mlc.settings.v1) + одноразовый
@@ -624,11 +629,16 @@ begin
 end;
 
 { netsh … add rule — порт из ввода. Старое одноимённое правило снимается в ConfigureService
-  ДО этого вызова (идемпотентность при смене порта). }
+  ДО этого вызова (идемпотентность при смене порта).
+  SEC-06 (MLC-126): правило открывается ТОЛЬКО на профилях Domain/Private (штатный LAN-сценарий),
+  НЕ на Public (недоверенные сети) — порт остаётся закрыт на публичных подключениях, без регресса
+  для домена/частной сети. remoteip= намеренно НЕ задаём: localsubnet сломал бы LAN с несколькими
+  подсетями; сужение по источнику документируется как опция в OPERATIONS (SEC-09). }
 function GetFirewallAddParams(Param: string): string;
 begin
   Result := 'advfirewall firewall add rule name="{#MyFirewallRule}"' +
-            ' dir=in action=allow protocol=TCP localport=' + NetPort;
+            ' dir=in action=allow protocol=TCP localport=' + NetPort +
+            ' profile=domain,private';
 end;
 
 { REL-03 (ADR-40): recovery-политика SCM — ОСНОВНОЙ механизм устойчивости, не зависит от

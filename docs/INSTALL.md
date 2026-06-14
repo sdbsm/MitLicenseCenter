@@ -76,7 +76,9 @@ NTFS ACL ограничивают чтение (см. §4).
 ### Правило брандмауэра
 
 Входящее TCP-правило `MitLicense Center` для выбранного порта открывается через
-`netsh advfirewall firewall add rule`.
+`netsh advfirewall firewall add rule` — **только для профилей Domain/Private** (SEC-06),
+не для профиля Public (недоверенные сети). Для деплоя за реверс-прокси правило можно
+не открывать вовсе, привязав Kestrel к localhost — см. firewall/bind в `OPERATIONS.md`.
 
 ### Запись меню «Пуск»
 
