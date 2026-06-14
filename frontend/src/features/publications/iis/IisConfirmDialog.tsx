@@ -48,7 +48,9 @@ export function IisConfirmDialog({
           <AlertDialogCancel ref={cancelRef} disabled={pending}>
             {t("publications.iis.confirm.cancel")}
           </AlertDialogCancel>
+          {/* MLC-138/UX-26: IIS-операции (stop/recycle/reset) — деструктивный стиль */}
           <AlertDialogAction
+            variant="destructive"
             disabled={pending}
             onClick={(e) => {
               e.preventDefault();

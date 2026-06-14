@@ -532,7 +532,14 @@ UI строго следует терминологии из глоссария 
   `aria-haspopup`, `aria-labelledby`, `aria-describedby`.
 - **`aria-hidden="true"`** проставлен на декоративных иконках lucide-react в ряде мест
   (Topbar, ThemeToggle, пункты `DropdownMenuItem`); сплошного покрытия всех иконок нет.
-- **`aria-label`** задан на кнопке переключателя темы (`t("theme.label")`).
+- **`aria-label` — русский** (MLC-138/UX-40): все `aria-label` и `sr-only`-тексты
+  на русском. Компоненты с `t()` используют i18n-ключи (`common.pagination.*`); shadcn-
+  обёртки без контекста i18n (pagination.tsx, sidebar.tsx, dialog.tsx) содержат
+  русские литералы напрямую. Покрытие: `nav[aria-label]` пагинации → «Пагинация»;
+  кнопки навигации «Назад» / «Вперёд»; sr-only эллипсис «Ещё страницы»; кнопка
+  закрытия диалога «Закрыть»; `SidebarRail` → «Свернуть/развернуть боковую панель».
+  `PaginationBar` передаёт `aria-label` через ключи `common.pagination.previous` /
+  `common.pagination.next`.
 - **`sr-only`** используется для скрытого текста кнопок с иконкой (например,
   `<span className="sr-only">{t("common.details")}</span>` в DropdownMenuTrigger).
 - **Состояние загрузки** страницы: `<PageFallback>` оборачивается в
@@ -541,6 +548,31 @@ UI строго следует терминологии из глоссария 
   opacity-50` (не `disabled` на `<a>`, чтобы не ломать семантику ссылок).
 - **Keyboard shortcut** сайдбара (`b`) зарегистрирован через shadcn SidebarProvider.
 
-Цветовой контраст не тестировался программно; семантические токены (oklch-значения)
-рассчитаны для соответствия WCAG AA в паре light/dark, но инструментальной проверки
-в кодовой базе нет.
+### Контраст WCAG AA (MLC-138/UX-28)
+
+Все варианты `StatusBadge` проверены инструментально (oklch → sRGB → WCAG 2.1 relative
+luminance). Целевой минимум для мелкого текста бейджа — **4.5:1**.
+
+| Вариант | Светлая тема (ДО → ПОСЛЕ) | Тёмная тема |
+|---|---|---|
+| `success` | 4.76:1 (без изменений) | 10.71:1 |
+| `warning` | 4.48:1 → **6.32:1** (amber-700→amber-800) | 10.98:1 |
+| `danger` | 5.16:1 (без изменений) | 9.17:1 |
+| `info` | 5.10:1 (без изменений) | 9.92:1 |
+| `neutral` | 4.34:1 → **7.09:1** (muted-fg→zinc-700/zinc-400) | 5.83:1 → 5.90:1 |
+
+Токены `index.css` не изменялись. Правки изолированы в `StatusBadge.tsx` (классы
+`text-amber-800` вместо `text-amber-700` и `text-zinc-700 dark:text-zinc-400` вместо
+`text-muted-foreground`).
+
+`UX-27` (primary-кнопка в тёмной теме): не подтверждён — контраст fill vs фон 15.72:1,
+визуально и инструментально соответствует WCAG AA.
+
+### Деструктивный стиль (MLC-138/UX-26)
+
+Кнопка подтверждения всех деструктивных диалогов использует `variant="destructive"`
+(через `AlertDialogAction`) или явные классы `bg-destructive text-destructive-foreground`.
+Покрытие: `DeleteTenantDialog`, `DeleteInfobaseDialog`, `DeleteBackupDialog`,
+`UnpublishPublicationDialog`, `KillSessionDialog`, `DeleteRecordingDialog`,
+`DisableUserDialog` — явные `bg-destructive`-классы. `StopRecordingDialog` и
+`IisConfirmDialog` — `variant="destructive"` на `AlertDialogAction` (добавлено MLC-138).

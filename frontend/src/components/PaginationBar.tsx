@@ -54,6 +54,7 @@ export function PaginationBar({
         <PaginationContent>
           <PaginationItem>
             <PaginationPrevious
+              aria-label={t("common.pagination.previous")}
               aria-disabled={page === 1}
               className={page === 1 ? "pointer-events-none opacity-50" : undefined}
               onClick={(e) => {
@@ -77,6 +78,7 @@ export function PaginationBar({
           ))}
           <PaginationItem>
             <PaginationNext
+              aria-label={t("common.pagination.next")}
               aria-disabled={page === totalPages}
               className={page === totalPages ? "pointer-events-none opacity-50" : undefined}
               onClick={(e) => {

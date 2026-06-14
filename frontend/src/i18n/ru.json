@@ -21,7 +21,11 @@
     "noData": "Нет данных",
     "pagination": {
       "summary": "{{from}}–{{to}} из {{total}}",
-      "refreshing": "Обновление…"
+      "refreshing": "Обновление…",
+      "nav": "Пагинация",
+      "previous": "Предыдущая страница",
+      "next": "Следующая страница",
+      "morePages": "Ещё страницы"
     },
     "quota": {
       "exceeded": "Превышение лимита",
