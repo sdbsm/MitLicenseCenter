@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.AspNetCore.Mvc;
 using MitLicenseCenter.Domain.Audit;
 using MitLicenseCenter.Domain.Infobases;
 using MitLicenseCenter.Domain.Publications;
@@ -165,7 +166,7 @@ public sealed class PublicationsUpdateValidationTests
     }
 
     // Вызов handler'а для существующей публикации фикстуры.
-    private static Task<Results<Ok<PublicationResponse>, NotFound, ValidationProblem>> PublicationsEndpoints_Invoke(
+    private static Task<Results<Ok<PublicationResponse>, NotFound, ValidationProblem, Conflict<ProblemDetails>>> PublicationsEndpoints_Invoke(
         TestContext ctx, UpdatePublicationRequest request) =>
         PublicationsEndpoints.UpdateAsync(
             ctx.PublicationId, request, ctx.Db, ctx.Audit,

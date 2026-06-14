@@ -151,7 +151,11 @@ public static partial class InfobasesEndpoints
                         pub.LastCheckStatus,
                         pub.LastCheckAt,
                         pub.LastCheckDetails,
-                        pub.PhysicalPathOverride)))
+                        pub.PhysicalPathOverride,
+                        // MLC-151 — токены для формы редактирования (открывается из элемента
+                        // списка); без них оптимистическая блокировка молча не сработала бы.
+                        pub.RowVersion),
+                    x.Infobase.RowVersion))
             .ToListAsync(ct).ConfigureAwait(false);
 
         return TypedResults.Ok(new InfobaseListResponse(items, total, p, ps, clusterAvailable));
@@ -357,11 +361,37 @@ public static partial class InfobasesEndpoints
         ApplyPublicationFields(publication, request.Publication);
         publication.UpdatedAt = now;
 
+        // MLC-151 — оптимистическая блокировка aggregate'а инфобазы (зеркаль Tenant/MLC-136).
+        // Если клиент прислал прочитанные rowversion'ы, выставляем их как ОЖИДАЕМЫЕ версии
+        // (OriginalValue) — SQL Server добавит `WHERE RowVersion = @original` к UPDATE
+        // каждой сущности; если строку успели изменить → 0 затронутых строк → EF бросает
+        // DbUpdateConcurrencyException, ловим ниже → 409. null (старый клиент / InMemory)
+        // оставляет поведение прежним. Публикация защищается вложенным Publication.RowVersion,
+        // т.к. PUT /infobases/{id} правит и инфобазу, и её публикацию в одном запросе.
+        if (request.RowVersion is not null)
+        {
+            db.Entry(infobase).Property(x => x.RowVersion).OriginalValue = request.RowVersion;
+        }
+        if (request.Publication.RowVersion is not null)
+        {
+            db.Entry(publication).Property(x => x.RowVersion).OriginalValue = request.Publication.RowVersion;
+        }
+
         // MLC-004 — backstop на гонке (см. CreateAsync): нарушение уникального индекса
-        // мапим в тот же 409, что и предварительные AnyAsync.
-        var conflict = await db.SaveWithUniquenessBackstopAsync(ct,
-            (UniqueIndexViolation.InfobaseTenantName, () => Problems.InfobaseNameDuplicateInTenant(normalizedName)),
-            (UniqueIndexViolation.InfobaseClusterId, Problems.InfobaseAlreadyAssigned)).ConfigureAwait(false);
+        // мапим в тот же 409, что и предварительные AnyAsync. MLC-151 — concurrency-исключение
+        // ловим отдельным try/catch вокруг того же SaveChanges (DbUpdateConcurrencyException —
+        // подкласс DbUpdateException, но uniqueness-backstop его не проглатывает и пробрасывает).
+        ProblemDetails? conflict;
+        try
+        {
+            conflict = await db.SaveWithUniquenessBackstopAsync(ct,
+                (UniqueIndexViolation.InfobaseTenantName, () => Problems.InfobaseNameDuplicateInTenant(normalizedName)),
+                (UniqueIndexViolation.InfobaseClusterId, Problems.InfobaseAlreadyAssigned)).ConfigureAwait(false);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return TypedResults.Conflict(Problems.InfobaseConcurrencyConflict());
+        }
         if (conflict is not null)
         {
             return TypedResults.Conflict(conflict);

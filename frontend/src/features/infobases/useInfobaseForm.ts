@@ -3,7 +3,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, useWatch } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { applyFieldErrors, toastFormSubmitError } from "@/lib/apiErrors";
+import { applyFieldErrors, matchConflictCode, toastFormSubmitError } from "@/lib/apiErrors";
 import { useSettings } from "@/features/settings/useSettings";
 import {
   toDiscoveryState,
@@ -260,6 +260,12 @@ export function useInfobaseForm({
         virtualPath: values.publication.virtualPath.trim(),
         platformVersion: values.publication.platformVersion.trim(),
         physicalPathOverride: values.publication.physicalPathOverride?.trim() || null,
+        // MLC-151 — в режиме редактирования возвращаем прочитанный rowversion публикации
+        // как ожидаемую версию (сервер ловит конкурентный апдейт публикации в составе
+        // aggregate-апдейта инфобазы). При создании токена нет — поле опускается.
+        ...(infobase?.publication.rowVersion
+          ? { rowVersion: infobase.publication.rowVersion }
+          : {}),
       };
 
       try {
@@ -270,6 +276,8 @@ export function useInfobaseForm({
             databaseName: values.databaseName.trim(),
             status: values.status,
             publication: publicationInput,
+            // MLC-151 — прочитанный rowversion инфобазы (корня aggregate'а) → 409 при гонке.
+            ...(infobase.rowVersion ? { rowVersion: infobase.rowVersion } : {}),
           };
           await update.mutateAsync({ id: infobase.id, input });
           toast.success(t("infobases.toasts.updated", { name: input.name }));
@@ -287,6 +295,18 @@ export function useInfobaseForm({
         }
         onOpenChange(false);
       } catch (error) {
+        // MLC-151 — конкурентный апдейт (устаревший rowversion инфобазы или её публикации):
+        // не ошибка поля, а тост с предложением обновить страницу. Проверяем ДО маппинга
+        // дубля имени / занятости кластер-базы. INFOBASE_* — корень aggregate'а (PUT
+        // /infobases/{id} правит обе сущности), PUBLICATION_* — на случай дрейфа контракта.
+        const concurrency = matchConflictCode(error, {
+          INFOBASE_CONCURRENCY_CONFLICT: true as const,
+          PUBLICATION_CONCURRENCY_CONFLICT: true as const,
+        });
+        if (concurrency) {
+          toast.error(t("infobases.errors.concurrencyConflict"));
+          return;
+        }
         const mapped = mapConflictToField(error);
         if (mapped) {
           if (mapped.openAdvanced) {

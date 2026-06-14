@@ -16,4 +16,11 @@ public sealed class Infobase : IEntity
     public InfobaseStatus Status { get; set; }
     public DateTime CreatedAt { get; init; }
     public DateTime? UpdatedAt { get; set; }
+
+    // MLC-151 — токен оптимистической блокировки (зеркаль Tenant/MLC-136). SQL Server
+    // `rowversion` (8-байтовый автоинкремент на каждый UPDATE строки). Конкурентный
+    // апдейт через PUT /infobases/{id} с устаревшим токеном → DbUpdateConcurrencyException
+    // → 409. Nullable: под EF InMemory (тесты) и до первой записи токен не материализуется;
+    // SQL Server заполняет существующие строки при добавлении столбца (аддитивная миграция).
+    public byte[]? RowVersion { get; set; }
 }

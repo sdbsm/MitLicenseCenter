@@ -70,6 +70,11 @@ public sealed class AppDbContext : IdentityDbContext<AppUser, AppRole, Guid>
             e.Property(x => x.Status).HasConversion<int>().IsRequired();
             e.Property(x => x.CreatedAt).IsRequired();
             e.Property(x => x.UpdatedAt);
+            // MLC-151 — оптимистическая блокировка (зеркаль Tenant/MLC-136). IsRowVersion()
+            // маппит на SQL Server тип `rowversion`, помечает свойство IsConcurrencyToken и
+            // ValueGeneratedOnAddOrUpdate. На конкурентном UPDATE с устаревшим OriginalValue
+            // EF бросает DbUpdateConcurrencyException → endpoint мапит в 409.
+            e.Property(x => x.RowVersion).IsRowVersion();
             // Имя инфобазы уникально в пределах клиента — два разных клиента могут иметь
             // одноимённые базы (например, «Бухгалтерия»), но один клиент — нет.
             e.HasIndex(x => new { x.TenantId, x.Name }).IsUnique();
@@ -103,6 +108,10 @@ public sealed class AppDbContext : IdentityDbContext<AppUser, AppRole, Guid>
             e.Property(x => x.LastCheckDetails);
             // Physical-path override (PR 4.1): nullable, max 260 (MAX_PATH).
             e.Property(x => x.PhysicalPathOverride).HasMaxLength(260);
+            // MLC-151 — оптимистическая блокировка (зеркаль Tenant/MLC-136). Собственный
+            // токен, т.к. у публикации есть самостоятельный PUT /publications/{id} помимо
+            // вложенного апдейта через aggregate инфобазы.
+            e.Property(x => x.RowVersion).IsRowVersion();
             // 1-to-1 required: Publication — часть aggregate Infobase'а; удаление
             // инфобазы каскадом сносит публикацию в БД (IIS-unpublish — Stage 3).
             e.HasOne<Infobase>()

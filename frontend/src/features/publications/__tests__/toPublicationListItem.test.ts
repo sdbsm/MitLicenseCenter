@@ -13,6 +13,7 @@ function infobase(overrides: Partial<InfobaseListItem["publication"]> = {}): Inf
     status: "Active",
     createdAt: "2026-06-01T00:00:00Z",
     updatedAt: null,
+    rowVersion: null,
     publication: {
       id: "pub-1",
       infobaseId: "ib-1",
@@ -26,6 +27,7 @@ function infobase(overrides: Partial<InfobaseListItem["publication"]> = {}): Inf
       lastCheckStatus: "Published",
       lastCheckAt: "2026-06-10T08:00:00Z",
       lastCheckDetails: null,
+      rowVersion: null,
       ...overrides,
     },
   };

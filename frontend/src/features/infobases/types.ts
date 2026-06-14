@@ -17,6 +17,12 @@ export const publicationSchema = z.object({
   lastCheckStatus: z.enum(["Unknown", "Published", "NotPublished", "Error"]),
   lastCheckAt: omittable(z.string()),
   lastCheckDetails: omittable(z.string()),
+  // MLC-151 — токен оптимистической блокировки публикации (SQL Server rowversion → base64).
+  // Форма редактирования шлёт его обратно; конкурентный апдейт → 409
+  // (PUBLICATION_CONCURRENCY_CONFLICT при самостоятельном PUT, INFOBASE_CONCURRENCY_CONFLICT
+  // в составе aggregate-апдейта инфобазы). omit-null ([[api-omits-null-fields]]): под
+  // InMemory/до первой записи токена нет — omittable принимает отсутствие/null.
+  rowVersion: omittable(z.string()),
 });
 
 export const infobaseSchema = z.object({
@@ -28,6 +34,10 @@ export const infobaseSchema = z.object({
   status: infobaseStatusSchema,
   createdAt: z.string(),
   updatedAt: omittable(z.string()),
+  // MLC-151 — токен оптимистической блокировки инфобазы (корень aggregate'а). Форма
+  // редактирования шлёт его обратно; устаревший → 409 INFOBASE_CONCURRENCY_CONFLICT.
+  // omit-null ([[api-omits-null-fields]]): под InMemory токена нет → omittable.
+  rowVersion: omittable(z.string()),
 });
 
 export const infobaseListItemSchema = infobaseSchema.extend({
@@ -78,6 +88,9 @@ export interface PublicationInput {
   virtualPath: string;
   platformVersion: string;
   physicalPathOverride: string | null;
+  // MLC-151 — прочитанный rowversion публикации, отправляемый обратно при редактировании
+  // (опционально: при создании отсутствует). Сервер сверяет его как ожидаемую версию.
+  rowVersion?: string;
 }
 
 export interface CreateInfobaseInput {
@@ -95,4 +108,7 @@ export interface UpdateInfobaseInput {
   databaseName: string;
   status: InfobaseStatus;
   publication: PublicationInput;
+  // MLC-151 — прочитанный rowversion инфобазы (корень aggregate'а), отправляемый обратно
+  // при редактировании. Рассинхрон → 409 INFOBASE_CONCURRENCY_CONFLICT.
+  rowVersion?: string;
 }

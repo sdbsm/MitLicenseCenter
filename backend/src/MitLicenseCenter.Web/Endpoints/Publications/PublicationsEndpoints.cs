@@ -56,7 +56,7 @@ public static partial class PublicationsEndpoints
     // internal (не private) ради Stage-2 теста валидации BE-09 (MLC-120) — зеркаль
     // остальных операционных handler'ов этого модуля (Check/Publish/…). Поведение и
     // регистрация маршрута не меняются.
-    internal static async Task<Results<Ok<PublicationResponse>, NotFound, ValidationProblem>> UpdateAsync(
+    internal static async Task<Results<Ok<PublicationResponse>, NotFound, ValidationProblem, Conflict<ProblemDetails>>> UpdateAsync(
         Guid id,
         [FromBody] UpdatePublicationRequest request,
         AppDbContext db,
@@ -93,7 +93,22 @@ public static partial class PublicationsEndpoints
             : request.PhysicalPathOverride.Trim().TrimEnd('\\', '/');
         publication.UpdatedAt = clock.GetUtcNow().UtcDateTime;
 
-        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        // MLC-151 — оптимистическая блокировка публикации (зеркаль Tenant/MLC-136). Непустой
+        // прочитанный токен выставляем как ОЖИДАЕМУЮ версию; конкурентный апдейт →
+        // DbUpdateConcurrencyException → 409. null оставляет поведение прежним (backward-compat).
+        if (request.RowVersion is not null)
+        {
+            db.Entry(publication).Property(x => x.RowVersion).OriginalValue = request.RowVersion;
+        }
+
+        try
+        {
+            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return TypedResults.Conflict(Problems.PublicationConcurrencyConflict());
+        }
 
         await httpContext.AuditAsync(audit, AuditActionType.PublicationUpdated,
             init => AuditDescriptions.PublicationUpdated(
