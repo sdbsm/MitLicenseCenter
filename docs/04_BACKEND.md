@@ -506,3 +506,11 @@ Cold-цикл сеансов с MLC-154 — не Hangfire-джоб, а `ColdTier
 | `BackupPumpService` | Оркестратор очереди on-demand бэкапов; тикает по wake-сигналу или таймауту. |
 
 Подробности поведения горячего цикла и enforcement — в `docs/02_ARCHITECTURE.md`.
+
+**Live-форс cold-обхода (MLC-156).** `ColdTierPollingService` реализует Application-порт
+`ISessionRefreshTrigger.RunNowAsync(ct)`: будит петлю досрочно (прерывает ожидание таймера),
+прогоняет cold-цикл сейчас и завершает Task по его окончании. Single-flight — несколько
+одновременных вызовов коалесцируются в один ближайший прогон. Через порт (а не прямую
+инъекцию `Infrastructure.Jobs` в Web) граница слоёв сохранена (ADR-5/16/20). Потребитель —
+эндпоинт `POST /api/v1/sessions/refresh` (Viewer, 204 без тела, без аудита) под кнопкой
+«Обновить сейчас» на «Сеансах»: фронт ждёт ответ и перечитывает `GET /sessions/snapshot`.

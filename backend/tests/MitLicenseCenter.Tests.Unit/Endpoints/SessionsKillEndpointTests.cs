@@ -1,9 +1,14 @@
 using FluentAssertions;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using MitLicenseCenter.Application.Clusters;
+using MitLicenseCenter.Application.Jobs;
 using MitLicenseCenter.Application.Sessions;
+using MitLicenseCenter.Application.Settings;
 using MitLicenseCenter.Domain.Audit;
+using MitLicenseCenter.Domain.Settings;
 using MitLicenseCenter.Infrastructure.Jobs;
 using MitLicenseCenter.Web.Endpoints;
 using NSubstitute;
@@ -213,5 +218,46 @@ public sealed class SessionsKillEndpointTests
         conflict.Value!.Extensions["code"].Should().Be(ProblemCodes.SessionStale);
         await cluster.DidNotReceive().KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>());
         audit.Entries.Should().BeEmpty();
+    }
+
+    // MLC-156: POST /sessions/refresh форсит cold-прогон через ColdTierPollingService и
+    // отдаёт 204. Проверяем сквозь живой сервис: RefreshAsync дожидается реального прогона
+    // (RunNowAsync → RunColdAsync) и возвращает NoContent без аудита.
+    [Fact]
+    public async Task RefreshAsync_forces_a_cold_run_and_returns_NoContent()
+    {
+        var runCount = 0;
+        var job = Substitute.For<IReconciliationJob>();
+        job.RunColdAsync(Arg.Any<CancellationToken>())
+            .Returns(_ => { Interlocked.Increment(ref runCount); return Task.CompletedTask; });
+
+        var services = new ServiceCollection();
+        services.AddScoped(_ => job);
+        using var provider = services.BuildServiceProvider();
+        var scopeFactory = provider.GetRequiredService<IServiceScopeFactory>();
+
+        var settings = Substitute.For<ISettingsSnapshot>();
+        settings.GetInt(SettingKey.PollingColdIntervalSeconds).Returns(3600);
+
+        var cold = new ColdTierPollingService(
+            scopeFactory, settings, NullLogger<ColdTierPollingService>.Instance);
+
+        await cold.StartAsync(CancellationToken.None);
+        try
+        {
+            var deadline = DateTime.UtcNow.AddSeconds(10);
+            while (runCount < 1 && DateTime.UtcNow < deadline)
+                await Task.Delay(10);
+            var before = runCount;
+
+            var result = await SessionsEndpoints.RefreshAsync(cold, CancellationToken.None);
+
+            result.Should().BeOfType<NoContent>();
+            runCount.Should().BeGreaterThan(before);
+        }
+        finally
+        {
+            await cold.StopAsync(CancellationToken.None);
+        }
     }
 }

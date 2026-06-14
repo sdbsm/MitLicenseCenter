@@ -13,9 +13,9 @@ import { useOneCLoad } from "./useOneCLoad";
  * Zod-граница в `useOneCLoad`. Пустые списки = «нет активной нагрузки» (бэкенд без Available-флага,
  * решение MLC-066: отсутствие сигнала ≠ ошибка, обычно rac не настроен/нет активных сеансов).
  */
-export function OneCLoadSection() {
+export function OneCLoadSection({ paused = false }: { paused?: boolean }) {
   const { t } = useTranslation();
-  const { data, isLoading, isError } = useOneCLoad();
+  const { data, isLoading, isError } = useOneCLoad(paused);
 
   const isEmpty = data && data.sessions.length === 0 && data.processes.length === 0;
 

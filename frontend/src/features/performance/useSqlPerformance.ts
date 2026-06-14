@@ -9,11 +9,12 @@ export const sqlPerformanceQueryKey = ["performance", "sql"] as const;
 // wait-stats) и ничего не персистит — сбор идёт, только пока вкладка открыта. 5с согласовано с
 // host- и 1С-снимками. placeholderData оставляет прежний снимок между poll'ами (без мигания).
 // Схема — критичная граница (MLC-016): perf-поля питают подсветку «кто грузит/заблокирован».
-export function useSqlPerformance() {
+export function useSqlPerformance(paused = false) {
   return useQuery({
     queryKey: sqlPerformanceQueryKey,
     queryFn: () => api("/api/v1/performance/sql", { schema: sqlPerformanceViewSchema }),
-    refetchInterval: 5_000,
+    // MLC-156: при паузе страницы авто-обновление выключается (общий контрол LiveControls).
+    refetchInterval: paused ? false : 5_000,
     refetchOnWindowFocus: true,
     placeholderData: (prev) => prev,
   });

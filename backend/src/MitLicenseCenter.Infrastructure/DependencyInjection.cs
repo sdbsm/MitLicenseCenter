@@ -273,6 +273,9 @@ public static class DependencyInjection
         // См. ADR-6.1.
         services.AddSingleton<ColdTierPollingService>();
         services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<ColdTierPollingService>());
+        // MLC-156: тот же singleton за портом ISessionRefreshTrigger — эндпоинт
+        // POST /sessions/refresh форсит немедленный cold-прогон, не ломая границу слоёв.
+        services.AddSingleton<ISessionRefreshTrigger>(sp => sp.GetRequiredService<ColdTierPollingService>());
 
         return services;
     }

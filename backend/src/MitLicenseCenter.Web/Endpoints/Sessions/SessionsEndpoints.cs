@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using MitLicenseCenter.Application.Auditing;
 using MitLicenseCenter.Application.Clusters;
+using MitLicenseCenter.Application.Jobs;
 using MitLicenseCenter.Application.Sessions;
 using MitLicenseCenter.Domain.Audit;
 using MitLicenseCenter.Infrastructure.Identity;
@@ -21,7 +22,20 @@ public static class SessionsEndpoints
             .WithTags("Sessions");
 
         group.MapGet("/snapshot", SnapshotAsync).RequireAuthorization(Roles.Viewer);
+        group.MapPost("/refresh", RefreshAsync).RequireAuthorization(Roles.Viewer);
         group.MapPost("/{id:guid}/kill", KillAsync).RequireAuthorization(Roles.Admin);
+    }
+
+    // MLC-156: live-форс cold-обхода для кнопки «Обновить сейчас». Запускает cold-прогон
+    // немедленно (прерывает ожидание таймера ColdTierPollingService), дожидается его
+    // завершения и возвращает 204 — после чего фронт перечитывает свежий снимок через
+    // GET /snapshot. Read-only обновление (Viewer), без тела, без аудита и нового DTO.
+    internal static async Task<NoContent> RefreshAsync(
+        ISessionRefreshTrigger refreshTrigger,
+        CancellationToken ct)
+    {
+        await refreshTrigger.RunNowAsync(ct).ConfigureAwait(false);
+        return TypedResults.NoContent();
     }
 
     internal static Ok<SessionsSnapshotResponse> SnapshotAsync(

@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router";
+import { api } from "@/lib/api";
 import {
   getCoreRowModel,
   getPaginationRowModel,
@@ -71,10 +72,28 @@ export function useSessionsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { q, infobaseId } = useMemo(() => parseParams(searchParams), [searchParams]);
 
-  const { data, isLoading, isError, refetch, failureCount } = useSessionsSnapshot();
+  // MLC-156: пауза авто-обновления + ручной форс-обход. При паузе refetchInterval=false.
+  const [isPaused, setIsPaused] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const togglePause = useCallback(() => setIsPaused((p) => !p), []);
+
+  const { data, isLoading, isError, refetch, failureCount } = useSessionsSnapshot(isPaused);
   const { data: infobasesData } = useInfobases();
   const { data: me } = useMe();
   const isAdmin = me?.roles.includes("Admin") ?? false;
+
+  // «Обновить сейчас» = живой форс-обход 1С: POST /sessions/refresh запускает cold-прогон
+  // прямо сейчас и ждёт его завершения, затем перечитываем свежий снимок. Работает и на
+  // паузе (ручное обновление). 204 без тела — schema не нужна.
+  const refreshNow = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      await api("/api/v1/sessions/refresh", { method: "POST" });
+      await refetch();
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [refetch]);
 
   const { density, toggleDensity } = useTableDensity();
 
@@ -165,6 +184,10 @@ export function useSessionsPage() {
     isError,
     refetch,
     failureCount,
+    isPaused,
+    togglePause,
+    refreshNow,
+    isRefreshing,
     isAdmin,
     infobases: infobasesData?.items ?? [],
     q,
