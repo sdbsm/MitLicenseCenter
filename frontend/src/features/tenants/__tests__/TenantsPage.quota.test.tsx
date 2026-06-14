@@ -22,16 +22,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
   return { ...actual, api: vi.fn() };
 });
 
-import type * as ReactRouterModule from "react-router";
-
-// Мокаем react-router Link чтобы не было ошибки вне Router-контекста
-vi.mock("react-router", async (importOriginal) => {
-  const actual = await importOriginal<typeof ReactRouterModule>();
-  return {
-    ...actual,
-    Link: ({ children, to }: { children: ReactNode; to: string }) => <a href={to}>{children}</a>,
-  };
-});
+import { MemoryRouter } from "react-router";
 
 import { api } from "@/lib/api";
 
@@ -77,7 +68,12 @@ function makeSnapshotResponse(entries: Array<{ tenantId: string; consumesLicense
 
 function wrapper({ children }: { children: ReactNode }) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
+  // MemoryRouter — страница использует useSearchParams (URL-фильтр поиска, MLC-144).
+  return (
+    <QueryClientProvider client={qc}>
+      <MemoryRouter>{children}</MemoryRouter>
+    </QueryClientProvider>
+  );
 }
 
 // Ленивый импорт после моков

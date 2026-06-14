@@ -21,16 +21,15 @@ export function SessionsPage() {
     infobases,
     q,
     infobaseId,
-    sort,
-    toggleSort,
+    table,
+    density,
+    toggleDensity,
     page,
     totalFiltered,
-    pageRows,
     setPage,
     setFilter,
     selectedSession,
     killOpen,
-    handleKillClick,
     handleKillOpenChange,
   } = useSessionsPage();
 
@@ -73,23 +72,22 @@ export function SessionsPage() {
           </div>
         )}
 
-        {/* Filter bar */}
-        <SessionsFiltersBar
-          q={q}
-          infobaseId={infobaseId}
-          infobases={infobases}
-          onChange={setFilter}
-        />
-
-        {/* Table */}
+        {/* Table — фильтры в тулбаре DataTable, рядом с видимостью колонок и density */}
         <SessionsTable
-          rows={pageRows}
+          table={table}
           isLoading={isLoading}
           isError={isError}
           isAdmin={isAdmin}
-          sort={sort}
-          onToggleSort={toggleSort}
-          onKill={handleKillClick}
+          density={density}
+          onToggleDensity={toggleDensity}
+          filters={
+            <SessionsFiltersBar
+              q={q}
+              infobaseId={infobaseId}
+              infobases={infobases}
+              onChange={setFilter}
+            />
+          }
         />
 
         {/* Pagination */}

@@ -1,7 +1,18 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router";
+import {
+  getCoreRowModel,
+  getPaginationRowModel,
+  getSortedRowModel,
+  useReactTable,
+  type PaginationState,
+  type SortingState,
+} from "@tanstack/react-table";
+import { useTableDensity } from "@/components/ui/data-table";
 import { useMe } from "@/features/auth/useAuth";
 import { useInfobases } from "@/features/infobases/useInfobases";
+import { buildSessionColumns } from "./sessionColumns";
 import type { SessionSnapshotEntry } from "./types";
 import { useSessionsSnapshot } from "./useSessionsSnapshot";
 
@@ -26,7 +37,11 @@ function parseParams(params: URLSearchParams) {
   };
 }
 
-/** @internal — экспортируется только для тестов */
+/**
+ * @internal — экспортируется только для теста клиентской сортировки (clientSortPagination).
+ * Канонический компаратор сеансов (UX-14); те же правила применяются как `sortingFn`
+ * колонок в `sessionColumns` (DataTable, MLC-144).
+ */
 export function sortRows(rows: SessionSnapshotEntry[], sort: SessionSort): SessionSnapshotEntry[] {
   return [...rows].sort((a, b) => {
     const av = a[sort.key];
@@ -46,12 +61,13 @@ export function sortRows(rows: SessionSnapshotEntry[], sort: SessionSort): Sessi
 
 /**
  * Оркестрация страницы сессий: данные снапшота/инфобаз, URL-фильтры (поиск + инфобаза),
- * вычисление отфильтрованного/отсортированного/постраничного набора и состояние диалога
- * принудительного завершения. Сортировка и пагинация — клиентские, над живым снапшотом
- * (UX-14): при изменении длины снапшота страница clamp'ится в [1, totalPages].
- * Презентация (таблица, фильтры) вынесена в отдельные компоненты (MLC-032).
+ * сборка экземпляра `useReactTable` с клиентской сортировкой (`getSortedRowModel`) и
+ * клиентской пагинацией (`getPaginationRowModel`, size=25) над живым снапшотом (UX-14).
+ * URL-фильтры q/infobaseId сохранены без смены поведения (MLC-144). Презентация — DataTable
+ * в `SessionsTable` (MLC-032).
  */
 export function useSessionsPage() {
+  const { t } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
   const { q, infobaseId } = useMemo(() => parseParams(searchParams), [searchParams]);
 
@@ -60,10 +76,15 @@ export function useSessionsPage() {
   const { data: me } = useMe();
   const isAdmin = me?.roles.includes("Admin") ?? false;
 
+  const { density, toggleDensity } = useTableDensity();
+
   const [selectedSession, setSelectedSession] = useState<SessionSnapshotEntry | null>(null);
   const [killOpen, setKillOpen] = useState(false);
-  const [sort, setSort] = useState<SessionSort>({ key: "startedAt", dir: "desc" });
-  const [page, setPage] = useState(1);
+  const [sorting, setSorting] = useState<SortingState>([{ id: "startedAt", desc: true }]);
+  const [pagination, setPagination] = useState<PaginationState>({
+    pageIndex: 0,
+    pageSize: SESSIONS_PAGE_SIZE,
+  });
 
   const infobaseById = useMemo(() => {
     const map = new Map<string, string>();
@@ -73,6 +94,8 @@ export function useSessionsPage() {
     return map;
   }, [infobasesData]);
 
+  // Фильтрация q/infobaseId — кросс-колоночная, остаётся вне tanstack columnFilters
+  // (как раньше, чтобы не менять имена URL-параметров).
   const filtered = useMemo(() => {
     let rows = data?.items ?? [];
     if (q) {
@@ -83,31 +106,46 @@ export function useSessionsPage() {
     }
     if (infobaseId) {
       const name = infobaseById.get(infobaseId);
-      if (name) {
-        rows = rows.filter((r) => r.infobaseName === name);
-      }
+      if (name) rows = rows.filter((r) => r.infobaseName === name);
     }
     return rows;
   }, [data, q, infobaseId, infobaseById]);
 
-  const sorted = useMemo(() => sortRows(filtered, sort), [filtered, sort]);
-
-  // Clamp страницы в [1, totalPages] при изменении длины данных (live-снапшот)
-  const totalPages = Math.max(1, Math.ceil(sorted.length / SESSIONS_PAGE_SIZE));
-  const safePage = Math.min(page, totalPages);
-
-  const pageRows = useMemo(() => {
-    const start = (safePage - 1) * SESSIONS_PAGE_SIZE;
-    return sorted.slice(start, start + SESSIONS_PAGE_SIZE);
-  }, [sorted, safePage]);
-
-  const toggleSort = (key: SessionSortKey) => {
-    setSort((prev) =>
-      prev.key === key ? { key, dir: prev.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }
-    );
-    setPage(1);
+  const handleKillClick = (session: SessionSnapshotEntry) => {
+    setSelectedSession(session);
+    setKillOpen(true);
+  };
+  const handleKillOpenChange = (open: boolean) => {
+    setKillOpen(open);
+    if (!open) setSelectedSession(null);
   };
 
+  const columns = useMemo(
+    () => buildSessionColumns({ t, isAdmin, onKill: handleKillClick }),
+    [t, isAdmin]
+  );
+
+  const table = useReactTable({
+    data: filtered,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    state: { sorting, pagination },
+    onSortingChange: setSorting,
+    onPaginationChange: setPagination,
+    autoResetPageIndex: false,
+  });
+
+  // Clamp страницы в [0, pageCount-1] при изменении длины снапшота (live-данные, UX-14).
+  const pageCount = table.getPageCount();
+  useEffect(() => {
+    if (pagination.pageIndex > 0 && pagination.pageIndex > pageCount - 1) {
+      setPagination((p) => ({ ...p, pageIndex: Math.max(0, pageCount - 1) }));
+    }
+  }, [pageCount, pagination.pageIndex]);
+
+  // Любая смена сортировки/фильтра возвращает на первую страницу.
   const setFilter = (next: { q?: string; infobaseId?: string }) => {
     const params = new URLSearchParams();
     const newQ = next.q !== undefined ? next.q : q;
@@ -115,18 +153,11 @@ export function useSessionsPage() {
     if (newQ) params.set("q", newQ);
     if (newInfobaseId) params.set("infobaseId", newInfobaseId);
     setSearchParams(params, { replace: true });
-    setPage(1);
+    setPagination((p) => ({ ...p, pageIndex: 0 }));
   };
-
-  const handleKillClick = (session: SessionSnapshotEntry) => {
-    setSelectedSession(session);
-    setKillOpen(true);
-  };
-
-  const handleKillOpenChange = (open: boolean) => {
-    setKillOpen(open);
-    if (!open) setSelectedSession(null);
-  };
+  useEffect(() => {
+    setPagination((p) => (p.pageIndex === 0 ? p : { ...p, pageIndex: 0 }));
+  }, [sorting]);
 
   return {
     snapshot: data,
@@ -139,13 +170,13 @@ export function useSessionsPage() {
     q,
     infobaseId,
     filtered,
-    sort,
-    toggleSort,
-    page: safePage,
-    totalPages,
-    totalFiltered: sorted.length,
-    pageRows,
-    setPage,
+    table,
+    density,
+    toggleDensity,
+    // Пагинация для PaginationBar (1-based для UI).
+    page: pagination.pageIndex + 1,
+    totalFiltered: filtered.length,
+    setPage: (page1: number) => setPagination((p) => ({ ...p, pageIndex: page1 - 1 })),
     setFilter,
     selectedSession,
     killOpen,

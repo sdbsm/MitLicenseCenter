@@ -39,6 +39,7 @@ frontend/src/
   components/
     layout/               — AppShell, Sidebar, Topbar, ThemeToggle
     ui/                   — shadcn/radix примитивы (button, dialog, form, …)
+    ui/data-table/        — DataTable на @tanstack/react-table + хуки (ADR-46)
     PageFallback.tsx
     PaginationBar.tsx
   lib/
@@ -192,20 +193,25 @@ queryKey: [...infobasesQueryKey, { tenantId, publishStatus, page, pageSize }]
 (объёмы малые). **Поиск клиентов (UX-05):** список `/tenants` имеет поле поиска по имени —
 `useTenants(page, pageSize, search)` шлёт `search` (debounce, сброс на 1-ю страницу);
 бэкенд фильтрует `Tenant.Name` обычным `Contains`→`LIKE` (регистр — за collation БД).
+С MLC-144a терм поиска живёт в URL-фильтре колонки `name` (`?f_name=…`, через
+`useUrlTableFilters`) — отфильтрованный список шарится ссылкой; страница использует
+`DataTable` с серверной пагинацией (`manualPagination`).
 
 **Клиентская сортировка и пагинация live-снапшотов (UX-14/15, MLC-131).** Сеансы
 (`/sessions`) и список «не найденных в кластере» баз (`MissingInfobasesDialog`) приходят
 целым массивом — серверной пагинации нет. Сортировка и разбивка по страницам выполняются
 над уже полученным снапшотом без дополнительных запросов:
 
-- **Сеансы** — `useSessionsPage` сортирует результат фильтрации функцией `sortRows`
-  (stable sort, `localeCompare("ru")` для строк, числовое и булево сравнение), затем
-  нарезает страницы по 25 записей. Состояние сортировки (`key + dir`) и номер страницы
-  хранятся локально в хуке. Нажатие заголовка колонки (`SortableHead`) переключает
-  направление; смена фильтра или колонки сбрасывает на страницу 1. При рефетче
-  снапшота (каждые 5 с) страница clamp'ится в `[1, totalPages]` — экран не «прыгает».
-  Колонки без сортировки (ID сеанса, App ID, Действие) остаются статичными. Фильтр по
-  инфобазе использует `SearchableSelect` вместо обычного `Select` (UX-38).
+- **Сеансы** — `useSessionsPage` строит экземпляр `DataTable` (`useReactTable`, ADR-46) с
+  клиентской сортировкой (`getSortedRowModel`, компараторы повторяют прежнюю семантику UX-14:
+  `localeCompare("ru")` для строк, числовое сравнение длительности, булево «считается выше»
+  для consumesLicense) и клиентской пагинацией (`getPaginationRowModel`, 25 записей). Канонический
+  компаратор `sortRows` сохранён (тест). Заголовки сортируемых колонок — `DataTableColumnHeader`
+  с иконками ↑↓↕. При рефетче снапшота (каждые 5 с) `pageIndex` clamp'ится в `[0, pageCount-1]` —
+  экран не «прыгает»; смена сортировки/фильтра сбрасывает на первую страницу. Колонки без
+  сортировки (ID сеанса, App ID, Действие) остаются статичными. URL-фильтры `q`/`infobaseId`
+  (фильтр инфобазы — `SearchableSelect`, UX-38) сохранены как есть, вне tanstack `columnFilters`
+  (кросс-колоночные); фильтры размещены в тулбаре `DataTable` рядом с видимостью колонок и density.
 
 - **«Не найдены в кластере»** — `MissingInfobasesDialog` сортирует список по
   `tenantName + name` (стабильно, по-русски) и показывает по 20 записей через
