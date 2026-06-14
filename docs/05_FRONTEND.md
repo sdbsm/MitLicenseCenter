@@ -325,7 +325,17 @@ lastCheckDetails:     omittable(z.string()),
 **Пример из `features/tenants/types.ts`:**
 ```ts
 updatedAt: omittable(z.string()),
+rowVersion: omittable(z.string()),  // MLC-136 — токен оптимистической блокировки (base64)
 ```
+
+`tenantSchema.rowVersion` (R12c) — токен оптимистической блокировки, приходящий
+base64-строкой; `omittable`, т.к. под отсутствием токена API опускает поле. Форма
+редактирования (`TenantFormDialog`) кладёт прочитанный `tenant.rowVersion` в `TenantInput`
+и шлёт обратно при `PUT`. Конкурентный апдейт (устаревший токен) сервер отклоняет 409
+`TENANT_CONCURRENCY_CONFLICT`; форма ловит его через `matchConflictCode` ДО маппинга дубля
+имени и показывает тост `tenants.errors.concurrencyConflict` («обновите страницу и повторите»),
+а не ошибку поля. Закреплено `__tests__/tenantSchema.test.ts` (приём ответа с токеном и
+omit-null без него).
 
 ### 5.2 Parity с BE-валидацией
 

@@ -35,6 +35,7 @@ const tenantA: Tenant = {
   createdAt: "2026-01-01T00:00:00Z",
   updatedAt: null,
   infobaseCount: 1,
+  rowVersion: null,
 };
 const tenantB: Tenant = {
   id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
@@ -44,6 +45,7 @@ const tenantB: Tenant = {
   createdAt: "2026-01-01T00:00:00Z",
   updatedAt: null,
   infobaseCount: 0,
+  rowVersion: null,
 };
 
 const infobase = {

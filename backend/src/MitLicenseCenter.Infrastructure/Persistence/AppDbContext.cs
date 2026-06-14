@@ -50,6 +50,12 @@ public sealed class AppDbContext : IdentityDbContext<AppUser, AppRole, Guid>
             e.Property(x => x.IsActive).IsRequired();
             e.Property(x => x.CreatedAt).IsRequired();
             e.Property(x => x.UpdatedAt);
+            // MLC-136 (R12c) — оптимистическая блокировка. IsRowVersion() маппит на SQL
+            // Server тип `rowversion`, помечает свойство IsConcurrencyToken и
+            // ValueGeneratedOnAddOrUpdate (БД генерирует значение при INSERT/UPDATE).
+            // На конкурентном UPDATE с устаревшим OriginalValue EF бросает
+            // DbUpdateConcurrencyException → endpoint мапит в 409.
+            e.Property(x => x.RowVersion).IsRowVersion();
             e.HasIndex(x => x.Name).IsUnique();
         });
 

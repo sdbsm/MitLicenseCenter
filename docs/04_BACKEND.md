@@ -123,11 +123,27 @@ Frontend опирается на эти коды для локализованн
 `SESSION_STALE`, `CLUSTER_UNAVAILABLE`,
 `USER_USERNAME_DUPLICATE`, `USER_NOT_FOUND`, `USER_CANNOT_DISABLE_SELF`, `USER_LAST_ACTIVE`, `USER_CANNOT_CHANGE_OWN_ROLE`,
 `RECORDING_ACTIVE`, `BACKUP_ACTIVE`, `BACKUP_FOLDER_NOT_CONFIGURED`, `BACKUP_DELETE_FAILED`,
-`SQL_SERVER_NOT_CONFIGURED`, `UNASSIGNED_ALREADY_ASSIGNED`, `UNASSIGNED_ALREADY_HIDDEN`.
+`SQL_SERVER_NOT_CONFIGURED`, `UNASSIGNED_ALREADY_ASSIGNED`, `UNASSIGNED_ALREADY_HIDDEN`,
+`TENANT_CONCURRENCY_CONFLICT`.
 
 Технические детали (пути, имена серверов, текст COM/IO-исключений) в `detail` не попадают —
 только санитизированные русскоязычные сообщения. Исключение `CLUSTER_UNAVAILABLE` возвращает
 502 вместо 409.
+
+### 3.4 Оптимистическая блокировка `Tenant`
+
+`Tenant` несёт rowversion-токен (`RowVersion byte[]?`, SQL Server `rowversion`,
+`IsRowVersion()` в `AppDbContext`). `PUT /tenants/{id}` принимает опциональный `RowVersion`:
+если он задан, endpoint выставляет его как ожидаемую версию
+(`db.Entry(tenant).Property(t => t.RowVersion).OriginalValue = …`) перед `SaveChanges`.
+SQL Server добавляет к UPDATE условие `WHERE RowVersion = @original`; при затронутых 0 строках
+(строку успели изменить) EF бросает `DbUpdateConcurrencyException`, которую endpoint ловит
+**отдельным** `try/catch` вокруг `SaveWithUniquenessBackstopAsync` и мапит в **409**
+`TENANT_CONCURRENCY_CONFLICT`. Concurrency-исключение — подкласс `DbUpdateException`, но
+uniqueness-backstop его не проглатывает: `DbUniqueViolation.Identify` вернёт `None` (нет имени
+индекса) и пробросит дальше, где его перехватывает concurrency-catch. Пустой `RowVersion`
+(старый клиент / без проверки версии) сохраняет прежнее поведение и оставляет существующие
+тесты зелёными. `Infobase`/`Publication` пока без токена (follow-up).
 
 ### 3.5 Контракт discovery-ответов
 

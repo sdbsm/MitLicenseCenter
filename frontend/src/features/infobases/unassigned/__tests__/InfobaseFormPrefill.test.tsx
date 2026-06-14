@@ -26,6 +26,7 @@ const tenant: Tenant = {
   createdAt: "2026-01-01T00:00:00Z",
   updatedAt: null,
   infobaseCount: 0,
+  rowVersion: null,
 };
 
 const PREFILL = { clusterInfobaseId: "11111111-1111-1111-1111-111111111111", name: "bd1" };

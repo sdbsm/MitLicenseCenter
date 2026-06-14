@@ -74,6 +74,10 @@ export function TenantFormDialog({ open, onOpenChange, tenant }: TenantFormDialo
       name: values.name.trim(),
       maxConcurrentLicenses: values.maxConcurrentLicenses,
       isActive: values.isActive,
+      // MLC-136 (R12c) — в режиме редактирования возвращаем прочитанный rowversion как
+      // ожидаемую версию; сервер ловит конкурентный апдейт (409 TENANT_CONCURRENCY_CONFLICT).
+      // При создании tenant нет — поле остаётся undefined и опускается.
+      ...(tenant?.rowVersion ? { rowVersion: tenant.rowVersion } : {}),
     };
 
     try {
@@ -86,6 +90,15 @@ export function TenantFormDialog({ open, onOpenChange, tenant }: TenantFormDialo
       }
       onOpenChange(false);
     } catch (error) {
+      // MLC-136 (R12c) — конкурентный апдейт (устаревший rowversion): не ошибка поля, а
+      // тост с предложением обновить страницу. Проверяем ДО маппинга дубля имени.
+      const concurrency = matchConflictCode(error, {
+        TENANT_CONCURRENCY_CONFLICT: true as const,
+      });
+      if (concurrency) {
+        toast.error(t("tenants.errors.concurrencyConflict"));
+        return;
+      }
       const mapped = matchConflictCode(error, {
         NAME_DUPLICATE: { field: "name", messageKey: "tenants.errors.nameDuplicate" } as const,
       });

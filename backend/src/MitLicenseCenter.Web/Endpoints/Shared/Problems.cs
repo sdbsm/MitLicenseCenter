@@ -64,6 +64,11 @@ public static class ProblemCodes
     // уже заведённую в панель / уже скрытую.
     public const string UnassignedAlreadyAssigned = "UNASSIGNED_ALREADY_ASSIGNED";
     public const string UnassignedAlreadyHidden = "UNASSIGNED_ALREADY_HIDDEN";
+
+    // MLC-136 (R12c) — оптимистическая блокировка клиента: апдейт с устаревшим
+    // rowversion-токеном (данные изменены другим пользователем между чтением формы и
+    // сохранением). Фронт по этому коду показывает тост «обновите страницу и повторите».
+    public const string TenantConcurrencyConflict = "TENANT_CONCURRENCY_CONFLICT";
 }
 
 public static class Problems
@@ -270,6 +275,15 @@ public static class Problems
             ProblemCodes.UnassignedAlreadyHidden,
             "База уже скрыта",
             "Эта база кластера уже скрыта. Обновите список.");
+
+    // MLC-136 (R12c) — оптимистическая блокировка: rowversion клиента, прочитанный при
+    // загрузке формы, устарел (клиент изменён другим пользователем). 409 — оператору
+    // нужно перечитать актуальные данные и повторить.
+    public static ProblemDetails TenantConcurrencyConflict() =>
+        Conflict(
+            ProblemCodes.TenantConcurrencyConflict,
+            "Данные клиента изменены",
+            "Данные клиента изменены другим пользователем. Обновите страницу и повторите.");
 
     // 404 для несуществующей учётки. Не 409, поэтому отдельный helper со Status=404 и
     // machine-readable code (frontend сопоставляет код, как и с конфликтами).
