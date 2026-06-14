@@ -131,4 +131,16 @@ internal static class AuditDescriptions
 
     public static string BackupDeleted(string databaseName, string initiator) =>
         $"Бэкап базы «{databaseName}» удалён администратором {initiator}.";
+
+    // ── Управление службой RAS (MLC-159, ADR-47) ────────────────────────────────────
+    // Server-scope; секреты не включаем (служба слушает loopback, obj/password нет).
+    // Указываем имя службы, версию платформы и порт — для разбора «что именно применили».
+    public static string RasServiceRegistered(string serviceName, string platformVersion, string port, string initiator) =>
+        $"Служба RAS «{serviceName}» зарегистрирована на платформе {platformVersion}, порт {port}, администратором {initiator}.";
+
+    public static string RasServiceUpdated(string serviceName, string platformVersion, string port, string initiator) =>
+        $"Служба RAS «{serviceName}» перенастроена на платформу {platformVersion}, порт {port}, администратором {initiator}.";
+
+    public static string RasServiceStarted(string serviceName, string initiator) =>
+        $"Служба RAS «{serviceName}» запущена администратором {initiator}.";
 }

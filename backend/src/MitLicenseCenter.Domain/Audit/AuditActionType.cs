@@ -100,4 +100,13 @@ public enum AuditActionType
     BackupFailed = 512,
     BackupDeleted = 513,
     BackupsPurged = 514,
+
+    // Управление службой RAS из веб-панели (MLC-159, ADR-47): новая 600-серия (frozen-int).
+    // Registered — sc create новой службы; Updated — перерегистрация под платформу/порт
+    // (stop→config→start); Started — запуск остановленной. Server-scope (TenantId не
+    // пишется); секреты в описание не кладутся (служба слушает loopback, obj/password не
+    // задаются). 603+ — резерв под будущие действия (удаление/останов вне объёма).
+    RasServiceRegistered = 600,
+    RasServiceUpdated = 601,
+    RasServiceStarted = 602,
 }

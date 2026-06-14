@@ -77,6 +77,11 @@ public static class ProblemCodes
     // публикация — собственный код, т.к. у неё есть самостоятельный PUT /publications/{id}.
     public const string InfobaseConcurrencyConflict = "INFOBASE_CONCURRENCY_CONFLICT";
     public const string PublicationConcurrencyConflict = "PUBLICATION_CONCURRENCY_CONFLICT";
+
+    // MLC-159 (ADR-47) — операция над службой RAS (register/update/start) не удалась:
+    // неготовое окружение (нет ras.exe выбранной платформы / не задан порт-версия /
+    // служба не найдена) либо ненулевой код sc.exe. Фронт по коду показывает текст из detail.
+    public const string RasServiceOperationFailed = "RAS_SERVICE_OPERATION_FAILED";
 }
 
 public static class Problems
@@ -324,6 +329,14 @@ public static class Problems
         problem.Extensions["code"] = ProblemCodes.UserNotFound;
         return problem;
     }
+
+    // MLC-159 (ADR-47) — операция над службой RAS не удалась. detail приходит из адаптера
+    // (RasServiceOperationException) уже санитизированным русским текстом: причина
+    // неготовности окружения или ненулевой код sc.exe. Секреты в detail отсутствуют
+    // (служба слушает loopback, obj/password не задаются). Технические подробности — в
+    // журнале сервера по correlationId.
+    public static ProblemDetails RasServiceOperationFailed(string detail, string? correlationId = null) =>
+        Conflict(ProblemCodes.RasServiceOperationFailed, "Операция со службой RAS не удалась", detail, correlationId);
 
     // MLC-002 — kill не выполнен: кластер 1С (RAS) недоступен или вернул ошибку.
     // 502 (upstream-сбой). Запись в аудит при этом НЕ делается.

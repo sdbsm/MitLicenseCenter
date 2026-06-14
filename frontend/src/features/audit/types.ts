@@ -57,7 +57,10 @@ export type AuditActionType =
   | "IisSiteRestarted"
   | "IisReset"
   | "IisStopped"
-  | "IisStarted";
+  | "IisStarted"
+  | "RasServiceRegistered"
+  | "RasServiceUpdated"
+  | "RasServiceStarted";
 
 // Активно пишущиеся действия для фильтра. Исключены legacy/frozen
 // (drift/reconcile-цикл и circuit-breaker — новые строки с ними не пишутся);
@@ -103,6 +106,9 @@ export const AUDIT_ACTION_TYPES: readonly AuditActionType[] = [
   "IisReset",
   "IisStopped",
   "IisStarted",
+  "RasServiceRegistered",
+  "RasServiceUpdated",
+  "RasServiceStarted",
 ] as const;
 
 export type AuditReason = "LimitExceeded" | "ManualByAdmin";

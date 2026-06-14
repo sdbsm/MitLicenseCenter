@@ -68,7 +68,10 @@
       "IisSiteRestarted": "Сайт IIS перезапущен",
       "IisReset": "Полный перезапуск IIS",
       "IisStopped": "Полная остановка IIS",
-      "IisStarted": "Полный запуск IIS"
+      "IisStarted": "Полный запуск IIS",
+      "RasServiceRegistered": "Служба RAS зарегистрирована",
+      "RasServiceUpdated": "Служба RAS перенастроена",
+      "RasServiceStarted": "Служба RAS запущена"
     },
     "empty": {
       "title": "Записей нет",

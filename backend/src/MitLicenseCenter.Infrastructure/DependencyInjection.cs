@@ -14,6 +14,7 @@ using MitLicenseCenter.Application.Identity;
 using MitLicenseCenter.Application.Jobs;
 using MitLicenseCenter.Application.Performance;
 using MitLicenseCenter.Application.Publishing;
+using MitLicenseCenter.Application.Ras;
 using MitLicenseCenter.Application.Reporting;
 using MitLicenseCenter.Application.Sessions;
 using MitLicenseCenter.Application.Settings;
@@ -27,6 +28,7 @@ using MitLicenseCenter.Infrastructure.Jobs;
 using MitLicenseCenter.Infrastructure.Performance;
 using MitLicenseCenter.Infrastructure.Persistence;
 using MitLicenseCenter.Infrastructure.Publishing;
+using MitLicenseCenter.Infrastructure.Ras;
 using MitLicenseCenter.Infrastructure.Reporting;
 using MitLicenseCenter.Infrastructure.Settings;
 
@@ -146,6 +148,16 @@ public static class DependencyInjection
         services.AddSingleton<IRasHealthReader>(sp => sp.GetRequiredService<RasHealthState>());
         services.AddSingleton<RasHealthProbingService>();
         services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<RasHealthProbingService>());
+
+        // Управление службой RAS (MLC-159, ADR-47): обнаружение по binPath + register/
+        // update/start через sc.exe. Ортогонально rac.exe-адаптеру (протокол RAS не
+        // трогаем). sc-раннер декодирует OEM-вывод как rac/iisreset; резолвер ras.exe —
+        // по версионным bin-каталогам 1С (как rac.exe). Все три — singleton (без
+        // состояния, читают ISettingsSnapshot/ФС). Windows-only (sc.exe), но чистый
+        // спавн процесса — без #pragma CA1416.
+        services.AddSingleton<IScProcessRunner, ScProcessRunner>();
+        services.AddSingleton<IRasExePathResolver, RasExePathResolver>();
+        services.AddSingleton<IRasServiceManager, ScRasServiceManager>();
 
         // IIS publishing: реальный адаптер ServerManager + XDocument (PR 3.5).
         // Stub переехал в Publishing/Testing/ для unit-тестов, в production-DI
