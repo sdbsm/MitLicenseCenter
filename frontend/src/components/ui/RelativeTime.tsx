@@ -1,6 +1,7 @@
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import { useEffect, useState } from "react";
+import i18n from "@/i18n";
 import { cn } from "@/lib/utils";
 
 interface RelativeTimeProps {
@@ -19,6 +20,15 @@ function formatRelative(diffSec: number): string {
   return rtf.format(-Math.floor(diffSec / 60), "minute");
 }
 
+// MLC-148: «холодный старт» серверных снапшотов отдаёт CapturedAtUtc = DateTime.MinValue
+// (0001-01-01), который без защиты рендерился как «~2000 лет назад». Любая дата до эпохи
+// Unix (1970) трактуется как «значения ещё нет». Защита холистическая — RelativeTime
+// используется на /sessions, /performance, /dashboard, баннерах инфобаз.
+function isUnsetTimestamp(date: Date): boolean {
+  const ms = date.getTime();
+  return Number.isNaN(ms) || ms <= 0;
+}
+
 export function RelativeTime({
   value,
   thresholdAmberSec = 60,
@@ -33,6 +43,14 @@ export function RelativeTime({
   }, []);
 
   const date = typeof value === "string" ? new Date(value) : value;
+
+  if (isUnsetTimestamp(date)) {
+    const label = i18n.t("common.notUpdatedYet");
+    return (
+      <span className={cn("text-muted-foreground", className)}>{label}</span>
+    );
+  }
+
   const diffSec = Math.max(0, Math.floor((now - date.getTime()) / 1_000));
 
   const colorClass = isError

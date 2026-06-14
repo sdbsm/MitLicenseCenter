@@ -19,6 +19,7 @@
     "copied": "Скопировано",
     "loading": "Загрузка…",
     "noData": "Нет данных",
+    "notUpdatedYet": "ещё не обновлялось",
     "pagination": {
       "summary": "{{from}}–{{to}} из {{total}}",
       "refreshing": "Обновление…",

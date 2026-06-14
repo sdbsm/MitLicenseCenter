@@ -110,7 +110,9 @@ describe("TenantsPage — quota column (MLC-122)", () => {
     // Проверяем наличие badge с data-variant="danger"
     const dangerBadge = await screen.findByText("Превышение лимита");
     expect(dangerBadge.closest("[data-variant]")).toHaveAttribute("data-variant", "danger");
-  });
+    // Ленивый import('../TenantsPage') + react-query + полная отрисовка страницы делают
+    // этот тест тяжёлым; дефолтные 5 с не хватает под параллельной нагрузкой всего сьюта.
+  }, 15_000);
 
   it("безлимитный клиент (limit=0) — без акцента, показывает «—»", async () => {
     const unlimitedTenant = makeTenant("t-unlimited", "Без лимита", 0);
