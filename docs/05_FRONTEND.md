@@ -229,6 +229,13 @@ queryKey: [...infobasesQueryKey, { tenantId, publishStatus, page, pageSize }]
   `tenantName + name` (стабильно, по-русски) и показывает по 20 записей через
   `PaginationBar`. Страница также clamp'ируется при изменении входного массива.
 
+- **Пользователи** — `UsersPage` (`features/users`) использует `DataTable` (MLC-144e)
+  с клиентской сортировкой (`getSortedRowModel`); пагинация не нужна — список учёток
+  небольшой (весь в памяти). Колонки: Логин, Роль, Статус, Последний вход, Действия.
+  Статус — только через `StatusBadge` (инвариант). Столбец «Действия» (`enableHiding: false`)
+  содержит меню смены роли, сброса пароля, отключения/включения учётки. Тулбар `DataTable`
+  предоставляет видимость колонок и density-toggle.
+
 ### 4.2 Инвалидация через `useInvalidatingMutation`
 
 `lib/useInvalidatingMutation.ts` — единая обёртка над `useMutation` с политикой

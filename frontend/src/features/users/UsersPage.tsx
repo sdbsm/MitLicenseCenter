@@ -1,40 +1,24 @@
-import { format } from "date-fns";
-import { ru } from "date-fns/locale";
-import {
-  KeyRoundIcon,
-  MoreHorizontalIcon,
-  PlusIcon,
-  ShieldOffIcon,
-  UserCheckIcon,
-  UserCogIcon,
-  UsersRoundIcon,
-} from "lucide-react";
+import { PlusIcon, UsersRoundIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import {
+  getCoreRowModel,
+  getSortedRowModel,
+  useReactTable,
+  type SortingState,
+} from "@tanstack/react-table";
+import { DataTable, useTableDensity } from "@/components/ui/data-table";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
-import { StatusBadge } from "@/components/ui/StatusBadge";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { TableCell } from "@/components/ui/table";
 import { ChangeRoleDialog } from "./ChangeRoleDialog";
 import { DisableUserDialog } from "./DisableUserDialog";
 import { EnableUserDialog } from "./EnableUserDialog";
 import { GeneratedPasswordDialog } from "./GeneratedPasswordDialog";
 import { ResetPasswordDialog } from "./ResetPasswordDialog";
 import type { User } from "./types";
+import { buildUserColumns } from "./userColumns";
 import { UserFormDialog } from "./UserFormDialog";
 import { useUsers } from "./useUsers";
 
@@ -43,6 +27,12 @@ interface GeneratedPassword {
   password: string;
 }
 
+/**
+ * Страница управления учётными записями панели (MLC-144e). Таблица построена
+ * на `DataTable` (@tanstack/react-table) с клиентской сортировкой
+ * (`getSortedRowModel`). Меню видимости колонок и density — в тулбаре `DataTable`.
+ * Пагинация не нужна: список учёток небольшой (весь в памяти).
+ */
 export function UsersPage() {
   const { t } = useTranslation();
   const { data, isLoading, isError, refetch } = useUsers();
@@ -53,6 +43,9 @@ export function UsersPage() {
   const [enabling, setEnabling] = useState<User | null>(null);
   const [changingRole, setChangingRole] = useState<User | null>(null);
   const [generated, setGenerated] = useState<GeneratedPassword | null>(null);
+  const [sorting, setSorting] = useState<SortingState>([]);
+
+  const { density, toggleDensity } = useTableDensity();
 
   const items = useMemo<User[]>(() => data?.items ?? [], [data]);
 
@@ -60,11 +53,26 @@ export function UsersPage() {
     setGenerated({ userName, password });
   };
 
-  const renderRoles = (user: User) =>
-    user.roles.map((role) => t(`users.roles.${role}`, { defaultValue: role })).join(", ") || "—";
+  const columns = useMemo(
+    () =>
+      buildUserColumns({
+        t,
+        onResetPassword: setResetting,
+        onChangeRole: setChangingRole,
+        onDisable: setDisabling,
+        onEnable: setEnabling,
+      }),
+    [t]
+  );
 
-  const renderLastLogin = (user: User) =>
-    user.lastLoginAt ? format(new Date(user.lastLoginAt), "dd.MM.yyyy HH:mm", { locale: ru }) : "—";
+  const table = useReactTable({
+    data: items,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    state: { sorting },
+    onSortingChange: setSorting,
+  });
 
   return (
     <div className="space-y-6">
@@ -96,107 +104,46 @@ export function UsersPage() {
         </div>
       )}
 
-      <div className="rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t("users.fields.userName")}</TableHead>
-              <TableHead>{t("users.fields.role")}</TableHead>
-              <TableHead>{t("users.fields.status")}</TableHead>
-              <TableHead>{t("users.fields.lastLogin")}</TableHead>
-              <TableHead className="w-10" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isLoading
-              ? Array.from({ length: 3 }).map((_, idx) => (
-                  <TableRow key={`skeleton-${idx}`}>
-                    <TableCell>
-                      <Skeleton className="h-4 w-40" />
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton className="h-4 w-24" />
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton className="h-5 w-20" />
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton className="h-4 w-32" />
-                    </TableCell>
-                    <TableCell />
-                  </TableRow>
-                ))
-              : items.length === 0
-                ? !isError && (
-                    <TableRow>
-                      <TableCell colSpan={5} className="py-12">
-                        <div className="flex flex-col items-center justify-center gap-3 text-center">
-                          <UsersRoundIcon className="text-muted-foreground size-8" />
-                          <div className="space-y-1">
-                            <p className="font-medium">{t("users.empty.title")}</p>
-                            <p className="text-muted-foreground text-sm">{t("users.empty.hint")}</p>
-                          </div>
-                          <Button size="sm" onClick={() => setFormOpen(true)}>
-                            <PlusIcon className="size-4" />
-                            {t("users.actions.add")}
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  )
-                : items.map((user) => (
-                    <TableRow key={user.id}>
-                      <TableCell className="font-medium">{user.userName}</TableCell>
-                      <TableCell className="text-muted-foreground">{renderRoles(user)}</TableCell>
-                      <TableCell>
-                        {user.isActive ? (
-                          <StatusBadge variant="success">{t("users.status.active")}</StatusBadge>
-                        ) : (
-                          <StatusBadge variant="neutral">{t("users.status.disabled")}</StatusBadge>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground tabular-nums">
-                        {renderLastLogin(user)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="size-8">
-                              <MoreHorizontalIcon className="size-4" />
-                              <span className="sr-only">{t("common.details")}</span>
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onSelect={() => setResetting(user)}>
-                              <KeyRoundIcon className="size-4" />
-                              {t("users.actions.resetPassword")}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onSelect={() => setChangingRole(user)}>
-                              <UserCogIcon className="size-4" />
-                              {t("users.actions.changeRole")}
-                            </DropdownMenuItem>
-                            {user.isActive ? (
-                              <DropdownMenuItem
-                                variant="destructive"
-                                onSelect={() => setDisabling(user)}
-                              >
-                                <ShieldOffIcon className="size-4" />
-                                {t("users.actions.disable")}
-                              </DropdownMenuItem>
-                            ) : (
-                              <DropdownMenuItem onSelect={() => setEnabling(user)}>
-                                <UserCheckIcon className="size-4" />
-                                {t("users.actions.enable")}
-                              </DropdownMenuItem>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-          </TableBody>
-        </Table>
-      </div>
+      <DataTable
+        table={table}
+        density={density}
+        onToggleDensity={toggleDensity}
+        isLoading={isLoading}
+        skeletonRows={3}
+        renderSkeletonRow={() => (
+          <>
+            <TableCell>
+              <Skeleton className="h-4 w-40" />
+            </TableCell>
+            <TableCell>
+              <Skeleton className="h-4 w-24" />
+            </TableCell>
+            <TableCell>
+              <Skeleton className="h-5 w-20" />
+            </TableCell>
+            <TableCell>
+              <Skeleton className="h-4 w-32" />
+            </TableCell>
+            <TableCell />
+          </>
+        )}
+        columnLabel={(id) => table.getColumn(id)?.columnDef.meta?.label ?? id}
+        emptyState={
+          !isError ? (
+            <div className="flex flex-col items-center justify-center gap-3 text-center">
+              <UsersRoundIcon className="text-muted-foreground size-8" />
+              <div className="space-y-1">
+                <p className="font-medium">{t("users.empty.title")}</p>
+                <p className="text-muted-foreground text-sm">{t("users.empty.hint")}</p>
+              </div>
+              <Button size="sm" onClick={() => setFormOpen(true)}>
+                <PlusIcon className="size-4" />
+                {t("users.actions.add")}
+              </Button>
+            </div>
+          ) : undefined
+        }
+      />
 
       <UserFormDialog
         open={formOpen}
