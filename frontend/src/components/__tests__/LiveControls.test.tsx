@@ -25,6 +25,19 @@ describe("LiveControls", () => {
     expect(onTogglePause).toHaveBeenCalledTimes(1);
   });
 
+  // MLC-158: цвет/текст статуса кодируют текущее состояние, не действие.
+  it("в живом режиме показывает статус «Авто-обновление», на паузе — «На паузе»", () => {
+    const { rerender } = render(
+      <LiveControls isPaused={false} onTogglePause={vi.fn()} onRefreshNow={vi.fn()} />
+    );
+    expect(screen.getByText("Авто-обновление")).toBeInTheDocument();
+    expect(screen.queryByText("На паузе")).not.toBeInTheDocument();
+
+    rerender(<LiveControls isPaused={true} onTogglePause={vi.fn()} onRefreshNow={vi.fn()} />);
+    expect(screen.getByText("На паузе")).toBeInTheDocument();
+    expect(screen.queryByText("Авто-обновление")).not.toBeInTheDocument();
+  });
+
   it("показывает «Возобновить» когда на паузе", () => {
     render(<LiveControls isPaused={true} onTogglePause={vi.fn()} onRefreshNow={vi.fn()} />);
 
