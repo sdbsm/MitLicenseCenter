@@ -72,6 +72,9 @@ describe("useDatabases", () => {
     });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(mockedApi).toHaveBeenCalledWith("/api/v1/discovery/databases");
+    expect(mockedApi).toHaveBeenCalledWith(
+      "/api/v1/discovery/databases",
+      expect.objectContaining({ schema: expect.anything() })
+    );
   });
 });

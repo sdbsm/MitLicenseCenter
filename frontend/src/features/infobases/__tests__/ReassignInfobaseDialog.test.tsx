@@ -98,10 +98,14 @@ describe("ReassignInfobaseDialog", () => {
     await user.click(screen.getByRole("button", { name: "Перенести" }));
 
     await waitFor(() =>
-      expect(mockedApi).toHaveBeenCalledWith(`/api/v1/infobases/${infobase.id}/reassign`, {
-        method: "POST",
-        body: { targetTenantId: tenantB.id },
-      })
+      expect(mockedApi).toHaveBeenCalledWith(
+        `/api/v1/infobases/${infobase.id}/reassign`,
+        expect.objectContaining({
+          method: "POST",
+          body: { targetTenantId: tenantB.id },
+          schema: expect.anything(),
+        })
+      )
     );
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: infobasesQueryKey });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: tenantsQueryKey });

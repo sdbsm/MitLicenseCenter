@@ -340,12 +340,33 @@ updatedAt: omittable(z.string()),
 
 ### 5.3 Критичные границы (runtime-валидация схемой)
 
-Runtime-валидация через `api(..., { schema })` включена только там, где расхождение
-контракта означало бы ошибку авторизации или потерю операционных данных:
+Runtime-валидация через `api(..., { schema })` включена на всех значимых read-границах
+(MLC-132, FE-09). Схемы живут в `features/<feature>/types.ts`; типы выводятся `z.infer`.
+
+**Исходные критичные границы (ADR-10.1 / MLC-016):**
 `currentUserSchema` (роли), `sessionsSnapshotResponseSchema`,
 `infobaseListResponseSchema`, `tenantListResponseSchema`, `hostMetricsSnapshotSchema`,
 `backupsPagedSchema`, `recordingsPagedSchema` (paged-конверты после BE-17/MLC-130).
-Остальные запросы используют `payload as T`.
+
+**Расширено в MLC-132 (read-границы всех основных фич):**
+
+| Фича | Схема | Хук |
+|---|---|---|
+| `publications/iis` | `iisServerStatusSchema`, `iisAppPoolsResponseSchema`, `iisSitesResponseSchema` | `useIisServerStatus`, `useIisAppPools`, `useIisSites` |
+| `discovery` | `clusterInfobasesResponseSchema`, `databasesResponseSchema`, `iisSitesDiscoveryResponseSchema`, `racPathsResponseSchema`, `platformVersionsResponseSchema`, `sqlInstancesResponseSchema` | все хуки `useDiscovery.ts` |
+| `publications` | `publicationStatusResponseSchema` | `useCheckStatus`, `usePublish`, `useUnpublish`, `useChangePlatform` |
+| `infobases` | `clusterIdAvailabilitySchema`, `infobaseDetailSchema` | `useClusterIdAvailability`, `useCreateInfobase`, `useUpdateInfobase`, `useReassignInfobase` |
+| `settings` | `settingsListSchema` | `useSettings` |
+| `reports` | `licenseUsageSeriesResponseSchema` | `useLicenseUsage`, `useLicenseUsageByTenant` |
+| `audit` | `auditPagedResponseSchema`, `auditRetentionResponseSchema` | `useAuditLog`, `useAuditRetention` |
+
+**Пропущены (мутации с тривиальным/echo/`null` телом):** мутации IIS
+(recycle/start/stop/restart/iisreset — echo `IisOperationResponse`, реальное состояние
+приходит фоновым refetch discovery), `useDeleteInfobase` (204 No Content),
+`useDisableUser`/`useEnableUser`/`useChangeUserRole` (null body),
+`useHideUnassignedInfobase`/`useUnhideUnassignedInfobase` (null body).
+Мутации создания/сброса пользователей (`useCreateUser`, `useResetUserPassword`) несут
+одноразовый пароль — схема малоценна (пароль показывается в UI один раз, не сохраняется).
 
 ---
 

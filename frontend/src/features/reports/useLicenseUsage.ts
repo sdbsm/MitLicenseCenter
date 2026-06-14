@@ -1,6 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { LicenseUsageSeriesResponse, ReportsRange } from "./types";
+import {
+  licenseUsageSeriesResponseSchema,
+  type LicenseUsageSeriesResponse,
+  type ReportsRange,
+} from "./types";
 // reportsQueryKey живёт в reportsQueryKeys.ts, чтобы useTenants мог импортировать
 // только константу без циклической зависимости через useReportsPage (MLC-122).
 import { reportsQueryKey } from "./reportsQueryKeys";
@@ -21,11 +25,14 @@ function withQuery(path: string, range: ReportsRange): string {
 
 // Сводка по всем клиентам. Пустой ряд приходит как 200 (buckets:[]) — не ошибка,
 // под empty-state «данные накапливаются».
+// MLC-132: ответ проходит Zod-валидацию; peakAtUtc опускается бэкендом при null.
 export function useLicenseUsage(range: ReportsRange) {
   return useQuery({
     queryKey: [...reportsQueryKey, "summary", range],
     queryFn: () =>
-      api<LicenseUsageSeriesResponse>(withQuery("/api/v1/reports/license-usage", range)),
+      api<LicenseUsageSeriesResponse>(withQuery("/api/v1/reports/license-usage", range), {
+        schema: licenseUsageSeriesResponseSchema,
+      }),
     placeholderData: (prev) => prev,
   });
 }
@@ -37,7 +44,8 @@ export function useLicenseUsageByTenant(tenantId: string | null, range: ReportsR
     queryKey: [...reportsQueryKey, "tenant", tenantId, range],
     queryFn: () =>
       api<LicenseUsageSeriesResponse>(
-        withQuery(`/api/v1/reports/license-usage/${tenantId}`, range)
+        withQuery(`/api/v1/reports/license-usage/${tenantId}`, range),
+        { schema: licenseUsageSeriesResponseSchema }
       ),
     enabled: !!tenantId,
     placeholderData: (prev) => prev,
