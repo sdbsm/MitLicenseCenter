@@ -70,7 +70,7 @@ on-demand бэкапа доступен обеим ролям.
 | Веб-сервер | Kestrel (служба Windows, self-contained single-file win-x64; IIS — управляемый объект) |
 | Интеграция 1С | `rac.exe`, `ras.exe` (Remote Administration Service), `webinst.exe` |
 
-Версия продукта: `0.5.0-beta` (единая для backend и frontend).
+Версия продукта: `0.5.1-beta` (единая для backend и frontend).
 
 ---
 
