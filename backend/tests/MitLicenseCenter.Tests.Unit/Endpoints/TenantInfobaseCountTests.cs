@@ -24,9 +24,10 @@ public sealed class TenantInfobaseCountTests
             NewInfobase(withTwo.Id, "Acme ZUP"));
         await db.SaveChangesAsync();
 
-        var result = await TenantsEndpoints.ListAsync(db, page: 1, pageSize: 50, CancellationToken.None);
+        var result = await TenantsEndpoints.ListAsync(db, page: 1, pageSize: 50, search: null, CancellationToken.None);
 
-        var items = result.Value!.Items;
+        var ok = result.Result.Should().BeOfType<Ok<TenantListResponse>>().Subject;
+        var items = ok.Value!.Items;
         items.Single(t => t.Id == withTwo.Id).InfobaseCount.Should().Be(2);
         items.Single(t => t.Id == withNone.Id).InfobaseCount.Should().Be(0);
     }

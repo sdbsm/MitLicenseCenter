@@ -58,4 +58,15 @@ export const backupSummarySchema = z.object({
 
 export const backupListSchema = z.array(backupSummarySchema);
 
+// Серверная пагинация (MLC-130, BE-17): ответ-конверт `{ items, total, page, pageSize }`
+// (паритет с `BackupsPagedResponse` бэкенда). Бэкапы одной инфобазы ограничены keep-latest
+// retention (ADR-27), поэтому диалог запрашивает страницу с дефолтным размером без UI-листалки.
+export const backupsPagedSchema = z.object({
+  items: z.array(backupSummarySchema),
+  total: z.number(),
+  page: z.number(),
+  pageSize: z.number(),
+});
+
 export type BackupSummary = z.infer<typeof backupSummarySchema>;
+export type BackupsPaged = z.infer<typeof backupsPagedSchema>;

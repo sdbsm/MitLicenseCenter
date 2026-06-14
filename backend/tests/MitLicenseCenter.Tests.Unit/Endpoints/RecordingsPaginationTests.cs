@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Microsoft.AspNetCore.Http.HttpResults;
+using MitLicenseCenter.Application.Performance;
 using MitLicenseCenter.Infrastructure.Persistence;
 using MitLicenseCenter.Infrastructure.Reporting;
 using MitLicenseCenter.Web.Endpoints;

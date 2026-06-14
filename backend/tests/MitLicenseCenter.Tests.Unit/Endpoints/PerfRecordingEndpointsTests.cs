@@ -119,9 +119,10 @@ public sealed class PerfRecordingEndpointsTests
         db.PerfRecordingSamples.Add(NewSample(newer));
         await db.SaveChangesAsync();
 
-        var result = await PerformanceEndpoints.ListRecordingsAsync(db, CancellationToken.None);
+        var result = await PerformanceEndpoints.ListRecordingsAsync(
+            page: null, pageSize: null, db, CancellationToken.None);
 
-        var items = result.Value!;
+        var items = result.Value!.Items;
         items.Should().HaveCount(2);
         items[0].Id.Should().Be(newer, "свежие сверху");
         items[0].SampleCount.Should().Be(2);

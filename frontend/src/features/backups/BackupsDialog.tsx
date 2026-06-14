@@ -61,7 +61,7 @@ export function BackupsDialog({ infobase, open, onOpenChange }: BackupsDialogPro
     return null;
   }
 
-  const backups = data ?? [];
+  const backups = data?.items ?? [];
 
   const handleStart = async () => {
     try {

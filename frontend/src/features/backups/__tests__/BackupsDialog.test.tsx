@@ -97,8 +97,17 @@ function setMe(roles: string[]) {
 }
 
 function setup(backups: BackupSummary[] | Promise<BackupSummary[]> = []) {
+  // Эндпоинт пагинирован (MLC-130): GET отдаёт конверт { items, total, page, pageSize }.
+  const toPaged = (items: BackupSummary[]) => ({
+    items,
+    total: items.length,
+    page: 1,
+    pageSize: 100,
+  });
   mockedApi.mockImplementation((path: string) =>
-    path.startsWith("/api/v1/backups?") ? Promise.resolve(backups) : Promise.reject(new Error(path))
+    path.startsWith("/api/v1/backups?")
+      ? Promise.resolve(backups).then(toPaged)
+      : Promise.reject(new Error(path))
   );
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },

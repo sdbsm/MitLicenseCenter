@@ -177,11 +177,21 @@ export const usersQueryKey = ["users"] as const;
 
 Пагинированные хуки расширяют префикс параметрами фильтров и страницы:
 ```ts
-queryKey: [...tenantsQueryKey, { page, pageSize }]
+queryKey: [...tenantsQueryKey, { page, pageSize, search }]
 queryKey: [...infobasesQueryKey, { tenantId, publishStatus, page, pageSize }]
 ```
 Мутации инвалидируют по корневому префиксу (`["tenants"]`, `["infobases"]`) —
 это покрывает все страницы и фильтры разом.
+
+**Серверная пагинация списков (BE-17, MLC-130).** Кроме клиентов/инфобаз/аудита
+пагинированы на сервере (`page`/`pageSize`, ответ-конверт `{ items, total, page, pageSize }`)
+ещё `GET /api/v1/backups` и `GET /api/v1/performance/recordings` — эндпоинты больше не
+материализуют всю таблицу. Их потребители (`BackupsDialog` — бэкапы одной инфобазы,
+ограничены keep-latest retention; `RecordingSection` — расследования) запрашивают одну
+страницу с запасом (`pageSize=100`) и читают `.items`; отдельной UI-листалки в них нет
+(объёмы малые). **Поиск клиентов (UX-05):** список `/tenants` имеет поле поиска по имени —
+`useTenants(page, pageSize, search)` шлёт `search` (debounce, сброс на 1-ю страницу);
+бэкенд фильтрует `Tenant.Name` обычным `Contains`→`LIKE` (регистр — за collation БД).
 
 ### 4.2 Инвалидация через `useInvalidatingMutation`
 
@@ -316,7 +326,8 @@ Runtime-валидация через `api(..., { schema })` включена т
 контракта означало бы ошибку авторизации или потерю операционных данных:
 `currentUserSchema` (роли), `sessionsSnapshotResponseSchema`,
 `infobaseListResponseSchema`, `tenantListResponseSchema`, `hostMetricsSnapshotSchema`,
-`backupListSchema`. Остальные запросы используют `payload as T`.
+`backupsPagedSchema`, `recordingsPagedSchema` (paged-конверты после BE-17/MLC-130).
+Остальные запросы используют `payload as T`.
 
 ---
 

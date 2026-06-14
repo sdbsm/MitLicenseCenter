@@ -14,13 +14,19 @@ const ALL_TENANTS_PAGE_SIZE = 200;
 
 // Серверная пагинация (MLC-015). queryKey включает page/pageSize, но префикс остаётся
 // `["tenants"]`, поэтому мутации инвалидируют все страницы разом.
-export function useTenants(page = 1, pageSize = TENANTS_PAGE_SIZE) {
+// search (UX-05, MLC-130) — подстрочный поиск по имени клиента на сервере (plain Contains→LIKE);
+// пустой/undefined не добавляется в query. Включён в queryKey, чтобы кэш различал выборки.
+export function useTenants(page = 1, pageSize = TENANTS_PAGE_SIZE, search?: string) {
+  const term = search?.trim() ?? "";
   return useQuery({
-    queryKey: [...tenantsQueryKey, { page, pageSize }],
-    queryFn: () =>
-      api(`/api/v1/tenants?page=${page}&pageSize=${pageSize}`, {
+    queryKey: [...tenantsQueryKey, { page, pageSize, search: term }],
+    queryFn: () => {
+      const qs = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+      if (term) qs.set("search", term);
+      return api(`/api/v1/tenants?${qs.toString()}`, {
         schema: tenantListResponseSchema,
-      }),
+      });
+    },
     // Не моргаем скелетоном при смене страницы — показываем предыдущие данные.
     placeholderData: (prev) => prev,
   });
