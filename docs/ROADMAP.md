@@ -223,12 +223,13 @@ Tenants (page/pageSize + `PaginationBar`); R11 добивает остаток.
   инвалидируют `tenantsQueryKey`) + FE-07 (`UserFormDialog` сброс через `useEffect(open→reset)`;
   реальный призрак). FE-08 оказался фантомом (Radix размонтирует `DialogContent` → `ChangePasswordForm`
   сбрасывается сам), FE-03 закрыт ранее в MLC-122. Канон 05 §6.2. Frontend-only.
-- **Кластер b `MLC-135`** — BE-13: `PerfRecordingStatus`/`PerfRecordingStopReason` без явных int-значений
-  при `HasConversion<int>` + нет freeze-тестов (образец — `BackupModelsTests`/`AuditLogEnumMappingTests`).
-  Backend/тесты. ← _текущий_
-- **Кластер c** — BE-02: optimistic concurrency на доменных сущностях (lost update лимитов лицензий) —
+✅ **Кластер b** — закрыто `MLC-135` (2026-06-14): BE-13 — `PerfRecordingStatus`/`PerfRecordingStopReason`
+  получили явные int-значения (= ordinal) + freeze-тесты `PerfRecordingEnumFreezeTests` (InlineData +
+  reflection-полнота). Канон 04 §6.5 (сводная таблица 6 frozen-int enum'ов). Миграция не нужна.
+- **Кластер c `MLC-136`** — BE-02: optimistic concurrency на `Tenant` (lost update лимитов лицензий) —
   **только аддитивный rowversion** + миграция, безопасная при апгрейде (без backfill/изменения данных,
-  применяется на старте).
+  применяется на старте); 409 на конкурентный апдейт + parity FE. Infobase/Publication — follow-up по
+  триггеру. ← _текущий_
 - **Кластер d** — UX-кластер D (терминология и тексты UI: «клиент/арендатор», «сеанс/сессия», англ.
   роли, «recycle», пунктуация — UX-12/13/30/32/33).
 - **Кластер e** — UX-кластер E (доступность, контраст бейджей WCAG AA, destructive-стиль кнопок,
