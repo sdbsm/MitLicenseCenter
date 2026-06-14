@@ -226,12 +226,11 @@ Tenants (page/pageSize + `PaginationBar`); R11 добивает остаток.
 ✅ **Кластер b** — закрыто `MLC-135` (2026-06-14): BE-13 — `PerfRecordingStatus`/`PerfRecordingStopReason`
   получили явные int-значения (= ordinal) + freeze-тесты `PerfRecordingEnumFreezeTests` (InlineData +
   reflection-полнота). Канон 04 §6.5 (сводная таблица 6 frozen-int enum'ов). Миграция не нужна.
-- **Кластер c `MLC-136`** — BE-02: optimistic concurrency на `Tenant` (lost update лимитов лицензий) —
-  **только аддитивный rowversion** + миграция, безопасная при апгрейде (без backfill/изменения данных,
-  применяется на старте); 409 на конкурентный апдейт + parity FE. Infobase/Publication — follow-up по
-  триггеру. ← _текущий_
-- **Кластер d** — UX-кластер D (терминология и тексты UI: «клиент/арендатор», «сеанс/сессия», англ.
-  роли, «recycle», пунктуация — UX-12/13/30/32/33).
+✅ **Кластер c** — закрыто `MLC-136` (2026-06-14): BE-02 — optimistic concurrency на `Tenant`
+  (rowversion-токен, строго аддитивная миграция `MLC136TenantRowVersion`, `DbUpdateConcurrencyException`→409
+  `TENANT_CONCURRENCY_CONFLICT`, parity FE + omit-null). Infobase/Publication — follow-up. Канон 03/04/05.
+- **Кластер d `MLC-137`** — UX-кластер D (терминология и тексты UI: «клиент/арендатор», «сеанс/сессия», англ.
+  роли, «recycle», пунктуация — UX-12/13/30/32/33). Frontend-only. ← _текущий_
 - **Кластер e** — UX-кластер E (доступность, контраст бейджей WCAG AA, destructive-стиль кнопок,
   русские aria-label — UX-26/27/28/29/40).
 - **Кластер f** — UX-кластер F (онбординг и точки трения: бэкапы не только из строки базы, видимость
