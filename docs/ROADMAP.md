@@ -219,11 +219,13 @@ Tenants (page/pageSize + `PaginationBar`); R11 добивает остаток.
 куратором на кластеры; одна `NEXT TASK` за раз. Карта реального состояния — разведка куратора
 2026-06-14 (часть находок уже закрыта ранее: **FE-03** и **UX-46** закрыты в `MLC-122`).
 
-- **Кластер a `MLC-134`** — FE-07/08 (сброс диалогов `UserFormDialog`/`ChangePasswordForm` при
-  повторном открытии — нет `key`) + FE-02 (`useCreateInfobase`/`useDeleteInfobase` не инвалидируют
-  `tenantsQueryKey`). Frontend-only. ← _текущий_
-- **Кластер b** — BE-13: `PerfRecordingStatus`/`PerfRecordingStopReason` без явных int-значений при
-  `HasConversion<int>` + нет freeze-тестов (образец — `AuditLogEnumMappingTests`). Backend/тесты.
+✅ **Кластер a** — закрыто `MLC-134` (2026-06-14): FE-02 (`useCreateInfobase`/`useDeleteInfobase`
+  инвалидируют `tenantsQueryKey`) + FE-07 (`UserFormDialog` сброс через `useEffect(open→reset)`;
+  реальный призрак). FE-08 оказался фантомом (Radix размонтирует `DialogContent` → `ChangePasswordForm`
+  сбрасывается сам), FE-03 закрыт ранее в MLC-122. Канон 05 §6.2. Frontend-only.
+- **Кластер b `MLC-135`** — BE-13: `PerfRecordingStatus`/`PerfRecordingStopReason` без явных int-значений
+  при `HasConversion<int>` + нет freeze-тестов (образец — `BackupModelsTests`/`AuditLogEnumMappingTests`).
+  Backend/тесты. ← _текущий_
 - **Кластер c** — BE-02: optimistic concurrency на доменных сущностях (lost update лимитов лицензий) —
   **только аддитивный rowversion** + миграция, безопасная при апгрейде (без backfill/изменения данных,
   применяется на старте).
