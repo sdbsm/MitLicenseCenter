@@ -26,6 +26,8 @@ public sealed class AuditFilterTests
             tenantId: null,
             from: null,
             to: null,
+            search: null,
+            initiator: null,
             page: null,
             pageSize: null,
             ct: CancellationToken.None);
@@ -49,6 +51,8 @@ public sealed class AuditFilterTests
             tenantId: null,
             from: from,
             to: to,
+            search: null,
+            initiator: null,
             page: null,
             pageSize: null,
             ct: CancellationToken.None);
@@ -70,6 +74,8 @@ public sealed class AuditFilterTests
             tenantId: null,
             from: BaseTime,
             to: BaseTime.AddHours(4),
+            search: null,
+            initiator: null,
             page: null,
             pageSize: null,
             ct: CancellationToken.None);
@@ -92,6 +98,8 @@ public sealed class AuditFilterTests
             tenantId: null,
             from: null,
             to: null,
+            search: null,
+            initiator: null,
             page: null,
             pageSize: null,
             ct: CancellationToken.None);
@@ -110,6 +118,8 @@ public sealed class AuditFilterTests
             tenantId: null,
             from: BaseTime.AddHours(5),
             to: BaseTime,
+            search: null,
+            initiator: null,
             page: null,
             pageSize: null,
             ct: CancellationToken.None);
@@ -129,12 +139,202 @@ public sealed class AuditFilterTests
             tenantId: null,
             from: null,
             to: null,
+            search: null,
+            initiator: null,
             page: null,
             pageSize: null,
             ct: CancellationToken.None);
 
         var ok = result.Result.Should().BeOfType<Ok<AuditPagedResponse>>().Subject;
         ok.Value!.Items.Should().BeInDescendingOrder(e => e.Timestamp);
+    }
+
+    [Fact]
+    public async Task Search_matches_by_Description_substring()
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+        await SeedSearchableAsync(db);
+
+        var result = await AuditEndpoints.ListAsync(
+            db,
+            actionType: null,
+            tenantId: null,
+            from: null,
+            to: null,
+            // Тот же регистр, что в сиде («Альфа»): на InMemory-провайдере Contains
+            // ordinal/регистрозависимый. Регистронезависимость — за collation БД (см. ниже).
+            search: "Альфа",
+            initiator: null,
+            page: null,
+            pageSize: null,
+            ct: CancellationToken.None);
+
+        var ok = result.Result.Should().BeOfType<Ok<AuditPagedResponse>>().Subject;
+        ok.Value!.Items.Should().OnlyContain(e => e.Description.Contains("Альфа"));
+        ok.Value.Items.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public async Task Search_matches_by_Initiator_substring()
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+        await SeedSearchableAsync(db);
+
+        var result = await AuditEndpoints.ListAsync(
+            db,
+            actionType: null,
+            tenantId: null,
+            from: null,
+            to: null,
+            search: "operator",
+            initiator: null,
+            page: null,
+            pageSize: null,
+            ct: CancellationToken.None);
+
+        var ok = result.Result.Should().BeOfType<Ok<AuditPagedResponse>>().Subject;
+        ok.Value!.Items.Should().OnlyContain(e => e.Initiator == "operator-1");
+        ok.Value.Items.Should().HaveCount(1);
+    }
+
+    // Регистронезависимость поиска делегирована РЕГИСТРОНЕЗАВИСИМОЙ collation SQL Server
+    // (дефолтная *_CI_*): запрос использует обычный string.Contains → LIKE, семантику регистра
+    // даёт БД, а не код (OrdinalIgnoreCase-перегрузку SQL Server-провайдер EF Core не транслирует
+    // — бросил бы в рантайме). InMemory-провайдер делает ordinal/регистрозависимый Contains и НЕ
+    // воспроизводит CI-поведение боевой БД — здесь фиксируем именно эту границу: на InMemory другой
+    // регистр НЕ находит, тогда как на SQL Server с CI-collation — нашёл бы. Тест сторожит от
+    // «починки» обратно на OrdinalIgnoreCase (рантайм-краш на SQL Server).
+    [Fact]
+    public async Task Search_case_sensitivity_is_delegated_to_db_collation()
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+        await SeedSearchableAsync(db);
+
+        var upper = await AuditEndpoints.ListAsync(
+            db, null, null, null, null, search: "АЛЬФА", initiator: null,
+            page: null, pageSize: null, ct: CancellationToken.None);
+
+        var okUpper = upper.Result.Should().BeOfType<Ok<AuditPagedResponse>>().Subject;
+        okUpper.Value!.Total.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Empty_or_whitespace_search_is_ignored()
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+        await SeedSearchableAsync(db);
+
+        var result = await AuditEndpoints.ListAsync(
+            db, null, null, null, null, search: "   ", initiator: null,
+            page: null, pageSize: null, ct: CancellationToken.None);
+
+        var ok = result.Result.Should().BeOfType<Ok<AuditPagedResponse>>().Subject;
+        ok.Value!.Total.Should().Be(3, "пустой/пробельный терм не фильтрует");
+    }
+
+    [Fact]
+    public async Task Initiator_filter_matches_exactly()
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+        await SeedSearchableAsync(db);
+
+        var result = await AuditEndpoints.ListAsync(
+            db, null, null, null, null, search: null, initiator: "System",
+            page: null, pageSize: null, ct: CancellationToken.None);
+
+        var ok = result.Result.Should().BeOfType<Ok<AuditPagedResponse>>().Subject;
+        ok.Value!.Items.Should().OnlyContain(e => e.Initiator == "System");
+        ok.Value.Items.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public async Task Initiator_filter_does_not_match_substring()
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+        await SeedSearchableAsync(db);
+
+        var result = await AuditEndpoints.ListAsync(
+            db, null, null, null, null, search: null, initiator: "operator",
+            page: null, pageSize: null, ct: CancellationToken.None);
+
+        var ok = result.Result.Should().BeOfType<Ok<AuditPagedResponse>>().Subject;
+        ok.Value!.Total.Should().Be(0, "initiator — точное совпадение, не подстрока");
+    }
+
+    [Fact]
+    public async Task Search_combines_with_actionType_filter()
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+        await SeedSearchableAsync(db);
+
+        var result = await AuditEndpoints.ListAsync(
+            db,
+            actionType: nameof(AuditActionType.TenantCreated),
+            tenantId: null,
+            from: null,
+            to: null,
+            search: "клиент",
+            initiator: null,
+            page: null,
+            pageSize: null,
+            ct: CancellationToken.None);
+
+        var ok = result.Result.Should().BeOfType<Ok<AuditPagedResponse>>().Subject;
+        ok.Value!.Items.Should().OnlyContain(e =>
+            e.ActionType == AuditActionType.TenantCreated && e.Description.Contains("клиент"));
+    }
+
+    [Fact]
+    public async Task Search_too_long_returns_ValidationProblem()
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+
+        var result = await AuditEndpoints.ListAsync(
+            db, null, null, null, null, search: new string('x', 201), initiator: null,
+            page: null, pageSize: null, ct: CancellationToken.None);
+
+        result.Result.Should().BeOfType<ValidationProblem>();
+    }
+
+    [Fact]
+    public async Task Initiator_too_long_returns_ValidationProblem()
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+
+        var result = await AuditEndpoints.ListAsync(
+            db, null, null, null, null, search: null, initiator: new string('y', 201),
+            page: null, pageSize: null, ct: CancellationToken.None);
+
+        result.Result.Should().BeOfType<ValidationProblem>();
+    }
+
+    private static async Task SeedSearchableAsync(MitLicenseCenter.Infrastructure.Persistence.AppDbContext db)
+    {
+        db.AuditLogs.Add(new AuditLog
+        {
+            Id = Guid.NewGuid(),
+            Timestamp = BaseTime.AddHours(1),
+            ActionType = AuditActionType.TenantCreated,
+            Initiator = "admin",
+            Description = "Создан клиент Альфа",
+        });
+        db.AuditLogs.Add(new AuditLog
+        {
+            Id = Guid.NewGuid(),
+            Timestamp = BaseTime.AddHours(2),
+            ActionType = AuditActionType.SessionKilled,
+            Initiator = "operator-1",
+            Description = "Сеанс завершён",
+        });
+        db.AuditLogs.Add(new AuditLog
+        {
+            Id = Guid.NewGuid(),
+            Timestamp = BaseTime.AddHours(3),
+            ActionType = AuditActionType.AuditLogsPurged,
+            Initiator = "System",
+            Description = "Очистка журнала",
+        });
+        await db.SaveChangesAsync();
     }
 
     private static async Task SeedTenAsync(MitLicenseCenter.Infrastructure.Persistence.AppDbContext db)

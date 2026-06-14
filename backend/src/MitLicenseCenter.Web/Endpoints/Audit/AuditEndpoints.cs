@@ -16,6 +16,9 @@ public static class AuditEndpoints
     private const int DefaultPageSize = 50;
     // Server-side clamp: страница тяжелее tenants/infobases — фиксируем шаги вручную.
     private static readonly int[] AllowedPageSizes = [25, 50, 100];
+    // Свободный текст фильтров (search/initiator) ограничен по длине — защита от
+    // непомерных LIKE-термов; превышение → ValidationProblem, не 500.
+    private const int MaxFreeTextLength = 200;
 
     public static void MapAuditEndpoints(this IEndpointRouteBuilder endpoints, ApiVersionSet versionSet)
     {
@@ -43,6 +46,8 @@ public static class AuditEndpoints
         [FromQuery] Guid? tenantId,
         [FromQuery] DateTime? from,
         [FromQuery] DateTime? to,
+        [FromQuery] string? search,
+        [FromQuery] string? initiator,
         [FromQuery] int? page,
         [FromQuery] int? pageSize,
         CancellationToken ct)
@@ -66,6 +71,18 @@ public static class AuditEndpoints
         if (from is { } f && to is { } t && t < f)
         {
             errors[nameof(to)] = ["Конец диапазона раньше начала."];
+        }
+
+        var searchTerm = search?.Trim();
+        if (searchTerm is { Length: > MaxFreeTextLength })
+        {
+            errors[nameof(search)] = [$"Не длиннее {MaxFreeTextLength} символов."];
+        }
+
+        var initiatorTerm = initiator?.Trim();
+        if (initiatorTerm is { Length: > MaxFreeTextLength })
+        {
+            errors[nameof(initiator)] = [$"Не длиннее {MaxFreeTextLength} символов."];
         }
 
         if (errors.Count > 0)
@@ -94,6 +111,24 @@ public static class AuditEndpoints
         if (to is { } toUtc)
         {
             query = query.Where(x => x.Timestamp <= toUtc);
+        }
+        if (!string.IsNullOrEmpty(searchTerm))
+        {
+            // Подстрочный поиск по описанию И инициатору обычным string.Contains →
+            // EF Core SQL Server-провайдер транслирует его в `LIKE '%term%'`.
+            // Регистронезависимость обеспечивает РЕГИСТРОНЕЗАВИСИМАЯ collation БД
+            // (дефолтная *_CI_*), а не код. Перегрузку с StringComparison.OrdinalIgnoreCase
+            // использовать НЕЛЬЗЯ: SQL Server-провайдер EF Core её НЕ транслирует и бросает в
+            // рантайме (подтверждено доками MS — CA1862 для EF-запросов положено подавлять;
+            // OrdinalIgnoreCase-Contains добавлен только в Cosmos-провайдер, не SQL Server).
+#pragma warning disable CA1862 // EF-запрос: трансляция в SQL LIKE, регистр — за collation БД
+            query = query.Where(x =>
+                x.Description.Contains(searchTerm) || x.Initiator.Contains(searchTerm));
+#pragma warning restore CA1862
+        }
+        if (!string.IsNullOrEmpty(initiatorTerm))
+        {
+            query = query.Where(x => x.Initiator == initiatorTerm);
         }
 
         // CountAsync и Skip/Take по одному и тому же IQueryable — EF проводит их как

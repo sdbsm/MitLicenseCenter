@@ -942,8 +942,14 @@
     "filters": {
       "actionType": "Тип действия",
       "anyAction": "Любое действие",
+      "searchAction": "Поиск действия…",
       "tenant": "Клиент",
       "anyTenant": "Любой клиент",
+      "searchTenant": "Поиск клиента…",
+      "search": "Поиск",
+      "searchPlaceholder": "По описанию и инициатору…",
+      "initiator": "Инициатор",
+      "initiatorPlaceholder": "Имя или System",
       "from": "С даты",
       "to": "По дату",
       "pageSize": "Размер страницы"
@@ -1007,7 +1013,11 @@
     },
     "pagination": {
       "summary": "{{from}}–{{to}} из {{total}}",
-      "refreshing": "Обновление…"
+      "refreshing": "Обновление…",
+      "goToPage": "Страница",
+      "ofTotal": "из {{total}}",
+      "first": "Первая страница",
+      "last": "Последняя страница"
     },
     "errors": {
       "loadFailed": "Не удалось загрузить журнал аудита."

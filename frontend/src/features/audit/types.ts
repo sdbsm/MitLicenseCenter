@@ -119,6 +119,8 @@ export interface AuditFilters {
   tenantId: string | null;
   from: string | null;
   to: string | null;
+  search: string | null;
+  initiator: string | null;
   page: number;
   pageSize: AuditPageSize;
 }

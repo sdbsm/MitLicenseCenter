@@ -20,6 +20,12 @@ function buildQuery(filters: AuditFilters): string {
   if (filters.to) {
     qs.set("to", filters.to);
   }
+  if (filters.search) {
+    qs.set("search", filters.search);
+  }
+  if (filters.initiator) {
+    qs.set("initiator", filters.initiator);
+  }
   return qs.toString();
 }
 
