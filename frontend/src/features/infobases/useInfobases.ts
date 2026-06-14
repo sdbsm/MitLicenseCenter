@@ -83,7 +83,8 @@ export function useCreateInfobase() {
         body: input,
         schema: infobaseDetailSchema,
       }),
-    invalidate: infobasesQueryKey,
+    // Создание базы меняет счётчик баз клиента на странице /tenants — обновляем и его.
+    invalidate: [infobasesQueryKey, tenantsQueryKey],
   });
 }
 
@@ -122,6 +123,7 @@ export function useDeleteInfobase() {
       api<null>(`/api/v1/infobases/${id}${unpublishFromIis ? "?unpublishFromIis=true" : ""}`, {
         method: "DELETE",
       }),
-    invalidate: infobasesQueryKey,
+    // Удаление базы меняет счётчик баз клиента на странице /tenants — обновляем и его.
+    invalidate: [infobasesQueryKey, tenantsQueryKey],
   });
 }
