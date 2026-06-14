@@ -25,10 +25,10 @@ jobs:
       DOTNET_CLI_TELEMETRY_OPTOUT: "true"
       DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "true"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up .NET 10
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           global-json-file: backend/global.json
 
@@ -38,14 +38,14 @@ jobs:
           package_json_file: frontend/package.json
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "22.13"
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
 
       - name: Cache NuGet
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.nuget/packages
           key: ${{ runner.os }}-nuget-${{ hashFiles('backend/**/*.csproj', 'backend/Directory.Packages.props') }}
@@ -62,7 +62,7 @@ jobs:
         run: scripts\build-installer.ps1
 
       - name: Upload Setup.exe artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: MitLicenseCenter-Setup
           path: artifacts\*\MitLicenseCenter-Setup-*.exe
