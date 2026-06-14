@@ -1353,7 +1353,10 @@ recycle/iisreset IIS через `Microsoft.Web.Administration.ServerManager`, б
 сервис-аккаунту режима A до установки — см. `installer/MitLicenseCenter.iss`, процедура
 `CurPageChanged`.
 
-**Статус:** принят (MLC-127).
+**Статус:** принят (MLC-127). **Активирован follow-up:** триггер (runtime-трасса прав на стенде)
+наступил — задача `MLC-152` (трек `0.5.0-beta`) ведёт переход на low-priv аккаунт двумя фазами
+(разведка прав → сужение ACE/SQL-ролей). Статус ADR будет изменён на «реализовано» в PR `MLC-152`
+(фаза 2).
 
 ---
 
