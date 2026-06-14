@@ -27,7 +27,7 @@ namespace MitLicenseCenter.Tests.Unit.Jobs;
 public sealed class HotEnforcementMeasurementTests
 {
     private const int Limit = 5;
-    private const int ColdIntervalSeconds = 25;  // SettingDefinitions default
+    private const int ColdIntervalSeconds = 15;  // SettingDefinitions default (MLC-154)
     private const int HotIntervalSeconds = 4;    // SettingDefinitions default
 
     private readonly ITestOutputHelper _out;

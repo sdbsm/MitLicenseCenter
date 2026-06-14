@@ -236,17 +236,27 @@ read-only публикации не нарушает. Отвергнуты: хи
 что kill теперь шлют оба пути (cold Hangfire-джоб и hot `BackgroundService`), `[DisableConcurrentExecution]`
 (cold-vs-cold) недостаточен.
 
-**Решение.** Hot-опрос — `HotTierPollingService : BackgroundService`. Cold-согласование остаётся
-в Hangfire (`* * * * *` с внутренним троттлом до `Polling.ColdIntervalSeconds`). **Оба уровня
-enforce'ят:** kill в конце каждого cold-цикла **и** на каждом hot-тике для hot-тенантов; hot
-переиспользует один `ListActiveSessionsAsync`, который и так делает для UI, как fresh-check
-(без лишнего спавна `rac.exe`). Оба пути берут общий внутрипроцессный замок `IEnforcementGate`
-(см. ADR-33) на всё окно «fetch + kill».
+**Решение.** Оба уровня — `BackgroundService`: hot-опрос `HotTierPollingService`, cold-согласование
+`ColdTierPollingService` (таймер читает `Polling.ColdIntervalSeconds` каждый цикл; на старте —
+немедленный warm-up снимка). **Оба уровня enforce'ят:** kill в конце каждого cold-цикла **и** на
+каждом hot-тике для hot-тенантов; hot переиспользует один `ListActiveSessionsAsync`, который и так
+делает для UI, как fresh-check (без лишнего спавна `rac.exe`). Оба пути берут общий внутрипроцессный
+замок `IEnforcementGate` (см. ADR-33) на всё окно «fetch + kill».
 
 **Последствия.** Латентность kill для уже-hot тенанта ограничена одним hot-интервалом (≈ 4–5 с).
 Single-node, один процесс → внутрипроцессного замка достаточно.
 
 **Статус:** подтверждён.
+
+**Update (MLC-154).** Изначально cold оставался Hangfire-рекуррентным джобом `cold-snapshot`
+(`* * * * *` с внутренним троттлом до `Polling.ColdIntervalSeconds`). Но минимум 5-польного
+CRON Hangfire — 1 минута, поэтому троттл `< coldInterval` никогда не срабатывал, и полный
+обход шёл раз в минуту независимо от настройки (10–300с инертна → задержка появления сеансов
+обычных клиентов до ~60с). Cold перенесён в `ColdTierPollingService : BackgroundService`,
+чей таймер соблюдает интервал реально (дефолт снижен 25→15с). Прежний троттл (`ColdThrottleState`)
+и Hangfire-фильтры (`[DisableConcurrentExecution]`, `[AutomaticRetry(0)]`) на `RunColdAsync` сняты:
+лок избыточен на single-host (ADR-28) при последовательной cold-петле + `IEnforcementGate`; warm-up
+снимка теперь — немедленный первый прогон сервиса (заменил стартовый `BackgroundJob.Enqueue`).
 
 ---
 
@@ -1050,9 +1060,10 @@ SameSiteMode.Strict`, `HttpOnly = true`, `Secure=Always` вне Development). П
 
 ## ADR-35. Устойчивость Hangfire-джоб — хранение, retry-политика, graceful shutdown
 
-**Контекст.** Hangfire-история — единственная схема в БД, растущая от высокочастотной джобы:
-`cold-snapshot` тикает раз в минуту (~1440 завершённых джоб/сутки). Hangfire истекает завершённые
-джобы по `ExpireAt`, но дефолт (1 день) задаётся неявно в библиотеке. Также при эволюции набора джоб
+**Контекст.** Hangfire-история растёт от рекуррентных джоб (самая частая —
+`publication-status-refresh`, раз в 5 мин; cold-цикл с MLC-154 вынесен в
+`ColdTierPollingService` вне Hangfire). Hangfire истекает завершённые джобы по `ExpireAt`,
+но дефолт (1 день) задаётся неявно в библиотеке. Также при эволюции набора джоб
 старые recurring-джобы остаются в схеме, если их не снять явно. Без явной политики все джобы получают
 дефолтные **10 ретраев** Hangfire — лишний красный шум при стойком сбое БД; а упавшие джобы по дефолту
 не истекают вовсе — копились бы бесконечно.
@@ -1071,9 +1082,11 @@ SameSiteMode.Strict`, `HttpOnly = true`, `Secure=Always` вне Development). П
   (03:30 UTC), `backup-retention` (03:15 UTC): `Attempts = 3, OnAttemptsExceeded = Fail` — несколько
   попыток на транзиентные блипы, затем видимый Fail; следующий суточный запуск самоисцеляется;
 - `publication-status-refresh` (`*/5 * * * *`, read-only): `Attempts = 0` — упавший тик безвреден,
-  следующий тик восстановит;
-- `cold-snapshot` (`* * * * *`): `Attempts = 0` вдобавок к `[DisableConcurrentExecution]` — ретраи под
-  удержанным локом лишь копили бы очередь; ждём следующий минутный тик.
+  следующий тик восстановит.
+
+Cold-цикл (`ColdTierPollingService`) больше не Hangfire-джоб (MLC-154, ADR-6.1): его устойчивость
+обеспечивает сам `BackgroundService` — упавший прогон логируется и самоисцеляется следующим тиком
+таймера, без retry-фильтров.
 
 **Решение — graceful shutdown.** Recurring-джобы регистрируются с плейсхолдером `CancellationToken.None`
 в выражении `RecurringJob.AddOrUpdate<T>(j => j.RunAsync(CancellationToken.None), …)`. Hangfire при

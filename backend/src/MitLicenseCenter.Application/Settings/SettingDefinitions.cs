@@ -104,9 +104,9 @@ public static class SettingDefinitions
             [SettingKey.PollingColdIntervalSeconds] = new(
                 SettingKey.PollingColdIntervalSeconds,
                 IsSecret: false,
-                Description: "Период полного cold-снапшота сессий, секунды.",
+                Description: "Период фонового cold-обхода сессий (общий снимок для дашборда и /sessions), секунды.",
                 Kind: SettingValueKind.Number,
-                DefaultValue: "25",
+                DefaultValue: "15",
                 Min: 10,
                 Max: 300),
 

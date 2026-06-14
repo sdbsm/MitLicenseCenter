@@ -85,7 +85,6 @@ public sealed class ReconciliationJobUsageSamplingTests
             enforcer,
             new EnforcementGate(),
             settings,
-            new ColdThrottleState(),
             accumulator,
             TestHelpers.FixedClock(Now),
             TestMetrics.Reconciliation(),

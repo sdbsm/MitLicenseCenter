@@ -27,7 +27,6 @@ internal sealed partial class ReconciliationJob : IReconciliationJob
     private readonly IKillEnforcer _enforcer;
     private readonly IEnforcementGate _gate;
     private readonly ISettingsSnapshot _settings;
-    private readonly ColdThrottleState _throttle;
     private readonly ILicenseUsageAccumulator _usage;
     private readonly TimeProvider _clock;
     private readonly ReconciliationMetrics _metrics;
@@ -41,7 +40,6 @@ internal sealed partial class ReconciliationJob : IReconciliationJob
         IKillEnforcer enforcer,
         IEnforcementGate gate,
         ISettingsSnapshot settings,
-        ColdThrottleState throttle,
         ILicenseUsageAccumulator usage,
         TimeProvider clock,
         ReconciliationMetrics metrics,
@@ -54,7 +52,6 @@ internal sealed partial class ReconciliationJob : IReconciliationJob
         _enforcer = enforcer;
         _gate = gate;
         _settings = settings;
-        _throttle = throttle;
         _usage = usage;
         _clock = clock;
         _metrics = metrics;
@@ -63,13 +60,11 @@ internal sealed partial class ReconciliationJob : IReconciliationJob
 
     public async Task RunColdAsync(CancellationToken ct)
     {
+        // MLC-154: каданс задаёт таймер ColdTierPollingService (читает
+        // Polling.ColdIntervalSeconds каждый цикл). Прежний внутренний throttle убран —
+        // он был единственным потребителем интервала здесь и мешал бы будущему
+        // «форс-прогону по запросу» (MLC-156).
         var now = _clock.GetUtcNow().UtcDateTime;
-        var coldIntervalSeconds = _settings.GetInt(SettingKey.PollingColdIntervalSeconds) ?? 25;
-
-        if ((now - _throttle.LastRunAttemptUtc).TotalSeconds < coldIntervalSeconds)
-            return;
-
-        _throttle.MarkRun(now);
 
         var sw = Stopwatch.StartNew();
 
