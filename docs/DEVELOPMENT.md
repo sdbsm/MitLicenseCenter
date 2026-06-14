@@ -44,6 +44,18 @@ winget install pnpm.pnpm
 
 Проверить: `pnpm --version` → `11.0.8`.
 
+### Гоча: `xlsx` тянется с CDN SheetJS, не из npm
+
+`frontend/package.json` пинит `xlsx` на tarball `https://cdn.sheetjs.com/xlsx-0.20.3/...tgz`
+(MLC-147): фикс-версии SheetJS без known-CVE раздаются только с CDN вендора, в публичном
+npm-реестре их нет. Следствия:
+
+- `pnpm install` требует сетевого доступа к `cdn.sheetjs.com` (для оффлайн/закрытой сборки —
+  предварительно прогреть pnpm store или завендорить tarball). Integrity-хэш в `pnpm-lock.yaml`
+  защищает от подмены.
+- Dependabot URL-зависимости не отслеживает — новые patch SheetJS отслеживать **вручную**
+  (проверить актуальную `0.20.x` на `cdn.sheetjs.com`, обновить пин).
+
 ### 1С-утилиты
 
 `rac.exe` и `webinst.exe` входят в состав дистрибутива 1С:Предприятие 8.3.
