@@ -1,3 +1,4 @@
+import { getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import { ArrowLeftIcon, DatabaseIcon, PlusIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -5,17 +6,16 @@ import { Link, useParams } from "react-router";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DataTable, useTableDensity } from "@/components/ui/data-table";
 import { PaginationBar } from "@/components/PaginationBar";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { useMe } from "@/features/auth/useAuth";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { quotaDisplay } from "@/lib/quota";
 import { BackupsDialog } from "@/features/backups/BackupsDialog";
 import { DeleteInfobaseDialog } from "@/features/infobases/DeleteInfobaseDialog";
 import { InfobaseFormDialog } from "@/features/infobases/InfobaseFormDialog";
-import { infobaseColumnCount } from "@/features/infobases/infobaseFormat";
-import { InfobaseRow, InfobaseTableHeader } from "@/features/infobases/InfobaseRow";
+import { buildInfobaseDetailColumns } from "@/features/infobases/infobaseDetailColumns";
 import { ReassignInfobaseDialog } from "@/features/infobases/ReassignInfobaseDialog";
 import type { InfobaseListItem } from "@/features/infobases/types";
 import { INFOBASES_PAGE_SIZE, useInfobases } from "@/features/infobases/useInfobases";
@@ -54,6 +54,8 @@ export function TenantDetailPage() {
 
   const tenants = useMemo(() => tenantsData?.items ?? [], [tenantsData]);
 
+  const { density, toggleDensity } = useTableDensity();
+
   const handleOpenCreate = () => {
     setEditing(null);
     setFormOpen(true);
@@ -62,6 +64,29 @@ export function TenantDetailPage() {
     setEditing(infobase);
     setFormOpen(true);
   };
+
+  const columns = useMemo(
+    () =>
+      buildInfobaseDetailColumns({
+        t,
+        isAdmin,
+        canReassign: tenants.length > 1,
+        onEdit: handleOpenEdit,
+        onDelete: setDeleting,
+        onReassign: tenants.length > 1 ? setReassigning : undefined,
+        onBackups: setBackupsFor,
+      }),
+    [t, isAdmin, tenants.length]
+  );
+
+  const table = useReactTable({
+    data: items,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+    // Серверная пагинация: tanstack не режет данные сам.
+    manualPagination: true,
+    pageCount: totalPages,
+  });
 
   const backLink = (
     <Button variant="ghost" size="sm" asChild className="-ml-2 w-fit">
@@ -116,7 +141,8 @@ export function TenantDetailPage() {
                   </p>
                 ) : isSnapshotLoading ? (
                   <Skeleton className="h-4 w-48" />
-                ) : (() => {
+                ) : (
+                  (() => {
                     const consumed = consumedByTenant.get(tenant.id) ?? 0;
                     const { percent, severity, badgeVariant } = quotaDisplay(
                       consumed,
@@ -140,7 +166,8 @@ export function TenantDetailPage() {
                         )}
                       </div>
                     );
-                  })()}
+                  })()
+                )}
               </div>
             )}
           </div>
@@ -170,56 +197,31 @@ export function TenantDetailPage() {
         </div>
       )}
 
-      <div className="rounded-md border">
-        <Table>
-          <InfobaseTableHeader />
-          <TableBody>
-            {isLoading
-              ? Array.from({ length: 3 }).map((_, idx) => (
-                  <TableRow key={`skeleton-${idx}`}>
-                    {Array.from({ length: infobaseColumnCount(false) }).map((__, cidx) => (
-                      <TableCell key={cidx}>
-                        <Skeleton className="h-4 w-24" />
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))
-              : items.length === 0
-                ? !isError && (
-                    <TableRow>
-                      <TableCell colSpan={infobaseColumnCount(false)} className="py-12">
-                        <div className="flex flex-col items-center justify-center gap-3 text-center">
-                          <DatabaseIcon className="text-muted-foreground size-8" />
-                          <div className="space-y-1">
-                            <p className="font-medium">{t("tenants.detail.empty.title")}</p>
-                            <p className="text-muted-foreground text-sm">
-                              {t("tenants.detail.empty.hint")}
-                            </p>
-                          </div>
-                          {isAdmin && (
-                            <Button size="sm" onClick={handleOpenCreate}>
-                              <PlusIcon className="size-4" />
-                              {t("infobases.actions.add")}
-                            </Button>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  )
-                : items.map((item) => (
-                    <InfobaseRow
-                      key={item.id}
-                      item={item}
-                      isAdmin={isAdmin}
-                      onEdit={handleOpenEdit}
-                      onDelete={setDeleting}
-                      onReassign={tenants.length > 1 ? setReassigning : undefined}
-                      onBackups={setBackupsFor}
-                    />
-                  ))}
-          </TableBody>
-        </Table>
-      </div>
+      <DataTable
+        table={table}
+        density={density}
+        onToggleDensity={toggleDensity}
+        isLoading={isLoading}
+        skeletonRows={3}
+        columnLabel={(colId) => table.getColumn(colId)?.columnDef.meta?.label ?? colId}
+        emptyState={
+          !isError ? (
+            <div className="flex flex-col items-center justify-center gap-3 text-center">
+              <DatabaseIcon className="text-muted-foreground size-8" />
+              <div className="space-y-1">
+                <p className="font-medium">{t("tenants.detail.empty.title")}</p>
+                <p className="text-muted-foreground text-sm">{t("tenants.detail.empty.hint")}</p>
+              </div>
+              {isAdmin && (
+                <Button size="sm" onClick={handleOpenCreate}>
+                  <PlusIcon className="size-4" />
+                  {t("infobases.actions.add")}
+                </Button>
+              )}
+            </div>
+          ) : undefined
+        }
+      />
 
       <PaginationBar
         page={currentPage}
