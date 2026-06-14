@@ -186,9 +186,10 @@ public static class DependencyInjection
         services.AddSingleton<PerfRecordingSamplingService>();
         services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<PerfRecordingSamplingService>());
 
-        // On-demand бэкап баз SQL (MLC-076, ADR-27): весь безопасный цикл одной операции
-        // (sysadmin-проверка → оценка → место → BACKUP COPY_ONLY → VERIFYONLY → keep-latest).
-        // Чистый ADO.NET (как SqlPerformanceProbe) — НЕ Windows-only, без #pragma CA1416.
+        // On-demand бэкап баз SQL (MLC-076, ADR-27/28): весь безопасный цикл одной операции
+        // (проба права BACKUP DATABASE → оценка → место → BACKUP COPY_ONLY → VERIFYONLY →
+        // keep-latest). sysadmin не требуется (MLC-152): db_owner + файловые операции .NET.
+        // Чистый ADO.NET + System.IO (как SqlPerformanceProbe) — НЕ Windows-only, без #pragma CA1416.
         // Stateless → singleton; строку наследует из ConnectionStrings:Default. В тестах —
         // FakeSqlBackupService (реальный адаптер ходит в SQL, integration-only).
         services.AddSingleton<ISqlBackupService, SqlBackupAdapter>();

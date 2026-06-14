@@ -251,7 +251,7 @@ public sealed class BackupsEndpointsTests
         await db.SaveChangesAsync();
         var fake = new FakeSqlBackupService
         {
-            NextDeleteResult = new SqlDeleteResult(Succeeded: false, ErrorMessage: "xp_delete_file failed"),
+            NextDeleteResult = new SqlDeleteResult(Succeeded: false, ErrorMessage: "file delete failed"),
         };
         var audit = new TestHelpers.CapturingAuditLogger();
 
