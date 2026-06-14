@@ -23,5 +23,12 @@ public sealed record BackupSummary(
     BackupFailureReason FailureReason,
     string? ErrorMessage);
 
+// Пагинированный список бэкапов (MLC-130, BE-17): конверт {items, total, page, pageSize}.
+public sealed record BackupsPagedResponse(
+    IReadOnlyList<BackupSummary> Items,
+    int Total,
+    int Page,
+    int PageSize);
+
 // POST /backups: инфобаза задаёт пару server+db (снимок берёт оркестратор).
 public sealed record StartBackupRequest(Guid InfobaseId);

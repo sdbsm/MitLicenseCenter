@@ -17,6 +17,7 @@ public static class TenantsEndpoints
 {
     private const int DefaultPageSize = 50;
     private const int MaxPageSize = 200;
+    private const int MaxSearchLength = 200;
 
     public static void MapTenantsEndpoints(this IEndpointRouteBuilder endpoints, ApiVersionSet versionSet)
     {
@@ -33,18 +34,44 @@ public static class TenantsEndpoints
         group.MapDelete("/{id:guid}", DeleteAsync).RequireAuthorization(Roles.Admin);
     }
 
-    internal static async Task<Ok<TenantListResponse>> ListAsync(
+    // Список клиентов (Viewer), с пагинацией и подстрочным поиском по имени (MLC-130, UX-05).
+    // search — plain Contains → EF транслирует в LIKE '%term%'; регистронезависимость — за
+    // CI-collation БД (OrdinalIgnoreCase SQL Server-провайдером не транслируется — CA1862).
+    // Count учитывает фильтр поиска (до пагинации).
+    internal static async Task<Results<Ok<TenantListResponse>, ValidationProblem>> ListAsync(
         AppDbContext db,
         [FromQuery] int? page,
         [FromQuery] int? pageSize,
+        [FromQuery] string? search,
         CancellationToken ct)
     {
+        var searchTerm = search?.Trim();
+        if (searchTerm is { Length: > MaxSearchLength })
+        {
+            return TypedResults.ValidationProblem(
+                new Dictionary<string, string[]>(StringComparer.Ordinal)
+                {
+                    [nameof(search)] = [$"Не длиннее {MaxSearchLength} символов."],
+                });
+        }
+
         var p = page is > 0 ? page.Value : 1;
         var ps = pageSize is > 0 ? Math.Min(pageSize.Value, MaxPageSize) : DefaultPageSize;
 
         var query = db.Tenants.AsNoTracking().OrderBy(t => t.Name);
-        var total = await query.CountAsync(ct).ConfigureAwait(false);
-        var items = await query
+        IQueryable<MitLicenseCenter.Domain.Tenants.Tenant> filtered = query;
+        if (!string.IsNullOrEmpty(searchTerm))
+        {
+            // Подстрочный поиск по имени клиента обычным string.Contains →
+            // EF Core SQL Server-провайдер транслирует в `LIKE '%term%'`.
+            // Регистронезависимость обеспечивает CI-collation БД, а не код.
+#pragma warning disable CA1862 // EF-запрос: трансляция в SQL LIKE, регистр — за collation БД
+            filtered = query.Where(t => t.Name.Contains(searchTerm));
+#pragma warning restore CA1862
+        }
+
+        var total = await filtered.CountAsync(ct).ConfigureAwait(false);
+        var items = await filtered
             .Skip((p - 1) * ps)
             .Take(ps)
             .Select(t => new TenantResponse(

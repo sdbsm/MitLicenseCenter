@@ -21,6 +21,10 @@ namespace MitLicenseCenter.Web.Endpoints;
 // (ADR-27); фронт поллит список, пока есть Queued/Running.
 public static class BackupsEndpoints
 {
+    private const int DefaultPageSize = 25;
+    private const int MaxPageSize = 100;
+    private const int MaxSearchLength = 200;
+
     public static void MapBackupsEndpoints(this IEndpointRouteBuilder endpoints, ApiVersionSet versionSet)
     {
         var group = endpoints
@@ -36,20 +40,51 @@ public static class BackupsEndpoints
     }
 
     // Список бэкапов (Viewer), свежие сверху; ?infobaseId= — бэкапы одной инфобазы
-    // (диалог на её карточке).
-    internal static async Task<Ok<IReadOnlyList<BackupSummary>>> ListAsync(
+    // (диалог на её карточке). Серверная пагинация (MLC-130, BE-17): page/pageSize.
+    // Опциональный поиск по DatabaseName через plain Contains → EF транслирует в LIKE '%term%';
+    // регистронезависимость — за collation БД (CA1862 подавляем с обоснованием).
+    internal static async Task<Results<Ok<BackupsPagedResponse>, ValidationProblem>> ListAsync(
         [FromQuery] Guid? infobaseId,
+        [FromQuery] int? page,
+        [FromQuery] int? pageSize,
+        [FromQuery] string? search,
         [FromServices] AppDbContext db,
         CancellationToken ct)
     {
+        var searchTerm = search?.Trim();
+        if (searchTerm is { Length: > MaxSearchLength })
+        {
+            return TypedResults.ValidationProblem(
+                new Dictionary<string, string[]>(StringComparer.Ordinal)
+                {
+                    [nameof(search)] = [$"Не длиннее {MaxSearchLength} символов."],
+                });
+        }
+
+        var p = page is > 0 ? page.Value : 1;
+        var ps = pageSize is > 0 ? Math.Min(pageSize.Value, MaxPageSize) : DefaultPageSize;
+
         var query = db.DatabaseBackups.AsNoTracking();
         if (infobaseId is { } infobase)
         {
             query = query.Where(b => b.InfobaseId == infobase);
         }
+        if (!string.IsNullOrEmpty(searchTerm))
+        {
+            // Подстрочный поиск по имени базы обычным string.Contains →
+            // EF Core SQL Server-провайдер транслирует в `LIKE '%term%'`.
+            // Регистронезависимость обеспечивает CI-collation БД, а не код.
+            // OrdinalIgnoreCase SQL Server-провайдером НЕ транслируется (CA1862).
+#pragma warning disable CA1862 // EF-запрос: трансляция в SQL LIKE, регистр — за collation БД
+            query = query.Where(b => b.DatabaseName.Contains(searchTerm));
+#pragma warning restore CA1862
+        }
 
+        var total = await query.CountAsync(ct).ConfigureAwait(false);
         var items = await query
             .OrderByDescending(b => b.RequestedAtUtc)
+            .Skip((p - 1) * ps)
+            .Take(ps)
             .Select(b => new BackupSummary(
                 b.Id, b.InfobaseId, b.DatabaseServer, b.DatabaseName, b.Status, b.RequestedBy,
                 b.RequestedAtUtc, b.StartedAtUtc, b.CompletedAtUtc, b.FilePath, b.FileSizeBytes,
@@ -57,7 +92,7 @@ public static class BackupsEndpoints
             .ToListAsync(ct)
             .ConfigureAwait(false);
 
-        return TypedResults.Ok<IReadOnlyList<BackupSummary>>(items);
+        return TypedResults.Ok(new BackupsPagedResponse(items, total, p, ps));
     }
 
     internal static async Task<Results<Ok<BackupSummary>, NotFound>> GetAsync(

@@ -89,22 +89,35 @@ public static class PerformanceEndpoints
         return TypedResults.Ok(new SqlPerformanceView(snapshot, attribution));
     }
 
+    private const int RecordingsDefaultPageSize = 25;
+    private const int RecordingsMaxPageSize = 100;
+
     // ── Recording (MLC-070, Фаза 4) ──────────────────────────────────────────────────────────
 
     // Список расследований (Viewer), свежие сверху. SampleCount — число собранных сэмплов.
-    internal static async Task<Ok<IReadOnlyList<RecordingSummary>>> ListRecordingsAsync(
+    // Серверная пагинация (MLC-130, BE-17): page/pageSize. RecordingSummary — host-уровневая
+    // запись, с клиентом не связана — поиска по клиенту здесь нет (только пагинация).
+    internal static async Task<Ok<RecordingsPagedResponse>> ListRecordingsAsync(
+        [FromQuery] int? page,
+        [FromQuery] int? pageSize,
         [FromServices] AppDbContext db,
         CancellationToken ct)
     {
-        var items = await db.PerfRecordings
-            .AsNoTracking()
+        var p = page is > 0 ? page.Value : 1;
+        var ps = pageSize is > 0 ? Math.Min(pageSize.Value, RecordingsMaxPageSize) : RecordingsDefaultPageSize;
+
+        var query = db.PerfRecordings.AsNoTracking();
+        var total = await query.CountAsync(ct).ConfigureAwait(false);
+        var items = await query
             .OrderByDescending(r => r.StartedAtUtc)
+            .Skip((p - 1) * ps)
+            .Take(ps)
             .Select(r => new RecordingSummary(
                 r.Id, r.StartedAtUtc, r.StoppedAtUtc, r.Status, r.StartedBy, r.StopReason, r.Samples.Count))
             .ToListAsync(ct)
             .ConfigureAwait(false);
 
-        return TypedResults.Ok<IReadOnlyList<RecordingSummary>>(items);
+        return TypedResults.Ok(new RecordingsPagedResponse(items, total, p, ps));
     }
 
     // Просмотр записи (Viewer) = метаданные + ряд сэмплов по времени. JSON-колонки сэмпла

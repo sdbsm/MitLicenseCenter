@@ -33,11 +33,14 @@ public sealed class BackupsEndpointsTests
         db.DatabaseBackups.AddRange(older, newer, foreign);
         await db.SaveChangesAsync();
 
-        var all = await BackupsEndpoints.ListAsync(null, db, CancellationToken.None);
-        var filtered = await BackupsEndpoints.ListAsync(infobaseId, db, CancellationToken.None);
+        var allResult = await BackupsEndpoints.ListAsync(null, null, null, null, db, CancellationToken.None);
+        var filteredResult = await BackupsEndpoints.ListAsync(infobaseId, null, null, null, db, CancellationToken.None);
 
-        all.Value!.Select(b => b.Id).Should().Equal([foreign.Id, newer.Id, older.Id], "свежие сверху");
-        filtered.Value!.Select(b => b.Id).Should().Equal([newer.Id, older.Id]);
+        var all = allResult.Result.Should().BeOfType<Ok<BackupsPagedResponse>>().Subject.Value!;
+        var filtered = filteredResult.Result.Should().BeOfType<Ok<BackupsPagedResponse>>().Subject.Value!;
+
+        all.Items.Select(b => b.Id).Should().Equal([foreign.Id, newer.Id, older.Id], "свежие сверху");
+        filtered.Items.Select(b => b.Id).Should().Equal([newer.Id, older.Id]);
     }
 
     [Fact]
