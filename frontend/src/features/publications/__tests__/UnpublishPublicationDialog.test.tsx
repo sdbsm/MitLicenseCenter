@@ -3,7 +3,8 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import "@/i18n";
 import type { PublicationListItem } from "../types";
 
-// useUnpublish замокан — проверяем подтверждение токеном и вызов мутации снятия (MLC-113).
+// useUnpublish замокан — проверяем что кнопка активна сразу и вызов мутации снятия (MLC-113).
+// ADR-45: снятие публикации — обратимое действие, ручной ввод токена убран.
 const mutateAsync = vi.fn().mockResolvedValue({ status: "NotPublished" });
 vi.mock("../usePublications", () => ({
   useUnpublish: () => ({ mutateAsync, isPending: false }),
@@ -27,28 +28,24 @@ const pub: PublicationListItem = {
   lastCheckDetails: null,
 };
 
-describe("UnpublishPublicationDialog (MLC-113)", () => {
+describe("UnpublishPublicationDialog (MLC-113, ADR-45)", () => {
   beforeEach(() => mutateAsync.mockClear());
 
-  it("кнопка снятия активна только после ввода токена и вызывает мутацию по id", async () => {
+  it("кнопка снятия активна сразу (без ручного ввода) и вызывает мутацию по id", async () => {
     render(<UnpublishPublicationDialog open onOpenChange={vi.fn()} publication={pub} />);
 
     const confirm = screen.getByRole("button", { name: "Снять публикацию" });
-    expect(confirm).toBeDisabled();
-
-    const token = "Default Web Site/acme";
-    fireEvent.change(screen.getByPlaceholderText(token), { target: { value: token } });
     expect(confirm).toBeEnabled();
 
     fireEvent.click(confirm);
     await waitFor(() => expect(mutateAsync).toHaveBeenCalledWith("p1"));
   });
 
-  it("неверный токен оставляет кнопку задизейбленной", () => {
-    render(<UnpublishPublicationDialog open onOpenChange={vi.fn()} publication={pub} />);
-    fireEvent.change(screen.getByPlaceholderText("Default Web Site/acme"), {
-      target: { value: "wrong" },
-    });
-    expect(screen.getByRole("button", { name: "Снять публикацию" })).toBeDisabled();
+  it("диалог закрывается при нажатии «Отмена»", () => {
+    const onOpenChange = vi.fn();
+    render(<UnpublishPublicationDialog open onOpenChange={onOpenChange} publication={pub} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Отмена" }));
+    expect(mutateAsync).not.toHaveBeenCalled();
   });
 });

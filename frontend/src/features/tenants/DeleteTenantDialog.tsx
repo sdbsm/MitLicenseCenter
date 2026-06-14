@@ -1,4 +1,3 @@
-import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
@@ -11,12 +10,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { matchConflictCode } from "@/lib/apiErrors";
 import type { Tenant } from "./types";
 import { useDeleteTenant } from "./useTenants";
 
+// ADR-45: необратимое действие — «да/нет» с явным предупреждением; ручной ввод убран.
 interface DeleteTenantDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -25,15 +23,11 @@ interface DeleteTenantDialogProps {
 
 export function DeleteTenantDialog({ open, onOpenChange, tenant }: DeleteTenantDialogProps) {
   const { t } = useTranslation();
-  const cancelRef = useRef<HTMLButtonElement>(null);
-  const [confirmation, setConfirmation] = useState("");
   const remove = useDeleteTenant();
 
   if (!tenant) {
     return null;
   }
-
-  const matched = confirmation.trim() === tenant.name;
 
   const handleConfirm = async () => {
     try {
@@ -62,25 +56,14 @@ export function DeleteTenantDialog({ open, onOpenChange, tenant }: DeleteTenantD
           </AlertDialogDescription>
         </AlertDialogHeader>
 
-        <div className="grid gap-2">
-          <Label htmlFor="confirm-tenant-name" className="text-sm">
-            {t("tenants.delete.confirmLabel", { name: tenant.name })}
-          </Label>
-          <Input
-            id="confirm-tenant-name"
-            autoComplete="off"
-            value={confirmation}
-            onChange={(e) => setConfirmation(e.target.value)}
-            placeholder={tenant.name}
-          />
-        </div>
+        <p className="text-destructive text-sm font-medium">
+          {t("tenants.delete.irreversibleWarning")}
+        </p>
 
         <AlertDialogFooter>
-          <AlertDialogCancel ref={cancelRef} disabled={remove.isPending}>
-            {t("common.cancel")}
-          </AlertDialogCancel>
+          <AlertDialogCancel disabled={remove.isPending}>{t("common.cancel")}</AlertDialogCancel>
           <AlertDialogAction
-            disabled={!matched || remove.isPending}
+            disabled={remove.isPending}
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:ring-destructive/20"
             onClick={(e) => {
               e.preventDefault();

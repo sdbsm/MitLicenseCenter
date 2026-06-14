@@ -5,6 +5,7 @@ import "@/i18n";
 
 // useDeleteInfobase замокан — проверяем, с какими аргументами вызывается мутация
 // удаления (id + опциональный unpublishFromIis) в зависимости от чекбокса MLC-113.
+// ADR-45: необратимое действие — «да/нет» с предупреждением; ручной ввод имени убран.
 const mutateAsync = vi.fn().mockResolvedValue(null);
 vi.mock("../useInfobases", () => ({
   useDeleteInfobase: () => ({ mutateAsync, isPending: false }),
@@ -23,16 +24,24 @@ function renderDialog(infobase: DeletableInfobase) {
   render(<DeleteInfobaseDialog open onOpenChange={vi.fn()} infobase={infobase} />, { wrapper });
 }
 
-async function confirmDelete(name: string) {
-  const input = screen.getByPlaceholderText(name);
-  fireEvent.change(input, { target: { value: name } });
+async function confirmDelete() {
   fireEvent.click(screen.getByRole("button", { name: "Удалить" }));
   await waitFor(() => expect(mutateAsync).toHaveBeenCalled());
 }
 
-describe("DeleteInfobaseDialog — опция снятия публикации из IIS (MLC-113)", () => {
+describe("DeleteInfobaseDialog — опция снятия публикации из IIS (MLC-113, ADR-45)", () => {
   beforeEach(() => {
     mutateAsync.mockClear();
+  });
+
+  it("кнопка «Удалить» активна сразу (без ручного ввода)", () => {
+    renderDialog({ id: "ib-1", name: "Acme BP", publishStatus: "Published" });
+    expect(screen.getByRole("button", { name: "Удалить" })).toBeEnabled();
+  });
+
+  it("отображается предупреждение о необратимости", () => {
+    renderDialog({ id: "ib-1", name: "Acme BP", publishStatus: "Published" });
+    expect(screen.getByText(/необратимо/i)).toBeInTheDocument();
   });
 
   it("publishStatus=Published → чекбокс отмечен, удаление с unpublishFromIis: true", async () => {
@@ -41,7 +50,7 @@ describe("DeleteInfobaseDialog — опция снятия публикации 
     const checkbox = screen.getByRole("checkbox");
     expect(checkbox).toBeChecked();
 
-    await confirmDelete("Acme BP");
+    await confirmDelete();
     expect(mutateAsync).toHaveBeenCalledWith({ id: "ib-1", unpublishFromIis: true });
   });
 
@@ -51,7 +60,7 @@ describe("DeleteInfobaseDialog — опция снятия публикации 
     fireEvent.click(screen.getByRole("checkbox"));
     expect(screen.getByRole("checkbox")).not.toBeChecked();
 
-    await confirmDelete("Acme BP");
+    await confirmDelete();
     expect(mutateAsync).toHaveBeenCalledWith({ id: "ib-1", unpublishFromIis: false });
   });
 
@@ -60,7 +69,7 @@ describe("DeleteInfobaseDialog — опция снятия публикации 
 
     expect(screen.getByRole("checkbox")).not.toBeChecked();
 
-    await confirmDelete("Acme BP");
+    await confirmDelete();
     expect(mutateAsync).toHaveBeenCalledWith({ id: "ib-1", unpublishFromIis: false });
   });
 
@@ -69,7 +78,7 @@ describe("DeleteInfobaseDialog — опция снятия публикации 
 
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
 
-    await confirmDelete("Acme BP");
+    await confirmDelete();
     expect(mutateAsync).toHaveBeenCalledWith({ id: "ib-1", unpublishFromIis: undefined });
   });
 });
