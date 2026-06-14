@@ -1,12 +1,13 @@
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { PaginationBar } from "@/components/PaginationBar";
 import { RelativeTime } from "@/components/ui/RelativeTime";
 import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { KillSessionDialog } from "./KillSessionDialog";
 import { SessionsFiltersBar } from "./SessionsFiltersBar";
 import { SessionsTable } from "./SessionsTable";
-import { useSessionsPage } from "./useSessionsPage";
+import { SESSIONS_PAGE_SIZE, useSessionsPage } from "./useSessionsPage";
 
 export function SessionsPage() {
   const { t } = useTranslation();
@@ -20,7 +21,12 @@ export function SessionsPage() {
     infobases,
     q,
     infobaseId,
-    filtered,
+    sort,
+    toggleSort,
+    page,
+    totalFiltered,
+    pageRows,
+    setPage,
     setFilter,
     selectedSession,
     killOpen,
@@ -77,11 +83,22 @@ export function SessionsPage() {
 
         {/* Table */}
         <SessionsTable
-          rows={filtered}
+          rows={pageRows}
           isLoading={isLoading}
           isError={isError}
           isAdmin={isAdmin}
+          sort={sort}
+          onToggleSort={toggleSort}
           onKill={handleKillClick}
+        />
+
+        {/* Pagination */}
+        <PaginationBar
+          page={page}
+          pageSize={SESSIONS_PAGE_SIZE}
+          total={totalFiltered}
+          onPageChange={setPage}
+          isFetching={false}
         />
 
         <KillSessionDialog
