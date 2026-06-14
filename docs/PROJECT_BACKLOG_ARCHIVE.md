@@ -243,7 +243,7 @@
 
 - `MLC-146` — Уборка мёртвого кода после MLC-144: удалён осиротевший `InfobaseRow.tsx` (`InfobaseRow`/`InfobaseTableHeader`/`InfobaseHeaderSelection`) + неиспользуемый `infobaseColumnCount` из `infobaseFormat.ts` (`statusBadgeClass` оставлен); поведение не менялось — Done (2026-06-14)
 
-### Релиз 0.5.0-beta — MLC-147..152, 027 (2026-06-14)
+### Релиз 0.5.0-beta — MLC-147..153, 027 (2026-06-14..15)
 
 - `MLC-149` — Версия панели в подвале сайдбара из анонимного `/api/v1/health` (хук `useHealth`, скрыт при недоступном health) — Done (2026-06-14, PR #221) · `7596205`
 - `MLC-148` — Холодный старт `/sessions`: прогрев cold-снапшота на старте + `RelativeTime` чинит `DateTime.MinValue` («ещё не обновлялось») holistically — Done (2026-06-14, PR #222) · `29a72ea`
@@ -251,4 +251,5 @@
 - `MLC-027` — `i18n/ru.json` разнесён на 19 per-feature файлов `i18n/ru/*.json`, сборка в один namespace в `index.ts` (побайтово идентично) — Done (2026-06-14, PR #224) · `8beece9`
 - `MLC-150` — Серверный фильтр «Базы» `notInCluster=true` (общий TTL-снапшот RAS, `ClusterAvailable`-флаг, честный баннер при недоступном RAS) — Done (2026-06-14, PR #226) · `c96a9f7`
 - `MLC-151` — Optimistic concurrency на Infobase/Publication (rowversion→409, вариант b: токен и у Publication; фикс — токены в списочной проекции) — Done (2026-06-14, PR #228) · `b431ad9`
-- `MLC-152` — SQL least-privilege: бэкап с `xp_*` переведён на .NET (`BackupFileStore`), sysadmin снят (db_owner + VIEW SERVER STATE), скрипт `sql-setup-least-privilege.sql`; трасса подтвердила admin-неизбежность для IIS (ADR-44) — Done (2026-06-14, PR #230) · `96ad04a`
+- `MLC-152` — Low-priv аккаунт службы: Procmon-трасса на стенде (вывод — в ADR-44 + `.claude/plans/mlc-152-stand-trace.md`); кодовая попытка снять `sysadmin` с бэкапа (`xp_*`→.NET) — Done (2026-06-14, PR #230), но **откачена** `MLC-153` · `96ad04a`
+- `MLC-153` — Откат backup-части MLC-152 (`xp_*` восстановлены): для мультитенанта с динамическими базами `sysadmin` штатен (бэкап клиентских баз требует прав per-DB; серверного «backup any DB» короче sysadmin нет), .NET-rewrite давал лишь новую двух-учётную зависимость на каталог бэкапов без выгоды. Вывод трассы сохранён в ADR-44 — Done (2026-06-15, PR #232)
