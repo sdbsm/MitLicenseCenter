@@ -47,4 +47,10 @@ describe("classifyError (queryClient onError)", () => {
     expect(queryClient.getQueryCache().config.onError).toBe(classifyError);
     expect(queryClient.getMutationCache().config.onError).toBe(classifyError);
   });
+
+  // MLC-155 — глобальный дефолт refetch при возврате на вкладку: лечит застой
+  // админ-списков без поллинга (открытая страница освежается при фокусе вкладки).
+  it("дефолт запросов: refetchOnWindowFocus = true", () => {
+    expect(queryClient.getDefaultOptions().queries?.refetchOnWindowFocus).toBe(true);
+  });
 });
