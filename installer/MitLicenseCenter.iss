@@ -486,6 +486,20 @@ end;
 
 { ===== Строка подключения ===== }
 
+{ Квотирует значение для ADO.NET-строки подключения (SqlClient): значение, содержащее ';',
+  '=' или краевые пробелы, должно быть заключено в кавычки, иначе парсер connstr порвёт строку
+  (например пароль SQL-логина с ';'). Правило SqlConnectionStringBuilder: если значение содержит
+  двойную кавычку — оборачиваем в одинарные, иначе — в двойные. Так не нужно удваивать кавычки.
+  Результат затем уходит в PowerShell '...'-литерал (PsSingleQuote удвоит одиночные) — конфликта
+  нет. Применяется к User Id / Password провижининг-строки (MLC-171). }
+function ConnStrQuoteValue(const S: string): string;
+begin
+  if Pos('"', S) > 0 then
+    Result := '''' + S + ''''   { есть " → оборачиваем в одинарные кавычки }
+  else
+    Result := '"' + S + '"';    { иначе — в двойные }
+end;
+
 { Собирает строку подключения. appName уходит в Application Name (Default/Hangfire).
   ADR-49: ВСЕГДА Trusted_Connection — служба ходит к локальному SQL по доверенному подключению
   Windows под своей учёткой (виртуальной / именованной / gMSA). SQL-логин и пароль в конфиг
@@ -512,7 +526,9 @@ function ProvisioningConnString(const database: string): string;
 begin
   Result := 'Server=' + SqlInstance + ';Database=' + database + ';';
   if ProvisioningMode = PROV_SQLLOGIN then
-    Result := Result + 'User Id=' + ProvUser + ';Password=' + ProvPassword + ';'
+    { User Id/Password квотируем (ConnStrQuoteValue) — пароль может содержать ';'/'='/пробелы. }
+    Result := Result + 'User Id=' + ConnStrQuoteValue(ProvUser) +
+                       ';Password=' + ConnStrQuoteValue(ProvPassword) + ';'
   else
     Result := Result + 'Integrated Security=True;';
   Result := Result + 'Encrypt=True;TrustServerCertificate=True;Connect Timeout=15';
