@@ -68,11 +68,35 @@ public sealed class ReconciliationJobUsageSamplingTests
         db.LicenseUsageSnapshots.Should().BeEmpty("без пересечения границы бакета телеметрия не пишется");
     }
 
-    private static ReconciliationJob NewJob(AppDbContext db, ILicenseUsageAccumulator accumulator)
+    [Fact]
+    public async Task RunColdAsync_skips_sampling_when_license_fact_unavailable()
+    {
+        var tenantId = Guid.NewGuid();
+        using var db = TestHelpers.NewInMemoryDb($"usage-nofact-{Guid.NewGuid():N}");
+        await SeedActiveTenantWithInfobase(db, tenantId, limit: 10);
+
+        // Аккумулятор вернул бы бакет — но при недоступном факте сэмпл вообще не подаётся,
+        // поэтому RecordSample не вызывается и в отчёт ложный 0 не уходит (MLC-168).
+        var bucket = new LicenseUsageBucket(tenantId, Now, ConsumedMin: 1, ConsumedMax: 4, ConsumedAvg: 2.5, Limit: 10);
+        var accumulator = new StubAccumulator([bucket]);
+
+        var job = NewJob(db, accumulator, factAvailable: false);
+        await job.RunColdAsync(CancellationToken.None);
+
+        accumulator.LastSamples.Should().BeNull("rac --licenses недоступен → сэмпл не подаётся (честный пробел, не ложный 0)");
+        db.LicenseUsageSnapshots.Should().BeEmpty("при недоступном факте лицензий телеметрия не пишется");
+    }
+
+    private static ReconciliationJob NewJob(
+        AppDbContext db, ILicenseUsageAccumulator accumulator, bool factAvailable = true)
     {
         var cluster = Substitute.For<IClusterClient>();
         cluster.ListActiveSessionsAsync(Arg.Any<CancellationToken>())
             .Returns((IReadOnlyList<ClusterSession>)Array.Empty<ClusterSession>());
+        // MLC-166/168: факт лицензий — отдельный вызов. factAvailable=true → пустое множество
+        // (rac отработал, лицензионных нет); false → null (rac --licenses недоступен).
+        cluster.ListLicensedSessionIdsAsync(Arg.Any<CancellationToken>())
+            .Returns(factAvailable ? (IReadOnlySet<Guid>?)new HashSet<Guid>() : null);
 
         var settings = Substitute.For<ISettingsSnapshot>(); // GetInt → null → дефолты
         var enforcer = Substitute.For<IKillEnforcer>();

@@ -169,15 +169,24 @@ internal sealed partial class ReconciliationJob : IReconciliationJob
             // чтобы min/avg были честными). Переиспользуем consumptionByTenant/infobaseMap —
             // нового спавна rac.exe не вводим (ADR-3.3/16). distinct по тенанту: у клиента
             // может быть >1 инфобазы. Аккумулятор вернёт строки только на границе бакета.
-            var usageSamples = infobaseMap.Values
-                .Where(m => m.IsActive)
-                .GroupBy(m => m.Id)
-                .Select(g => new LicenseUsageSample(
-                    g.Key,
-                    consumptionByTenant.GetValueOrDefault(g.Key, 0),
-                    g.First().MaxConcurrentLicenses))
-                .ToList();
-            var usageBuckets = _usage.RecordSample(now, usageSamples);
+            // MLC-168: при недоступном факте лицензий (rac --licenses не отработал,
+            // licenseFactAvailable=false) НЕ сэмплируем — иначе в отчёт уйдёт ложный 0 (все
+            // сеансы Pending → consumed=0), занизив min/avg в окне сбоя rac. Пропуск даёт
+            // честный пробел в истории; аккумулятор переживает пропуск циклов (прошлый бакет
+            // флашится следующим доступным семплом, ADR-25).
+            IReadOnlyList<LicenseUsageBucket> usageBuckets = [];
+            if (licenseFactAvailable)
+            {
+                var usageSamples = infobaseMap.Values
+                    .Where(m => m.IsActive)
+                    .GroupBy(m => m.Id)
+                    .Select(g => new LicenseUsageSample(
+                        g.Key,
+                        consumptionByTenant.GetValueOrDefault(g.Key, 0),
+                        g.First().MaxConcurrentLicenses))
+                    .ToList();
+                usageBuckets = _usage.RecordSample(now, usageSamples);
+            }
 
             sw.Stop();
             _metrics.RecordColdCycle(sw.Elapsed.TotalMilliseconds);
