@@ -3,8 +3,8 @@ using MitLicenseCenter.Application.Ras;
 
 namespace MitLicenseCenter.Infrastructure.Ras;
 
-// Сборка строк запуска ras.exe-службы и аргументов sc.exe (ADR-47). Точный синтаксис
-// сверен с документацией 1С:
+// Сборка строк запуска ras.exe-службы и командных строк sc.exe (ADR-47). Точный
+// синтаксис сверен с документацией 1С:
 //
 //   ras.exe cluster --service --port=<RASport> <agent-host>:<agent-ctrlport>
 //
@@ -13,27 +13,32 @@ namespace MitLicenseCenter.Infrastructure.Ras;
 // → localhost:1540, 1540 — стандартный порт агента кластера). Флаг --service переводит
 // ras.exe в режим Windows-службы. Этот синтаксис стабилен для 8.3.x и 8.5.x.
 //
-// Регистрация через sc create:
-//   sc create <name> binPath= "\"<...>\ras.exe\" cluster --service --port=1545 localhost:1540" start= auto
+// Регистрация через sc create (ОДНА raw-строка для ProcessStartInfo.Arguments — как
+// установщик в [Code], НЕ ArgumentList: sc.exe-парсер «ключ= значение» несовместим с
+// поэлементным квотированием .NET, MLC-162):
+//   sc create <name> binPath= "\"<...>\ras.exe\" cluster --service --port=1545 localhost:1540" start= auto DisplayName= "..."
 //
 // Гочи квотирования (sc binPath= = одна строка, разбираемая SCM):
 //   * binPath включает И путь к ras.exe (в кавычках — может содержать пробелы), И
-//     аргументы ras.exe. Внешние кавычки самого значения binPath экранируются для sc
-//     как \" — иначе sc обрежет значение на первом пробеле.
+//     аргументы ras.exe. Значение binPath= целиком оборачивается внешними кавычками
+//     ("…"), а внутренние кавычки вокруг пути экранируются как \" — иначе sc обрежет
+//     значение на первом пробеле.
 //   * sc требует ПРОБЕЛ после '=' в binPath=/start=/DisplayName= (значимый синтаксис sc).
 //   * obj=/password= НЕ задаём: служба слушает loopback (ADR-28/47), работает под
 //     LocalSystem — секрет в команду не попадает (требование аудита ADR-47).
+//
+// Возвращаемые строки команд-мутаций совпадают с предпросмотром в UI (BuildSc*Preview):
+// оператор видит ровно ту команду, что выполнит панель (прозрачность + воспроизводимость).
 internal static class RasServiceCommandBuilder
 {
     // Имя создаваемой нами службы (используется только на register; обнаружение идёт по
-    // binPath, не по имени, поэтому имя — внутренняя деталь, не контракт с оператором).
+    // ImagePath, не по имени, поэтому имя — внутренняя деталь, не контракт с оператором).
     public const string DefaultServiceName = "MitLicenseRas";
 
     public const string DefaultDisplayName = "1C:Enterprise Remote Administration Server (MitLicense)";
 
     // Командная строка ras.exe-службы: «cluster --service --port=<port> <agent>».
-    // Возвращается БЕЗ пути к ras.exe (только аргументы) — для предпросмотра и для
-    // встраивания в binPath. Аргументы по отдельности — для тестируемой проверки.
+    // Возвращается БЕЗ пути к ras.exe (только аргументы) — для тестируемой проверки.
     public static IReadOnlyList<string> BuildRasArguments(string port, string agentAddress)
         => new[]
         {
@@ -62,54 +67,36 @@ internal static class RasServiceCommandBuilder
     public static string BuildBinPathValue(string rasExePath, string port, string agentAddress)
         => BuildRasCommandLine(rasExePath, port, agentAddress).Replace("\"", "\\\"");
 
-    // Аргументы sc create (чистая регистрация). Каждый элемент — отдельный аргумент
-    // процесса; ScProcessRunner кладёт их в ArgumentList (Windows сам соберёт корректную
-    // командную строку и не порвёт значения с пробелами/кавычками).
-    public static IReadOnlyList<string> BuildScCreateArguments(
+    // Полная командная строка sc create (одна raw-строка для ProcessStartInfo.Arguments).
+    // Совпадает с BuildScCreatePreview — то, что выполнит панель, и то, что увидит оператор.
+    public static string BuildScCreateArguments(
         string serviceName, string rasExePath, string port, string agentAddress)
-        => new[]
-        {
-            "create",
-            serviceName,
-            "binPath=",
-            BuildRasCommandLine(rasExePath, port, agentAddress),
-            "start=",
-            "auto",
-            "DisplayName=",
-            DefaultDisplayName,
-        };
+        => $"create {serviceName} binPath= \"{BuildBinPathValue(rasExePath, port, agentAddress)}\" "
+           + $"start= auto DisplayName= \"{DefaultDisplayName}\"";
 
-    // Аргументы sc config (перерегистрация существующей службы под новый binPath/порт).
-    public static IReadOnlyList<string> BuildScConfigArguments(
+    // Полная командная строка sc config (перерегистрация под новый binPath/порт).
+    // config не меняет DisplayName (он задан на create).
+    public static string BuildScConfigArguments(
         string serviceName, string rasExePath, string port, string agentAddress)
-        => new[]
-        {
-            "config",
-            serviceName,
-            "binPath=",
-            BuildRasCommandLine(rasExePath, port, agentAddress),
-            "start=",
-            "auto",
-        };
+        => $"config {serviceName} binPath= \"{BuildBinPathValue(rasExePath, port, agentAddress)}\" start= auto";
 
-    public static IReadOnlyList<string> BuildScStartArguments(string serviceName)
-        => new[] { "start", serviceName };
+    public static string BuildScStartArguments(string serviceName)
+        => $"start {serviceName}";
 
-    public static IReadOnlyList<string> BuildScStopArguments(string serviceName)
-        => new[] { "stop", serviceName };
+    public static string BuildScStopArguments(string serviceName)
+        => $"stop {serviceName}";
 
     // Человекочитаемая команда sc для предпросмотра в UI (одна строка, как оператор
-    // ввёл бы её в консоли). Кавычки binPath= показываем экранированными — ровно так,
-    // как их нужно набрать в cmd. Секреты в превью отсутствуют (obj/password не задаём).
+    // ввёл бы её в консоли). Совпадает с командой, которую выполняет панель (create/config
+    // выше). Секреты в превью отсутствуют (obj/password не задаём).
     public static string BuildScCreatePreview(
         string serviceName, string rasExePath, string port, string agentAddress)
-        => $"sc create {serviceName} binPath= \"{BuildBinPathValue(rasExePath, port, agentAddress)}\" "
-           + $"start= auto DisplayName= \"{DefaultDisplayName}\"";
+        => "sc " + BuildScCreateArguments(serviceName, rasExePath, port, agentAddress);
 
     public static string BuildScConfigPreview(
         string serviceName, string rasExePath, string port, string agentAddress)
         => $"sc stop {serviceName}  &&  "
-           + $"sc config {serviceName} binPath= \"{BuildBinPathValue(rasExePath, port, agentAddress)}\" start= auto"
+           + "sc " + BuildScConfigArguments(serviceName, rasExePath, port, agentAddress)
            + $"  &&  sc start {serviceName}";
 
     public static string BuildScStartPreview(string serviceName)

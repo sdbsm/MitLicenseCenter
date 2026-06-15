@@ -9,23 +9,48 @@ using Xunit;
 
 namespace MitLicenseCenter.Tests.Unit.Ras;
 
-// Маппинг 4 состояний диагностики и поведение register/update/start через мок sc-раннера
-// (MLC-159, ADR-47). Реальный sc.exe не запускается — FakeScRunner отвечает по sub-команде.
+// Маппинг 4 состояний диагностики и поведение register/update/start (MLC-159, ADR-47).
+// Обнаружение (MLC-162) — через фейковые IServiceRegistryReader/IServiceStateReader:
+// тест подаёт заранее заготовленный список служб (включая реальный кейс
+// «1C:Enterprise 8.5 Remote Server»), реальный реестр/ServiceController не дёргаются.
+// Команды-мутации — через FakeScRunner (реальный sc.exe не запускается).
 public sealed class ScRasServiceManagerTests
 {
     private const string RasPath85 = @"C:\Program Files\1cv8\8.5.1.1302\bin\ras.exe";
     private const string RasPath83 = @"C:\Program Files\1cv8\8.3.23.1865\bin\ras.exe";
+
+    // ── Обнаружение: реальный кейс из дефекта MLC-162 ───────────────────────────────────
+
+    [Fact]
+    public async Task Diagnose_finds_real_1c_remote_server_service_by_image_path()
+    {
+        // Реальная служба с dev-сервера: имя «1C:Enterprise 8.5 Remote Server», ImagePath
+        // с ras.exe — раньше энумерация через sc query её не находила (→ ложное
+        // NotRegistered). Реестровое обнаружение должно найти её и классифицировать как Ok.
+        var registry = new FakeRegistry()
+            .Add("LanmanServer", @"C:\Windows\System32\svchost.exe -k netsvcs")
+            .Add("1C:Enterprise 8.5 Remote Server",
+                $"\"{RasPath85}\" cluster --service --port=1545 localhost:1540");
+        var state = new FakeState().SetRunning("1C:Enterprise 8.5 Remote Server", true);
+
+        var d = await NewManager(registry, state).DiagnoseAsync(CancellationToken.None);
+
+        d.State.Should().Be(RasServiceState.Ok);
+        d.Service!.ServiceName.Should().Be("1C:Enterprise 8.5 Remote Server");
+        d.Service.IsRunning.Should().BeTrue();
+        d.Service.PlatformVersion.Should().Be("8.5.1.1302");
+        d.Service.Port.Should().Be("1545");
+    }
 
     // ── Диагностика: 4 состояния ──────────────────────────────────────────────────────
 
     [Fact]
     public async Task Diagnose_NotRegistered_when_no_ras_service()
     {
-        var sc = new FakeScRunner();
-        sc.QueryAllNames("W3SVC");
-        sc.SetQc("W3SVC", @"C:\Windows\System32\svchost.exe -k iissvcs");
+        var registry = new FakeRegistry()
+            .Add("W3SVC", @"C:\Windows\System32\svchost.exe -k iissvcs");
 
-        var d = await NewManager(sc).DiagnoseAsync(CancellationToken.None);
+        var d = await NewManager(registry).DiagnoseAsync(CancellationToken.None);
 
         d.State.Should().Be(RasServiceState.NotRegistered);
         d.Service.Should().BeNull();
@@ -36,12 +61,11 @@ public sealed class ScRasServiceManagerTests
     [Fact]
     public async Task Diagnose_Stopped_when_service_present_but_not_running()
     {
-        var sc = new FakeScRunner();
-        sc.QueryAllNames("MitLicenseRas");
-        sc.SetQc("MitLicenseRas", $"\"{RasPath85}\" cluster --service --port=1545 localhost:1540");
-        sc.SetQueryState("MitLicenseRas", running: false);
+        var registry = new FakeRegistry()
+            .Add("MitLicenseRas", $"\"{RasPath85}\" cluster --service --port=1545 localhost:1540");
+        var state = new FakeState().SetRunning("MitLicenseRas", false);
 
-        var d = await NewManager(sc).DiagnoseAsync(CancellationToken.None);
+        var d = await NewManager(registry, state).DiagnoseAsync(CancellationToken.None);
 
         d.State.Should().Be(RasServiceState.Stopped);
         d.Service!.ServiceName.Should().Be("MitLicenseRas");
@@ -51,13 +75,12 @@ public sealed class ScRasServiceManagerTests
     [Fact]
     public async Task Diagnose_Outdated_when_platform_stale()
     {
-        var sc = new FakeScRunner();
-        sc.QueryAllNames("OldRas");
         // Служба запущена, но на 8.3, а выбранная платформа — 8.5.
-        sc.SetQc("OldRas", $"\"{RasPath83}\" cluster --service --port=1545 localhost:1540");
-        sc.SetQueryState("OldRas", running: true);
+        var registry = new FakeRegistry()
+            .Add("OldRas", $"\"{RasPath83}\" cluster --service --port=1545 localhost:1540");
+        var state = new FakeState().SetRunning("OldRas", true);
 
-        var d = await NewManager(sc, platformVersion: "8.5.1.1302").DiagnoseAsync(CancellationToken.None);
+        var d = await NewManager(registry, state, platformVersion: "8.5.1.1302").DiagnoseAsync(CancellationToken.None);
 
         d.State.Should().Be(RasServiceState.Outdated);
         d.CommandPreview.Should().Contain("sc config OldRas");
@@ -66,13 +89,12 @@ public sealed class ScRasServiceManagerTests
     [Fact]
     public async Task Diagnose_Outdated_when_port_differs_from_endpoint()
     {
-        var sc = new FakeScRunner();
-        sc.QueryAllNames("MitLicenseRas");
         // Запущена на актуальной платформе, но порт 1539 ≠ endpoint 1545.
-        sc.SetQc("MitLicenseRas", $"\"{RasPath85}\" cluster --service --port=1539 localhost:1540");
-        sc.SetQueryState("MitLicenseRas", running: true);
+        var registry = new FakeRegistry()
+            .Add("MitLicenseRas", $"\"{RasPath85}\" cluster --service --port=1539 localhost:1540");
+        var state = new FakeState().SetRunning("MitLicenseRas", true);
 
-        var d = await NewManager(sc).DiagnoseAsync(CancellationToken.None);
+        var d = await NewManager(registry, state).DiagnoseAsync(CancellationToken.None);
 
         d.State.Should().Be(RasServiceState.Outdated);
     }
@@ -80,12 +102,11 @@ public sealed class ScRasServiceManagerTests
     [Fact]
     public async Task Diagnose_Ok_when_running_current_platform_and_port()
     {
-        var sc = new FakeScRunner();
-        sc.QueryAllNames("MitLicenseRas");
-        sc.SetQc("MitLicenseRas", $"\"{RasPath85}\" cluster --service --port=1545 localhost:1540");
-        sc.SetQueryState("MitLicenseRas", running: true);
+        var registry = new FakeRegistry()
+            .Add("MitLicenseRas", $"\"{RasPath85}\" cluster --service --port=1545 localhost:1540");
+        var state = new FakeState().SetRunning("MitLicenseRas", true);
 
-        var d = await NewManager(sc).DiagnoseAsync(CancellationToken.None);
+        var d = await NewManager(registry, state).DiagnoseAsync(CancellationToken.None);
 
         d.State.Should().Be(RasServiceState.Ok);
         d.CommandPreview.Should().BeNull();
@@ -94,11 +115,10 @@ public sealed class ScRasServiceManagerTests
     [Fact]
     public async Task Diagnose_NotRegistered_target_not_ready_when_ras_missing()
     {
-        var sc = new FakeScRunner();
-        sc.QueryAllNames(); // нет служб RAS
+        var registry = new FakeRegistry(); // нет служб RAS
 
         // Резолвер не находит ras.exe выбранной версии.
-        var d = await NewManager(sc, rasPath: null).DiagnoseAsync(CancellationToken.None);
+        var d = await NewManager(registry, rasPath: null).DiagnoseAsync(CancellationToken.None);
 
         d.State.Should().Be(RasServiceState.NotRegistered);
         d.TargetReady.Should().BeFalse();
@@ -107,15 +127,30 @@ public sealed class ScRasServiceManagerTests
         d.Issue.Should().NotBeNullOrEmpty();
     }
 
+    [Fact]
+    public async Task Diagnose_treats_service_as_stopped_when_state_unavailable()
+    {
+        // Служба найдена в реестре, но ServiceController не вернул состояние (служба
+        // исчезла между чтением реестра и проверкой) → IsRunning=false → Stopped.
+        var registry = new FakeRegistry()
+            .Add("MitLicenseRas", $"\"{RasPath85}\" cluster --service --port=1545 localhost:1540");
+        var state = new FakeState(); // состояния нет
+
+        var d = await NewManager(registry, state).DiagnoseAsync(CancellationToken.None);
+
+        d.State.Should().Be(RasServiceState.Stopped);
+        d.Service!.IsRunning.Should().BeFalse();
+    }
+
     // ── Операции ──────────────────────────────────────────────────────────────────────
 
     [Fact]
     public async Task Register_runs_sc_create_then_start()
     {
+        var registry = new FakeRegistry(); // службы RAS нет → register уместен
         var sc = new FakeScRunner();
-        sc.QueryAllNames(); // службы RAS нет → register уместен
 
-        var result = await NewManager(sc).RegisterAsync(CancellationToken.None);
+        var result = await NewManager(registry, sc: sc).RegisterAsync(CancellationToken.None);
 
         result.State.Should().Be(RasServiceState.Ok);
         result.PlatformVersion.Should().Be("8.5.1.1302");
@@ -127,12 +162,12 @@ public sealed class ScRasServiceManagerTests
     [Fact]
     public async Task Register_throws_when_ras_service_already_exists()
     {
+        var registry = new FakeRegistry()
+            .Add("MitLicenseRas", $"\"{RasPath85}\" cluster --service --port=1545 localhost:1540");
+        var state = new FakeState().SetRunning("MitLicenseRas", true);
         var sc = new FakeScRunner();
-        sc.QueryAllNames("MitLicenseRas");
-        sc.SetQc("MitLicenseRas", $"\"{RasPath85}\" cluster --service --port=1545 localhost:1540");
-        sc.SetQueryState("MitLicenseRas", running: true);
 
-        var act = () => NewManager(sc).RegisterAsync(CancellationToken.None);
+        var act = () => NewManager(registry, state, sc: sc).RegisterAsync(CancellationToken.None);
 
         await act.Should().ThrowAsync<RasServiceOperationException>();
         sc.Calls.Should().NotContain(c => c.StartsWith("create ", StringComparison.Ordinal));
@@ -141,10 +176,9 @@ public sealed class ScRasServiceManagerTests
     [Fact]
     public async Task Register_throws_when_platform_ras_missing()
     {
-        var sc = new FakeScRunner();
-        sc.QueryAllNames();
+        var registry = new FakeRegistry();
 
-        var act = () => NewManager(sc, rasPath: null).RegisterAsync(CancellationToken.None);
+        var act = () => NewManager(registry, rasPath: null).RegisterAsync(CancellationToken.None);
 
         await act.Should().ThrowAsync<RasServiceOperationException>();
     }
@@ -152,12 +186,13 @@ public sealed class ScRasServiceManagerTests
     [Fact]
     public async Task Update_stops_configures_and_starts_existing_service()
     {
+        var registry = new FakeRegistry()
+            .Add("OldRas", $"\"{RasPath83}\" cluster --service --port=1545 localhost:1540");
+        var state = new FakeState().SetRunning("OldRas", true);
         var sc = new FakeScRunner();
-        sc.QueryAllNames("OldRas");
-        sc.SetQc("OldRas", $"\"{RasPath83}\" cluster --service --port=1545 localhost:1540");
-        sc.SetQueryState("OldRas", running: true);
 
-        var result = await NewManager(sc, platformVersion: "8.5.1.1302").UpdateAsync(CancellationToken.None);
+        var result = await NewManager(registry, state, sc: sc, platformVersion: "8.5.1.1302")
+            .UpdateAsync(CancellationToken.None);
 
         result.ServiceName.Should().Be("OldRas");
         result.PlatformVersion.Should().Be("8.5.1.1302");
@@ -167,10 +202,9 @@ public sealed class ScRasServiceManagerTests
     [Fact]
     public async Task Update_throws_when_no_service_to_update()
     {
-        var sc = new FakeScRunner();
-        sc.QueryAllNames();
+        var registry = new FakeRegistry();
 
-        var act = () => NewManager(sc).UpdateAsync(CancellationToken.None);
+        var act = () => NewManager(registry).UpdateAsync(CancellationToken.None);
 
         await act.Should().ThrowAsync<RasServiceOperationException>();
     }
@@ -178,12 +212,12 @@ public sealed class ScRasServiceManagerTests
     [Fact]
     public async Task Start_runs_sc_start_on_discovered_service()
     {
+        var registry = new FakeRegistry()
+            .Add("MitLicenseRas", $"\"{RasPath85}\" cluster --service --port=1545 localhost:1540");
+        var state = new FakeState().SetRunning("MitLicenseRas", false);
         var sc = new FakeScRunner();
-        sc.QueryAllNames("MitLicenseRas");
-        sc.SetQc("MitLicenseRas", $"\"{RasPath85}\" cluster --service --port=1545 localhost:1540");
-        sc.SetQueryState("MitLicenseRas", running: false);
 
-        var result = await NewManager(sc).StartAsync(CancellationToken.None);
+        var result = await NewManager(registry, state, sc: sc).StartAsync(CancellationToken.None);
 
         result.ServiceName.Should().Be("MitLicenseRas");
         sc.Calls.Should().Contain("start MitLicenseRas");
@@ -192,13 +226,12 @@ public sealed class ScRasServiceManagerTests
     [Fact]
     public async Task Start_treats_already_running_as_success()
     {
-        var sc = new FakeScRunner();
-        sc.QueryAllNames("MitLicenseRas");
-        sc.SetQc("MitLicenseRas", $"\"{RasPath85}\" cluster --service --port=1545 localhost:1540");
-        sc.SetQueryState("MitLicenseRas", running: false);
-        sc.StartExitCode = 1056; // ERROR_SERVICE_ALREADY_RUNNING — успех.
+        var registry = new FakeRegistry()
+            .Add("MitLicenseRas", $"\"{RasPath85}\" cluster --service --port=1545 localhost:1540");
+        var state = new FakeState().SetRunning("MitLicenseRas", false);
+        var sc = new FakeScRunner { StartExitCode = 1056 }; // ERROR_SERVICE_ALREADY_RUNNING — успех.
 
-        var result = await NewManager(sc).StartAsync(CancellationToken.None);
+        var result = await NewManager(registry, state, sc: sc).StartAsync(CancellationToken.None);
 
         result.State.Should().Be(RasServiceState.Ok);
     }
@@ -206,13 +239,12 @@ public sealed class ScRasServiceManagerTests
     [Fact]
     public async Task Start_throws_when_sc_start_fails()
     {
-        var sc = new FakeScRunner();
-        sc.QueryAllNames("MitLicenseRas");
-        sc.SetQc("MitLicenseRas", $"\"{RasPath85}\" cluster --service --port=1545 localhost:1540");
-        sc.SetQueryState("MitLicenseRas", running: false);
-        sc.StartExitCode = 5; // ERROR_ACCESS_DENIED.
+        var registry = new FakeRegistry()
+            .Add("MitLicenseRas", $"\"{RasPath85}\" cluster --service --port=1545 localhost:1540");
+        var state = new FakeState().SetRunning("MitLicenseRas", false);
+        var sc = new FakeScRunner { StartExitCode = 5 }; // ERROR_ACCESS_DENIED.
 
-        var act = () => NewManager(sc).StartAsync(CancellationToken.None);
+        var act = () => NewManager(registry, state, sc: sc).StartAsync(CancellationToken.None);
 
         await act.Should().ThrowAsync<RasServiceOperationException>();
     }
@@ -220,7 +252,9 @@ public sealed class ScRasServiceManagerTests
     // ── helpers ───────────────────────────────────────────────────────────────────────
 
     private static ScRasServiceManager NewManager(
-        FakeScRunner sc,
+        FakeRegistry registry,
+        FakeState? state = null,
+        FakeScRunner? sc = null,
         string platformVersion = "8.5.1.1302",
         string endpoint = "localhost:1545",
         string? rasPath = RasPath85)
@@ -230,7 +264,13 @@ public sealed class ScRasServiceManagerTests
         settings.GetString(SettingKey.OneCDefaultPlatformVersion).Returns(platformVersion);
 
         var resolver = new FakeResolver(rasPath);
-        return new ScRasServiceManager(sc, settings, resolver, NullLogger<ScRasServiceManager>.Instance);
+        return new ScRasServiceManager(
+            sc ?? new FakeScRunner(),
+            registry,
+            state ?? new FakeState(),
+            settings,
+            resolver,
+            NullLogger<ScRasServiceManager>.Instance);
     }
 
     private sealed class FakeResolver : IRasExePathResolver
@@ -240,72 +280,66 @@ public sealed class ScRasServiceManagerTests
         public string? ResolveForVersion(string platformVersion) => _path;
     }
 
-    // Фейк sc.exe: отвечает по первому аргументу (query/qc/create/config/start/stop).
-    // Records flat «<sub> <name>» строки для проверки порядка вызовов.
+    // Фейк реестра: список служб (имя → ImagePath), как их вернул бы реальный
+    // RegistryServiceReader, но без обращения к реестру.
+    private sealed class FakeRegistry : IServiceRegistryReader
+    {
+        private readonly List<RegisteredService> _services = new();
+
+        public FakeRegistry Add(string name, string imagePath)
+        {
+            _services.Add(new RegisteredService(name, imagePath));
+            return this;
+        }
+
+        public IReadOnlyList<RegisteredService> ReadServices() => _services;
+    }
+
+    // Фейк ServiceController: состояние по имени службы. Без записи → ReadState=null
+    // (служба не найдена / состояние недоступно).
+    private sealed class FakeState : IServiceStateReader
+    {
+        private readonly Dictionary<string, ServiceState> _byName = new(StringComparer.OrdinalIgnoreCase);
+
+        public FakeState SetRunning(string name, bool running)
+        {
+            _byName[name] = new ServiceState(running, name);
+            return this;
+        }
+
+        public ServiceState? ReadState(string serviceName)
+            => _byName.TryGetValue(serviceName, out var s) ? s : null;
+    }
+
+    // Фейк sc.exe: получает raw-командную строку (как ScProcessRunner кладёт в
+    // ProcessStartInfo.Arguments), берёт по первым двум токенам «<sub> <name>» для
+    // проверки порядка вызовов команд-мутаций (create/config/start/stop).
     private sealed class FakeScRunner : IScProcessRunner
     {
-        private readonly Dictionary<string, string> _qcByName = new(StringComparer.OrdinalIgnoreCase);
-        private readonly Dictionary<string, bool> _runningByName = new(StringComparer.OrdinalIgnoreCase);
-        private string _queryAll = "";
-
         public List<string> Calls { get; } = new();
         public int StartExitCode { get; set; }
 
-        public void QueryAllNames(params string[] names)
+        public Task<ScResult> RunAsync(string arguments, CancellationToken ct)
         {
-            var sb = new System.Text.StringBuilder();
-            foreach (var n in names)
-            {
-                sb.Append("SERVICE_NAME: ").Append(n).Append('\n');
-                sb.Append("        STATE              : 1  STOPPED\n\n");
-            }
-            _queryAll = sb.ToString();
-        }
-
-        public void SetQc(string name, string binPath)
-            => _qcByName[name] = $"BINARY_PATH_NAME   : {binPath}\n";
-
-        public void SetQueryState(string name, bool running)
-            => _runningByName[name] = running;
-
-        public Task<ScResult> RunAsync(IReadOnlyList<string> arguments, CancellationToken ct)
-        {
-            var sub = arguments[0];
+            var tokens = arguments.Split(' ', 3, StringSplitOptions.RemoveEmptyEntries);
+            var sub = tokens.Length > 0 ? tokens[0] : "";
+            var name = tokens.Length > 1 ? tokens[1] : "";
             switch (sub)
             {
-                case "query" when arguments.Count >= 2 && arguments[1] == "state=":
-                    return Ok(_queryAll);
-
-                case "query":
-                    {
-                        var name = arguments[1];
-                        var running = _runningByName.TryGetValue(name, out var r) && r;
-                        var state = running ? "4  RUNNING" : "1  STOPPED";
-                        return Ok($"SERVICE_NAME: {name}\n        STATE              : {state}\n");
-                    }
-
-                case "qc":
-                    {
-                        var name = arguments[1];
-                        return _qcByName.TryGetValue(name, out var qc)
-                            ? Ok(qc)
-                            : Task.FromResult(new ScResult(1060, "", "не найдена"));
-                    }
-
                 case "start":
-                    Calls.Add($"start {arguments[1]}");
+                    Calls.Add($"start {name}");
                     return Task.FromResult(new ScResult(StartExitCode, "", ""));
 
                 case "stop":
-                    Calls.Add($"stop {arguments[1]}");
+                    Calls.Add($"stop {name}");
                     return Ok("");
 
                 case "create":
-                    Calls.Add($"create {arguments[1]}");
+                    Calls.Add($"create {name}");
                     return Ok("[SC] CreateService SUCCESS");
 
                 case "config":
-                    Calls.Add($"config {arguments[1]}");
+                    Calls.Add($"config {name}");
                     return Ok("[SC] ChangeServiceConfig SUCCESS");
 
                 default:

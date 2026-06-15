@@ -5,11 +5,14 @@ using MitLicenseCenter.Domain.Settings;
 
 namespace MitLicenseCenter.Infrastructure.Ras;
 
-// Адаптер управления локальной службой RAS поверх sc.exe (ADR-47). Обнаружение — по
-// binPath, содержащему ras.exe (имя службы не стандартизировано). Диагностика — 4
-// состояния. register/update/start — sc create / (stop→config→start) / start. Хост
-// фиксирован localhost (single-host, ADR-28); порт — OneC.RAS.Endpoint; платформа —
-// OneC.DefaultPlatformVersion.
+// Адаптер управления локальной службой RAS (ADR-47). Обнаружение — через реестр
+// (HKLM\SYSTEM\CurrentControlSet\Services, фильтр ImagePath по ras.exe) + состояние
+// через ServiceController; один проход, без спавна процессов (Update MLC-162: вызов
+// sc.exe из ArgumentList для энумерации на реальной ОС не отрабатывал → ложное
+// «не зарегистрирована»). Имя службы не стандартизировано, ищем по ImagePath.
+// Диагностика — 4 состояния. Команды-мутации register/update/start — через sc.exe
+// (sc create / stop→config→start / start). Хост фиксирован localhost (single-host,
+// ADR-28); порт — OneC.RAS.Endpoint; платформа — OneC.DefaultPlatformVersion.
 internal sealed partial class ScRasServiceManager : IRasServiceManager
 {
     // Стандартный порт самой службы RAS, если в OneC.RAS.Endpoint порт не задан.
@@ -19,28 +22,30 @@ internal sealed partial class ScRasServiceManager : IRasServiceManager
     // стандартный порт агента кластера 1С. Цель ras.exe (последний позиционный аргумент).
     private const string LocalAgentAddress = "localhost:1540";
 
-    // Аргументы перечисления всех служб (вынесено в поле — CA1861).
-    private static readonly string[] QueryAllServicesArgs = { "query", "state=", "all" };
-
     // Коды возврата sc.exe (Win32), которые нужно трактовать особо.
     private const int ScSuccess = 0;
     private const int ScErrorServiceAlreadyRunning = 1056; // ERROR_SERVICE_ALREADY_RUNNING
     private const int ScErrorServiceNotActive = 1062;      // ERROR_SERVICE_NOT_ACTIVE
-    private const int ScErrorServiceDoesNotExist = 1060;   // ERROR_SERVICE_DOES_NOT_EXIST
     private const int ScErrorServiceExists = 1073;         // ERROR_SERVICE_EXISTS
 
     private readonly IScProcessRunner _sc;
+    private readonly IServiceRegistryReader _registry;
+    private readonly IServiceStateReader _serviceState;
     private readonly ISettingsSnapshot _settings;
     private readonly IRasExePathResolver _rasResolver;
     private readonly ILogger<ScRasServiceManager> _logger;
 
     public ScRasServiceManager(
         IScProcessRunner sc,
+        IServiceRegistryReader registry,
+        IServiceStateReader serviceState,
         ISettingsSnapshot settings,
         IRasExePathResolver rasResolver,
         ILogger<ScRasServiceManager> logger)
     {
         _sc = sc;
+        _registry = registry;
+        _serviceState = serviceState;
         _settings = settings;
         _rasResolver = rasResolver;
         _logger = logger;
@@ -48,8 +53,10 @@ internal sealed partial class ScRasServiceManager : IRasServiceManager
 
     // ── Диагностика ────────────────────────────────────────────────────────────────────
 
-    public async Task<RasServiceDiagnosis> DiagnoseAsync(CancellationToken ct)
+    public Task<RasServiceDiagnosis> DiagnoseAsync(CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
+
         var desiredPort = ResolveDesiredPort();
         var platformVersion = (_settings.GetString(SettingKey.OneCDefaultPlatformVersion) ?? string.Empty).Trim();
         var rasExePath = string.IsNullOrEmpty(platformVersion)
@@ -60,12 +67,12 @@ internal sealed partial class ScRasServiceManager : IRasServiceManager
             ? new RasServiceTarget(rasExePath, platformVersion, desiredPort, LocalAgentAddress)
             : null;
 
-        var service = await FindRasServiceAsync(ct).ConfigureAwait(false);
+        var service = FindRasService();
 
-        // (2) Службы с ras.exe в binPath нет → предложить регистрацию.
+        // (2) Службы с ras.exe в ImagePath нет → предложить регистрацию.
         if (service is null)
         {
-            return new RasServiceDiagnosis(
+            return Task.FromResult(new RasServiceDiagnosis(
                 State: RasServiceState.NotRegistered,
                 Service: null,
                 Target: target,
@@ -74,22 +81,22 @@ internal sealed partial class ScRasServiceManager : IRasServiceManager
                     : RasServiceCommandBuilder.BuildScCreatePreview(
                         RasServiceCommandBuilder.DefaultServiceName, target.RasExePath, target.Port, target.AgentAddress),
                 TargetReady: target is not null,
-                Issue: target is null ? BuildTargetIssue(platformVersion) : null);
+                Issue: target is null ? BuildTargetIssue(platformVersion) : null));
         }
 
         // (4) Служба есть, но остановлена → предложить запуск.
         if (!service.IsRunning)
         {
-            return new RasServiceDiagnosis(
+            return Task.FromResult(new RasServiceDiagnosis(
                 State: RasServiceState.Stopped,
                 Service: service,
                 Target: target,
                 CommandPreview: RasServiceCommandBuilder.BuildScStartPreview(service.ServiceName),
                 TargetReady: true,
-                Issue: null);
+                Issue: null));
         }
 
-        // (3) binPath на устаревшей версии ИЛИ порт ≠ endpoint → перерегистрация.
+        // (3) ImagePath на устаревшей версии ИЛИ порт ≠ endpoint → перерегистрация.
         var versionStale = target is not null
             && !string.IsNullOrEmpty(service.PlatformVersion)
             && !string.Equals(service.PlatformVersion, target.PlatformVersion, StringComparison.OrdinalIgnoreCase);
@@ -98,7 +105,7 @@ internal sealed partial class ScRasServiceManager : IRasServiceManager
 
         if (versionStale || portStale)
         {
-            return new RasServiceDiagnosis(
+            return Task.FromResult(new RasServiceDiagnosis(
                 State: RasServiceState.Outdated,
                 Service: service,
                 Target: target,
@@ -107,27 +114,27 @@ internal sealed partial class ScRasServiceManager : IRasServiceManager
                     : RasServiceCommandBuilder.BuildScConfigPreview(
                         service.ServiceName, target.RasExePath, target.Port, target.AgentAddress),
                 TargetReady: target is not null,
-                Issue: target is null ? BuildTargetIssue(platformVersion) : null);
+                Issue: target is null ? BuildTargetIssue(platformVersion) : null));
         }
 
         // (1) OK.
-        return new RasServiceDiagnosis(
+        return Task.FromResult(new RasServiceDiagnosis(
             State: RasServiceState.Ok,
             Service: service,
             Target: target,
             CommandPreview: null,
             TargetReady: true,
-            Issue: null);
+            Issue: null));
     }
 
     // ── Операции ───────────────────────────────────────────────────────────────────────
 
     public async Task<RasServiceOperationResult> RegisterAsync(CancellationToken ct)
     {
-        var target = await ResolveTargetOrThrowAsync(ct).ConfigureAwait(false);
+        var target = ResolveTargetOrThrow();
 
         // Идемпотентность: если служба с ras.exe уже есть — это не register, а update.
-        var existing = await FindRasServiceAsync(ct).ConfigureAwait(false);
+        var existing = FindRasService();
         if (existing is not null)
         {
             throw new RasServiceOperationException(
@@ -141,7 +148,7 @@ internal sealed partial class ScRasServiceManager : IRasServiceManager
 
         if (create.ExitCode == ScErrorServiceExists)
         {
-            // Служба с нашим именем уже есть (имя ras.exe в её binPath не было → не нашли
+            // Служба с нашим именем уже есть (имя ras.exe в её ImagePath не было → не нашли
             // как RAS-службу). Выравниваем её под текущий target через config.
             await ConfigureAndStartAsync(name, target, ct).ConfigureAwait(false);
             return new RasServiceOperationResult(RasServiceState.Ok, name, target.PlatformVersion, target.Port);
@@ -157,9 +164,9 @@ internal sealed partial class ScRasServiceManager : IRasServiceManager
 
     public async Task<RasServiceOperationResult> UpdateAsync(CancellationToken ct)
     {
-        var target = await ResolveTargetOrThrowAsync(ct).ConfigureAwait(false);
+        var target = ResolveTargetOrThrow();
 
-        var existing = await FindRasServiceAsync(ct).ConfigureAwait(false)
+        var existing = FindRasService()
             ?? throw new RasServiceOperationException(
                 "Служба RAS не найдена. Сначала зарегистрируйте её.");
 
@@ -169,7 +176,7 @@ internal sealed partial class ScRasServiceManager : IRasServiceManager
 
     public async Task<RasServiceOperationResult> StartAsync(CancellationToken ct)
     {
-        var existing = await FindRasServiceAsync(ct).ConfigureAwait(false)
+        var existing = FindRasService()
             ?? throw new RasServiceOperationException(
                 "Служба RAS не найдена. Сначала зарегистрируйте её.");
 
@@ -205,41 +212,26 @@ internal sealed partial class ScRasServiceManager : IRasServiceManager
 
     // ── Обнаружение ──────────────────────────────────────────────────────────────────────
 
-    // Перечисляем все службы и ищем ПЕРВУЮ, чей binPath (sc qc) содержит ras.exe.
-    private async Task<DiscoveredRasService?> FindRasServiceAsync(CancellationToken ct)
+    // Читаем список служб из реестра (один проход, без спавнов) и берём ПЕРВУЮ, чей
+    // ImagePath содержит ras.exe. Состояние (running) и DisplayName — через
+    // ServiceController по имени подключа. Версию/порт — из ImagePath регэкспами.
+    private DiscoveredRasService? FindRasService()
     {
-        var query = await _sc.RunAsync(QueryAllServicesArgs, ct).ConfigureAwait(false);
-        if (query.ExitCode != ScSuccess)
+        foreach (var svc in _registry.ReadServices())
         {
-            throw new RasServiceOperationException(
-                "Не удалось получить список служб Windows (sc query).");
-        }
-
-        foreach (var name in ScOutputParser.ParseServiceNames(query.Stdout))
-        {
-            ct.ThrowIfCancellationRequested();
-
-            var qc = await _sc.RunAsync(new[] { "qc", name }, ct).ConfigureAwait(false);
-            if (qc.ExitCode != ScSuccess)
-            {
-                continue; // служба исчезла между enum и qc / нет прав на конкретную — пропускаем.
-            }
-
-            var binPath = ScOutputParser.ParseBinaryPath(qc.Stdout);
-            if (!ScOutputParser.BinPathReferencesRas(binPath))
+            if (!RasImagePathParser.ReferencesRas(svc.ImagePath))
             {
                 continue;
             }
 
-            var status = await _sc.RunAsync(new[] { "query", name }, ct).ConfigureAwait(false);
-            var isRunning = status.ExitCode == ScSuccess && ScOutputParser.ParseIsRunning(status.Stdout);
+            var state = _serviceState.ReadState(svc.Name);
 
             return new DiscoveredRasService(
-                ServiceName: name,
-                IsRunning: isRunning,
-                BinPath: binPath,
-                PlatformVersion: ScOutputParser.ParsePlatformVersion(binPath),
-                Port: ScOutputParser.ParsePort(binPath));
+                ServiceName: svc.Name,
+                IsRunning: state?.IsRunning ?? false,
+                BinPath: svc.ImagePath,
+                PlatformVersion: RasImagePathParser.ParsePlatformVersion(svc.ImagePath),
+                Port: RasImagePathParser.ParsePort(svc.ImagePath));
         }
 
         return null;
@@ -267,11 +259,8 @@ internal sealed partial class ScRasServiceManager : IRasServiceManager
         return port.Length > 0 && port.All(char.IsDigit) ? port : DefaultRasPort;
     }
 
-    private async Task<RasServiceTarget> ResolveTargetOrThrowAsync(CancellationToken ct)
+    private RasServiceTarget ResolveTargetOrThrow()
     {
-        await Task.CompletedTask.ConfigureAwait(false);
-        ct.ThrowIfCancellationRequested();
-
         var platformVersion = (_settings.GetString(SettingKey.OneCDefaultPlatformVersion) ?? string.Empty).Trim();
         if (platformVersion.Length == 0)
         {

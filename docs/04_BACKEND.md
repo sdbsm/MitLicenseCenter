@@ -245,9 +245,12 @@ RAS (`Available=false`) эндпоинт **не** фильтрует по неп
 ### 3.5 Управление службой RAS (ADR-47, MLC-159)
 
 Группа `/api/v1/ras-service` (Admin-only) управляет локальной службой Windows, под
-которой работает `ras.exe`. Доступ — через порт `IRasServiceManager` (`ScRasServiceManager`
-поверх `sc.exe`), без прямого `sc.exe`/`Process` в Web (граница ADR-20). Хост фиксирован
-`localhost` (single-host ADR-28).
+которой работает `ras.exe`. Доступ — через порт `IRasServiceManager` (`ScRasServiceManager`),
+без прямого доступа к реестру/`sc.exe`/`Process` в Web (граница ADR-20). Обнаружение службы
+идёт через **реестр** (`HKLM\SYSTEM\CurrentControlSet\Services`, `IServiceRegistryReader`)
+плюс состояние через `ServiceController` (`IServiceStateReader`); `sc.exe` используется
+только для **действий** (`create`/`config`/`start`/`stop`). Хост фиксирован `localhost`
+(single-host ADR-28).
 
 | Маршрут | Роль | Тело ответа | Аудит |
 |---|---|---|---|
@@ -260,9 +263,10 @@ RAS (`Available=false`) эндпоинт **не** фильтрует по неп
 / `Stopped`) и отдаёт `commandPreview` — точную команду `sc` рекомендованного действия
 (прозрачность ADR-47). Поле `targetReady=false` + `issue` означает, что окружение не готово
 (нет `ras.exe` выбранной платформы / не задана `OneC.DefaultPlatformVersion`) — действие
-выполнить нельзя. Обнаружение службы — по `binPath`, содержащему `ras.exe`; порт берётся из
-`OneC.RAS.Endpoint`, платформа — из `OneC.DefaultPlatformVersion`, цель — локальный агент
-`localhost:1540`.
+выполнить нельзя. Обнаружение службы — по `ImagePath` (из реестра), содержащему `ras.exe`
+(имя службы у операторов не стандартизировано); состояние — через `ServiceController`. Порт
+берётся из `OneC.RAS.Endpoint`, платформа — из `OneC.DefaultPlatformVersion`, цель — локальный
+агент `localhost:1540`.
 
 Действия идемпотентны: `register` создаёт службу (`sc create` → `start`), `update`
 перенастраивает существующую под платформу/порт (`stop` → `sc config` → `start`), `start`
