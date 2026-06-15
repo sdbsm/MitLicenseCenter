@@ -286,6 +286,7 @@ app.MapAuditEndpoints(versionSet);
 app.MapSessionsEndpoints(versionSet);
 app.MapSettingsEndpoints(versionSet);
 app.MapDashboardEndpoints(versionSet);
+app.MapUpdatesEndpoints(versionSet);
 app.MapReportsEndpoints(versionSet);
 app.MapPerformanceEndpoints(versionSet);
 app.MapBackupsEndpoints(versionSet);

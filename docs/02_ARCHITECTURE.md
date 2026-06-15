@@ -199,6 +199,20 @@ UTF-16LE и декодируется как `Encoding.Unicode`.
 
 ---
 
+## 5a. GitHub Releases (проверка обновлений, ADR-50)
+
+Единственная исходящая HTTP-интеграция панели — в один ряд к адаптерам 1С/IIS/SQL за
+anti-corruption границей (ADR-20). Порт `IGitHubReleaseClient` (Application/Updates) изолирует
+контракт GitHub Releases API; реализация `GitHubReleaseClient` (Infrastructure/Updates) — первый
+типизированный `HttpClient` в проекте (`AddHttpClient`, `BaseAddress=https://api.github.com/`,
+таймаут 10 с, обязательный `User-Agent`, заголовки `Accept: application/vnd.github+json` +
+`X-GitHub-Api-Version`). Запрос анонимный: `GET repos/{owner}/{repo}/releases/latest`. Любой сбой
+(сеть, HTTP-не-2xx, rate-limit 403, битый JSON) поглощается внутри адаптера и наружу отдаётся
+`null` = «проверка недоступна»; клиентская отмена пробрасывается. Сравнение версий — чистый
+semver-компаратор `AppVersion`/`UpdateComparison` (Domain/Updates). Подробности решения — ADR-50.
+
+---
+
 ## 6. Фоновая обработка
 
 Фоновая работа делится на **Hangfire recurring-джобы** (хранилище — схема `hangfire`

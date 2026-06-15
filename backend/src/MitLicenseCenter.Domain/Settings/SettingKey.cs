@@ -74,4 +74,11 @@ public static class SettingKey
     public const string BackupTtlHours = "Backup.TtlHours";
     public const string BackupMaxParallel = "Backup.MaxParallel";
     public const string BackupDiskSafetyMarginMb = "Backup.DiskSafetyMarginMb";
+
+    // Проверка обновлений через GitHub Releases (MLC-176, ADR-50): репозиторий
+    // owner/repo, чей `latest`-релиз сверяется с версией панели; период кэширования
+    // результата; рубильник (1/0) фоновой проверки.
+    public const string UpdatesRepository = "Updates.Repository";
+    public const string UpdatesCheckIntervalHours = "Updates.CheckIntervalHours";
+    public const string UpdatesEnabled = "Updates.Enabled";
 }

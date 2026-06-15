@@ -57,7 +57,7 @@ frontend/src/
   test/setup.ts           — jsdom-заглушки (ResizeObserver, matchMedia, …)
 ```
 
-### 15 фич (`features/`)
+### 16 фич (`features/`)
 
 | Фича | Страница / роль |
 |---|---|
@@ -73,8 +73,9 @@ frontend/src/
 | `publications` | мутации публикации/смены платформы/проверки IIS |
 | `reports` | `/reports` — график потребления лицензий |
 | `sessions` | `/sessions` — live-снимок сеансов, kill |
-| `settings` | `/settings` (Admin) — параметры системы; блок состояния службы RAS (`RasServiceCard` + `RasServiceActionDialog`, `useRasService.ts`, ADR-47) |
+| `settings` | `/settings` (Admin) — параметры системы; блок состояния службы RAS (`RasServiceCard` + `RasServiceActionDialog`, `useRasService.ts`, ADR-47); карточка обновлений (`UpdateCheckCard`, фича `updates`, ADR-50) |
 | `tenants` | `/tenants` — CRUD клиентов |
+| `updates` | глобальный баннер «доступна версия» в `AppShell` (все роли) + карточка «Проверить сейчас» в `/settings` (Admin); ADR-50 |
 | `users` | `/users` (Admin) — учётные записи |
 
 Каждая фича содержит: `types.ts` (zod-схемы + выведенные типы),
@@ -141,6 +142,8 @@ frontend/src/
 переключают флаг, подписка из React — через `useIsOffline()` (`useSyncExternalStore`).
 Первичный сигнал «нет связи» — фактический `ApiNetworkError` (не `navigator.onLine`).
 Баннер `ConnectionBanner` (в `AppShell`, над топбаром) виден, только пока флаг взведён.
+Рядом с ним в `AppShell` — `UpdateBanner` (фича `updates`, ADR-50): «Доступна версия X.Y.Z»,
+виден всем ролям, скрыт при недоступной проверке или отсутствии обновления.
 
 ---
 

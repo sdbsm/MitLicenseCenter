@@ -7,6 +7,7 @@ import { PlatformPicker } from "./PlatformPicker";
 import { RasPortField } from "./RasPortField";
 import { DatabaseServerField } from "./DatabaseServerField";
 import { RasServiceCard } from "./RasServiceCard";
+import { UpdateCheckCard } from "@/features/updates/UpdateCheckCard";
 import type { SettingDescriptor } from "./types";
 import { useSettings } from "./useSettings";
 
@@ -167,6 +168,9 @@ export function SettingsPage() {
           {section.titleKey === "settings.sections.cluster" && <RasServiceCard />}
         </Fragment>
       ))}
+
+      {/* MLC-176 (ADR-50): проверка обновлений панели через GitHub Releases. */}
+      <UpdateCheckCard />
     </div>
   );
 }

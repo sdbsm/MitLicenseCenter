@@ -24,6 +24,7 @@ import settings from "./ru/settings.json";
 import table from "./ru/table.json";
 import tenants from "./ru/tenants.json";
 import theme from "./ru/theme.json";
+import updates from "./ru/updates.json";
 import users from "./ru/users.json";
 
 export const ru = {
@@ -45,6 +46,7 @@ export const ru = {
   ...sessions,
   ...settings,
   ...discovery,
+  ...updates,
   ...errors,
 };
 
