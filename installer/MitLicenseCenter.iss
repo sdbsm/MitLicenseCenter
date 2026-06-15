@@ -5,28 +5,34 @@
 ; Data Protection key ring и БД.
 ;
 ; Защита секретов на диске (MLC-110): после раскладки файлов [Code] ужесточает NTFS ACL
-; в ОБОИХ режимах аутентификации (icacls /inheritance:r — режем наследование от ProgramData/
-; Program Files, где Users:RX):
+; (icacls /inheritance:r — режем наследование от ProgramData/Program Files, где Users:RX):
 ;   - каталог %ProgramData%\MitLicenseCenter (Data Protection key ring + одноразовый
-;     initial-admin.secret) — доступ только SYSTEM / Administrators (+ сервис-аккаунт в режиме A);
-;   - {app}\appsettings.Production.json (plaintext SQL-пароль) — только SYSTEM / Administrators
-;     (+ сервис-аккаунт R в режиме A).
+;     initial-admin.secret) — доступ только SYSTEM / Administrators + учётка службы (Modify);
+;   - {app}\appsettings.Production.json — только SYSTEM / Administrators + учётка службы (Read).
 ; Key ring НАМЕРЕННО не шифруется at-rest (ADR-8): ключи переносимы, бэкап «key ring + БД»
 ; восстанавливается на новом железе/аккаунте; защита ключей — именно эти NTFS ACL.
 ; Сбой icacls предупреждает (с путём), но НЕ прерывает установку — служба работоспособна,
 ; страдает только hardening. ACL идемпотентны (накатываются и на чистой установке, и на апгрейде).
 ;
-; Мастер (MLC-101): интерактивные страницы собирают SQL-инстанс/БД, режим аутентификации
-; (Windows-аккаунт ИЛИ SQL-логин), учётные данные и сетевые параметры (порт, AllowedHosts),
-; проверяют подключение и генерируют рабочий appsettings.Production.json + настраивают службу
-; (под выбранным ОС-аккаунтом или LocalSystem). Аккаунт/логин с правами в SQL (sysadmin)
-; создаёт оператор ЗАРАНЕЕ — установщик их потребляет и проверяет, не создаёт.
+; Идентичность службы (MLC-170, ADR-49): служба работает под ВИРТУАЛЬНОЙ учётной записью
+; NT SERVICE\MitLicenseCenter (по умолчанию) либо под именованной Windows-учёткой / gMSA
+; (доменный сценарий). К ЛОКАЛЬНОМУ SQL служба ходит по доверенному подключению Windows
+; (Trusted_Connection) — SQL-логин и пароль в appsettings.Production.json БОЛЬШЕ НЕ пишутся.
+; SQL-аутентификация (прежний режим B / LocalSystem + SQL-логин) убрана. Установщик САМ создаёт
+; SQL-логин учётки (CREATE LOGIN … FROM WINDOWS + sysadmin, идемпотентно) под Integrated Security
+; запускающего оператора — поэтому ПРЕДУСЛОВИЕ: оператор-администратор должен быть sysadmin на
+; локальном SQL. Учётка добавляется в локальную группу Администраторов (по SID S-1-5-32-544)
+; для IIS/iisreset (ADR-44).
 ;
-; Надёжность (MLC-107): создание/конфиг/старт службы и firewall выполняются в [Code]
-; (ConfigureService в ssPostInstall) с проверкой кода возврата sc.exe — ошибка создания
-; (например 1057: в режиме Windows введён SQL-логин) прерывает установку с подсказкой, а не
-; завершает её «успехом» без службы. appsettings.Production.json удаляется при деинсталле и
-; на чистой установке перезаписывается из ввода (skip-if-exists — только на апгрейде).
+; Мастер (MLC-101/170): интерактивные страницы собирают SQL-инстанс/БД, учётную запись службы
+; (виртуальная ИЛИ именованная/gMSA), сетевые параметры (порт, AllowedHosts), проверяют
+; достижимость SQL и генерируют рабочий appsettings.Production.json (всегда Trusted_Connection).
+;
+; Надёжность (MLC-107/170): создание/конфиг/старт службы, провижининг SQL-логина и firewall
+; выполняются в [Code] (CurStepChanged ssPostInstall) с проверкой кода возврата — ошибка
+; создания службы или провижининга SQL-логина прерывает установку с подсказкой и откатом, а не
+; завершает её «успехом» без работоспособной службы. appsettings.Production.json удаляется при
+; деинсталле и на чистой установке перезаписывается из ввода (skip-if-exists — только на апгрейде).
 ;
 ; Параметры передаёт scripts\build-installer.ps1:
 ;   /DMyAppVersion=<версия из backend\Directory.Build.props>
@@ -44,6 +50,9 @@
 
 #define MyAppName "MitLicense Center"
 #define MyServiceName "MitLicenseCenter"
+; Виртуальная учётная запись службы (ADR-49) — единый источник имени. SCM материализует её
+; при sc create … obj= "NT SERVICE\MitLicenseCenter"; пароля нет (им управляет Windows).
+#define MyVirtualAccount "NT SERVICE\" + MyServiceName
 #define MyExeName "MitLicenseCenter.Web.exe"
 #define MyFirewallRule "MitLicense Center"
 #define MyDefaultPort "8080"
@@ -89,17 +98,15 @@ Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubd
 ; Data Protection key ring живёт здесь (purpose mlc.settings.v1) + одноразовый
 ; initial-admin.secret. Дефолтные ACL ProgramData (Users:RX) НЕДОСТАТОЧНЫ (MLC-110):
 ; [Code] (HardenDataDirAcl в ssPostInstall) режет наследование и оставляет доступ ТОЛЬКО
-; SYSTEM / Administrators — в ОБОИХ режимах; в режиме A дополнительно даёт сервис-аккаунту
-; Modify. Папку НЕ удаляем при деинсталле.
+; SYSTEM / Administrators + учётка службы (Modify, ADR-49). Папку НЕ удаляем при деинсталле.
 Name: "{commonappdata}\MitLicenseCenter"; Flags: uninsneveruninstall
 
 [Run]
 ; Регистрация/конфиг/старт службы и открытие firewall-порта выполняются в [Code]
-; (процедура ConfigureService в CurStepChanged(ssPostInstall)) — с проверкой кода возврата
-; sc.exe и внятным сообщением при ошибке (MLC-107). Раньше эти шаги жили здесь, в [Run], и
-; их провал проходил молча: например sc create => 1057, когда в режиме Windows-аутентификации
-; введён SQL-логин (sa), завершал установку «успешно» БЕЗ службы. Теперь create проверяется и
-; прерывает установку с подсказкой, а старт — предупреждает и отсылает в Журнал событий.
+; (RegisterService/StartServiceAndFinalize в CurStepChanged(ssPostInstall)) — с проверкой кода
+; возврата sc.exe и внятным сообщением при ошибке (MLC-107). Раньше эти шаги жили здесь, в [Run],
+; и их провал проходил молча. Теперь create проверяется и прерывает установку с подсказкой,
+; а старт — предупреждает и отсылает в Журнал событий.
 ; --- Опционально открыть панель в браузере (финальный чекбокс) ---
 ; URL формирует [Code] из введённого порта; postinstall — чекбокс на финальном экране,
 ; nowait — не ждём браузер, skipifsilent — в тихом режиме не открываем.
@@ -145,9 +152,9 @@ const
   SERVICE_STOPPED      = 1;
   SERVICE_STOP_PENDING = 3;
 
-  { Режимы аутентификации (индекс radio на странице «Аутентификация»). }
-  AUTH_WINDOWS = 0;  { Служба бежит под указанным ОС-аккаунтом, Trusted SQL. }
-  AUTH_SQL     = 1;  { Служба LocalSystem, SQL-логин в строке подключения. }
+  { Учётная запись службы (индекс radio на странице «Учётная запись службы»), ADR-49. }
+  ACCT_VIRTUAL = 0;  { Виртуальная учётка NT SERVICE\MitLicenseCenter (по умолчанию), без пароля. }
+  ACCT_NAMED   = 1;  { Именованная Windows-учётка / gMSA (доменный сценарий). }
 
 type
   TServiceStatus = record
@@ -174,10 +181,13 @@ function CloseServiceHandle(hSCObject: THandle): Boolean;
 var
   { Страница «SQL Server»: инстанс + БД. }
   PageSql: TInputQueryWizardPage;
-  { Страница «Аутентификация»: выбор режима. }
+  { Страница «Учётная запись службы»: виртуальная / именованная (gMSA) (ADR-49). }
   PageAuthMode: TInputOptionWizardPage;
-  { Страница «Учётные данные» (поля зависят от режима). }
+  { Страница «Учётные данные» именованной учётки (только ACCT_NAMED). }
   PageCreds: TInputQueryWizardPage;
+  { Чекбокс «это gMSA» на странице учётных данных: gMSA-учётка регистрируется БЕЗ пароля
+    (явный выбор, не вывод из пустого пароля — иначе тихий провал sc create 1057). ADR-49. }
+  GmsaCheckbox: TNewCheckBox;
   { Страница «Сеть»: порт + AllowedHosts. }
   PageNet: TInputQueryWizardPage;
   { Страница «Учётная запись администратора»: пароль admin + подтверждение (только чистая
@@ -198,7 +208,7 @@ var
   DbAlreadyInitialized: Boolean;
   { Показали ли уже информационное предупреждение про уже-инициализированную БД (один раз). }
   DbInitWarningShown: Boolean;
-  { Старт службы провалился в ConfigureService (sc start rc<>0). Финальный экран wpFinished
+  { Старт службы провалился в StartServiceAndFinalize (sc start rc<>0). Финальный экран wpFinished
     при True рапортует ОШИБКУ, а не «успех» — провал старта не должен выглядеть как успех
     (MLC-107 показывал MsgBox-предупреждение, но финал всё равно рапортовал «запущена»).
     Инициализируется False в InitializeWizard. MLC-112 (REL-02). }
@@ -206,9 +216,20 @@ var
 
 { ===== Хелперы доступа к вводу ===== }
 
-function AuthMode: Integer;
+{ Выбор учётной записи службы (ACCT_VIRTUAL / ACCT_NAMED), ADR-49. До построения мастера
+  (PageAuthMode = nil) трактуем как виртуальную учётку — дефолт. }
+function AccountMode: Integer;
 begin
-  Result := PageAuthMode.SelectedValueIndex;
+  if PageAuthMode = nil then
+    Result := ACCT_VIRTUAL
+  else
+    Result := PageAuthMode.SelectedValueIndex;
+end;
+
+{ True, если на странице именованной учётки отмечен чекбокс «это gMSA» (учётка без пароля). }
+function IsGmsa: Boolean;
+begin
+  Result := (GmsaCheckbox <> nil) and GmsaCheckbox.Checked;
 end;
 
 function SqlInstance: string;
@@ -230,6 +251,24 @@ function CredPassword: string;
 begin
   { Пароль НЕ тримим — пробелы могут быть значимы. }
   Result := PageCreds.Values[1];
+end;
+
+{ Имя учётной записи службы (ADR-49): виртуальная → NT SERVICE\MitLicenseCenter; именованная
+  → введённый CredUser (ДОМЕН\Пользователь, .\Пользователь или ДОМЕН\Имя$ для gMSA). }
+function ServiceAccountName: string;
+begin
+  if AccountMode = ACCT_VIRTUAL then
+    Result := '{#MyVirtualAccount}'
+  else
+    Result := CredUser;
+end;
+
+{ Нужен ли password= в sc create/config (ADR-49). Пароль есть ТОЛЬКО у обычной именованной
+  Windows-учётки: режим ACCT_NAMED, НЕ gMSA (gMSA — без пароля), и пароль непустой.
+  Виртуальная учётка и gMSA регистрируются без пароля (им управляет Windows). }
+function ServiceAccountUsesPassword: Boolean;
+begin
+  Result := (AccountMode = ACCT_NAMED) and (not IsGmsa) and (CredPassword <> '');
 end;
 
 function NetPort: string;
@@ -394,15 +433,15 @@ end;
 
 { ===== Строка подключения ===== }
 
-{ Собирает строку подключения по режиму. appName уходит в Application Name (Default/Hangfire). }
+{ Собирает строку подключения. appName уходит в Application Name (Default/Hangfire).
+  ADR-49: ВСЕГДА Trusted_Connection — служба ходит к локальному SQL по доверенному подключению
+  Windows под своей учёткой (виртуальной / именованной / gMSA). SQL-логин и пароль в конфиг
+  больше НЕ пишутся — это и есть главный выигрыш (секрет SQL убран с диска). }
 function BuildConnString(const appName: string): string;
 begin
-  Result := 'Server=' + SqlInstance + ';Database=' + SqlDatabase + ';';
-  if AuthMode = AUTH_WINDOWS then
-    Result := Result + 'Trusted_Connection=True;'
-  else
-    Result := Result + 'User Id=' + CredUser + ';Password=' + CredPassword + ';';
-  Result := Result + 'Encrypt=True;TrustServerCertificate=True;Application Name=' + appName;
+  Result := 'Server=' + SqlInstance + ';Database=' + SqlDatabase + ';' +
+            'Trusted_Connection=True;' +
+            'Encrypt=True;TrustServerCertificate=True;Application Name=' + appName;
 end;
 
 { ===== Генерация appsettings.Production.json ===== }
@@ -445,7 +484,7 @@ end;
   старте читает его, создаёт admin с этим паролем и УДАЛЯЕТ файл (ADR-31). На апгрейде admin
   уже есть — файл не пишем (страница пароля пропущена через ShouldSkipPage). Каталог создаётся
   секцией Dirs; его ACL ужесточает HardenDataDirAcl ПОСЛЕ записи этого файла (MLC-110): доступ
-  только SYSTEM/Administrators (+ сервис-аккаунт Modify в режиме A), Users отрезаны.
+  только SYSTEM/Administrators + учётка службы (Modify, ADR-49), Users отрезаны.
   UTF-8 без BOM (SaveStringToFile с UTF8=False). Пароль не логируется. }
 procedure WriteInitialAdminPassword;
 var
@@ -511,8 +550,10 @@ end;
 
 { ACL каталога %ProgramData%\MitLicenseCenter (key ring + initial-admin.secret).
   Режем наследование (Users:RX от ProgramData) и оставляем доступ только SYSTEM /
-  Administrators (+ сервис-аккаунт Modify в режиме A). Вызывается ПОСЛЕ записи
-  initial-admin.secret, чтобы (OI)(CI) накрыл и его. Идемпотентно (чистая установка + апгрейд). }
+  Administrators + учётка службы (Modify). Грант учётке БЕЗУСЛОВНЫЙ (ADR-49: учётка есть в
+  обоих режимах — виртуальная или именованная). Вызывается ПОСЛЕ записи initial-admin.secret
+  (чтобы (OI)(CI) накрыл и его) и ПОСЛЕ sc create (чтобы имя «NT SERVICE\…» резолвилось —
+  иначе Data Protection не прочитает ключи на первом старте). Идемпотентно. }
 procedure HardenDataDirAcl;
 var
   dataDir, args: string;
@@ -521,24 +562,25 @@ begin
   if not DirExists(dataDir) then
     Exit;
   { /inheritance:r снимает унаследованные ACE; затем явные full для SYSTEM/Administrators,
-    наследуемые на под-объекты/контейнеры (OI)(CI). }
+    наследуемые на под-объекты/контейнеры (OI)(CI). Учётке службы — Modify. icacls по имени
+    «NT SERVICE\MitLicenseCenter» надёжен и локаленезависим (префикс NT SERVICE\ не локализуется). }
   args := '/inheritance:r' +
           ' /grant *S-1-5-18:(OI)(CI)F' +
-          ' /grant *S-1-5-32-544:(OI)(CI)F';
-  if AuthMode = AUTH_WINDOWS then
-    args := args + ' /grant "' + CmdQuoteInner(CredUser) + '":(OI)(CI)M';
+          ' /grant *S-1-5-32-544:(OI)(CI)F' +
+          ' /grant "' + CmdQuoteInner(ServiceAccountName) + '":(OI)(CI)M';
   RunIcacls(dataDir, args, 'каталог данных');
 
-  { Право «Log on as a service» (SeServiceLogonRight) SCM выдаёт сам при sc config
-    obj=…/password=… на валидном аккаунте; явная выдача через secedit здесь не делается
-    (хрупко на разных локалях). Если SCM не сможет — служба не стартует, оператор выдаёт
-    право через secpol.msc (подсказано в OPERATIONS). }
+  { Право «Log on as a service» (SeServiceLogonRight) SCM выдаёт сам при sc create/config
+    obj=… на валидном аккаунте; явная выдача через secedit здесь не делается (хрупко на разных
+    локалях). Если SCM не сможет — служба не стартует, оператор выдаёт право через secpol.msc
+    (подсказано в OPERATIONS). }
 end;
 
-{ ACL файла appsettings.Production.json в каталоге установки (plaintext SQL-пароль). Режем
-  наследование (Users:RX от Program Files) — только SYSTEM / Administrators full; в режиме A
-  службе достаточно Read. Вызывается ПОСЛЕ WriteProductionConfig. Применять и на апгрейде:
-  файл сохраняется от прошлой установки и не перезаписывается, но ACL всё равно накатываем. }
+{ ACL файла appsettings.Production.json в каталоге установки. Режем наследование (Users:RX от
+  Program Files) — только SYSTEM / Administrators full + учётка службы Read. Грант учётке
+  БЕЗУСЛОВНЫЙ (ADR-49). Вызывается ПОСЛЕ WriteProductionConfig и ПОСЛЕ sc create (имя
+  «NT SERVICE\…» резолвится). Применять и на апгрейде: файл сохраняется от прошлой установки и
+  не перезаписывается, но ACL всё равно накатываем. }
 procedure HardenConfigAcl;
 var
   cfg, args: string;
@@ -548,9 +590,8 @@ begin
     Exit;
   args := '/inheritance:r' +
           ' /grant *S-1-5-18:F' +
-          ' /grant *S-1-5-32-544:F';
-  if AuthMode = AUTH_WINDOWS then
-    args := args + ' /grant "' + CmdQuoteInner(CredUser) + '":R';
+          ' /grant *S-1-5-32-544:F' +
+          ' /grant "' + CmdQuoteInner(ServiceAccountName) + '":R';
   RunIcacls(cfg, args, 'конфиг');
 end;
 
@@ -605,31 +646,32 @@ begin
     Result := 'MSSQL$' + namePart;  { .\SQLEXPRESS -> MSSQL$SQLEXPRESS }
 end;
 
-{ sc create … — на чистой установке. Режим A добавляет obj=/password=. }
+{ sc create … — на чистой установке (ADR-49). ВСЕГДА obj= <учётка службы>; password= только
+  для обычной именованной Windows-учётки (ServiceAccountUsesPassword). Для виртуальной учётки
+  «NT SERVICE\MitLicenseCenter» и для gMSA пароль НЕ передаётся (им управляет Windows; SCM сам
+  материализует учётку/SID и выдаёт SeServiceLogonRight). }
 function GetScCreateParams(Param: string): string;
 begin
   Result := 'create {#MyServiceName} binPath= "' +
-            ExpandConstant('{app}\{#MyExeName}') + '" start= auto DisplayName= "{#MyAppName}"';
-  if AuthMode = AUTH_WINDOWS then
-    Result := Result + ' obj= "' + CmdQuoteInner(CredUser) +
-              '" password= "' + CmdQuoteInner(CredPassword) + '"';
+            ExpandConstant('{app}\{#MyExeName}') + '" start= auto DisplayName= "{#MyAppName}"' +
+            ' obj= "' + CmdQuoteInner(ServiceAccountName) + '"';
+  if ServiceAccountUsesPassword then
+    Result := Result + ' password= "' + CmdQuoteInner(CredPassword) + '"';
 end;
 
-{ sc config … — на апгрейде: выравниваем binPath + аккаунт под текущий выбор. }
+{ sc config … — на апгрейде: выравниваем binPath + учётку под текущий выбор (ADR-49).
+  ВСЕГДА obj= <учётка службы>; password= только для именованной не-gMSA учётки с паролем. }
 function GetScConfigParams(Param: string): string;
 begin
   Result := 'config {#MyServiceName} binPath= "' +
-            ExpandConstant('{app}\{#MyExeName}') + '" start= auto';
-  if AuthMode = AUTH_WINDOWS then
-    Result := Result + ' obj= "' + CmdQuoteInner(CredUser) +
-              '" password= "' + CmdQuoteInner(CredPassword) + '"'
-  else
-    { Вернуть на LocalSystem (на случай смены режима A->B при апгрейде). }
-    Result := Result + ' obj= "LocalSystem"';
+            ExpandConstant('{app}\{#MyExeName}') + '" start= auto' +
+            ' obj= "' + CmdQuoteInner(ServiceAccountName) + '"';
+  if ServiceAccountUsesPassword then
+    Result := Result + ' password= "' + CmdQuoteInner(CredPassword) + '"';
 end;
 
-{ netsh … add rule — порт из ввода. Старое одноимённое правило снимается в ConfigureService
-  ДО этого вызова (идемпотентность при смене порта).
+{ netsh … add rule — порт из ввода. Старое одноимённое правило снимается в CurStepChanged
+  (ssPostInstall, шаг 3) ДО этого вызова (идемпотентность при смене порта).
   SEC-06 (MLC-126): правило открывается ТОЛЬКО на профилях Domain/Private (штатный LAN-сценарий),
   НЕ на Public (недоверенные сети) — порт остаётся закрыт на публичных подключениях, без регресса
   для домена/частной сети. remoteip= намеренно НЕ задаём: localsubnet сломал бы LAN с несколькими
@@ -696,30 +738,164 @@ begin
   end;
 end;
 
-{ ===== Регистрация/конфиг/старт службы + firewall (MLC-107) ===== }
+{ ===== Авто-создание SQL-логина учётки службы (MLC-170, ADR-49) ===== }
 
-{ Создание/конфиг/старт службы и открытие firewall-порта выполняются здесь, в Code-секции, а
-  не в Run-секции — чтобы проверять код возврата sc.exe и при ошибке внятно сообщать оператору
-  (а не завершать установку «успешно» без службы). Вызывается в КОНЦЕ CurStepChanged(ssPostInstall),
-  ПОСЛЕ WriteProductionConfig/WriteInitialAdminPassword/GrantServiceAccountRights и снятия старого
-  firewall-правила. Запускает sc.exe / netsh.exe (из System32) через Exec с проверкой rc.
+{ Виртуальная учётка не существует до sc create, а её SQL-логин создать заранее оператор не
+  может (SID появляется только при регистрации службы). Поэтому установщик САМ создаёт логин
+  под Integrated Security запускающего администратора (предусловие: он sysadmin на локальном
+  SQL). Тем же приёмом, что DatabaseHasPanelUsers: временный .ps1, connstr к master в
+  '...'-литерале, имя учётки в '...'-литерале (PsSingleQuote) → в T-SQL N'...'. Идемпотентно:
+  CREATE LOGIN [acct] FROM WINDOWS только если логина нет; ALTER SERVER ROLE sysadmin ADD
+  MEMBER только если ещё не член (ALTER SERVER ROLE не принимает переменную → через sp_executesql
+  + QUOTENAME). Контракт ошибок — ЖЁСТКИЙ FAIL: rc<>0 -> MsgBox(mbCriticalError) + RaiseException
+  (откат), как у sc create: иначе служба создастся и упадёт на старте с 18456 (молчаливый провал,
+  который закрывал MLC-107). }
+procedure ProvisionSqlLogin;
+var
+  connStr, acct, psScript, scriptPath, cmdLine: string;
+  rc: Integer;
+begin
+  acct := ServiceAccountName;
+  { connstr к master под учёткой запускающего администратора (Integrated Security). }
+  connStr := 'Server=' + SqlInstance +
+             ';Database=master;Integrated Security=True;Encrypt=True;TrustServerCertificate=True;Connect Timeout=15';
+
+  { Имя учётки уходит в SqlParameter @p_acct (ADO.NET), внутри T-SQL присваивается в @acct и
+    подставляется через sp_executesql + QUOTENAME (DDL не принимает переменную напрямую — нельзя
+    параметризовать CREATE LOGIN / ALTER SERVER ROLE). Имя учётки в командную строку НЕ попадает.
+    T-SQL — одной PowerShell '...'-строкой (как в DatabaseHasPanelUsers): одиночные кавычки T-SQL
+    удвоены до '' (для PowerShell-литерала); чтобы получить N'...'-строку внутри sp_executesql,
+    исходная T-SQL-кавычка '...' пишется как '''' в PS-литерале. }
+  psScript :=
+    '$ErrorActionPreference=''Stop'';' + #13#10 +
+    '$cs = ''' + PsSingleQuote(connStr) + ''';' + #13#10 +
+    '$acct = ''' + PsSingleQuote(acct) + ''';' + #13#10 +
+    '$tsql = ''DECLARE @acct sysname = @p_acct;' +
+      ' IF NOT EXISTS (SELECT 1 FROM sys.server_principals WHERE name = @acct)' +
+      ' EXEC sys.sp_executesql N''''CREATE LOGIN ''''+QUOTENAME(@acct)+N'''' FROM WINDOWS;'''';' +
+      ' IF NOT EXISTS (SELECT 1 FROM sys.server_role_members rm' +
+      ' JOIN sys.server_principals r ON r.principal_id=rm.role_principal_id AND r.name=N''''sysadmin''''' +
+      ' JOIN sys.server_principals m ON m.principal_id=rm.member_principal_id AND m.name=@acct)' +
+      ' EXEC sys.sp_executesql N''''ALTER SERVER ROLE sysadmin ADD MEMBER ''''+QUOTENAME(@acct)+N'''';'''';'';' + #13#10 +
+    'try {' + #13#10 +
+    '  $c = New-Object System.Data.SqlClient.SqlConnection $cs;' + #13#10 +
+    '  $c.Open();' + #13#10 +
+    '  $cmd = $c.CreateCommand();' + #13#10 +
+    '  $cmd.CommandText = $tsql;' + #13#10 +
+    '  [void]$cmd.Parameters.AddWithValue(''@p_acct'', $acct);' + #13#10 +
+    '  [void]$cmd.ExecuteNonQuery();' + #13#10 +
+    '  $c.Close();' + #13#10 +
+    '  exit 0;' + #13#10 +
+    '} catch {' + #13#10 +
+    '  [Console]::Error.WriteLine($_.Exception.Message);' + #13#10 +
+    '  exit 1;' + #13#10 +
+    '}' + #13#10;
+
+  scriptPath := ExpandConstant('{tmp}\mlc-provision-login.ps1');
+  if not SaveStringToFile(scriptPath, psScript, False) then
+  begin
+    MsgBox('Не удалось подготовить временный скрипт создания SQL-логина учётной записи службы.' + #13#10 +
+           'Установка прервана. Проверьте права на временный каталог и повторите.',
+           mbCriticalError, MB_OK);
+    RaiseException('Не удалось записать временный скрипт ProvisionSqlLogin.');
+  end;
+
+  cmdLine := '-NoProfile -ExecutionPolicy Bypass -File "' + scriptPath + '"';
+  if (not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+               cmdLine, '', SW_HIDE, ewWaitUntilTerminated, rc)) or (rc <> 0) then
+  begin
+    DeleteFile(scriptPath);
+    Log('ProvisionSqlLogin: создание SQL-логина «' + acct + '» завершилось с кодом ' + IntToStr(rc));
+    MsgBox('Не удалось создать SQL-логин для учётной записи службы:' + #13#10 +
+           acct + #13#10#13#10 +
+           'Установщик создаёт логин и назначает роль sysadmin под учётной записью администратора, ' +
+           'запустившего установку. Чаще всего ошибка значит, что эта учётная запись НЕ имеет роли ' +
+           'sysadmin на локальном экземпляре SQL Server (' + SqlInstance + ').' + #13#10#13#10 +
+           'Запустите установщик от имени Windows-администратора, который одновременно является ' +
+           'sysadmin на этом экземпляре SQL, и повторите. Подробности — в логе установки (код ' +
+           IntToStr(rc) + ').',
+           mbCriticalError, MB_OK);
+    { Жёсткий fail/откат: без логина служба упадёт на старте с 18456 — не завершаем «успехом». }
+    RaiseException('Создание SQL-логина учётной записи службы завершилось с кодом ' + IntToStr(rc) + '.');
+  end;
+  DeleteFile(scriptPath);
+  Log('ProvisionSqlLogin: SQL-логин «' + acct + '» создан/подтверждён (sysadmin).');
+end;
+
+{ ===== Добавление учётки службы в локальную группу Администраторов (MLC-170, ADR-49) ===== }
+
+{ Для IIS/iisreset/публикаций (ADR-44) учётке нужен admin-эквивалент на хосте. У LocalSystem
+  это было даром; виртуальную/именованную учётку добавляем явно. Локаленезависимо — по
+  well-known SID S-1-5-32-544 (на RU-Windows группа называется «Администраторы», поэтому
+  net localgroup Administrators непригоден). Add-LocalGroupMember (модуль LocalAccounts, есть
+  в PowerShell 5.1 на Windows Server 2016+). Идемпотентно: «уже член» (ошибка PrincipalExists)
+  трактуем как успех. Контракт — BEST-EFFORT: на прочих сбоях предупреждаем + Log, без Abort
+  (без локального админа панель и SQL работают, деградируют только IIS-функции). }
+procedure AddServiceAccountToAdministrators;
+var
+  acct, psScript, scriptPath, cmdLine: string;
+  rc: Integer;
+begin
+  acct := ServiceAccountName;
+  { Add-LocalGroupMember бросает, если член уже есть — глотаем именно этот случай (идемпотентность),
+    остальные исключения пробрасываем (exit 1). Имя учётки — в '...'-литерале (PsSingleQuote). }
+  psScript :=
+    '$ErrorActionPreference=''Stop'';' + #13#10 +
+    '$acct = ''' + PsSingleQuote(acct) + ''';' + #13#10 +
+    'try {' + #13#10 +
+    '  Add-LocalGroupMember -SID ''S-1-5-32-544'' -Member $acct;' + #13#10 +
+    '  exit 0;' + #13#10 +
+    '} catch [Microsoft.PowerShell.Commands.MemberExistsException] {' + #13#10 +
+    '  exit 0;' + #13#10 +
+    '} catch {' + #13#10 +
+    '  if ($_.Exception.Message -match ''уже|already'') { exit 0 }' + #13#10 +
+    '  [Console]::Error.WriteLine($_.Exception.Message);' + #13#10 +
+    '  exit 1;' + #13#10 +
+    '}' + #13#10;
+
+  scriptPath := ExpandConstant('{tmp}\mlc-add-admin.ps1');
+  if not SaveStringToFile(scriptPath, psScript, False) then
+  begin
+    Log('AddServiceAccountToAdministrators: не удалось записать временный скрипт — пропуск (best-effort).');
+    Exit;
+  end;
+
+  cmdLine := '-NoProfile -ExecutionPolicy Bypass -File "' + scriptPath + '"';
+  if (not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+               cmdLine, '', SW_HIDE, ewWaitUntilTerminated, rc)) or (rc <> 0) then
+  begin
+    DeleteFile(scriptPath);
+    Log('AddServiceAccountToAdministrators: добавление «' + acct + '» в Администраторов завершилось с кодом ' + IntToStr(rc));
+    MsgBox('Не удалось добавить учётную запись службы в локальную группу «Администраторы»:' + #13#10 +
+           acct + #13#10#13#10 +
+           'Установка продолжится — панель и подключение к SQL работают. Однако функции IIS ' +
+           '(публикация, recycle, iisreset) могут не работать без прав администратора у учётной ' +
+           'записи службы. Добавьте её в группу вручную (lusrmgr.msc или ' +
+           'Add-LocalGroupMember -SID S-1-5-32-544) либо проверьте лог установки.',
+           mbError, MB_OK);
+    Exit;
+  end;
+  DeleteFile(scriptPath);
+  Log('AddServiceAccountToAdministrators: «' + acct + '» — член локальной группы Администраторов.');
+end;
+
+{ ===== Регистрация/конфиг службы (MLC-107/170) ===== }
+
+{ Создание/конфиг службы (sc create/config + описание) — в Code-секции, с проверкой rc.
+  Вызывается в CurStepChanged(ssPostInstall) ПОСЛЕ записи конфига/пароля admin и снятия старого
+  firewall-правила, но ДО ProvisionSqlLogin/ACL/StartServiceAndFinalize (порядок ADR-49: учётка
+  и её SID должны существовать до провижининга логина и до грантов ACL по имени NT SERVICE\…).
   Контракт ошибок:
-    - sc create (чистая установка): rc<>0 -> MsgBox с подсказкой (особо 1057 — Windows-режим
-      выбран для SQL-логина) и прерывание установки исключением (откат);
+    - sc create (чистая установка): rc<>0 -> MsgBox с подсказкой (особо 1057 — невалидная учётка
+      службы) и прерывание установки исключением (откат);
     - sc config (апгрейд): rc<>0 -> MsgBox-предупреждение (служба остаётся, но аккаунт/путь
       могли не примениться);
-    - sc description: rc не валидируем (косметика);
-    - sc failure (recovery-политика, REL-03/ADR-40): rc<>0 -> предупреждение (без Abort);
-    - sc config depend= (локальная SQL-зависимость, REL-03/ADR-40): только для однозначно
-      локального инстанса; rc<>0 -> предупреждение (без Abort); удалённый/неоднозначный — пропуск;
-    - netsh add: rc<>0 -> предупреждение (порт мог не открыться);
-    - sc start: rc<>0 (кроме 1056) -> предупреждение со ссылкой на Журнал событий (fail-fast
-      bootstrap, ADR-18), без Abort — служба уже создана; rc=1056 (ALREADY_RUNNING) = успех (MLC-116).
-  Пароли (obj password / SQL) в сообщениях не фигурируют. }
-procedure ConfigureService;
+    - sc description: rc не валидируем (косметика).
+  Пароль именованной учётки (если есть) фигурирует только в командной строке sc — неизбежно;
+  виртуальная учётка и gMSA пароля не имеют. }
+procedure RegisterService;
 var
   rc: Integer;
-  startWarn: string;
 begin
   if not ServiceExists then
   begin
@@ -728,20 +904,19 @@ begin
                  '', SW_HIDE, ewWaitUntilTerminated, rc)) or (rc <> 0) then
     begin
       if rc = 1057 then
-        { 1057 = ERROR_INVALID_SERVICE_ACCOUNT: для obj= указан невалидный аккаунт службы.
-          Типичная причина — выбран режим Windows-аутентификации, а введён SQL-логин (sa). }
+        { 1057 = ERROR_INVALID_SERVICE_ACCOUNT: для obj= указана невалидная учётка службы.
+          При виртуальной учётке это маловероятно; типично — опечатка в именованной учётке/gMSA
+          или неверный пароль. }
         MsgBox('Не удалось создать службу (код 1057 — недопустимая учётная запись службы).' + #13#10#13#10 +
-               'Чаще всего это значит, что на шаге «Аутентификация» выбрана Windows-аутентификация (A), ' +
-               'но в учётных данных введён SQL-логин (например sa), а не Windows-аккаунт.' + #13#10#13#10 +
-               'Если для подключения к SQL используется SQL-логин — вернитесь и выберите ' +
-               '«(B) SQL-аутентификация» (служба будет работать под LocalSystem).' + #13#10#13#10 +
-               'Если используется Windows-аккаунт — проверьте имя (ДОМЕН\Пользователь или .\Пользователь) ' +
-               'и пароль. Подробности — в логе установки.',
+               'Если на шаге «Учётная запись службы» выбрана именованная учётная запись Windows / gMSA — ' +
+               'проверьте её имя (ДОМЕН\Пользователь, .\Пользователь или ДОМЕН\Имя$ для gMSA) и пароль ' +
+               '(для gMSA пароль не вводится — должен быть отмечен соответствующий чекбокс).' + #13#10#13#10 +
+               'Для виртуальной учётной записи «{#MyVirtualAccount}» ввод не требуется — выберите её, ' +
+               'если нет особых требований домена. Подробности — в логе установки.',
                mbCriticalError, MB_OK)
       else
         MsgBox('Не удалось создать службу «{#MyServiceName}» (код ' + IntToStr(rc) + ').' + #13#10#13#10 +
-               'Если для подключения к SQL используется SQL-логин (например sa) — на шаге ' +
-               '«Аутентификация» выберите «(B) SQL-аутентификация», а не Windows. ' +
+               'Проверьте выбранную учётную запись службы и (для именованной учётки) пароль. ' +
                'Подробности — в логе установки.',
                mbCriticalError, MB_OK);
       { Жёсткое прерывание: исключение из CurStepChanged откатывает установку — служба не
@@ -751,7 +926,8 @@ begin
   end
   else
   begin
-    { --- Апгрейд: пересоздавать службу не нужно, выравниваем binPath/аккаунт --- }
+    { --- Апгрейд: пересоздавать службу не нужно, выравниваем binPath/аккаунт (без пароля для
+      виртуальной/gMSA) --- }
     if (not Exec(ExpandConstant('{sys}\sc.exe'), GetScConfigParams(''),
                  '', SW_HIDE, ewWaitUntilTerminated, rc)) or (rc <> 0) then
       MsgBox('Не удалось обновить параметры службы «{#MyServiceName}» (код ' + IntToStr(rc) + ').' + #13#10 +
@@ -764,7 +940,26 @@ begin
   Exec(ExpandConstant('{sys}\sc.exe'),
        'description {#MyServiceName} "Панель управления лицензиями 1С (MitLicense Center)"',
        '', SW_HIDE, ewWaitUntilTerminated, rc);
+end;
 
+{ ===== Устойчивость + firewall + старт службы (MLC-107/170) ===== }
+
+{ Завершающий шаг ssPostInstall (ADR-49): recovery-политика + SQL-зависимость + открытие
+  firewall-порта + sc start ПОСЛЕДНИМ. К моменту вызова логин учётки уже создан (ProvisionSqlLogin),
+  учётка в Администраторах (best-effort) и ACL гранты применены — fail-fast bootstrap (ADR-18)
+  коннектится к SQL уже как учётка службы, мигрирует и сидит admin.
+  Контракт ошибок:
+    - sc failure (recovery-политика, REL-03/ADR-40): rc<>0 -> предупреждение (без Abort);
+    - sc config depend= (локальная SQL-зависимость): rc<>0 -> предупреждение (без Abort);
+      удалённый/неоднозначный инстанс — пропуск;
+    - netsh add: rc<>0 -> предупреждение (порт мог не открыться);
+    - sc start: rc<>0 (кроме 1056) -> предупреждение со ссылкой на Журнал событий (fail-fast
+      bootstrap, ADR-18), без Abort — служба уже создана; rc=1056 (ALREADY_RUNNING) = успех (MLC-116). }
+procedure StartServiceAndFinalize;
+var
+  rc: Integer;
+  startWarn: string;
+begin
   { --- Устойчивость (REL-03, ADR-40): и на чистой установке, и на апгрейде ---
     Recovery-политика — основной механизм; локальная SQL-зависимость — best-effort
     дополнение. Обе процедуры best-effort (предупреждение без Abort). }
@@ -779,7 +974,7 @@ begin
            '(брандмауэр Windows) или проверьте лог установки.',
            mbError, MB_OK);
 
-  { --- Старт службы: на провале предупреждаем (без Abort — служба создана) --- }
+  { --- Старт службы (ПОСЛЕДНИМ): на провале предупреждаем (без Abort — служба создана) --- }
   { rc=1056 (ERROR_SERVICE_ALREADY_RUNNING) — НЕ ошибка (MLC-116): на апгрейде служба может
     уже работать (например restart-manager перезапустил её), sc start тогда возвращает 1056 —
     это успех, не предупреждаем и не помечаем провал. Любой другой ненулевой rc — провал. }
@@ -801,8 +996,9 @@ end;
 
 { ===== Тест подключения (PowerShell + System.Data.SqlClient) ===== }
 
-{ Режим B: полноценный тест введёнными SQL-creds. Режим A: тест достижимости инстанса
-  под Integrated Security установщика-админа. Возвращает True при успехе; errMsg — текст. }
+{ Тест достижимости инстанса под Integrated Security установщика-админа (ADR-49): SQL-логин
+  учётки службы создаётся установщиком позже (ProvisionSqlLogin), а тест лишь проверяет, что
+  инстанс доступен и оператор-админ к нему подключается. Возвращает True при успехе; errMsg — текст. }
 function TestSqlConnection(out errMsg: string): Boolean;
 var
   connStr, psScript, scriptPath, cmdLine: string;
@@ -817,33 +1013,13 @@ begin
     Exit;
   end;
 
-  { Тест — к master (БД панели может ещё не существовать). }
-  if AuthMode = AUTH_WINDOWS then
-  begin
-    if CredUser = '' then
-    begin
-      errMsg := 'Не указан аккаунт службы.';
-      Exit;
-    end;
-    connStr := 'Server=' + SqlInstance +
-               ';Database=master;Integrated Security=True;Encrypt=True;TrustServerCertificate=True;Connect Timeout=10';
-  end
-  else
-  begin
-    if CredUser = '' then
-    begin
-      errMsg := 'Не указан SQL-логин.';
-      Exit;
-    end;
-    connStr := 'Server=' + SqlInstance +
-               ';Database=master;User Id=' + CredUser + ';Password=' + CredPassword +
-               ';Encrypt=True;TrustServerCertificate=True;Connect Timeout=10';
-  end;
+  { Тест — к master (БД панели может ещё не существовать), под учёткой запускающего админа. }
+  connStr := 'Server=' + SqlInstance +
+             ';Database=master;Integrated Security=True;Encrypt=True;TrustServerCertificate=True;Connect Timeout=10';
 
   { Сниппет на System.Data.SqlClient (есть в .NET Framework / PS 5.1). Строку подключения
     вставляем в PowerShell '...'-литерал внутри временного .ps1 (Pascal Script не имеет
-    SetEnvironmentVariable) — НЕ в командную строку powershell.exe, поэтому пароль не
-    светится в списке процессов; временный скрипт лежит во временном каталоге установщика
+    SetEnvironmentVariable). Временный скрипт лежит во временном каталоге установщика
     (ACL установщика) и удаляется сразу после запуска. }
   psScript :=
     '$ErrorActionPreference=''Stop'';' + #13#10 +
@@ -893,8 +1069,8 @@ end;
   и пишет число в stdout. Зеркалит условие сидера userManager.Users.AnyAsync (любой
   пользователь, не только admin). Fail-open: БД недоступна (ещё не создана) / ошибка
   запроса / соединение не открылось -> вернуть False (трактуем как «не инициализирована»),
-  чтобы не было хуже текущего поведения. Креды/режим — как в тесте: B — SQL-логин;
-  A — Integrated Security установщика-админа. }
+  чтобы не было хуже текущего поведения. Подключение — под Integrated Security установщика-
+  админа (ADR-49: SQL-логин учётки службы создаётся позже). }
 function DatabaseHasPanelUsers: Boolean;
 var
   connStr, psScript, scriptPath, outPath, cmdLine: string;
@@ -906,18 +1082,12 @@ begin
   if (SqlInstance = '') or (SqlDatabase = '') then
     Exit;
 
-  if AuthMode = AUTH_WINDOWS then
-    connStr := 'Server=' + SqlInstance +
-               ';Database=' + SqlDatabase +
-               ';Integrated Security=True;Encrypt=True;TrustServerCertificate=True;Connect Timeout=10'
-  else
-    connStr := 'Server=' + SqlInstance +
-               ';Database=' + SqlDatabase +
-               ';User Id=' + CredUser + ';Password=' + CredPassword +
-               ';Encrypt=True;TrustServerCertificate=True;Connect Timeout=10';
+  connStr := 'Server=' + SqlInstance +
+             ';Database=' + SqlDatabase +
+             ';Integrated Security=True;Encrypt=True;TrustServerCertificate=True;Connect Timeout=10';
 
   { Результат запроса пишем в файл (не в stdout) — exit-код только индикатор успеха.
-    connStr в '...'-литерале временного .ps1 (пароль не попадает в командную строку). }
+    connStr в '...'-литерале временного .ps1. }
   outPath := ExpandConstant('{tmp}\mlc-dbprobe-out.txt');
   DeleteFile(outPath);
 
@@ -980,10 +1150,8 @@ begin
   ConnTestPassed := ok;
   if ok then
   begin
-    if AuthMode = AUTH_WINDOWS then
-      TestResultLabel.Caption := 'OK: инстанс достижим. Права сервис-аккаунта в SQL проверятся при первом старте службы (см. Журнал событий Windows).'
-    else
-      TestResultLabel.Caption := 'OK: подключение SQL-логином успешно.';
+    TestResultLabel.Caption := 'OK: инстанс достижим (проверка под учётной записью администратора-установщика). ' +
+      'SQL-логин учётной записи службы установщик создаст автоматически при установке.';
     TestResultLabel.Font.Color := clGreen;
   end
   else
@@ -1038,23 +1206,39 @@ begin
   PageSql.Values[0] := '.';
   PageSql.Values[1] := 'MitLicenseCenter';
 
-  { --- Страница «Режим аутентификации» --- }
+  { --- Страница «Учётная запись службы» (ADR-49) --- }
   PageAuthMode := CreateInputOptionPage(PageSql.ID,
-    'Аутентификация в SQL Server',
-    'Как панель будет подключаться к SQL Server',
-    'Учётную запись с правами в SQL (роль sysadmin на экземпляре) оператор создаёт ЗАРАНЕЕ — установщик её только использует, не создаёт.',
+    'Учётная запись службы',
+    'Под какой учётной записью работает служба панели',
+    'Служба подключается к ЛОКАЛЬНОМУ SQL Server по доверенному подключению Windows ' +
+    '(Trusted_Connection). SQL-логин и пароль в конфигурации БОЛЬШЕ НЕ используются. ' +
+    'Установщик сам создаёт SQL-логин выбранной учётной записи с ролью sysadmin — для этого ' +
+    'запускающий установку администратор должен быть sysadmin на локальном экземпляре SQL.',
     True, False);
-  PageAuthMode.Add('(A) Windows-аутентификация — служба работает под доменным/локальным Windows-аккаунтом (Trusted_Connection). Выберите, если вводите имя Windows-учётной записи (ДОМЕН\Пользователь или .\Пользователь).');
-  PageAuthMode.Add('(B) SQL-аутентификация — служба работает под LocalSystem, подключение SQL-логином (например sa) и паролем. Выберите, если вводите SQL-логин, а не Windows-аккаунт.');
-  PageAuthMode.SelectedValueIndex := AUTH_WINDOWS;
+  PageAuthMode.Add('Виртуальная учётная запись «{#MyVirtualAccount}» (рекомендуется) — без пароля, ' +
+    'подходит и для рабочей группы, и для домена. Ввод учётных данных не требуется.');
+  PageAuthMode.Add('Указанная учётная запись Windows / gMSA — для доменных сценариев ' +
+    '(ДОМЕН\Пользователь или ДОМЕН\Имя$ для gMSA).');
+  PageAuthMode.SelectedValueIndex := ACCT_VIRTUAL;
 
-  { --- Страница «Учётные данные» --- }
+  { --- Страница «Учётные данные» (только для именованной учётки, ShouldSkipPage) --- }
   PageCreds := CreateInputQueryPage(PageAuthMode.ID,
     'Учётные данные',
-    'Учётная запись для подключения к SQL Server',
-    'Введите учётные данные заранее созданной учётной записи и нажмите «Проверить подключение».');
-  PageCreds.Add('Учётная запись (ДОМЕН\Пользователь, .\Пользователь или SQL-логин):', False);
+    'Именованная учётная запись Windows / gMSA для службы',
+    'Введите имя заранее созданной Windows-учётной записи (или gMSA) и, если это не gMSA, её пароль. ' +
+    'Нажмите «Проверить подключение» для проверки достижимости SQL.');
+  PageCreds.Add('Windows-аккаунт / gMSA (ДОМЕН\Пользователь или ДОМЕН\Имя$):', False);
   PageCreds.Add('Пароль:', True);
+
+  { Чекбокс gMSA: учётка без пароля. При отмеченном — поле пароля игнорируется, password= в
+    sc create не передаётся (ServiceAccountUsesPassword → False). ADR-49. }
+  GmsaCheckbox := TNewCheckBox.Create(WizardForm);
+  GmsaCheckbox.Parent := PageCreds.Surface;
+  GmsaCheckbox.Left := 0;
+  GmsaCheckbox.Top := PageCreds.Edits[1].Top + PageCreds.Edits[1].Height + ScaleY(8);
+  GmsaCheckbox.Width := PageCreds.SurfaceWidth;
+  GmsaCheckbox.Caption := 'Это групповая управляемая учётная запись (gMSA) — без пароля';
+  GmsaCheckbox.Checked := False;
 
   { Кнопка теста + метка-результат под полями. }
   TestButton := TNewButton.Create(WizardForm);
@@ -1063,7 +1247,7 @@ begin
   TestButton.Width := ScaleX(150);
   TestButton.Height := ScaleY(25);
   TestButton.Left := 0;
-  TestButton.Top := PageCreds.Edits[1].Top + PageCreds.Edits[1].Height + ScaleY(16);
+  TestButton.Top := GmsaCheckbox.Top + GmsaCheckbox.Height + ScaleY(12);
   TestButton.OnClick := @TestButtonClick;
 
   TestResultLabel := TNewStaticText.Create(WizardForm);
@@ -1109,9 +1293,13 @@ begin
     На чистой установке (not ServiceExists) пропускаем. MLC-112 (REL-02). }
   if (PageUpgradeBackup <> nil) and (PageID = PageUpgradeBackup.ID) then
     Result := not ServiceExists;
+  { Страница учётных данных — только для именованной учётки / gMSA (ADR-49). Для виртуальной
+    учётной записи ввод не требуется, страницу пропускаем. }
+  if (PageCreds <> nil) and (PageID = PageCreds.ID) then
+    Result := (AccountMode = ACCT_VIRTUAL);
 end;
 
-{ Сброс результата теста при заходе на страницу учётных данных + подсказки по режиму. }
+{ Сброс результата теста при заходе на страницу учётных данных + подсказки по именованной учётке. }
 procedure CurPageChanged(CurPageID: Integer);
 begin
   if (PageCreds <> nil) and (CurPageID = PageCreds.ID) then
@@ -1122,33 +1310,23 @@ begin
       TestResultLabel.Caption := '';
       TestResultLabel.Font.Color := clNavy;
     end;
-    if AuthMode = AUTH_WINDOWS then
-    begin
-      { REL-06/MLC-127: явные требования к сервис-аккаунту режима A — оператор должен знать ДО
-        установки, иначе «установка прошла, а половина продукта не работает». }
-      PageCreds.PromptLabels[0].Caption := 'Windows-аккаунт службы (ДОМЕН\Пользователь или .\Пользователь):';
-      PageCreds.SubCaptionLabel.Caption :=
-        'Режим (A) Windows-аутентификация. Введите Windows-учётную запись (НЕ SQL-логин): она создана заранее ' +
-        'и служба будет работать под ней. Если у вас SQL-логин (например sa) — вернитесь назад и выберите (B).' + #13#10 +
-        '' + #13#10 +
-        'Требования к аккаунту:' + #13#10 +
-        '1. SQL: аккаунт должен иметь роль sysadmin на экземпляре SQL Server. ' +
-        'ВНИМАНИЕ: кнопка «Проверить подключение» тестирует SQL под учёткой установщика-администратора, ' +
-        'а НЕ под сервис-аккаунтом. Зелёный результат не гарантирует, что у сервис-аккаунта есть доступ к SQL — ' +
-        'служба может создаться и упасть при старте (ошибку смотрите в Журнале событий Windows).' + #13#10 +
-        '2. IIS: для функций публикации/recycle/iisreset аккаунт должен входить в локальную группу Administrators ' +
-        'ИЛИ иметь право чтения %windir%\system32\inetsrv\config. Иначе все публикации после установки ' +
-        'будут в статусе «Ошибка проверки».' + #13#10 +
-        '3. Право «Вход в качестве службы» (SeServiceLogonRight): SCM выдаёт его автоматически при создании ' +
-        'службы; если нет — задать вручную через secpol.msc.';
-    end
-    else
-    begin
-      PageCreds.PromptLabels[0].Caption := 'SQL-логин (например sa):';
-      PageCreds.SubCaptionLabel.Caption :=
-        'Режим (B) SQL-аутентификация. Введите SQL-логин (НЕ Windows-аккаунт): он создан заранее с нужными правами. ' +
-        'Служба работает под LocalSystem и подключается этим логином и паролем.';
-    end;
+    { Страница показывается только для именованной учётки / gMSA (ADR-49; виртуальная — пропуск
+      через ShouldSkipPage). REL-06/MLC-127: явные требования к учётке — оператор должен знать ДО
+      установки, иначе «установка прошла, а половина продукта не работает». }
+    PageCreds.PromptLabels[0].Caption := 'Windows-аккаунт / gMSA (ДОМЕН\Пользователь или ДОМЕН\Имя$):';
+    PageCreds.SubCaptionLabel.Caption :=
+      'Введите именованную Windows-учётную запись (или gMSA), под которой будет работать служба. ' +
+      'Если это gMSA — отметьте чекбокс ниже и оставьте поле пароля пустым (паролем gMSA управляет домен).' + #13#10 +
+      '' + #13#10 +
+      'Требования к учётной записи:' + #13#10 +
+      '1. SQL: SQL-логин этой учётки создаётся установщиком автоматически (роль sysadmin). ' +
+      'ВНИМАНИЕ: кнопка «Проверить подключение» тестирует SQL под учёткой установщика-администратора, ' +
+      'а НЕ под учёткой службы — она проверяет лишь достижимость инстанса. Сам логин учётки службы ' +
+      'установщик создаёт на этапе установки (для этого администратор-установщик должен быть sysadmin).' + #13#10 +
+      '2. IIS: для функций публикации/recycle/iisreset учётку установщик добавляет в локальную группу ' +
+      'Администраторов автоматически. Если это не удастся — публикации будут в статусе «Ошибка проверки».' + #13#10 +
+      '3. Право «Вход в качестве службы» (SeServiceLogonRight): SCM выдаёт его автоматически при создании ' +
+      'службы; если нет — задать вручную через secpol.msc.';
   end;
 
   { Финальный экран: подтверждаем вход и даём URL. Пароль admin НЕ показываем — его задал
@@ -1237,22 +1415,25 @@ begin
     end;
   end;
 
-  { --- Учётные данные --- }
+  { --- Учётные данные (только именованная учётка / gMSA; виртуальная — страница пропущена) --- }
   if (PageCreds <> nil) and (CurPageID = PageCreds.ID) then
   begin
     if CredUser = '' then
     begin
-      MsgBox('Укажите учётную запись.', mbError, MB_OK);
+      MsgBox('Укажите Windows-учётную запись (или gMSA) для службы.', mbError, MB_OK);
       Result := False;
       Exit;
     end;
-    if CredPassword = '' then
+    { Пароль обязателен ТОЛЬКО для обычной учётки. gMSA — без пароля (управляет домен). }
+    if (not IsGmsa) and (CredPassword = '') then
     begin
-      MsgBox('Укажите пароль.', mbError, MB_OK);
+      MsgBox('Укажите пароль учётной записи.' + #13#10 +
+             'Если это групповая управляемая учётная запись (gMSA) — отметьте чекбокс «Это gMSA».',
+             mbError, MB_OK);
       Result := False;
       Exit;
     end;
-    { Гейт: требуем успешный тест подключения. Если ещё не тестировали или провалили —
+    { Гейт: требуем успешный тест достижимости SQL. Если ещё не тестировали или провалили —
       запускаем тест сейчас и блокируем при ошибке. }
     if not ConnTestPassed then
     begin
@@ -1340,34 +1521,57 @@ begin
   end;
 end;
 
-{ После копирования файлов: записать конфиг, ужесточить NTFS ACL на секреты, снести старое
-  firewall-правило, затем зарегистрировать/настроить/запустить службу и открыть порт. }
+{ После копирования файлов (ssPostInstall) — порядок ADR-49 (MLC-170). Учётная запись службы
+  (виртуальная или именованная) и её SID не существуют до sc create, а ProvisionSqlLogin и ACL
+  (грант по имени NT SERVICE\…) на них ссылаются — поэтому сначала регистрируем службу, затем
+  провижиним SQL-логин и применяем ACL, и только последним стартуем службу:
+    1. WriteProductionConfig        — конфиг (всегда Trusted_Connection, без секрета SQL)
+    2. WriteInitialAdminPassword    — initial-admin.secret (только чистая установка)
+    3. netsh delete old rule        — снять одноимённое firewall-правило (идемпотентность порта)
+    4. CreateStartMenuShortcut      — ярлык меню «Пуск» на URL панели
+    5. RegisterService              — sc create/config (учётка + SID существуют; create — hard-fail)
+    6. ProvisionSqlLogin            — CREATE LOGIN + sysadmin (ЖЁСТКИЙ fail/откат)
+    7. AddServiceAccountToAdmins    — локальная группа Администраторов (best-effort)
+    8. HardenConfigAcl              — ACL конфига (грант учётке R; имя NT SERVICE\… резолвится)
+    9. HardenDataDirAcl             — ACL каталога данных (грант учётке M; (OI)(CI) накрывает .secret)
+   10. StartServiceAndFinalize      — recovery + depend + firewall add + sc start ПОСЛЕДНИМ
+  Инварианты: WriteInitialAdminPassword до HardenDataDirAcl; грант учётке — после sc create;
+  sc start — последним. На апгрейде (ServiceExists) шаг 5 = sc config (без пароля), шаги 6-9
+  идемпотентны. }
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   rc: Integer;
 begin
   if CurStep = ssPostInstall then
   begin
+    { 1. Конфиг: всегда Trusted_Connection, SQL-пароля нет (ADR-49). }
     WriteProductionConfig;
-    { ACL конфига — СРАЗУ после его записи (MLC-110): только SYSTEM/Administrators (+ сервис-
-      аккаунт R в режиме A); plaintext SQL-пароль не должен читаться Users. }
-    HardenConfigAcl;
-    { Пароль admin — ДО ужесточения ACL каталога: icacls (OI)(CI) затем накроет и этот файл,
-      чтобы сервис-аккаунт (режим A) мог прочитать и удалить его при первом старте. }
+    { 2. Пароль admin — ДО ужесточения ACL каталога: icacls (OI)(CI) затем накроет и этот файл,
+      чтобы учётка службы могла прочитать и удалить его при первом старте. }
     WriteInitialAdminPassword;
-    { ACL каталога данных — ПОСЛЕ записи initial-admin.secret (MLC-110): режем наследование,
-      доступ только SYSTEM/Administrators (+ сервис-аккаунт Modify в режиме A). }
-    HardenDataDirAcl;
-    { Снять одноимённое firewall-правило, чтобы add в ConfigureService не плодил дубли и
-      применил актуальный порт. Игнорируем результат (правила может не быть на чистой установке). }
+    { 3. Снять одноимённое firewall-правило, чтобы add в StartServiceAndFinalize не плодил дубли
+      и применил актуальный порт. Игнорируем результат (правила может не быть на чистой установке). }
     Exec(ExpandConstant('{sys}\netsh.exe'),
          'advfirewall firewall delete rule name="{#MyFirewallRule}"',
          '', SW_HIDE, ewWaitUntilTerminated, rc);
-    { Ярлык меню «Пуск» на URL панели (порт из ввода мастера). }
+    { 4. Ярлык меню «Пуск» на URL панели (порт из ввода мастера). }
     CreateStartMenuShortcut;
-    { В КОНЦЕ: создание/конфиг/старт службы + firewall с проверкой rc и внятными ошибками.
-      На провале create бросает исключение -> установка откатывается (MLC-107). }
-    ConfigureService;
+    { 5. Регистрация службы: sc create/config. На провале create бросает исключение -> откат
+      установки (MLC-107). Теперь учётка службы и её SID существуют. }
+    RegisterService;
+    { 6. Авто-создание SQL-логина учётки + sysadmin (ADR-49). ЖЁСТКИЙ fail: на провале MsgBox +
+      RaiseException -> откат (иначе служба упадёт на старте с 18456). }
+    ProvisionSqlLogin;
+    { 7. Учётку — в локальную группу Администраторов для IIS/iisreset (best-effort, без Abort). }
+    AddServiceAccountToAdministrators;
+    { 8. ACL конфига: только SYSTEM/Administrators + учётка службы R (имя NT SERVICE\… резолвится
+      после sc create). }
+    HardenConfigAcl;
+    { 9. ACL каталога данных: режем наследование, доступ только SYSTEM/Administrators + учётка
+      службы Modify; (OI)(CI) накрывает initial-admin.secret из шага 2. }
+    HardenDataDirAcl;
+    { 10. В КОНЦЕ: recovery-политика + SQL-зависимость + открытие порта + sc start ПОСЛЕДНИМ. }
+    StartServiceAndFinalize;
   end;
 end;
 
