@@ -16,34 +16,35 @@ begin
   Result := (GmsaCheckbox <> nil) and GmsaCheckbox.Checked;
 end;
 
-{ SQL-логин провижининга (sa или иной sysadmin). Триммим: имя логина краевых пробелов не имеет.
-  До построения страницы (nil) — пусто. MLC-171/172. }
+{ SQL-логин провижининга (sa или иной sysadmin) со страницы кредов. Триммим: имя логина краевых
+  пробелов не имеет. До построения страницы (nil) — пусто. MLC-175. }
 function ProvUser: string;
 begin
-  if PageProv = nil then
+  if PageProvCreds = nil then
     Result := ''
   else
-    Result := Trim(PageProv.Values[0]);
+    Result := Trim(PageProvCreds.Values[0]);
 end;
 
 { Пароль SQL-логина провижининга. НЕ триммим (пробелы могут быть значимы). Транзиентен: в конфиг
   не пишется, нигде не сохраняется (ADR-49/MLC-171). }
 function ProvPassword: string;
 begin
-  if PageProv = nil then
+  if PageProvCreds = nil then
     Result := ''
   else
-    Result := PageProv.Values[1];
+    Result := PageProvCreds.Values[1];
 end;
 
-{ Личность подключения УСТАНОВЩИКА к SQL, выводится из поля логина (MLC-172): пусто →
-  Integrated Security (дефолт), заполнено → SQL-логин с ролью sysadmin. }
+{ Личность подключения УСТАНОВЩИКА к SQL — ЯВНЫЙ выбор радио на PageProvMode (MLC-175): индекс
+  PROV_INTEGRATED (Integrated Security, дефолт) / PROV_SQLLOGIN (введённый SQL-логин с ролью sysadmin).
+  До построения мастера (nil) — Integrated. Раньше выводился неявно из пустоты поля логина (MLC-172). }
 function ProvisioningMode: Integer;
 begin
-  if ProvUser = '' then
+  if PageProvMode = nil then
     Result := PROV_INTEGRATED
   else
-    Result := PROV_SQLLOGIN;
+    Result := PageProvMode.SelectedValueIndex;
 end;
 
 function SqlInstance: string;

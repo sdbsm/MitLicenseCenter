@@ -41,12 +41,15 @@ function CloseServiceHandle(hSCObject: THandle): Boolean;
 var
   { Страница «SQL Server»: инстанс + БД. }
   PageSql: TInputQueryWizardPage;
-  { Страница «Подключение установщика к SQL» (MLC-171/172): под какой личностью установщик ходит
-    в SQL для создания логина службы и теста. РОДНЫЕ поля ввода (InputQueryPage, как «SQL Server»),
-    а не radio с кастомными контролами — иначе поля встают ниже растянутого CheckListBox и не видны
-    (баг MLC-172). Режим выводим из поля логина: пусто → Integrated Security; заполнено → SQL-логин.
+  { Страница «Подключение установщика к SQL» (MLC-175): ЯВНЫЙ выбор личности провижининга радио-
+    кнопками — index = PROV_INTEGRATED (Integrated Security, по умолчанию) / PROV_SQLLOGIN (SQL-логин
+    sysadmin). Раньше режим выводился неявно из пустоты поля логина (MLC-172) — теперь явный выбор.
+    Радио и поля ввода разнесены на ДВЕ страницы (как PageAuthMode→PageCreds): кастомные input-контролы
+    на CreateInputOptionPage не отрисовываются (баг MLC-172), поэтому креды — на отдельной странице. }
+  PageProvMode: TInputOptionWizardPage;
+  { Страница «Учётные данные SQL-логина» — показывается ТОЛЬКО при PROV_SQLLOGIN (ShouldSkipPage).
     Values[0] = SQL-логин (sysadmin), Values[1] = пароль (маскируется флагом в .Add). }
-  PageProv: TInputQueryWizardPage;
+  PageProvCreds: TInputQueryWizardPage;
   { Страница «Учётная запись службы»: виртуальная / именованная (gMSA) (ADR-49). }
   PageAuthMode: TInputOptionWizardPage;
   { Страница «Учётные данные» именованной учётки (только ACCT_NAMED). }
@@ -63,10 +66,8 @@ var
     (служба уже зарегистрирована), ДО замены файлов. Обязательна к подтверждению чекбоксом.
     На чистой установке пропускается (ShouldSkipPage). MLC-112 (REL-02). }
   PageUpgradeBackup: TInputOptionWizardPage;
-  { Метка-результат теста подключения на странице учётных данных. }
-  TestResultLabel: TNewStaticText;
-  TestButton: TNewButton;
-  { Прошёл ли последний тест подключения (гейт на Next со страницы учётных данных). }
+  { Прошёл ли последний тест подключения (гейт на Next со страниц провижининга). MLC-175:
+    проверка авто-выполняется при «Далее» (отдельной кнопки больше нет). }
   ConnTestPassed: Boolean;
   { Целевая БД уже содержит установку панели (есть пользователи auth.Users). Вычисляется
     один раз при уходе со страницы «Сеть» (NextButtonClick), см. DatabaseHasPanelUsers. На
