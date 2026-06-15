@@ -230,8 +230,8 @@ MLC-144c); прежний общий компонент `InfobaseRow` удалё
 
 - **Сеансы** — `useSessionsPage` строит экземпляр `DataTable` (`useReactTable`, ADR-46) с
   клиентской сортировкой (`getSortedRowModel`, компараторы повторяют прежнюю семантику UX-14:
-  `localeCompare("ru")` для строк, числовое сравнение длительности, булево «считается выше»
-  для consumesLicense) и клиентской пагинацией (`getPaginationRowModel`, 25 записей). Канонический
+  `localeCompare("ru")` для строк, числовое сравнение длительности, сортировка статуса
+  лицензии `licenseStatus`) и клиентской пагинацией (`getPaginationRowModel`, 25 записей). Канонический
   компаратор `sortRows` сохранён (тест). Заголовки сортируемых колонок — `DataTableColumnHeader`
   с иконками ↑↓↕. При рефетче снапшота (каждые 5 с) `pageIndex` clamp'ится в `[0, pageCount-1]` —
   экран не «прыгает»; смена сортировки/фильтра сбрасывает на первую страницу. Колонки без
@@ -314,7 +314,7 @@ invalidate: (infobaseId) => backupsQueryKey(infobaseId)
 потребление берётся live-оверлеем из снапшота сеансов: хук
 `useTenantConsumption()` (`features/tenants`) поверх `useSessionsSnapshot()`
 строит `Map<tenantId, consumed>` чистой функцией `buildConsumedByTenant(items)`
-(считает записи с `consumesLicense === true`, группирует по `tenantId`). Это
+(считает записи со `licenseStatus === "Consuming"`, группирует по `tenantId`). Это
 намеренное небольшое дублирование канонического backend-метода
 `LicenseConsumption.CountByTenant`: на FE — визуальный оверлей, не контракт и не
 parity-правило (тот же снапшот питает серверный расчёт дашборда — значения
