@@ -86,6 +86,7 @@ F:\dev\MitLicense Center\
 ├── frontend\                     # React + TypeScript + Vite + Tailwind CSS 4
 ├── scripts\                      # PowerShell-скрипты разработки и поставки
 ├── installer\                    # Inno Setup .iss (GUI-установщик)
+│   └── include\                  # модули секции [Code], подключаются через #include
 ├── docs\                         # документация v2
 ├── .github\workflows\ci.yml      # GitHub Actions CI (backend: windows-latest; frontend: ubuntu-latest)
 ├── .husky\pre-commit             # pre-commit hook: lint-staged + dotnet format
