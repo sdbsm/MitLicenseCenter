@@ -296,12 +296,12 @@ public static partial class InfobasesEndpoints
             return TypedResults.Conflict(conflict);
         }
 
+        // MLC-164: при добавлении базы пишем ТОЛЬКО InfobaseCreated. Запись публикации в этом
+        // флоу — служебная (webinst не запускался, на IIS публикации нет, LastCheckStatus=Unknown),
+        // и отдельная аудит-запись «публикация создана» вводила в заблуждение. Реальное событие
+        // публикации логируется отдельно — PublicationPublished (webinst, PublicationsEndpoints).
         await httpContext.AuditAsync(audit, AuditActionType.InfobaseCreated,
             init => AuditDescriptions.InfobaseCreated(infobase.Name, init),
-            infobase.TenantId, ct).ConfigureAwait(false);
-        await httpContext.AuditAsync(audit, AuditActionType.PublicationCreated,
-            init => AuditDescriptions.PublicationCreatedForInfobase(
-                $"{publication.SiteName}{publication.VirtualPath}", infobase.Name, init),
             infobase.TenantId, ct).ConfigureAwait(false);
 
         return TypedResults.Created($"/api/v1/infobases/{infobase.Id}", infobase.ToDetailResponse(publication));

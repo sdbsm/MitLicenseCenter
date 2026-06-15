@@ -422,9 +422,9 @@ Defense-in-depth: `WebinstArgs.BuildConnStr` отдельно отвергает
 сериализуются именем (`JsonStringEnumConverter`). **Правило заморозки: число
 переиспользовать нельзя.** Новое действие/состояние получает новое число; удалённые
 или revoked-механики сохраняют свои слоты, чтобы исторические записи рендерились
-по имени. Это касается исторических `AuditActionType` 210/211 (publication drift)
-и 300/301 (circuit breaker) — новые строки с этими значениями не пишутся, но слоты
-заняты навсегда.
+по имени. Это касается исторических `AuditActionType` 20 (PublicationCreated — с MLC-164 не
+пишется при добавлении базы), 210/211 (publication drift) и 300/301 (circuit breaker) —
+новые строки с этими значениями не пишутся, но слоты заняты навсегда.
 
 ### 5.1 `AuditActionType`
 
@@ -441,7 +441,7 @@ Defense-in-depth: `WebinstArgs.BuildConnStr` отдельно отвергает
 | 13 | InfobaseReassigned | |
 | 14 | UnassignedInfobaseHidden | Скрытие нераспределённой базы (server-scope) |
 | 15 | UnassignedInfobaseUnhidden | Возврат скрытой базы |
-| 20 | PublicationCreated | Публикации |
+| 20 | PublicationCreated | Публикации. **Исторический слот** (MLC-164: при добавлении базы не пишется — служебная запись-метаданные публикации не аудируется отдельно; реальная публикация — `PublicationPublished` 212) |
 | 21 | PublicationUpdated | |
 | 22 | PublicationDeleted | |
 | 23 | PublicationUnpublished | Снятие IIS-публикации через webinst -delete |
