@@ -18,7 +18,26 @@
       "search": "Поиск по клиенту или пользователю…",
       "infobase": "Инфобаза",
       "allInfobases": "Все инфобазы",
-      "searchInfobase": "Поиск по инфобазе…"
+      "searchInfobase": "Поиск по инфобазе…",
+      "appType": "Тип сеанса",
+      "allAppTypes": "Все типы сеансов",
+      "searchAppType": "Поиск по типу…",
+      "appTypeSelected": "Типы: {{count}}"
+    },
+    "appTypes": {
+      "1CV8": "Толстый клиент",
+      "1CV8C": "Тонкий клиент",
+      "WebClient": "Веб-клиент",
+      "Designer": "Конфигуратор",
+      "COMConnection": "COM-соединение",
+      "WSConnection": "Web-сервис",
+      "HTTPServiceConnection": "HTTP-сервис",
+      "BackgroundJob": "Фоновое задание",
+      "SystemBackgroundJob": "Системное фоновое задание",
+      "JobScheduler": "Планировщик заданий",
+      "SrvrConsole": "Консоль кластера",
+      "COMConsole": "Консоль администрирования",
+      "Debugger": "Отладчик"
     },
     "kill": {
       "title": "Завершить сеанс?",

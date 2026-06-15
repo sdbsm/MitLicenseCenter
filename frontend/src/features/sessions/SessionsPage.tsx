@@ -26,6 +26,8 @@ export function SessionsPage() {
     infobases,
     q,
     infobaseId,
+    appTypeOptions,
+    selectedAppIds,
     table,
     density,
     toggleDensity,
@@ -109,6 +111,8 @@ export function SessionsPage() {
               q={q}
               infobaseId={infobaseId}
               infobases={infobases}
+              appTypeOptions={appTypeOptions}
+              selectedAppIds={selectedAppIds}
               onChange={setFilter}
             />
           }
