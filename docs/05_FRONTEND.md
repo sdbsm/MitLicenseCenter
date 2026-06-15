@@ -73,7 +73,7 @@ frontend/src/
 | `publications` | мутации публикации/смены платформы/проверки IIS |
 | `reports` | `/reports` — график потребления лицензий |
 | `sessions` | `/sessions` — live-снимок сеансов, kill |
-| `settings` | `/settings` (Admin) — параметры системы |
+| `settings` | `/settings` (Admin) — параметры системы; блок состояния службы RAS (`RasServiceCard` + `RasServiceActionDialog`, `useRasService.ts`, ADR-47) |
 | `tenants` | `/tenants` — CRUD клиентов |
 | `users` | `/users` (Admin) — учётные записи |
 
@@ -421,7 +421,7 @@ Runtime-валидация через `api(..., { schema })` включена н
 | `discovery` | `clusterInfobasesResponseSchema`, `databasesResponseSchema`, `iisSitesDiscoveryResponseSchema`, `racPathsResponseSchema`, `platformVersionsResponseSchema`, `sqlInstancesResponseSchema` | все хуки `useDiscovery.ts` |
 | `publications` | `publicationStatusResponseSchema` | `useCheckStatus`, `usePublish`, `useUnpublish`, `useChangePlatform` |
 | `infobases` | `clusterIdAvailabilitySchema`, `infobaseDetailSchema` | `useClusterIdAvailability`, `useCreateInfobase`, `useUpdateInfobase`, `useReassignInfobase` |
-| `settings` | `settingsListSchema` | `useSettings` |
+| `settings` | `settingsListSchema`, `rasServiceStatusSchema`, `rasServiceOperationSchema` | `useSettings`, `useRasServiceStatus`, `useRasServiceOperation` |
 | `reports` | `licenseUsageSeriesResponseSchema` | `useLicenseUsage`, `useLicenseUsageByTenant` |
 | `audit` | `auditPagedResponseSchema`, `auditRetentionResponseSchema` | `useAuditLog`, `useAuditRetention` |
 
