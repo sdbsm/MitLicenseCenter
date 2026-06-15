@@ -14,6 +14,7 @@ import { useTableDensity } from "@/components/ui/data-table";
 import { useMe } from "@/features/auth/useAuth";
 import { useInfobases } from "@/features/infobases/useInfobases";
 import { buildSessionColumns } from "./sessionColumns";
+import { appTypeLabel, isInteractiveAppId } from "./appTypes";
 import type { SessionSnapshotEntry } from "./types";
 import { useSessionsSnapshot } from "./useSessionsSnapshot";
 
@@ -31,11 +32,41 @@ export interface SessionSort {
 
 export const SESSIONS_PAGE_SIZE = 25;
 
-function parseParams(params: URLSearchParams) {
+/**
+ * URL → состояние фильтров. `appIds` — CSV; различаем «параметр отсутствует» (`null` →
+ * дефолт: только интерактивные типы) и «явно задан» (массив, в т.ч. пустой → показать
+ * ровно выбранное, пустой = ничего). См. `effectiveAppIds`.
+ */
+export function parseParams(params: URLSearchParams) {
+  const rawAppIds = params.get("appIds");
   return {
     q: params.get("q") ?? "",
     infobaseId: params.get("infobaseId") ?? "",
+    appIds:
+      rawAppIds === null
+        ? null
+        : rawAppIds
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean),
   };
+}
+
+/**
+ * Дефолт фильтра типов сеансов (MLC-165): когда URL-параметр `appIds` отсутствует,
+ * показываем только интерактивные типы, реально присутствующие в снапшоте (пересечение
+ * INTERACTIVE_APP_IDS ∩ present). Это и визуальный выбор в селекте, и набор для фильтрации.
+ */
+export function defaultAppIds(presentAppIds: string[]): string[] {
+  return presentAppIds.filter(isInteractiveAppId);
+}
+
+/**
+ * Эффективный выбор типов: явный (из URL, в т.ч. пустой = «ничего») либо дефолт
+ * (интерактивные ∩ присутствующие). @internal — вынесено для теста.
+ */
+export function resolveAppIds(appIds: string[] | null, presentAppIds: string[]): string[] {
+  return appIds === null ? defaultAppIds(presentAppIds) : appIds;
 }
 
 /**
@@ -79,7 +110,7 @@ export function sortRows(rows: SessionSnapshotEntry[], sort: SessionSort): Sessi
 export function useSessionsPage() {
   const { t } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { q, infobaseId } = useMemo(() => parseParams(searchParams), [searchParams]);
+  const { q, infobaseId, appIds } = useMemo(() => parseParams(searchParams), [searchParams]);
 
   // MLC-156: пауза авто-обновления + ручной форс-обход. При паузе refetchInterval=false.
   const [isPaused, setIsPaused] = useState(false);
@@ -122,7 +153,32 @@ export function useSessionsPage() {
     return map;
   }, [infobasesData]);
 
-  // Фильтрация q/infobaseId — кросс-колоночная, остаётся вне tanstack columnFilters
+  // app-id, реально присутствующие в текущем снапшоте (для опций фильтра и дефолта).
+  const presentAppIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const item of data?.items ?? []) set.add(item.appId);
+    return [...set];
+  }, [data]);
+
+  // Эффективный выбор типов: явный из URL (в т.ч. пустой = «ничего») либо дефолт
+  // (интерактивные ∩ присутствующие). Используется и для фильтрации, и как visual-выбор
+  // в селекте, поэтому экспортируется в SessionsFiltersBar (MLC-165).
+  const effectiveAppIds = useMemo(
+    () => resolveAppIds(appIds, presentAppIds),
+    [appIds, presentAppIds]
+  );
+
+  // Опции селекта «Тип сеанса»: из присутствующих app-id + человеческое имя (или сам
+  // app-id, если типа нет в маппинге). Сортировка по подписи для предсказуемого порядка.
+  const appTypeOptions = useMemo(
+    () =>
+      presentAppIds
+        .map((appId) => ({ value: appId, label: appTypeLabel(t, appId) }))
+        .sort((a, b) => a.label.localeCompare(b.label, "ru")),
+    [presentAppIds, t]
+  );
+
+  // Фильтрация q/infobaseId/appIds — кросс-колоночная, остаётся вне tanstack columnFilters
   // (как раньше, чтобы не менять имена URL-параметров).
   const filtered = useMemo(() => {
     let rows = data?.items ?? [];
@@ -136,8 +192,12 @@ export function useSessionsPage() {
       const name = infobaseById.get(infobaseId);
       if (name) rows = rows.filter((r) => r.infobaseName === name);
     }
+    // Явный пустой выбор (`appIds === []`) трактуем как «показать пусто» — это валидное
+    // состояние «оператор снял все типы». Дефолт (appIds===null) — интерактивные.
+    const appIdSet = new Set(effectiveAppIds);
+    rows = rows.filter((r) => appIdSet.has(r.appId));
     return rows;
-  }, [data, q, infobaseId, infobaseById]);
+  }, [data, q, infobaseId, infobaseById, effectiveAppIds]);
 
   const handleKillClick = (session: SessionSnapshotEntry) => {
     setSelectedSession(session);
@@ -174,12 +234,17 @@ export function useSessionsPage() {
   }, [pageCount, pagination.pageIndex]);
 
   // Любая смена сортировки/фильтра возвращает на первую страницу.
-  const setFilter = (next: { q?: string; infobaseId?: string }) => {
+  const setFilter = (next: { q?: string; infobaseId?: string; appIds?: string[] }) => {
     const params = new URLSearchParams();
     const newQ = next.q !== undefined ? next.q : q;
     const newInfobaseId = next.infobaseId !== undefined ? next.infobaseId : infobaseId;
     if (newQ) params.set("q", newQ);
     if (newInfobaseId) params.set("infobaseId", newInfobaseId);
+    // appIds: как только оператор тронул фильтр типов — он становится «явным» в URL
+    // (даже пустой → `appIds=`, что означает «показать пусто», а не вернуть дефолт).
+    // Если в этом вызове не трогали — сохраняем текущее URL-состояние (явное или дефолт).
+    const newAppIds = next.appIds !== undefined ? next.appIds : appIds;
+    if (newAppIds !== null) params.set("appIds", newAppIds.join(","));
     setSearchParams(params, { replace: true });
     setPagination((p) => ({ ...p, pageIndex: 0 }));
   };
@@ -201,6 +266,8 @@ export function useSessionsPage() {
     infobases: infobasesData?.items ?? [],
     q,
     infobaseId,
+    appTypeOptions,
+    selectedAppIds: effectiveAppIds,
     filtered,
     table,
     density,
