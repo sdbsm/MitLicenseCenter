@@ -1,6 +1,6 @@
 # A6 — RELEASE: релизная готовность
 
-Этап А6 пред-релизного аудита. Дата: **2026-06-12**, машина ANDREY-PC, репо
+Этап А6 пред-релизного аудита. Дата: **2026-06-12**, build-машина (Windows 11 Pro), репо
 `F:\dev\MitLicense Center`, HEAD `e6b1317` (тот же, что в А0). Метод: **сборка фактом**
 (publish + инсталлятор реально собраны на этой машине), анализ инсталлятора/эксплуатации/
 бэкапа/зависимостей/CI — независимыми субагентами (sonnet/opus), все High-кандидаты
@@ -276,7 +276,7 @@ single-host (SQL локально) приемлемо, но выбора у оп
 **Рекомендация:** чистить secret-файл перед `RaiseException`. **Confidence:** Medium.
 
 **[REL-20] · Low · Evidence:** `scripts/build-installer.ps1:78` — захардкоженный путь
-`C:\Users\andre\AppData\Local\Programs\Inno Setup 6\ISCC.exe` в трекаемом скрипте.
+`C:\Users\<user>\AppData\Local\Programs\Inno Setup 6\ISCC.exe` в трекаемом скрипте.
 **Суть:** путь конкретной dev-машины в репо; работает и без него (строкой выше тот же кандидат
 через `$env:LOCALAPPDATA`). **Рекомендация:** удалить строку. **Confidence:** High.
 

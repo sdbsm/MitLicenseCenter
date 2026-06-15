@@ -145,7 +145,7 @@ public sealed class PerfRecordingEndpointsTests
 
         var onec = new OneCLoadSnapshot(
             DateTime.UtcNow,
-            [new OneCSessionLoad(Guid.NewGuid(), 1, Guid.NewGuid(), "1CV8C", "Андрей", "PC",
+            [new OneCSessionLoad(Guid.NewGuid(), 1, Guid.NewGuid(), "1CV8C", "Иванов", "PC",
                 null, null, 109, 422, 0, -1138560, 0, 0, null)],
             []);
         var sql = new SqlPerformanceSnapshot(

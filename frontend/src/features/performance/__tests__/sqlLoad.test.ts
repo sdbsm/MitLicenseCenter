@@ -17,7 +17,7 @@ function request(o: Partial<SqlActiveRequest>): SqlActiveRequest {
     databaseName: "mitpro",
     isOneC: true,
     programName: "1CV83 Server",
-    hostName: "ANDREY-PC",
+    hostName: "HOST-01",
     status: "running",
     waitType: null,
     waitTimeMs: null,

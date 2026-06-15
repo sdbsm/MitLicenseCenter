@@ -96,7 +96,7 @@ public sealed class PerformanceEndpointsTests
             SessionId: Guid.Parse("02d5184c-65b5-4d8a-ae39-b156b909fcaf"),
             SessionNumber: 1,
             ClusterInfobaseId: Guid.Parse("6256b6f3-dde1-41f9-a6c2-bdfc36bca7aa"),
-            AppId: "1CV8C", UserName: "Андрей", Host: "ANDREY-PC",
+            AppId: "1CV8C", UserName: "Иванов", Host: "HOST-01",
             Process: Guid.Parse("487281d5-aaaa-bbbb-cccc-ddddeeeeffff"), Connection: null,
             CpuTimeCurrent: 109, DurationCurrent: 422, DurationCurrentDbms: 0,
             MemoryCurrent: -1138560, BlockedByDbms: 0, BlockedByLs: 0,
@@ -171,7 +171,7 @@ public sealed class PerformanceEndpointsTests
                 [
                     new SqlActiveRequest(
                         SessionId: 77, BlockingSessionId: null, DatabaseName: "mitpro", IsOneC: true,
-                        ProgramName: "1CV83 Server", HostName: "ANDREY-PC", Status: "running",
+                        ProgramName: "1CV83 Server", HostName: "HOST-01", Status: "running",
                         WaitType: null, WaitTimeMs: 0, CpuTimeMs: 1200, ElapsedMs: 1500,
                         LogicalReads: 90000, SqlText: "SELECT T1._IDRRef FROM dbo._Reference172 T1"),
                 ],

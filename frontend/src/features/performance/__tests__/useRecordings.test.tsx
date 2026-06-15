@@ -32,7 +32,7 @@ const summary: RecordingSummary = {
   startedAtUtc: "2026-06-09T10:00:00Z",
   stoppedAtUtc: null,
   status: "Active",
-  startedBy: "andrey",
+  startedBy: "operator",
   stopReason: null,
   sampleCount: 0,
 };

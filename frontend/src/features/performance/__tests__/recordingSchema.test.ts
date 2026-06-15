@@ -14,7 +14,7 @@ describe("recordingSummarySchema", () => {
       id: "11111111-1111-1111-1111-111111111111",
       startedAtUtc: "2026-06-09T10:00:00Z",
       status: "Active",
-      startedBy: "andrey",
+      startedBy: "operator",
       sampleCount: 3,
     };
     const parsed = recordingSummarySchema.parse(raw);
@@ -29,7 +29,7 @@ describe("recordingSummarySchema", () => {
       startedAtUtc: "2026-06-09T10:00:00Z",
       stoppedAtUtc: "2026-06-09T10:30:00Z",
       status: "Stopped",
-      startedBy: "andrey",
+      startedBy: "operator",
       stopReason: "Manual",
       sampleCount: 120,
     });
@@ -60,7 +60,7 @@ describe("recordingDetailSchema", () => {
         startedAtUtc: "2026-06-09T10:00:00Z",
         stoppedAtUtc: "2026-06-09T10:15:00Z",
         status: "Stopped",
-        startedBy: "andrey",
+        startedBy: "operator",
         stopReason: "TimeLimit",
         sampleCount: 1,
       },

@@ -24,7 +24,7 @@ function row(overrides: Partial<SessionSnapshotEntry>): SessionSnapshotEntry {
     tenantName: "Acme",
     infobaseName: "БП",
     appId: "1CV8C",
-    userName: "Андрей",
+    userName: "Иванов",
     host: "WS01",
     licenseStatus: "Consuming",
     startedAt: "2026-05-20T10:00:00Z",
@@ -63,8 +63,8 @@ function Host({ rows, isAdmin = false }: { rows: SessionSnapshotEntry[]; isAdmin
 
 describe("SessionsTable", () => {
   it("показывает реальное имя пользователя как есть", () => {
-    render(<Host rows={[row({ userName: "Андрей" })]} />);
-    expect(screen.getByText("Андрей")).toBeInTheDocument();
+    render(<Host rows={[row({ userName: "Иванов" })]} />);
+    expect(screen.getByText("Иванов")).toBeInTheDocument();
   });
 
   it("пустое имя пользователя рендерит метку «без пользователя»", () => {
