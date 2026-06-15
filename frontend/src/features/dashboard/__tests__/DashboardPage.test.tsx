@@ -149,4 +149,33 @@ describe("DashboardPage (MLC-085: обзор с переходами)", () => {
       screen.queryByText("Нет связи с кластером 1С. Проверьте адрес RAS в разделе «Параметры».")
     ).not.toBeInTheDocument();
   });
+
+  // MLC-161 (инвариант ADR-47): сигнал недоступности RAS на дашборде питается
+  // ТОЛЬКО дешёвым health-снимком `summary.ras`. Дорогой `/ras-service/status`
+  // (перебор всех служб Windows) с дашборда дёргать нельзя — это дом Настроек.
+  it("сигнал недоступности RAS НЕ вызывает дорогой /ras-service/status", async () => {
+    mockedApi.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.includes("/performance/host")
+          ? host
+          : ({
+              ...summary,
+              ras: {
+                healthy: false,
+                lastCheckedAtUtc: "2026-06-10T12:00:00Z",
+                lastErrorMessage: "rac.exe не найден по указанному пути.",
+                consecutiveFailures: 2,
+              },
+            } as unknown)
+      )
+    );
+    renderPage();
+
+    // Дожидаемся, пока сигнал отрисован (значит, дашборд отработал свои запросы).
+    await waitFor(() => expect(screen.getByText("Открыть «Параметры»")).toBeInTheDocument());
+
+    const calledUrls = mockedApi.mock.calls.map((call) => String(call[0]));
+    expect(calledUrls.some((url) => url.includes("/api/v1/dashboard/summary"))).toBe(true);
+    expect(calledUrls.some((url) => url.includes("/ras-service/status"))).toBe(false);
+  });
 });
