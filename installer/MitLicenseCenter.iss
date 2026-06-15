@@ -852,22 +852,27 @@ begin
   connStr := ProvisioningConnString('master');
 
   { Имя учётки уходит в SqlParameter @p_acct (ADO.NET), внутри T-SQL присваивается в @acct и
-    подставляется через sp_executesql + QUOTENAME (DDL не принимает переменную напрямую — нельзя
-    параметризовать CREATE LOGIN / ALTER SERVER ROLE). Имя учётки в командную строку НЕ попадает.
-    T-SQL — одной PowerShell '...'-строкой (как в DatabaseHasPanelUsers): одиночные кавычки T-SQL
-    удвоены до '' (для PowerShell-литерала); чтобы получить N'...'-строку внутри sp_executesql,
+    подставляется через QUOTENAME (DDL не принимает переменную напрямую — нельзя параметризовать
+    CREATE LOGIN / ALTER SERVER ROLE). Динамический statement СНАЧАЛА собирается в @sql, и только
+    потом EXEC sys.sp_executesql @sql (MLC-172): конкатенацию НЕЛЬЗЯ передавать прямо в аргумент
+    sp_executesql — `EXEC sp_executesql N''..''+QUOTENAME(..)` даёт «Неправильный синтаксис около
+    "+"» (первый аргумент proc-у — только переменная/литерал, не выражение). Имя учётки в командную
+    строку НЕ попадает. T-SQL — одной PowerShell '...'-строкой (как в DatabaseHasPanelUsers):
+    одиночные кавычки T-SQL удвоены до '' (для PowerShell-литерала); чтобы получить N'...'-строку,
     исходная T-SQL-кавычка '...' пишется как '''' в PS-литерале. }
   psScript :=
     '$ErrorActionPreference=''Stop'';' + #13#10 +
     '$cs = ''' + PsSingleQuote(connStr) + ''';' + #13#10 +
     '$acct = ''' + PsSingleQuote(acct) + ''';' + #13#10 +
-    '$tsql = ''DECLARE @acct sysname = @p_acct;' +
+    '$tsql = ''DECLARE @acct sysname = @p_acct; DECLARE @sql nvarchar(max);' +
       ' IF NOT EXISTS (SELECT 1 FROM sys.server_principals WHERE name = @acct)' +
-      ' EXEC sys.sp_executesql N''''CREATE LOGIN ''''+QUOTENAME(@acct)+N'''' FROM WINDOWS;'''';' +
+      ' BEGIN SET @sql = N''''CREATE LOGIN ''''+QUOTENAME(@acct)+N'''' FROM WINDOWS;'''';' +
+      ' EXEC sys.sp_executesql @sql; END' +
       ' IF NOT EXISTS (SELECT 1 FROM sys.server_role_members rm' +
       ' JOIN sys.server_principals r ON r.principal_id=rm.role_principal_id AND r.name=N''''sysadmin''''' +
       ' JOIN sys.server_principals m ON m.principal_id=rm.member_principal_id AND m.name=@acct)' +
-      ' EXEC sys.sp_executesql N''''ALTER SERVER ROLE sysadmin ADD MEMBER ''''+QUOTENAME(@acct)+N'''';'''';'';' + #13#10 +
+      ' BEGIN SET @sql = N''''ALTER SERVER ROLE sysadmin ADD MEMBER ''''+QUOTENAME(@acct)+N'''';'''';' +
+      ' EXEC sys.sp_executesql @sql; END'';' + #13#10 +
     'try {' + #13#10 +
     '  $c = New-Object System.Data.SqlClient.SqlConnection $cs;' + #13#10 +
     '  $c.Open();' + #13#10 +
@@ -1260,12 +1265,7 @@ begin
   ConnTestPassed := ok;
   if ok then
   begin
-    if ProvisioningMode = PROV_SQLLOGIN then
-      TestResultLabel.Caption := 'OK: инстанс достижим (проверка под указанным SQL-логином). ' +
-        'SQL-логин учётной записи службы установщик создаст автоматически при установке.'
-    else
-      TestResultLabel.Caption := 'OK: инстанс достижим (проверка под учётной записью администратора-установщика). ' +
-        'SQL-логин учётной записи службы установщик создаст автоматически при установке.';
+    TestResultLabel.Caption := 'OK: SQL доступен. Логин службы установщик создаст сам.';
     TestResultLabel.Font.Color := clGreen;
   end
   else
@@ -1361,16 +1361,11 @@ begin
     лишь разовый «ключ» провижининга, в конфиг не пишется и нигде не сохраняется. }
   PageProv := CreateInputOptionPage(PageSql.ID,
     'Подключение установщика к SQL',
-    'Под какой учётной записью установщик подключается к SQL Server',
-    'Установщик один раз подключается к SQL, чтобы создать Windows-логин учётной записи службы ' +
-    '(всегда CREATE LOGIN … FROM WINDOWS) и назначить ему роль sysadmin. Указанные ниже данные ' +
-    'используются ОДНОКРАТНО и НЕ сохраняются — служба всегда ходит к SQL по Trusted_Connection, ' +
-    'SQL-пароль в конфигурацию не пишется. Вариант «SQL-логин» требует экземпляра в смешанном режиме.',
+    'Как установщик подключится к SQL для создания учётной записи службы',
+    'Данные используются однократно и не сохраняются.',
     True, False);
-  PageProv.Add('Под учётной записью администратора, запустившего установку (Integrated Security) — ' +
-    'рекомендуется. Подходит и для «только Windows-аутентификация». Ввод не требуется.');
-  PageProv.Add('SQL-логином с ролью sysadmin (например sa) — для смешанного режима, когда ' +
-    'запускающий администратор не sysadmin на SQL.');
+  PageProv.Add('Текущий администратор (Integrated Security) — рекомендуется.');
+  PageProv.Add('SQL-логин с ролью sysadmin (например sa).');
   PageProv.SelectedValueIndex := PROV_INTEGRATED;
 
   { Поля SQL-логина провижининга на поверхности страницы (значимы только для варианта (1)).
@@ -1383,7 +1378,7 @@ begin
   ProvUserLabel.Left := 0;
   ProvUserLabel.Top := PageProv.CheckListBox.Top + PageProv.CheckListBox.Height + ScaleY(12);
   ProvUserLabel.Width := PageProv.SurfaceWidth;
-  ProvUserLabel.Caption := 'SQL-логин с ролью sysadmin (например sa):';
+  ProvUserLabel.Caption := 'SQL-логин (sysadmin):';
 
   ProvUserEdit := TNewEdit.Create(WizardForm);
   ProvUserEdit.Parent := PageProv.Surface;
@@ -1398,7 +1393,7 @@ begin
   ProvPasswordLabel.Left := 0;
   ProvPasswordLabel.Top := ProvUserEdit.Top + ProvUserEdit.Height + ScaleY(8);
   ProvPasswordLabel.Width := PageProv.SurfaceWidth;
-  ProvPasswordLabel.Caption := 'Пароль SQL-логина:';
+  ProvPasswordLabel.Caption := 'Пароль:';
 
   ProvPasswordEdit := TPasswordEdit.Create(WizardForm);
   ProvPasswordEdit.Parent := PageProv.Surface;
@@ -1440,15 +1435,10 @@ begin
   PageAuthMode := CreateInputOptionPage(PageProv.ID,
     'Учётная запись службы',
     'Под какой учётной записью работает служба панели',
-    'Служба подключается к ЛОКАЛЬНОМУ SQL Server по доверенному подключению Windows ' +
-    '(Trusted_Connection). SQL-логин и пароль в конфигурации БОЛЬШЕ НЕ используются. ' +
-    'Установщик сам создаёт SQL-логин выбранной учётной записи с ролью sysadmin — для этого ' +
-    'запускающий установку администратор должен быть sysadmin на локальном экземпляре SQL.',
+    'К SQL во всех случаях — по Windows-аутентификации (Trusted_Connection).',
     True, False);
-  PageAuthMode.Add('Виртуальная учётная запись «{#MyVirtualAccount}» (рекомендуется) — без пароля, ' +
-    'подходит и для рабочей группы, и для домена. Ввод учётных данных не требуется.');
-  PageAuthMode.Add('Указанная учётная запись Windows / gMSA — для доменных сценариев ' +
-    '(ДОМЕН\Пользователь или ДОМЕН\Имя$ для gMSA).');
+  PageAuthMode.Add('Виртуальная учётная запись «{#MyVirtualAccount}» (рекомендуется) — без пароля.');
+  PageAuthMode.Add('Указанная учётная запись Windows / gMSA (для домена).');
   PageAuthMode.SelectedValueIndex := ACCT_VIRTUAL;
 
   { --- Страница «Учётные данные» (только для именованной учётки, ShouldSkipPage) --- }
@@ -1458,7 +1448,7 @@ begin
   PageCreds := CreateInputQueryPage(PageAuthMode.ID,
     'Учётные данные',
     'Именованная учётная запись Windows / gMSA для службы',
-    'Введите имя заранее созданной Windows-учётной записи (или gMSA) и, если это не gMSA, её пароль.');
+    'Имя заранее созданной учётной записи. Для gMSA отметьте чекбокс и оставьте пароль пустым.');
   PageCreds.Add('Windows-аккаунт / gMSA (ДОМЕН\Пользователь или ДОМЕН\Имя$):', False);
   PageCreds.Add('Пароль:', True);
 
@@ -1537,16 +1527,8 @@ begin
       перенесён на страницу «Подключение установщика к SQL» (MLC-171) — здесь только реквизиты учётки. }
     PageCreds.PromptLabels[0].Caption := 'Windows-аккаунт / gMSA (ДОМЕН\Пользователь или ДОМЕН\Имя$):';
     PageCreds.SubCaptionLabel.Caption :=
-      'Введите именованную Windows-учётную запись (или gMSA), под которой будет работать служба. ' +
-      'Если это gMSA — отметьте чекбокс ниже и оставьте поле пароля пустым (паролем gMSA управляет домен).' + #13#10 +
-      '' + #13#10 +
-      'Требования к учётной записи:' + #13#10 +
-      '1. SQL: SQL-логин этой учётки создаётся установщиком автоматически (роль sysadmin) под личностью, ' +
-      'выбранной на странице «Подключение установщика к SQL». Достижимость инстанса проверяется там же.' + #13#10 +
-      '2. IIS: для функций публикации/recycle/iisreset учётку установщик добавляет в локальную группу ' +
-      'Администраторов автоматически. Если это не удастся — публикации будут в статусе «Ошибка проверки».' + #13#10 +
-      '3. Право «Вход в качестве службы» (SeServiceLogonRight): SCM выдаёт его автоматически при создании ' +
-      'службы; если нет — задать вручную через secpol.msc.';
+      'Учётная запись, под которой работает служба. Для gMSA отметьте чекбокс и оставьте пароль пустым.' + #13#10 +
+      'SQL-логин и членство в Администраторах установщик настроит сам. Подробности — docs/INSTALL.';
   end;
 
   { Финальный экран: подтверждаем вход и даём URL. Пароль admin НЕ показываем — его задал
