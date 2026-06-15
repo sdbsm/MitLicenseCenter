@@ -18,6 +18,7 @@ using MitLicenseCenter.Application.Ras;
 using MitLicenseCenter.Application.Reporting;
 using MitLicenseCenter.Application.Sessions;
 using MitLicenseCenter.Application.Settings;
+using MitLicenseCenter.Application.Updates;
 using MitLicenseCenter.Infrastructure.Audit;
 using MitLicenseCenter.Infrastructure.Backups;
 using MitLicenseCenter.Infrastructure.Clusters;
@@ -31,6 +32,7 @@ using MitLicenseCenter.Infrastructure.Publishing;
 using MitLicenseCenter.Infrastructure.Ras;
 using MitLicenseCenter.Infrastructure.Reporting;
 using MitLicenseCenter.Infrastructure.Settings;
+using MitLicenseCenter.Infrastructure.Updates;
 
 namespace MitLicenseCenter.Infrastructure;
 
@@ -131,6 +133,20 @@ public static class DependencyInjection
         // (DbContext-bound). Mutate через store → store.Invalidate() сбрасывает snapshot.
         services.AddSingleton<ISettingsSnapshot, SettingsSnapshot>();
         services.AddScoped<ISettingsStore, SettingsStore>();
+
+        // MLC-176: проверка обновлений через GitHub Releases — первый исходящий HTTP в
+        // проекте. Типизированный HttpClient к публичному GitHub API. User-Agent
+        // обязателен (без него GitHub отвечает 403); Accept + X-GitHub-Api-Version
+        // фиксируют контракт v3 (2022-11-28). Короткий таймаут 10с: проверка фоновая и
+        // не должна вешать запрос /updates/status. Реализация ловит все сбои → null.
+        services.AddHttpClient<IGitHubReleaseClient, GitHubReleaseClient>(c =>
+        {
+            c.BaseAddress = new Uri("https://api.github.com/");
+            c.Timeout = TimeSpan.FromSeconds(10);
+            c.DefaultRequestHeaders.UserAgent.ParseAdd("MitLicenseCenter");
+            c.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
+            c.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");
+        });
 
         // Cluster adapter: rac.exe wrapper — единственный 1С cluster-адаптер
         // (Stage 5 PR 5.1, ADR-16). REST adapter и Polly circuit breaker удалены —

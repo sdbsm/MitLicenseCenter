@@ -277,6 +277,35 @@ RAS (`Available=false`) эндпоинт **не** фильтрует по неп
 
 ---
 
+### 3.6 Проверка обновлений (ADR-50, MLC-176)
+
+Группа `/api/v1/updates` сверяет версию панели с последним релизом на GitHub и сигналит о новой
+версии. Это **первый исходящий HTTP** в проекте: типизированный `HttpClient` к публичному GitHub
+Releases API за портом `IGitHubReleaseClient` (граница ADR-20). Текущая версия берётся из
+informational-версии сборки (как в `/health`), репозиторий — из настройки `Updates.Repository`.
+
+| Маршрут | Роль | Тело ответа | Аудит |
+|---|---|---|---|
+| `GET /api/v1/updates/status` | Viewer | `UpdateStatusResponse` | — |
+| `POST /api/v1/updates/check-now` | Admin | `UpdateStatusResponse` | — |
+
+Аудит **не пишется** (проверка read-only, enum `AuditActionType` заморожен). Контракт
+`UpdateStatusResponse(CurrentVersion, LatestVersion?, UpdateAvailable, ReleaseUrl?, DownloadUrl?,
+CheckAvailable, CheckedAtUtc)`: `CurrentVersion` всегда заполнен; при `CheckAvailable=false`
+(рубильник `Updates.Enabled=0`, пустой репозиторий или GitHub-сбой) — `LatestVersion`/`ReleaseUrl`/
+`DownloadUrl=null` и `UpdateAvailable=false`. `DownloadUrl` = `browser_download_url` первого ассета
+релиза с именем на `.exe`.
+
+**Кеш-стратегия.** Ленивый `IMemoryCache.GetOrCreateAsync("updates:status", …)` (паттерн
+`DashboardEndpoints`), **без фонового hosted-service**. TTL = `Updates.CheckIntervalHours` при успешной
+проверке; при `CheckAvailable=false` — короткий TTL 5 мин (временный сбой не «залипает» на часы).
+`check-now` делает `cache.Remove` и пересчитывает. Сравнение тегов — чистый semver-компаратор
+`AppVersion`/`UpdateComparison` (Domain/Updates): major.minor.patch, при равной тройке release >
+prerelease; непарсимая сторона → «обновление недоступно». Установщик запускается **вручную** админом
+под UAC — бэкенд только отдаёт URL (ADR-50).
+
+---
+
 ## 4. Валидация
 
 ### 4.1 Parity-конвенция BE↔FE

@@ -217,5 +217,34 @@ public static class SettingDefinitions
                 DefaultValue: "2048",
                 Min: 0,
                 Max: 1048576),
+
+            // ADR-50: канал обновлений — `latest`-релиз публичного GitHub-репо. Сверка
+            // анонимная (без токена), результат кэшируется на CheckIntervalHours.
+            [SettingKey.UpdatesRepository] = new(
+                SettingKey.UpdatesRepository,
+                IsSecret: false,
+                Description: "Репозиторий GitHub в формате owner/repo, чей последний релиз сверяется с версией панели для уведомления об обновлении.",
+                Kind: SettingValueKind.Text,
+                DefaultValue: "sdbsm/MitLicenseCenter"),
+
+            [SettingKey.UpdatesCheckIntervalHours] = new(
+                SettingKey.UpdatesCheckIntervalHours,
+                IsSecret: false,
+                Description: "Период кэширования результата проверки обновлений, часы. Чаще панель к GitHub не ходит.",
+                Kind: SettingValueKind.Number,
+                DefaultValue: "6",
+                Min: 1,
+                Max: 168),
+
+            // 0/1 рубильник (без отдельного SettingValueKind.Bool — читается GetInt как 0/1):
+            // 0 → проверку не выполнять, в GitHub не ходить.
+            [SettingKey.UpdatesEnabled] = new(
+                SettingKey.UpdatesEnabled,
+                IsSecret: false,
+                Description: "Включить проверку обновлений через GitHub Releases (1 — включена, 0 — выключена).",
+                Kind: SettingValueKind.Number,
+                DefaultValue: "1",
+                Min: 0,
+                Max: 1),
         };
 }

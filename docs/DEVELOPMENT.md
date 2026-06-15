@@ -220,6 +220,25 @@ Hangfire и Identity рефлексивны, обрезка их ломает. T
 `-IsccPath` → `$env:ISCC_PATH` → PATH → стандартные каталоги (`%LOCALAPPDATA%\Programs\Inno Setup 6`,
 `Program Files (x86)`, `Program Files`). Результат: `artifacts\<version>\MitLicenseCenter-Setup-<version>.exe`.
 
+### Публикация релиза для проверки обновлений (ADR-50)
+
+Чтобы установленная панель увидела новую версию (баннер «Доступна версия X.Y.Z», ADR-50),
+GitHub-релиз должен удовлетворять контракту проверки `/updates/status`:
+
+- **Тег релиза — `vX.Y.Z`** (ведущий `v` опционален; формат `major.minor.patch[-suffix]`).
+  Сверяется с informational-версией сборки (`backend/Directory.Build.props`); финальный релиз
+  обходит свой же `-beta` при равной тройке.
+- **Прикреплённый ассет-установщик** с именем на `.exe` (`MitLicenseCenter-Setup-<version>.exe`
+  из `build-installer.ps1`) — его `browser_download_url` отдаётся как `DownloadUrl` (кнопка
+  «Скачать установщик» в баннере/карточке, только Admin). Нет такого ассета → баннер покажет
+  только ссылку «Открыть релиз».
+- **Ссылка-changelog** = `html_url` релиза (страница релиза на GitHub) — панель её не рендерит,
+  только ссылается. Описание релиза = changelog для оператора.
+
+Репозиторий проверки задаётся настройкой `Updates.Repository` (default `sdbsm/MitLicenseCenter`);
+проверка анонимна (rate-limit GitHub без токена — 60 запросов/час на IP, с запасом для ленивого
+кэша `Updates.CheckIntervalHours`).
+
 ### `perf-counters.ps1` — снятие метрик
 
 ```powershell

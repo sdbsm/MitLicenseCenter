@@ -27,6 +27,7 @@ const TOP_LEVEL_KEYS = [
   "sessions",
   "settings",
   "discovery",
+  "updates",
   "errors",
 ] as const;
 
