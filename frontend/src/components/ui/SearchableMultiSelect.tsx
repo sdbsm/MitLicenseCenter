@@ -22,6 +22,10 @@ interface SearchableMultiSelectProps {
   searchPlaceholder?: string;
   /** Текст пустого результата фильтрации. */
   emptyText?: string;
+  /** Подпись действия «Выбрать все» (по умолчанию — `common.selectAll`). */
+  selectAllLabel?: string;
+  /** Подпись действия «Снять все» (по умолчанию — `common.deselectAll`). */
+  deselectAllLabel?: string;
   className?: string;
   triggerClassName?: string;
   "aria-label"?: string;
@@ -43,6 +47,8 @@ export function SearchableMultiSelect({
   selectedLabel,
   searchPlaceholder,
   emptyText,
+  selectAllLabel,
+  deselectAllLabel,
   className,
   triggerClassName,
   "aria-label": ariaLabel,
@@ -66,6 +72,23 @@ export function SearchableMultiSelect({
       onChange(value.filter((v) => v !== optionValue));
     } else {
       onChange([...value, optionValue]);
+    }
+  };
+
+  // «Выбрать все / Снять все» по текущему отфильтрованному поиском списку (а не по всему
+  // каталогу), чтобы действие предсказуемо влияло на видимые опции. Если все видимые уже
+  // выбраны — снимаем их (сохраняя выбор вне фильтра); иначе — добавляем недостающие.
+  const allFilteredSelected =
+    filtered.length > 0 && filtered.every((o) => selectedSet.has(o.value));
+
+  const toggleAll = () => {
+    if (allFilteredSelected) {
+      const filteredValues = new Set(filtered.map((o) => o.value));
+      onChange(value.filter((v) => !filteredValues.has(v)));
+    } else {
+      const next = new Set(value);
+      for (const o of filtered) next.add(o.value);
+      onChange([...next]);
     }
   };
 
@@ -108,6 +131,19 @@ export function SearchableMultiSelect({
             aria-label={searchPlaceholder ?? t("common.search")}
           />
         </div>
+        {filtered.length > 0 && (
+          <div className="border-b p-1">
+            <button
+              type="button"
+              onClick={toggleAll}
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm font-medium outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
+            >
+              {allFilteredSelected
+                ? (deselectAllLabel ?? t("common.deselectAll"))
+                : (selectAllLabel ?? t("common.selectAll"))}
+            </button>
+          </div>
+        )}
         <div role="listbox" aria-multiselectable className="max-h-72 overflow-y-auto p-1">
           {filtered.map((option) => {
             const isSelected = selectedSet.has(option.value);

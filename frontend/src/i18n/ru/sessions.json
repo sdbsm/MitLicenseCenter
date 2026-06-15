@@ -22,7 +22,8 @@
       "appType": "Тип сеанса",
       "allAppTypes": "Все типы сеансов",
       "searchAppType": "Поиск по типу…",
-      "appTypeSelected": "Типы: {{count}}"
+      "appTypeSelected": "Типы: {{count}}",
+      "consumingOnly": "Только лицензионные"
     },
     "appTypes": {
       "1CV8": "Толстый клиент",

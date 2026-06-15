@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import i18n from "@/i18n";
 import { parseParams, defaultAppIds, resolveAppIds } from "../useSessionsPage";
-import { appTypeLabel, isInteractiveAppId, INTERACTIVE_APP_IDS } from "../appTypes";
+import { appTypeLabel, isInteractiveAppId, INTERACTIVE_APP_IDS, KNOWN_APP_IDS } from "../appTypes";
 
 /**
  * MLC-165: фильтр по типам сеансов (app-id). Покрываем дефолт-поведение (фоновые скрыты),
@@ -34,6 +34,31 @@ describe("parseParams — appIds (MLC-165)", () => {
     expect(p.q).toBe("acme");
     expect(p.infobaseId).toBe("ib-1");
     expect(p.appIds).toEqual(["1CV8"]);
+  });
+});
+
+describe("parseParams — consuming-тумблер «Только лицензионные» (MLC-167)", () => {
+  it("чистый URL → consuming=true (ВКЛ по умолчанию)", () => {
+    expect(parseParams(new URLSearchParams("")).consuming).toBe(true);
+  });
+
+  it("consuming=0 → выключен", () => {
+    expect(parseParams(new URLSearchParams("consuming=0")).consuming).toBe(false);
+  });
+
+  it("любое значение кроме '0' → включён (только '0' выключает)", () => {
+    expect(parseParams(new URLSearchParams("consuming=1")).consuming).toBe(true);
+  });
+
+  it("URL round-trip: ВКЛ → нет параметра; ВЫКЛ → consuming=0", () => {
+    // ВКЛ — дефолтный, чистый URL (параметр не пишется).
+    const onParams = new URLSearchParams();
+    expect(onParams.toString()).toBe("");
+    expect(parseParams(onParams).consuming).toBe(true);
+    // ВЫКЛ — пишется consuming=0.
+    const offParams = new URLSearchParams();
+    offParams.set("consuming", "0");
+    expect(parseParams(offParams).consuming).toBe(false);
   });
 });
 
@@ -145,5 +170,82 @@ describe("URL round-trip appIds (MLC-165)", () => {
     params.set("appIds", [].join(","));
     const { appIds } = parseParams(new URLSearchParams(params.toString()));
     expect(appIds).toEqual([]);
+  });
+});
+
+describe("опции селекта типов — полный каталог (MLC-167)", () => {
+  // Воспроизводим построение appTypeOptions из useSessionsPage: KNOWN_APP_IDS ∪ extras.
+  function buildOptions(presentAppIds: string[]): string[] {
+    const known = new Set<string>(KNOWN_APP_IDS);
+    const extras = presentAppIds
+      .filter((appId) => !known.has(appId))
+      .sort((a, b) => a.localeCompare(b, "ru"));
+    return [...KNOWN_APP_IDS, ...extras];
+  }
+
+  it("опции включают типы из каталога даже если их нет в снапшоте (напр. BackgroundJob)", () => {
+    // Снапшот содержит только тонкий клиент — но BackgroundJob всё равно среди опций.
+    const present = ["1CV8C"];
+    const options = buildOptions(present);
+    expect(options).toContain("BackgroundJob");
+    expect(options).toContain("Debugger");
+  });
+
+  it("полный каталог присутствует целиком и в каноническом порядке", () => {
+    expect(buildOptions([])).toEqual([...KNOWN_APP_IDS]);
+  });
+
+  it("незнакомый app-id из снапшота добавляется в конец (после каталога)", () => {
+    const options = buildOptions(["1CV8C", "FutureClient"]);
+    expect(options).toEqual([...KNOWN_APP_IDS, "FutureClient"]);
+  });
+
+  it("каталог не дублирует присутствующие типы", () => {
+    const options = buildOptions(["BackgroundJob", "1CV8C"]);
+    expect(options.filter((o) => o === "BackgroundJob")).toHaveLength(1);
+  });
+});
+
+describe("фильтрация по consuming-тумблеру (логика filtered memo, MLC-167)", () => {
+  // Воспроизводим режим тумблера из useSessionsPage.filtered.
+  type Row = { appId: string; licenseStatus: "Consuming" | "NotConsuming" | "Pending" };
+  const rows: Row[] = [
+    { appId: "1CV8C", licenseStatus: "Consuming" },
+    { appId: "1CV8C", licenseStatus: "NotConsuming" },
+    { appId: "WebClient", licenseStatus: "Pending" },
+    { appId: "BackgroundJob", licenseStatus: "Consuming" },
+  ];
+
+  function applyFilter(items: Row[], consuming: boolean, effectiveAppIds: string[]): Row[] {
+    if (consuming) {
+      return items.filter((r) => r.licenseStatus === "Consuming");
+    }
+    const set = new Set(effectiveAppIds);
+    return items.filter((r) => set.has(r.appId));
+  }
+
+  it("тумблер ВКЛ → только Consuming, типы игнорируются (даже фоновый BackgroundJob)", () => {
+    // effectiveAppIds намеренно пустой — в режиме consuming он не должен влиять.
+    const result = applyFilter(rows, true, []);
+    expect(result).toEqual([
+      { appId: "1CV8C", licenseStatus: "Consuming" },
+      { appId: "BackgroundJob", licenseStatus: "Consuming" },
+    ]);
+  });
+
+  it("тумблер ВКЛ скрывает Pending и NotConsuming", () => {
+    const statuses = applyFilter(rows, true, ["1CV8C", "WebClient", "BackgroundJob"]).map(
+      (r) => r.licenseStatus
+    );
+    expect(statuses).not.toContain("Pending");
+    expect(statuses).not.toContain("NotConsuming");
+  });
+
+  it("тумблер ВЫКЛ → действует фильтр типов, статус лицензии не учитывается", () => {
+    const result = applyFilter(rows, false, ["1CV8C"]);
+    expect(result).toEqual([
+      { appId: "1CV8C", licenseStatus: "Consuming" },
+      { appId: "1CV8C", licenseStatus: "NotConsuming" },
+    ]);
   });
 });

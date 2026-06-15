@@ -20,6 +20,31 @@ export function isInteractiveAppId(appId: string): boolean {
 }
 
 /**
+ * Полный упорядоченный каталог известных типов сеансов (app-id), ключи маппинга
+ * `sessions.appTypes` (MLC-167). Используется как набор опций фильтра «Тип сеанса»
+ * НЕЗАВИСИМО от текущего снапшота — оператор может заранее отметить тип, которого
+ * ещё нет онлайн. Незнакомые app-id из кластера, отсутствующие в каталоге,
+ * добавляются к опциям отдельно (см. `useSessionsPage.appTypeOptions`).
+ * Порядок осмысленный: интерактивные клиенты → серверные соединения → фоновые →
+ * служебные консоли/отладчик.
+ */
+export const KNOWN_APP_IDS = [
+  "1CV8",
+  "1CV8C",
+  "WebClient",
+  "Designer",
+  "COMConnection",
+  "WSConnection",
+  "HTTPServiceConnection",
+  "BackgroundJob",
+  "SystemBackgroundJob",
+  "JobScheduler",
+  "SrvrConsole",
+  "COMConsole",
+  "Debugger",
+] as const;
+
+/**
  * Человеческое имя типа сеанса по app-id из i18n-раздела `sessions.appTypes`.
  * Неизвестный app-id (нет в маппинге) возвращается как есть — UI не падает.
  */
