@@ -213,6 +213,7 @@ UTF-16LE и декодируется как `Encoding.Unicode`.
 | `audit-retention` | `IAuditRetentionJob.RunAsync` | `0 3 * * *` | Ночная очистка журнала аудита (окно — `Audit.RetentionDays`) |
 | `backup-retention` | `IBackupRetentionJob.RunAsync` | `15 3 * * *` | Ночное удаление устаревших файлов бэкапов (TTL — `Backup.TtlHours`) |
 | `license-usage-retention` | `ILicenseUsageRetentionJob.RunAsync` | `30 3 * * *` | Ночная очистка истории потребления лицензий (окно — `LicenseUsage.RetentionDays`) |
+| `perf-recording-retention` | `IPerfRecordingRetentionJob.RunAsync` | `45 3 * * *` | Ночная очистка записей «Быстродействия» (`PerfRecordings` + каскадные сэмплы); срок — константа в джобе (90 дней), оператором не настраивается |
 
 Завершённым джобам выставляется ограниченный срок хранения в схеме `hangfire`. Дашборд
 Hangfire доступен на `/hangfire` только роли Admin.

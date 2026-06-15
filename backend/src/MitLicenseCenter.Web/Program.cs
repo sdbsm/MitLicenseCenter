@@ -397,6 +397,14 @@ if (!app.Environment.IsEnvironment("Test"))
         "backup-retention",
         j => j.RunAsync(CancellationToken.None),
         "15 3 * * *");
+
+    // Perf recording retention (MLC-169): ежедневно в 03:45 UTC — смещён от 03:00 audit,
+    // 03:15 backup и 03:30 license-usage, чтобы ночные housekeeping-джобы не пересекались.
+    // Срок хранения зашит константой в джобе (не настраивается оператором); cadence фиксирован.
+    RecurringJob.AddOrUpdate<IPerfRecordingRetentionJob>(
+        "perf-recording-retention",
+        j => j.RunAsync(CancellationToken.None),
+        "45 3 * * *");
 } // end if (!app.Environment.IsEnvironment("Test"))
 
 // Fail-fast bootstrap. Миграции и сидинг выполняются СИНХРОННО до открытия приёма
