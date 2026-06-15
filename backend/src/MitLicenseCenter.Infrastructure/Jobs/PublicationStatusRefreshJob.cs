@@ -101,7 +101,27 @@ internal sealed partial class PublicationStatusRefreshJob : IPublicationStatusJo
         var snapshots = await LoadSnapshotsAsync(p => p.Id == publicationId, ct).ConfigureAwait(false);
         if (snapshots.Count == 0)
             return;
-        await ProcessOneAsync(snapshots[0], ct).ConfigureAwait(false);
+
+        var snapshot = snapshots[0];
+        try
+        {
+            await ProcessOneAsync(snapshot, ct).ConfigureAwait(false);
+        }
+        catch (DbUpdateConcurrencyException ex)
+        {
+            // MLC-163 — benign-конфликт: строку публикации изменили параллельно между
+            // загрузкой снапшота и сохранением статуса (targeted-UPDATE по совпадающему
+            // RowVersion затронул 0 строк). Это НЕ ошибка ручной «Проверить» — статус
+            // подтянется следующим циклом, поэтому глотаем (Warning) вместо 500. CheckAsync
+            // после возврата перечитает LastCheck* проекцией и вернёт актуальное значение.
+            LogStatusItemFailed(_logger, snapshot.Id, ex);
+
+            // Снимаем со слежения «отравленный» attach неуспешного SaveChanges (probe
+            // остался Modified после провала). Detached, а не Modified/Added — только отвязка.
+            var stuck = _db.Publications.Local.FirstOrDefault(p => p.Id == snapshot.Id);
+            if (stuck is not null && _db.Entry(stuck).State != EntityState.Unchanged)
+                _db.Entry(stuck).State = EntityState.Detached;
+        }
     }
 
     private async Task<List<StatusSnapshot>> LoadSnapshotsAsync(
@@ -115,7 +135,8 @@ internal sealed partial class PublicationStatusRefreshJob : IPublicationStatusJo
                 p.SiteName,
                 p.VirtualPath,
                 p.PlatformVersion,
-                p.PhysicalPathOverride))
+                p.PhysicalPathOverride,
+                p.RowVersion))
             .ToListAsync(ct)
             .ConfigureAwait(false);
 
@@ -128,6 +149,12 @@ internal sealed partial class PublicationStatusRefreshJob : IPublicationStatusJo
             VirtualPath = snapshot.VirtualPath,
             PlatformVersion = snapshot.PlatformVersion,
             PhysicalPathOverride = snapshot.PhysicalPathOverride,
+            // MLC-163 — concurrency-токен публикации (MLC-151) обязан совпадать со
+            // значением в БД. Иначе attach'нутый probe несёт пустой RowVersion и EF
+            // строит targeted-UPDATE `… WHERE Id=@id AND RowVersion=@token` с пустым
+            // токеном → 0 строк → DbUpdateConcurrencyException ВСЕГДА (регрессия 0.5.0).
+            // Снимок проецирует p.RowVersion → подставляем как ожидаемую версию строки.
+            RowVersion = snapshot.RowVersion,
         };
 
         var actual = await _iis.ReadActualStateAsync(probe, ct).ConfigureAwait(false);
@@ -153,7 +180,8 @@ internal sealed partial class PublicationStatusRefreshJob : IPublicationStatusJo
         string SiteName,
         string VirtualPath,
         string PlatformVersion,
-        string? PhysicalPathOverride);
+        string? PhysicalPathOverride,
+        byte[]? RowVersion);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Publication status refresh cycle failed")]
     private static partial void LogStatusRunFailed(ILogger logger, Exception ex);
