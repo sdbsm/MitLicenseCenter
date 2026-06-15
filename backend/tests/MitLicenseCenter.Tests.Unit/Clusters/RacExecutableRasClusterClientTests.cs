@@ -48,7 +48,6 @@ public sealed class RacExecutableRasClusterClientTests
         s.AppId.Should().Be("1CV8C");
         s.UserName.Should().Be("Андрей");
         s.Host.Should().Be("workstation01");
-        s.ConsumesLicense.Should().BeTrue("1CV8C ∈ LicenseConsumingAppIds");
         s.StartedAtUtc.Kind.Should().Be(DateTimeKind.Utc);
         // started-at от rac.exe — локальное время сервера → конвертируется в UTC.
         // Детерминированно на любой машине (на UTC-CI local==UTC).
@@ -57,52 +56,98 @@ public sealed class RacExecutableRasClusterClientTests
         s.StartedAtUtc.Should().Be(expectedUtc);
     }
 
+    // --- ADR-48 (MLC-166): факт лицензий через `session list --licenses` ---
+
     [Fact]
-    public async Task ListActiveSessionsAsync_filters_consumes_license_via_app_id_heuristic()
+    public async Task ListLicensedSessionIdsAsync_returns_session_ids_with_license_block()
     {
-        const string twoSessions =
-            "session : 11111111-1111-1111-1111-111111111111\r\n" +
-            "infobase : 6256b6f3-dde1-41f9-a6c2-bdfc36bca7aa\r\n" +
-            "app-id : 1CV8\r\n" +
-            "\r\n" +
-            "session : 22222222-2222-2222-2222-222222222222\r\n" +
-            "infobase : 6256b6f3-dde1-41f9-a6c2-bdfc36bca7aa\r\n" +
-            "app-id : BackgroundJob\r\n";
+        // Лицензионный сеанс присутствует с блоком license-type; нелицензионный в вывод
+        // rac --licenses не попадает вовсе → отсутствует в множестве.
+        const string licensesStdout =
+            "session            : 11111111-1111-1111-1111-111111111111\r\n" +
+            "user-name          : Андрей\r\n" +
+            "app-id             : 1CV8C\r\n" +
+            "license-type       : HASP\r\n" +
+            "short-presentation : Клиентская лицензия\r\n";
 
         var settings = BuildSettings();
-        var runner = BuildRunner(clusterList: FakeClusterListStdout, sessionList: twoSessions);
+        var runner = Substitute.For<IRacProcessRunner>();
+        runner.RunAsync("rac.exe", Arg.Is<IReadOnlyList<string>>(a => a.Contains("cluster") && a.Contains("list")), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(new RacInvocation(0, FakeClusterListStdout, string.Empty));
+        runner.RunAsync("rac.exe", Arg.Is<IReadOnlyList<string>>(a => a.Contains("session") && a.Contains("list") && a.Contains("--licenses")), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(new RacInvocation(0, licensesStdout, string.Empty));
+
         var client = BuildClient(runner, settings);
 
-        var sessions = await client.ListActiveSessionsAsync(default);
+        var licensed = await client.ListLicensedSessionIdsAsync(default);
 
-        sessions.Should().HaveCount(2);
-        sessions.Single(s => s.AppId == "1CV8").ConsumesLicense.Should().BeTrue();
-        sessions.Single(s => s.AppId == "BackgroundJob").ConsumesLicense.Should().BeFalse();
+        licensed.Should().NotBeNull();
+        licensed!.Should().ContainSingle()
+            .Which.Should().Be(Guid.Parse("11111111-1111-1111-1111-111111111111"));
     }
 
     [Fact]
-    public async Task ListActiveSessionsAsync_consumes_license_per_configured_app_id_list()
+    public async Task ListLicensedSessionIdsAsync_excludes_records_without_license_block()
     {
-        // MLC-024: whitelist читается из Settings. Кастомный список делает BackgroundJob
-        // лицензионным, а дефолтный 1CV8 — нет (полная замена, не дополнение).
-        const string twoSessions =
-            "session : 11111111-1111-1111-1111-111111111111\r\n" +
-            "infobase : 6256b6f3-dde1-41f9-a6c2-bdfc36bca7aa\r\n" +
-            "app-id : 1CV8\r\n" +
+        // Защитно (ADR-48): запись без license-type И без short-presentation в множество
+        // не попадает, даже если по какой-то причине оказалась в выводе.
+        const string mixedStdout =
+            "session            : 11111111-1111-1111-1111-111111111111\r\n" +
+            "license-type       : HASP\r\n" +
             "\r\n" +
-            "session : 22222222-2222-2222-2222-222222222222\r\n" +
-            "infobase : 6256b6f3-dde1-41f9-a6c2-bdfc36bca7aa\r\n" +
-            "app-id : BackgroundJob\r\n";
+            "session            : 22222222-2222-2222-2222-222222222222\r\n" +
+            "app-id             : BackgroundJob\r\n";
 
         var settings = BuildSettings();
-        settings.GetString(SettingKey.OneCLicenseConsumingAppIds).Returns("BackgroundJob");
-        var runner = BuildRunner(clusterList: FakeClusterListStdout, sessionList: twoSessions);
+        var runner = Substitute.For<IRacProcessRunner>();
+        runner.RunAsync("rac.exe", Arg.Is<IReadOnlyList<string>>(a => a.Contains("cluster") && a.Contains("list")), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(new RacInvocation(0, FakeClusterListStdout, string.Empty));
+        runner.RunAsync("rac.exe", Arg.Is<IReadOnlyList<string>>(a => a.Contains("session") && a.Contains("list") && a.Contains("--licenses")), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(new RacInvocation(0, mixedStdout, string.Empty));
+
         var client = BuildClient(runner, settings);
 
-        var sessions = await client.ListActiveSessionsAsync(default);
+        var licensed = await client.ListLicensedSessionIdsAsync(default);
 
-        sessions.Single(s => s.AppId == "BackgroundJob").ConsumesLicense.Should().BeTrue();
-        sessions.Single(s => s.AppId == "1CV8").ConsumesLicense.Should().BeFalse("список заменён кастомным");
+        licensed!.Should().ContainSingle()
+            .Which.Should().Be(Guid.Parse("11111111-1111-1111-1111-111111111111"));
+    }
+
+    [Fact]
+    public async Task ListLicensedSessionIdsAsync_returns_null_and_invalidates_cache_on_error()
+    {
+        // exit≠0 → null («факт недоступен», enforcement приостановится) + инвалидация UUID.
+        var settings = BuildSettings();
+        var runner = Substitute.For<IRacProcessRunner>();
+        runner.RunAsync(Arg.Any<string>(), Arg.Is<IReadOnlyList<string>>(a => a.Contains("cluster") && a.Contains("list")), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(new RacInvocation(0, FakeClusterListStdout, string.Empty));
+        runner.RunAsync(Arg.Any<string>(), Arg.Is<IReadOnlyList<string>>(a => a.Contains("session") && a.Contains("list") && a.Contains("--licenses")), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(new RacInvocation(255, string.Empty, "Ошибка соединения с сервером"));
+
+        var cache = new ClusterUuidCache();
+        var client = BuildClient(runner, settings, cache);
+
+        var first = await client.ListLicensedSessionIdsAsync(default); // licenses fail → Invalidate
+        await client.ListLicensedSessionIdsAsync(default);             // кэш сброшен → перерезолв
+
+        first.Should().BeNull();
+        await runner.Received(2).RunAsync(Arg.Any<string>(),
+            Arg.Is<IReadOnlyList<string>>(a => a.Contains("cluster") && a.Contains("list")),
+            Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ListLicensedSessionIdsAsync_returns_null_when_exe_path_missing()
+    {
+        var settings = Substitute.For<ISettingsSnapshot>();
+        settings.GetString(SettingKey.OneCRasExePath).Returns((string?)null);
+        var runner = Substitute.For<IRacProcessRunner>();
+        var client = BuildClient(runner, settings);
+
+        var licensed = await client.ListLicensedSessionIdsAsync(default);
+
+        licensed.Should().BeNull();
+        await runner.DidNotReceiveWithAnyArgs().RunAsync(default!, default!, default, default);
     }
 
     [Fact]

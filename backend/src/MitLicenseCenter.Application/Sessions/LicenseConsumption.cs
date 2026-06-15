@@ -2,19 +2,20 @@ namespace MitLicenseCenter.Application.Sessions;
 
 /// <summary>
 /// Чистый доменный расчёт потребления лицензий по снапшоту сессий.
-/// Единый дом правила: потребление = count(ConsumesLicense) по TenantId;
+/// Единый дом правила: потребление = count(LicenseStatus==Consuming) по TenantId;
 /// over-limit = consumed &gt; limit при limit &gt; 0 (членство активных тенантов задаёт
-/// вызывающая сторона через словарь лимитов).
+/// вызывающая сторона через словарь лимитов). Pending/NotConsuming (ADR-48) не считаются
+/// и не убиваются — факт rac не подтвердил потребление.
 /// </summary>
 public static class LicenseConsumption
 {
     /// <summary>
-    /// Потребление лицензий по тенанту: count(ConsumesLicense) сгруппировано по TenantId.
-    /// Тенанты без потребляющих сессий в словарь не попадают.
+    /// Потребление лицензий по тенанту: count(LicenseStatus==Consuming) сгруппировано по
+    /// TenantId. Тенанты без потребляющих сессий в словарь не попадают.
     /// </summary>
     public static Dictionary<Guid, int> CountByTenant(IEnumerable<SnapshotSessionEntry> entries)
         => entries
-            .Where(e => e.ConsumesLicense)
+            .Where(e => e.LicenseStatus == LicenseStatus.Consuming)
             .GroupBy(e => e.TenantId)
             .ToDictionary(g => g.Key, g => g.Count());
 
@@ -50,7 +51,7 @@ public static class LicenseConsumption
     public static List<SnapshotSessionEntry> KillCandidates(
         IEnumerable<SnapshotSessionEntry> entries, Guid tenantId)
         => entries
-            .Where(e => e.TenantId == tenantId && e.ConsumesLicense)
+            .Where(e => e.TenantId == tenantId && e.LicenseStatus == LicenseStatus.Consuming)
             .OrderByDescending(e => e.StartedAtUtc)
             .ToList();
 }

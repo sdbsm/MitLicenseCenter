@@ -28,6 +28,7 @@ internal sealed partial class ReconciliationJob : IReconciliationJob
     private readonly IEnforcementGate _gate;
     private readonly ISettingsSnapshot _settings;
     private readonly ILicenseUsageAccumulator _usage;
+    private readonly ILicenseFactCache _licenseFactCache;
     private readonly TimeProvider _clock;
     private readonly ReconciliationMetrics _metrics;
     private readonly ILogger<ReconciliationJob> _logger;
@@ -41,6 +42,7 @@ internal sealed partial class ReconciliationJob : IReconciliationJob
         IEnforcementGate gate,
         ISettingsSnapshot settings,
         ILicenseUsageAccumulator usage,
+        ILicenseFactCache licenseFactCache,
         TimeProvider clock,
         ReconciliationMetrics metrics,
         ILogger<ReconciliationJob> logger)
@@ -53,6 +55,7 @@ internal sealed partial class ReconciliationJob : IReconciliationJob
         _gate = gate;
         _settings = settings;
         _usage = usage;
+        _licenseFactCache = licenseFactCache;
         _clock = clock;
         _metrics = metrics;
         _logger = logger;
@@ -72,6 +75,13 @@ internal sealed partial class ReconciliationJob : IReconciliationJob
         {
             var sessions = await _cluster.ListActiveSessionsAsync(ct).ConfigureAwait(false);
 
+            // ADR-48 (MLC-166): второй вызов на холодном тире — факт потребления лицензии
+            // (`session list --licenses`). null = факт недоступен ⇒ все сеансы Pending,
+            // enforcement приостановлен (KillEnforcer ранний выход), но снапшот всё равно
+            // строим для UI с LicenseFactAvailable=false.
+            var licensedSet = await _cluster.ListLicensedSessionIdsAsync(ct).ConfigureAwait(false);
+            var licenseFactAvailable = licensedSet is not null;
+
             var infobaseMap = await _db.Infobases
                 .AsNoTracking()
                 .Join(
@@ -90,11 +100,28 @@ internal sealed partial class ReconciliationJob : IReconciliationJob
                 .ToDictionaryAsync(x => x.ClusterInfobaseId, ct)
                 .ConfigureAwait(false);
 
+            // knownById покрывает ВСЕ сеансы цикла (а не только смапленные на тенант):
+            // горячий тир сшивает по нему любой сеанс. Факт недоступен → пустой map +
+            // available=false (всем Pending). available=true → каждый сеанс известен:
+            // licensed = членство в licensedSet (отсутствие = NotConsuming).
+            var knownById = new Dictionary<Guid, bool>(sessions.Count);
+            if (licensedSet is not null)
+            {
+                foreach (var s in sessions)
+                    knownById[s.SessionId] = licensedSet.Contains(s.SessionId);
+            }
+
             var entries = new List<SnapshotSessionEntry>(sessions.Count);
             foreach (var s in sessions)
             {
                 if (!infobaseMap.TryGetValue(s.ClusterInfobaseId, out var mapped))
                     continue;
+
+                // ADR-48: факт недоступен → Pending (не присваиваем факт); иначе
+                // Consuming/NotConsuming по членству в licensedSet.
+                var status = licensedSet is null
+                    ? LicenseStatus.Pending
+                    : (licensedSet.Contains(s.SessionId) ? LicenseStatus.Consuming : LicenseStatus.NotConsuming);
 
                 entries.Add(new SnapshotSessionEntry(
                     s.SessionId,
@@ -105,9 +132,12 @@ internal sealed partial class ReconciliationJob : IReconciliationJob
                     s.AppId,
                     s.UserName,
                     s.Host,
-                    s.ConsumesLicense,
+                    status,
                     s.StartedAtUtc));
             }
+
+            // Обновляем кэш факта для горячего тира (пишет только холодный цикл).
+            _licenseFactCache.Update(knownById, licenseFactAvailable);
 
             var threshold = _settings.GetInt(SettingKey.PollingHotThresholdPercent) ?? 90;
             var promotedThisCycle = new HashSet<Guid>();
@@ -151,7 +181,7 @@ internal sealed partial class ReconciliationJob : IReconciliationJob
 
             sw.Stop();
             _metrics.RecordColdCycle(sw.Elapsed.TotalMilliseconds);
-            var payload = new SnapshotPayload(entries, now, (int)sw.ElapsedMilliseconds, AdapterSource);
+            var payload = new SnapshotPayload(entries, now, (int)sw.ElapsedMilliseconds, AdapterSource, licenseFactAvailable);
 
             // MLC-044: enforce под общим замком. freshSessions=null → enforcer делает свой
             // re-fetch ВНУТРИ замка (cold-профиль спавнов 1:1: snapshot-list + enforce-refetch).

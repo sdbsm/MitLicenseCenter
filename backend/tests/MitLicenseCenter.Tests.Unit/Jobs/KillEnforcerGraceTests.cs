@@ -83,16 +83,16 @@ public sealed class KillEnforcerGraceTests
         var sessions = new[]
         {
             new SnapshotSessionEntry(Guid.NewGuid(), clusterInfobaseId, tenantId, "Acme", "БП",
-                "1CV8C", "user-old", "WS01", true, ClockNow.AddMinutes(-30)),
+                "1CV8C", "user-old", "WS01", LicenseStatus.Consuming, ClockNow.AddMinutes(-30)),
             new SnapshotSessionEntry(Guid.NewGuid(), clusterInfobaseId, tenantId, "Acme", "БП",
-                "1CV8C", newestUserName, "WS01", true, newestStartedAtUtc),
+                "1CV8C", newestUserName, "WS01", LicenseStatus.Consuming, newestStartedAtUtc),
         };
 
-        var payload = new SnapshotPayload(sessions, ClockNow, 10, "Rest");
+        var payload = new SnapshotPayload(sessions, ClockNow, 10, "Rest", LicenseFactAvailable: true);
 
         var freshSessions = sessions.Select(s => new ClusterSession(
             s.SessionId, s.ClusterInfobaseId, s.AppId, s.UserName, s.Host,
-            s.ConsumesLicense, s.StartedAtUtc)).ToList();
+            s.StartedAtUtc)).ToList();
 
         var cluster = Substitute.For<IClusterClient>();
         cluster.ListActiveSessionsAsync(Arg.Any<CancellationToken>()).Returns(freshSessions);

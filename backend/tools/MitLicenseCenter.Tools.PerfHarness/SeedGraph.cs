@@ -50,7 +50,9 @@ internal static class SeedDataGenerator
     private const int OverLimitCap = 1;
     private const int NormalCap = 1_000_000;
     private const int OverLimitSessionQuota = 5; // > OverLimitCap с запасом
-    private const string ConsumingAppId = "1CV8"; // ∈ дефолтный whitelist OneCLicenseConsumingAppIds
+    // app-id сценарных сессий. Факт лицензии (ADR-48) даёт rac-заглушка через проекцию
+    // --licenses (RacStub.RenderSessionLicenses), а не членство app-id в каком-либо списке.
+    private const string ConsumingAppId = "1CV8";
 
     public static SeedGraph Build(SeedOptions opts, DateTime nowUtc)
     {

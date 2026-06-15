@@ -72,17 +72,12 @@ internal sealed partial class RacExecutableRasClusterClient : IClusterClient
             return Array.Empty<ClusterSession>();
         }
 
-        // Whitelist лицензионных app-id читаем один раз на вызов (не per-session) через
-        // тот же TTL-кэш SettingsSnapshot, что и ExePath/Endpoint. Пусто/незадано → дефолт.
-        var licenseAppIds = LicenseConsumingAppIds.Parse(
-            _settings.GetString(SettingKey.OneCLicenseConsumingAppIds));
-
         var records = RacOutputParser.Parse(invocation.Stdout);
         var sessions = new List<ClusterSession>(records.Count);
 
         foreach (var rec in records)
         {
-            if (!TryParseSession(rec, licenseAppIds, out var session))
+            if (!TryParseSession(rec, out var session))
             {
                 continue;
             }
@@ -90,6 +85,67 @@ internal sealed partial class RacExecutableRasClusterClient : IClusterClient
         }
 
         return sessions;
+    }
+
+    // ADR-48 (MLC-166): факт потребления лицензии — отдельная проекция rac
+    // `session list --licenses`. Сеанс, получивший клиентскую лицензию, присутствует в
+    // выводе с блоком лицензии (license-type/series/short-presentation); нелицензионный
+    // в вывод вообще не попадает. Тот же тёплый UUID-кэш + BuildArgsWithAuth, что и
+    // ListActiveSessionsAsync. exit≠0 → null («факт недоступен») + инвалидация UUID-кэша.
+    public async Task<IReadOnlySet<Guid>?> ListLicensedSessionIdsAsync(CancellationToken ct)
+    {
+        if (!TryGetExePath(out var exePath))
+        {
+            return null;
+        }
+
+        var clusterUuid = await ResolveClusterUuidAsync(exePath, ct).ConfigureAwait(false);
+        if (clusterUuid is null)
+        {
+            return null;
+        }
+
+        var args = BuildArgsWithAuth(
+            "session", "list",
+            $"--cluster={clusterUuid}",
+            "--licenses");
+
+        var invocation = await _runner.RunAsync(exePath, args, InvocationTimeout, ct)
+            .ConfigureAwait(false);
+
+        if (invocation.ExitCode != 0)
+        {
+            LogRacFailed(_logger, "session list --licenses", invocation.ExitCode, invocation.Stderr.Trim());
+            // Факт недоступен → null (enforcement приостановится). Stale UUID — тот же
+            // safety-net, что и в ListActiveSessionsAsync (MLC-041).
+            _uuidCache.Invalidate(BuildClusterKey(exePath));
+            return null;
+        }
+
+        var records = RacOutputParser.Parse(invocation.Stdout);
+        var licensed = new HashSet<Guid>(records.Count);
+
+        foreach (var rec in records)
+        {
+            if (!rec.TryGetValue("session", out var sessionRaw)
+                || !Guid.TryParse(sessionRaw, out var sessionId))
+            {
+                continue;
+            }
+
+            // Пояс-плюс-подтяжки к правилу «нелицензионный сеанс отсутствует в выводе»
+            // (ADR-48): включаем GUID только если у записи непустой блок лицензии.
+            var licenseType = rec.GetValueOrDefault("license-type");
+            var shortPresentation = rec.GetValueOrDefault("short-presentation");
+            if (string.IsNullOrWhiteSpace(licenseType) && string.IsNullOrWhiteSpace(shortPresentation))
+            {
+                continue;
+            }
+
+            licensed.Add(sessionId);
+        }
+
+        return licensed;
     }
 
     public async Task<KillSessionResult> KillSessionAsync(SessionDescriptor descriptor, CancellationToken ct)
@@ -471,7 +527,6 @@ internal sealed partial class RacExecutableRasClusterClient : IClusterClient
 
     private static bool TryParseSession(
         IReadOnlyDictionary<string, string> rec,
-        HashSet<string> licenseConsumingAppIds,
         out ClusterSession session)
     {
         session = default!;
@@ -487,15 +542,16 @@ internal sealed partial class RacExecutableRasClusterClient : IClusterClient
             return false;
         }
 
-        var appId = rec.GetValueOrDefault("app-id") ?? string.Empty;
-
+        // ADR-48 (MLC-166): факт лицензии адаптер тут больше не вычисляет — он приходит
+        // отдельной проекцией (ListLicensedSessionIdsAsync) и сшивается по SessionId в
+        // холодном тире. app-id остаётся атрибутом сеанса (колонка/фильтр), но в подсчёте
+        // лицензий не участвует.
         session = new ClusterSession(
             SessionId: sessionId,
             ClusterInfobaseId: infobaseId,
-            AppId: appId,
+            AppId: rec.GetValueOrDefault("app-id") ?? string.Empty,
             UserName: rec.GetValueOrDefault("user-name") ?? string.Empty,
             Host: rec.GetValueOrDefault("host") ?? string.Empty,
-            ConsumesLicense: licenseConsumingAppIds.Contains(appId),
             StartedAtUtc: ParseUtc(rec.GetValueOrDefault("started-at")));
 
         return true;

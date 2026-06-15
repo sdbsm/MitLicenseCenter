@@ -44,13 +44,19 @@ public sealed class HotColdEnforcementOverKillTests
             AppId: "1CV8C",
             UserName: $"user{i}",
             Host: "WS01",
-            ConsumesLicense: true,
             StartedAtUtc: baseTime.AddSeconds(i))).ToList();
 
         // Stateful-кластер: kill реально удаляет сессию; повторный kill уже убитой →
-        // AlreadyGone. Считает реальные удаления и число kill-вызовов.
+        // AlreadyGone. Считает реальные удаления и число kill-вызовов. Все сессии
+        // лицензионные (факт rac --licenses, ADR-48).
         var cluster = new StatefulFakeClusterClient(sessions);
         var audit = new ConcurrentAuditLogger();
+
+        // ADR-48 (MLC-166): факт лицензий доступен и все сессии Consuming — иначе
+        // enforcement приостановлен (LicenseFactAvailable). Пред-сеем кэш (как сделал бы
+        // прошлый холодный цикл), чтобы горячий путь классифицировал сессии без гонки.
+        var licenseFactCache = new LicenseFactCache();
+        licenseFactCache.Update(sessions.ToDictionary(s => s.SessionId, _ => true), available: true);
 
         var registry = new HotTierRegistry();
         registry.Promote(tenantId);                       // tenant уже в hot-тире (at-risk)
@@ -75,19 +81,19 @@ public sealed class HotColdEnforcementOverKillTests
         // Пред-засев снимка: tenant уже hot → cold промоутил его прошлым циклом, маппинг
         // IB→tenant в снимке есть (hot строит денормализацию по текущему снимку).
         var seededEntries = sessions.Select(s => Entry(s, tenantId, tenantName, infobaseName)).ToList();
-        store.Replace(new SnapshotPayload(seededEntries, baseTime, 0, "Ras"));
+        store.Replace(new SnapshotPayload(seededEntries, baseTime, 0, "Ras", LicenseFactAvailable: true));
 
         var coldEnforcer = new KillEnforcer(cluster, audit, coldDb, settings, clock, metrics, NullLogger<KillEnforcer>.Instance);
         var hotEnforcer = new KillEnforcer(cluster, audit, hotDb, settings, clock, metrics, NullLogger<KillEnforcer>.Instance);
 
         var cold = new ReconciliationJob(
             cluster, coldDb, store, registry, coldEnforcer, gate, settings,
-            new LicenseUsageAccumulator(), clock, metrics,
+            new LicenseUsageAccumulator(), licenseFactCache, clock, metrics,
             NullLogger<ReconciliationJob>.Instance);
 
         var hot = new HotTierPollingService(
             Substitute.For<IServiceScopeFactory>(), store, registry, gate, settings,
-            clock, metrics, NullLogger<HotTierPollingService>.Instance);
+            licenseFactCache, clock, metrics, NullLogger<HotTierPollingService>.Instance);
 
         // Act: cold и hot enforce одновременно.
         await Task.WhenAll(
@@ -134,7 +140,7 @@ public sealed class HotColdEnforcementOverKillTests
         ClusterSession s, Guid tenantId, string tenantName, string infobaseName)
         => new(
             s.SessionId, s.ClusterInfobaseId, tenantId, tenantName, infobaseName,
-            s.AppId, s.UserName, s.Host, s.ConsumesLicense, s.StartedAtUtc);
+            s.AppId, s.UserName, s.Host, LicenseStatus.Consuming, s.StartedAtUtc);
 
     // Потокобезопасный кластер с реальным состоянием: kill удаляет сессию, повторный
     // kill уже убитой → AlreadyGone. Достаточно для конкурентного cold+hot enforcement.
@@ -153,6 +159,13 @@ public sealed class HotColdEnforcementOverKillTests
         {
             lock (_gate)
                 return Task.FromResult<IReadOnlyList<ClusterSession>>(_sessions.Values.ToList());
+        }
+
+        // ADR-48: все живые сессии лицензионные (факт rac --licenses доступен).
+        public Task<IReadOnlySet<Guid>?> ListLicensedSessionIdsAsync(CancellationToken ct)
+        {
+            lock (_gate)
+                return Task.FromResult<IReadOnlySet<Guid>?>(_sessions.Keys.ToHashSet());
         }
 
         public Task<KillSessionResult> KillSessionAsync(SessionDescriptor descriptor, CancellationToken ct)

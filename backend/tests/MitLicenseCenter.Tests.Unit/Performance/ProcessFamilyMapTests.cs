@@ -45,7 +45,7 @@ public sealed class ProcessFamilyMapTests
     [Fact]
     public void Malformed_string_falls_back_to_default()
     {
-        // Ни одной валидной семьи (нет '=') → дефолтный набор, как LicenseConsumingAppIds.
+        // Ни одной валидной семьи (нет '=') → откат на дефолтный набор.
         var map = ProcessFamilyMap.Parse(";;garbage,no,equals;;");
         map.Classify("rphost").Should().Be("OneC");
     }

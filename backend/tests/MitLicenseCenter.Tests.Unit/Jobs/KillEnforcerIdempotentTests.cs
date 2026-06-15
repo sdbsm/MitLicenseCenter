@@ -27,16 +27,16 @@ public sealed class KillEnforcerIdempotentTests
         var sessions = new[]
         {
             new SnapshotSessionEntry(Guid.NewGuid(), clusterInfobaseId, tenantId, "Acme", "БП",
-                "1CV8C", "user1", "WS01", true, now),
+                "1CV8C", "user1", "WS01", LicenseStatus.Consuming, now),
             new SnapshotSessionEntry(Guid.NewGuid(), clusterInfobaseId, tenantId, "Acme", "БП",
-                "1CV8C", "user2", "WS01", true, now.AddMinutes(5)),
+                "1CV8C", "user2", "WS01", LicenseStatus.Consuming, now.AddMinutes(5)),
         };
 
-        var payload = new SnapshotPayload(sessions, now.AddMinutes(10), 10, "Rest");
+        var payload = new SnapshotPayload(sessions, now.AddMinutes(10), 10, "Rest", LicenseFactAvailable: true);
 
         var freshSessions = sessions.Select(s => new ClusterSession(
             s.SessionId, s.ClusterInfobaseId, s.AppId, s.UserName, s.Host,
-            s.ConsumesLicense, s.StartedAtUtc)).ToList();
+            s.StartedAtUtc)).ToList();
 
         var cluster = Substitute.For<IClusterClient>();
         cluster.ListActiveSessionsAsync(Arg.Any<CancellationToken>()).Returns(freshSessions);

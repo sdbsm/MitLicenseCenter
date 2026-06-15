@@ -2,13 +2,15 @@ namespace MitLicenseCenter.Application.Clusters;
 
 // Сеанс, полученный с 1С Cluster REST API. ClusterInfobaseId — внутренний GUID
 // инфобазы в кластере (совпадает с Infobase.ClusterInfobaseId в нашей схеме).
+// ConsumesLicense убран (ADR-48, MLC-166): адаптер больше не вычисляет факт лицензии
+// по эвристике app-id. Классификация — отдельной проекцией rac (session list --licenses,
+// см. IClusterClient.ListLicensedSessionIdsAsync), сшивается по SessionId в холодном тире.
 public sealed record ClusterSession(
     Guid SessionId,
     Guid ClusterInfobaseId,
     string AppId,
     string UserName,
     string Host,
-    bool ConsumesLicense,
     DateTime StartedAtUtc);
 
 // Минимальный дескриптор для идемпотентного kill: тройка (InfobaseId, SessionId,

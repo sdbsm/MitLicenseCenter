@@ -86,6 +86,7 @@ public sealed class ReconciliationJobUsageSamplingTests
             new EnforcementGate(),
             settings,
             accumulator,
+            new LicenseFactCache(),
             TestHelpers.FixedClock(Now),
             TestMetrics.Reconciliation(),
             NullLogger<ReconciliationJob>.Instance);

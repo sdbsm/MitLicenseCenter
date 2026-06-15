@@ -32,14 +32,14 @@ public sealed class KillEnforcerOrderingTests
             AppId: "1CV8C",
             UserName: $"user{i}",
             Host: "WS01",
-            ConsumesLicense: true,
+            LicenseStatus: LicenseStatus.Consuming,
             StartedAtUtc: baseTime.AddMinutes(i))).ToList();
 
-        var payload = new SnapshotPayload(sessions, baseTime.AddMinutes(10), 42, "Rest");
+        var payload = new SnapshotPayload(sessions, baseTime.AddMinutes(10), 42, "Rest", LicenseFactAvailable: true);
 
         // Fresh re-fetch returns same sessions as ClusterSession.
         var freshSessions = sessions.Select(s => new ClusterSession(
-            s.SessionId, s.ClusterInfobaseId, s.AppId, s.UserName, s.Host, s.ConsumesLicense, s.StartedAtUtc))
+            s.SessionId, s.ClusterInfobaseId, s.AppId, s.UserName, s.Host, s.StartedAtUtc))
             .ToList();
 
         var cluster = Substitute.For<IClusterClient>();

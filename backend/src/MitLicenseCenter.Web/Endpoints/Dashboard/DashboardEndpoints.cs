@@ -64,7 +64,8 @@ public static class DashboardEndpoints
 
         var payload = snapshot.Current();
         var sessionsActiveTotal = payload.Items.Count;
-        var licensesConsumedTotal = payload.Items.Count(s => s.ConsumesLicense);
+        // ADR-48 (MLC-166): потребление = факт rac (LicenseStatus==Consuming), не эвристика.
+        var licensesConsumedTotal = payload.Items.Count(s => s.LicenseStatus == LicenseStatus.Consuming);
 
         // Сумма лимитов — только по активным тенантам; неактивный tenant'у
         // не должен «вешать» свою квоту на свободную ёмкость.
@@ -105,6 +106,7 @@ public static class DashboardEndpoints
             SessionsActiveTotal: sessionsActiveTotal,
             LicensesConsumedTotal: licensesConsumedTotal,
             LicensesAvailableTotal: licensesAvailableTotal,
+            LicenseFactAvailable: payload.LicenseFactAvailable,
             TopTenantsByConsumption: topTenants,
             Ras: ras);
     }

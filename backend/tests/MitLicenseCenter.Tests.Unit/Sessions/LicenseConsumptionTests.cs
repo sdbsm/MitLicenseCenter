@@ -12,7 +12,8 @@ public sealed class LicenseConsumptionTests
         Guid tenantId,
         bool consumes = true,
         DateTime? startedAt = null,
-        Guid? sessionId = null) => new(
+        Guid? sessionId = null,
+        LicenseStatus? status = null) => new(
             SessionId: sessionId ?? Guid.NewGuid(),
             ClusterInfobaseId: Guid.NewGuid(),
             TenantId: tenantId,
@@ -21,7 +22,10 @@ public sealed class LicenseConsumptionTests
             AppId: "1CV8C",
             UserName: "user",
             Host: "WS01",
-            ConsumesLicense: consumes,
+            // ADR-48: consumes отображается на трёхсостояние. true → Consuming;
+            // false → NotConsuming (известен факту, но без лицензии). Pending задаётся явно
+            // через параметр status (свежий сеанс, ещё не классифицированный фактом).
+            LicenseStatus: status ?? (consumes ? LicenseStatus.Consuming : LicenseStatus.NotConsuming),
             StartedAtUtc: startedAt ?? BaseTime);
 
     // ---- CountByTenant ----
@@ -76,6 +80,25 @@ public sealed class LicenseConsumptionTests
         var result = LicenseConsumption.CountByTenant(Array.Empty<SnapshotSessionEntry>());
 
         result.Should().BeEmpty();
+    }
+
+    // ADR-48 (MLC-166): только Consuming считается; Pending (свежий сеанс) и NotConsuming
+    // (известен факту, но без лицензии) в подсчёт не входят.
+    [Fact]
+    public void CountByTenant_counts_only_Consuming_excluding_Pending_and_NotConsuming()
+    {
+        var tenant = Guid.NewGuid();
+        var entries = new[]
+        {
+            Entry(tenant, status: LicenseStatus.Consuming),
+            Entry(tenant, status: LicenseStatus.Consuming),
+            Entry(tenant, status: LicenseStatus.Pending),
+            Entry(tenant, status: LicenseStatus.NotConsuming),
+        };
+
+        var result = LicenseConsumption.CountByTenant(entries);
+
+        result.Should().ContainKey(tenant).WhoseValue.Should().Be(2);
     }
 
     // ---- FindOverLimit ----
@@ -166,6 +189,25 @@ public sealed class LicenseConsumptionTests
 
         result.Should().ContainSingle()
             .Which.TenantId.Should().Be(target);
+    }
+
+    // ADR-48 (MLC-166): Pending/NotConsuming не попадают в kill-кандидаты.
+    [Fact]
+    public void KillCandidates_excludes_Pending_and_NotConsuming()
+    {
+        var tenant = Guid.NewGuid();
+        var consuming = Entry(tenant, status: LicenseStatus.Consuming);
+        var entries = new[]
+        {
+            consuming,
+            Entry(tenant, status: LicenseStatus.Pending),
+            Entry(tenant, status: LicenseStatus.NotConsuming),
+        };
+
+        var result = LicenseConsumption.KillCandidates(entries, tenant);
+
+        result.Should().ContainSingle()
+            .Which.SessionId.Should().Be(consuming.SessionId);
     }
 
     [Fact]
