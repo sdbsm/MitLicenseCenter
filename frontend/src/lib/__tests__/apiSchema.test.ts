@@ -56,7 +56,7 @@ describe("sessionsSnapshotResponseSchema", () => {
           appId: "1CV8C",
           userName: "user",
           host: "PC-1",
-          consumesLicense: true,
+          licenseStatus: "Consuming",
           startedAt: "2026-06-03T10:00:00Z",
           durationSeconds: 120,
         },
@@ -64,17 +64,19 @@ describe("sessionsSnapshotResponseSchema", () => {
       capturedAt: "2026-06-03T10:05:00Z",
       tookMs: 42,
       source: "rac",
+      licenseFactAvailable: true,
     });
-    expect(parsed.items[0].consumesLicense).toBe(true);
+    expect(parsed.items[0].licenseStatus).toBe("Consuming");
   });
 
-  it("отклоняет consumesLicense неверного типа", () => {
+  it("отклоняет licenseStatus неверного значения", () => {
     expect(() =>
       sessionsSnapshotResponseSchema.parse({
-        items: [{ consumesLicense: "yes" }],
+        items: [{ licenseStatus: "yes" }],
         capturedAt: "x",
         tookMs: 0,
         source: "rac",
+        licenseFactAvailable: true,
       })
     ).toThrow();
   });

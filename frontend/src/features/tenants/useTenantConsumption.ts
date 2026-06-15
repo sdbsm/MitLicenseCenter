@@ -9,15 +9,16 @@ import { useSessionsSnapshot } from "@/features/sessions/useSessionsSnapshot";
  * визуального акцента, а не контракт/parity-правило. Данные берутся из того
  * же снапшота сеансов, что использует дашборд, — значения совпадают.
  *
- * Логика: consumed[tenantId] = число items где consumesLicense === true,
- * сгруппированных по tenantId (идентично `LicenseConsumption.CountByTenant`).
+ * Логика: consumed[tenantId] = число items где licenseStatus === "Consuming"
+ * (ADR-48: факт rac --licenses), сгруппированных по tenantId (идентично
+ * `LicenseConsumption.CountByTenant`).
  */
 
 /** Чистая функция агрегации — отдельно для тестируемости. */
 export function buildConsumedByTenant(items: SessionSnapshotEntry[]): Map<string, number> {
   const result = new Map<string, number>();
   for (const item of items) {
-    if (item.consumesLicense) {
+    if (item.licenseStatus === "Consuming") {
       result.set(item.tenantId, (result.get(item.tenantId) ?? 0) + 1);
     }
   }

@@ -19,7 +19,7 @@ import { useSessionsSnapshot } from "./useSessionsSnapshot";
 
 export type SessionSortKey = keyof Pick<
   SessionSnapshotEntry,
-  "tenantName" | "infobaseName" | "userName" | "startedAt" | "durationSeconds" | "consumesLicense"
+  "tenantName" | "infobaseName" | "userName" | "startedAt" | "durationSeconds" | "licenseStatus"
 >;
 
 export type SortDir = "asc" | "desc";
@@ -43,14 +43,23 @@ function parseParams(params: URLSearchParams) {
  * Канонический компаратор сеансов (UX-14); те же правила применяются как `sortingFn`
  * колонок в `sessionColumns` (DataTable, MLC-144).
  */
+// ADR-48 (MLC-166): порядок трёхсостояния licenseStatus при asc —
+// Consuming → NotConsuming → Pending (считается → не считается → определяется).
+const licenseStatusOrder: Record<SessionSnapshotEntry["licenseStatus"], number> = {
+  Consuming: 0,
+  NotConsuming: 1,
+  Pending: 2,
+};
+
 export function sortRows(rows: SessionSnapshotEntry[], sort: SessionSort): SessionSnapshotEntry[] {
   return [...rows].sort((a, b) => {
     const av = a[sort.key];
     const bv = b[sort.key];
     let cmp: number;
-    if (typeof av === "boolean" && typeof bv === "boolean") {
-      // true (считается) выше false при asc
-      cmp = av === bv ? 0 : av ? -1 : 1;
+    if (sort.key === "licenseStatus") {
+      cmp =
+        licenseStatusOrder[av as SessionSnapshotEntry["licenseStatus"]] -
+        licenseStatusOrder[bv as SessionSnapshotEntry["licenseStatus"]];
     } else if (typeof av === "number" && typeof bv === "number") {
       cmp = av - bv;
     } else {

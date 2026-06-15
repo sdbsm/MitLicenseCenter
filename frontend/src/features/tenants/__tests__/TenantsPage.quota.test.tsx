@@ -56,13 +56,15 @@ function makeSnapshotResponse(entries: Array<{ tenantId: string; consumesLicense
       appId: "1cv8",
       userName: "user",
       host: "host",
-      consumesLicense: e.consumesLicense,
+      // ADR-48 (MLC-166): consumes → licenseStatus.
+      licenseStatus: e.consumesLicense ? "Consuming" : "NotConsuming",
       startedAt: "2026-01-01T00:00:00Z",
       durationSeconds: 60,
     })),
     capturedAt: "2026-01-01T00:00:00Z",
     tookMs: 1,
     source: "hot",
+    licenseFactAvailable: true,
   };
 }
 

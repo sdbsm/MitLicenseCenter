@@ -4,8 +4,8 @@ import { sessionsSnapshotResponseSchema } from "../types";
 /**
  * FE-11 (MLC-120). Снимок активных сеансов — критичная Zod-граница (MLC-016): питает
  * операционную картину over-limit/kill. Тест реально ПРОГОНЯЕТ схему сырым ответом
- * «как с провода», а не мокает её мимо. Все поля required (нет omit-null у этого
- * контракта), поэтому проверяем happy-path и отвержение неверного типа/неполного ответа.
+ * «как с провода», а не мокает её мимо. ADR-48 (MLC-166): licenseStatus — enum
+ * (Consuming/NotConsuming/Pending), licenseFactAvailable — bool с дефолтом false.
  */
 describe("sessionsSnapshotResponseSchema", () => {
   const entry = {
@@ -17,7 +17,7 @@ describe("sessionsSnapshotResponseSchema", () => {
     appId: "1CV8C",
     userName: "ivanov",
     host: "WS-01",
-    consumesLicense: true,
+    licenseStatus: "Consuming",
     startedAt: "2026-06-13T08:00:00Z",
     durationSeconds: 1234,
   };
@@ -28,10 +28,12 @@ describe("sessionsSnapshotResponseSchema", () => {
       capturedAt: "2026-06-13T08:01:00Z",
       tookMs: 12,
       source: "ras",
+      licenseFactAvailable: true,
     });
     expect(parsed.items).toHaveLength(1);
-    expect(parsed.items[0].consumesLicense).toBe(true);
+    expect(parsed.items[0].licenseStatus).toBe("Consuming");
     expect(parsed.items[0].durationSeconds).toBe(1234);
+    expect(parsed.licenseFactAvailable).toBe(true);
   });
 
   it("принимает пустой снимок (нет активных сеансов)", () => {
@@ -40,17 +42,29 @@ describe("sessionsSnapshotResponseSchema", () => {
       capturedAt: "2026-06-13T08:01:00Z",
       tookMs: 3,
       source: "ras",
+      licenseFactAvailable: false,
     });
     expect(parsed.items).toHaveLength(0);
   });
 
-  it("отвергает запись с неверным типом consumesLicense", () => {
+  it("licenseFactAvailable по умолчанию false при отсутствии ключа (parity-резерв)", () => {
+    const parsed = sessionsSnapshotResponseSchema.parse({
+      items: [],
+      capturedAt: "2026-06-13T08:01:00Z",
+      tookMs: 3,
+      source: "ras",
+    });
+    expect(parsed.licenseFactAvailable).toBe(false);
+  });
+
+  it("отвергает запись с неверным значением licenseStatus", () => {
     expect(() =>
       sessionsSnapshotResponseSchema.parse({
-        items: [{ ...entry, consumesLicense: "yes" }],
+        items: [{ ...entry, licenseStatus: "yes" }],
         capturedAt: "2026-06-13T08:01:00Z",
         tookMs: 3,
         source: "ras",
+        licenseFactAvailable: true,
       })
     ).toThrow();
   });

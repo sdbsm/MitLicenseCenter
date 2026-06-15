@@ -22,6 +22,7 @@ const summary: DashboardSummaryResponse = {
   sessionsActiveTotal: 3,
   licensesConsumedTotal: 3,
   licensesAvailableTotal: 8,
+  licenseFactAvailable: true,
   topTenantsByConsumption: [
     { tenantId: "t-1", tenantName: "Ромашка", consumed: 2, limit: 5, percent: 40 },
   ],

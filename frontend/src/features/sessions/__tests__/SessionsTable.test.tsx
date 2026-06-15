@@ -26,7 +26,7 @@ function row(overrides: Partial<SessionSnapshotEntry>): SessionSnapshotEntry {
     appId: "1CV8C",
     userName: "Андрей",
     host: "WS01",
-    consumesLicense: true,
+    licenseStatus: "Consuming",
     startedAt: "2026-05-20T10:00:00Z",
     durationSeconds: 42,
     ...overrides,
@@ -96,5 +96,21 @@ describe("SessionsTable", () => {
   it("сортируемый заголовок рендерится как кликабельная кнопка", () => {
     render(<Host rows={[row({})]} />);
     expect(screen.getByRole("button", { name: /клиент/i })).toBeInTheDocument();
+  });
+
+  // ADR-48 (MLC-166): трёхсостояние лицензии через StatusBadge.
+  it("licenseStatus=Consuming → бейдж «Считается» (success)", () => {
+    render(<Host rows={[row({ licenseStatus: "Consuming" })]} />);
+    expect(screen.getByText("Считается")).toBeInTheDocument();
+  });
+
+  it("licenseStatus=NotConsuming → бейдж «Не считается» (neutral)", () => {
+    render(<Host rows={[row({ licenseStatus: "NotConsuming" })]} />);
+    expect(screen.getByText("Не считается")).toBeInTheDocument();
+  });
+
+  it("licenseStatus=Pending → бейдж «Определяется…» (info)", () => {
+    render(<Host rows={[row({ licenseStatus: "Pending" })]} />);
+    expect(screen.getByText("Определяется…")).toBeInTheDocument();
   });
 });

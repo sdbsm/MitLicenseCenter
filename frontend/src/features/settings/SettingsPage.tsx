@@ -35,10 +35,6 @@ const SECTIONS: { titleKey: string; keys: string[] }[] = [
     keys: ["Sql.Server"],
   },
   {
-    titleKey: "settings.sections.license",
-    keys: ["OneC.LicenseConsumingAppIds"],
-  },
-  {
     titleKey: "settings.sections.iis",
     keys: ["IIS.DefaultVrdRoot", "IIS.DefaultSiteName"],
   },
@@ -76,10 +72,6 @@ const FIELD_META: Record<
   "OneC.Cluster.AdminUser": { type: "text" },
   "OneC.Cluster.AdminPassword": { type: "password" },
   // OneC.RAS.Endpoint → RasPortField, OneC.RAS.ExePath → PlatformPicker (см. renderField).
-  "OneC.LicenseConsumingAppIds": {
-    type: "text",
-    placeholder: "1CV8,1CV8C,WebClient,Designer,COMConnection",
-  },
   "IIS.DefaultVrdRoot": { type: "text" },
   "Sql.Server": { type: "text", placeholder: "sql.local или (local)" },
   "IIS.DefaultSiteName": { type: "text", placeholder: "Default Web Site" },

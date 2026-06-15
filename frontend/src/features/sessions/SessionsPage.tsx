@@ -85,6 +85,17 @@ export function SessionsPage() {
           </div>
         )}
 
+        {/* License-fact unavailable banner (ADR-48, MLC-166): факт rac --licenses не
+            получен → потребление может быть неактуальным, авто-завершение на паузе. */}
+        {snapshot && !snapshot.licenseFactAvailable && (
+          <div
+            role="status"
+            className="rounded-md border border-amber-500/40 bg-amber-500/5 p-4 text-sm text-amber-800 dark:text-amber-300"
+          >
+            <p className="font-medium">{t("sessions.licenseFactUnavailable")}</p>
+          </div>
+        )}
+
         {/* Table — фильтры в тулбаре DataTable, рядом с видимостью колонок и density */}
         <SessionsTable
           table={table}

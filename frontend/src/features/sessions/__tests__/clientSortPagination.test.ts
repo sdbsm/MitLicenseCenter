@@ -13,7 +13,7 @@ function makeRow(overrides: Partial<SessionSnapshotEntry>): SessionSnapshotEntry
     appId: "1CV8C",
     userName: "user",
     host: "WS01",
-    consumesLicense: false,
+    licenseStatus: "NotConsuming",
     startedAt: "2026-05-20T10:00:00Z",
     durationSeconds: 0,
     ...overrides,
@@ -69,15 +69,15 @@ describe("sortRows — клиентская сортировка сеансов 
     ]);
   });
 
-  it("сортировка consumesLicense: true (считается) выше false при asc", () => {
+  it("сортировка licenseStatus: Consuming → NotConsuming → Pending при asc (ADR-48)", () => {
     const rows = [
-      makeRow({ consumesLicense: false }),
-      makeRow({ consumesLicense: true }),
-      makeRow({ consumesLicense: false }),
+      makeRow({ licenseStatus: "Pending" }),
+      makeRow({ licenseStatus: "Consuming" }),
+      makeRow({ licenseStatus: "NotConsuming" }),
     ];
-    const sort: SessionSort = { key: "consumesLicense", dir: "asc" };
+    const sort: SessionSort = { key: "licenseStatus", dir: "asc" };
     const result = sortRows(rows, sort);
-    expect(result.map((r) => r.consumesLicense)).toEqual([true, false, false]);
+    expect(result.map((r) => r.licenseStatus)).toEqual(["Consuming", "NotConsuming", "Pending"]);
   });
 
   it("стабильность: равные элементы сохраняют относительный порядок (stable sort)", () => {
