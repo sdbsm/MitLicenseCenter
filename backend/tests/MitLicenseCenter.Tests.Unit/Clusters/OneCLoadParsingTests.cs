@@ -21,8 +21,8 @@ public sealed class OneCLoadParsingTests
         "infobase                         : 6256b6f3-dde1-41f9-a6c2-bdfc36bca7aa\r\n" +
         "connection                       : b46dead9-1111-2222-3333-444455556666\r\n" +
         "process                          : 487281d5-aaaa-bbbb-cccc-ddddeeeeffff\r\n" +
-        "user-name                        : Андрей\r\n" +
-        "host                             : ANDREY-PC\r\n" +
+        "user-name                        : Иванов\r\n" +
+        "host                             : HOST-01\r\n" +
         "app-id                           : 1CV8C\r\n" +
         "duration-current                 : 422\r\n" +
         "duration-current-dbms            : 0\r\n" +
@@ -46,8 +46,8 @@ public sealed class OneCLoadParsingTests
         s.SessionNumber.Should().Be(1);
         s.ClusterInfobaseId.Should().Be(Guid.Parse("6256b6f3-dde1-41f9-a6c2-bdfc36bca7aa"));
         s.AppId.Should().Be("1CV8C");
-        s.UserName.Should().Be("Андрей");
-        s.Host.Should().Be("ANDREY-PC");
+        s.UserName.Should().Be("Иванов");
+        s.Host.Should().Be("HOST-01");
         s.Process.Should().Be(Guid.Parse("487281d5-aaaa-bbbb-cccc-ddddeeeeffff"));
         s.Connection.Should().Be(Guid.Parse("b46dead9-1111-2222-3333-444455556666"));
         s.CpuTimeCurrent.Should().Be(109);
@@ -102,7 +102,7 @@ public sealed class OneCLoadParsingTests
             "session       : 44444444-4444-4444-4444-444444444444\r\n" +
             "infobase      : 6256b6f3-dde1-41f9-a6c2-bdfc36bca7aa\r\n" +
             "app-id        : 1CV8C\r\n" +
-            "user-name     : Андрей\r\n";
+            "user-name     : Иванов\r\n";
 
         var sessions = RacExecutableRasClusterClient.ParseSessionLoads(bare);
 

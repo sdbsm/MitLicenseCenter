@@ -1366,7 +1366,7 @@ recycle/iisreset IIS через `Microsoft.Web.Administration.ServerManager`, б
 **клиентских** баз требует `db_owner`/`db_backupoperator` на **каждой** базе, а серверного
 «backup any database» короче `sysadmin` в SQL Server нет — для мультитенантного хостинга с
 **динамически появляющимися** базами это непрактично (грант на каждую новую базу). Детали трассы —
-`.claude/plans/mlc-152-stand-trace.md`.
+`mlc-152-stand-trace.md`.
 
 **Решение по итогу трассы:** low-priv (и Windows, и SQL) **не предпринимаем** — `sysadmin` на SQL и
 admin-эквивалент Windows-аккаунта остаются **штатным профилем** продукта (управление хостом +

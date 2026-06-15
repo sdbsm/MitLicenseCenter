@@ -35,7 +35,7 @@ public sealed class RacOutputParserTests
         // Captured: rac.exe cluster list (1C 8.5.1.1302, local test rig).
         const string stdout =
             "cluster                                   : 613f185a-339d-4bc5-88ad-16acd14a4d26\r\n" +
-            "host                                      : Andrey-pc\r\n" +
+            "host                                      : host-01\r\n" +
             "port                                      : 1541\r\n" +
             "name                                      : \"Локальный кластер\"\r\n" +
             "expiration-timeout                        : 60\r\n" +
@@ -46,7 +46,7 @@ public sealed class RacOutputParserTests
         records.Should().HaveCount(1);
         var rec = records[0];
         rec["cluster"].Should().Be("613f185a-339d-4bc5-88ad-16acd14a4d26");
-        rec["host"].Should().Be("Andrey-pc");
+        rec["host"].Should().Be("host-01");
         rec["port"].Should().Be("1541");
         rec["name"].Should().Be("Локальный кластер", "кавычки вокруг строкового значения снимаются");
         rec["expiration-timeout"].Should().Be("60");
@@ -63,7 +63,7 @@ public sealed class RacOutputParserTests
             "infobase                         : 6256b6f3-dde1-41f9-a6c2-bdfc36bca7aa\r\n" +
             "connection                       : 00000000-0000-0000-0000-000000000000\r\n" +
             "process                          : 00000000-0000-0000-0000-000000000000\r\n" +
-            "user-name                        : Андрей\r\n" +
+            "user-name                        : Иванов\r\n" +
             "host                             : \r\n" +
             "app-id                           : 1CV8C\r\n" +
             "locale                           : ru_RU\r\n" +
@@ -80,7 +80,7 @@ public sealed class RacOutputParserTests
         rec["session"].Should().Be("492af167-20e6-497a-9eef-20ce4e930c6a");
         rec["infobase"].Should().Be("6256b6f3-dde1-41f9-a6c2-bdfc36bca7aa");
         rec["app-id"].Should().Be("1CV8C");
-        rec["user-name"].Should().Be("Андрей", "кириллица сохраняется (UTF-8 без BOM)");
+        rec["user-name"].Should().Be("Иванов", "кириллица сохраняется (UTF-8 без BOM)");
         rec["host"].Should().Be(string.Empty, "пустое значение после `: ` парсится как пустая строка");
         rec["started-at"].Should().Be("2026-05-21T03:39:49");
         rec["client-ip"].Should().Be("::1");
@@ -93,7 +93,7 @@ public sealed class RacOutputParserTests
             "session                          : 11111111-1111-1111-1111-111111111111\r\n" +
             "infobase                         : 6256b6f3-dde1-41f9-a6c2-bdfc36bca7aa\r\n" +
             "app-id                           : 1CV8C\r\n" +
-            "user-name                        : Andrey\r\n" +
+            "user-name                        : Ivanov\r\n" +
             "started-at                       : 2026-05-21T03:39:49\r\n" +
             "\r\n" +
             "session                          : 22222222-2222-2222-2222-222222222222\r\n" +

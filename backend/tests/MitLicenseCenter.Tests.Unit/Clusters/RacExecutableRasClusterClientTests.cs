@@ -15,7 +15,7 @@ public sealed class RacExecutableRasClusterClientTests
 {
     private const string FakeClusterListStdout =
         "cluster : 613f185a-339d-4bc5-88ad-16acd14a4d26\r\n" +
-        "host    : Andrey-pc\r\n" +
+        "host    : host-01\r\n" +
         "port    : 1541\r\n" +
         "name    : \"Локальный кластер\"\r\n";
 
@@ -23,7 +23,7 @@ public sealed class RacExecutableRasClusterClientTests
         "session       : 492af167-20e6-497a-9eef-20ce4e930c6a\r\n" +
         "infobase      : 6256b6f3-dde1-41f9-a6c2-bdfc36bca7aa\r\n" +
         "app-id        : 1CV8C\r\n" +
-        "user-name     : Андрей\r\n" +
+        "user-name     : Иванов\r\n" +
         "host          : workstation01\r\n" +
         "started-at    : 2026-05-21T03:39:49\r\n";
 
@@ -46,7 +46,7 @@ public sealed class RacExecutableRasClusterClientTests
         s.SessionId.Should().Be(Guid.Parse("492af167-20e6-497a-9eef-20ce4e930c6a"));
         s.ClusterInfobaseId.Should().Be(Guid.Parse("6256b6f3-dde1-41f9-a6c2-bdfc36bca7aa"));
         s.AppId.Should().Be("1CV8C");
-        s.UserName.Should().Be("Андрей");
+        s.UserName.Should().Be("Иванов");
         s.Host.Should().Be("workstation01");
         s.StartedAtUtc.Kind.Should().Be(DateTimeKind.Utc);
         // started-at от rac.exe — локальное время сервера → конвертируется в UTC.
@@ -65,7 +65,7 @@ public sealed class RacExecutableRasClusterClientTests
         // rac --licenses не попадает вовсе → отсутствует в множестве.
         const string licensesStdout =
             "session            : 11111111-1111-1111-1111-111111111111\r\n" +
-            "user-name          : Андрей\r\n" +
+            "user-name          : Иванов\r\n" +
             "app-id             : 1CV8C\r\n" +
             "license-type       : HASP\r\n" +
             "short-presentation : Клиентская лицензия\r\n";

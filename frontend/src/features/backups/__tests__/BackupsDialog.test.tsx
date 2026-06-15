@@ -62,7 +62,7 @@ const succeeded: BackupSummary = {
   databaseServer: "(local)",
   databaseName: "acme_bp",
   status: "Succeeded",
-  requestedBy: "andrey",
+  requestedBy: "operator",
   requestedAtUtc: "2026-06-10T08:00:00Z",
   startedAtUtc: "2026-06-10T08:00:05Z",
   completedAtUtc: "2026-06-10T08:01:10Z",
