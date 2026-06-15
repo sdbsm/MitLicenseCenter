@@ -149,13 +149,17 @@ public static class DependencyInjection
         services.AddSingleton<RasHealthProbingService>();
         services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<RasHealthProbingService>());
 
-        // Управление службой RAS (MLC-159, ADR-47): обнаружение по binPath + register/
-        // update/start через sc.exe. Ортогонально rac.exe-адаптеру (протокол RAS не
-        // трогаем). sc-раннер декодирует OEM-вывод как rac/iisreset; резолвер ras.exe —
-        // по версионным bin-каталогам 1С (как rac.exe). Все три — singleton (без
-        // состояния, читают ISettingsSnapshot/ФС). Windows-only (sc.exe), но чистый
-        // спавн процесса — без #pragma CA1416.
+        // Управление службой RAS (MLC-159, ADR-47; обнаружение — MLC-162): служба
+        // ищется по ImagePath с ras.exe через реестр (IServiceRegistryReader, один
+        // проход без спавнов), состояние — через ServiceController (IServiceStateReader);
+        // register/update/start — через sc.exe. Ортогонально rac.exe-адаптеру (протокол
+        // RAS не трогаем). sc-раннер декодирует OEM-вывод как rac/iisreset; резолвер
+        // ras.exe — по версионным bin-каталогам 1С (как rac.exe). Все singleton (без
+        // состояния, читают реестр/ServiceController/ISettingsSnapshot/ФС). Windows-only,
+        // но реестр/спавн — с platform-guard, без #pragma CA1416.
         services.AddSingleton<IScProcessRunner, ScProcessRunner>();
+        services.AddSingleton<IServiceRegistryReader, RegistryServiceReader>();
+        services.AddSingleton<IServiceStateReader, ServiceControllerStateReader>();
         services.AddSingleton<IRasExePathResolver, RasExePathResolver>();
         services.AddSingleton<IRasServiceManager, ScRasServiceManager>();
 

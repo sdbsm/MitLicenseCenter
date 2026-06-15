@@ -21,21 +21,21 @@ internal sealed class ScProcessRunner : IScProcessRunner
     private static readonly string ScExePath =
         Path.Combine(Environment.SystemDirectory, "sc.exe");
 
-    public async Task<ScResult> RunAsync(IReadOnlyList<string> arguments, CancellationToken ct)
+    public async Task<ScResult> RunAsync(string arguments, CancellationToken ct)
     {
+        // Arguments (raw-строка), НЕ ArgumentList: sc.exe-парсер «ключ= значение»
+        // (binPath=/start=) несовместим с поэлементным квотированием ArgumentList —
+        // .NET обернул бы значение binPath= в кавычки, и sc его отбрасывал (MLC-162).
+        // Строку готовит RasServiceCommandBuilder — как установщик в [Code] (ADR-47).
         var psi = new ProcessStartInfo
         {
             FileName = ScExePath,
+            Arguments = arguments,
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             CreateNoWindow = true,
         };
-
-        foreach (var arg in arguments)
-        {
-            psi.ArgumentList.Add(arg);
-        }
 
         using var process = new Process { StartInfo = psi };
         process.Start();

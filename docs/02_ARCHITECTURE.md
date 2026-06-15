@@ -60,7 +60,7 @@ flowchart LR
 | Порт (Application) | Адаптер (Infrastructure) | Внешняя система |
 |---|---|---|
 | `IClusterClient` | `RacExecutableRasClusterClient` (+ `IRacProcessRunner` → `SystemProcessRacRunner`) | Кластер 1С через `rac.exe`/RAS |
-| `IRasServiceManager` | `ScRasServiceManager` (+ `IScProcessRunner` → `ScProcessRunner`) | Служба Windows для `ras.exe` через `sc.exe` (обнаружение/register/update/start) |
+| `IRasServiceManager` | `ScRasServiceManager` (обнаружение — `IServiceRegistryReader`/`IServiceStateReader`; действия — `IScProcessRunner` → `ScProcessRunner`) | Служба Windows для `ras.exe`: обнаружение через реестр + `ServiceController`, register/update/start через `sc.exe` |
 | `IIisPublishingService` | `OneCIisPublishingService` | IIS: чтение факта публикации, правка `web.config` |
 | `IIisLifecycleService` | `OneCIisLifecycleService` | IIS: пулы/сайты/iisreset |
 | `IWebinstPublisher` | `OneCWebinstPublisher` | Публикация/снятие через `webinst.exe` |
@@ -120,14 +120,17 @@ Health кластера отслеживает независимый фонов
 вопрос «доступен ли RAS сейчас», отдельный от свежести снимка сеансов.
 
 **Управление службой RAS (ADR-47).** Ортогонально адаптеру `rac.exe`: `IRasServiceManager`
-(`ScRasServiceManager` поверх `sc.exe`, OEM-декод вывода как у `rac.exe`/`iisreset.exe`)
-управляет жизненным циклом **локальной** службы Windows, под которой работает `ras.exe`.
-Протокол RAS не реверсится, долгоживущий сокет не вводится — это отдельный от опроса
+(`ScRasServiceManager`) управляет жизненным циклом **локальной** службы Windows, под которой
+работает `ras.exe`. Обнаружение службы идёт через **реестр**
+(`HKLM\SYSTEM\CurrentControlSet\Services`, фильтр `ImagePath` по `ras.exe`) плюс состояние
+через `ServiceController` — один проход, без спавна процессов; `sc.exe` (OEM-декод вывода как
+у `rac.exe`/`iisreset.exe`) используется только для **действий** (`create`/`config`/`start`/
+`stop`). Протокол RAS не реверсится, долгоживущий сокет не вводится — это отдельный от опроса
 сеансов контур. Работает **по требованию** (он-деманд из веб-панели), не фоном: эндпоинт
 статуса диагностирует одно из 4 состояний (ОК / не зарегистрирована / устарела / остановлена)
 и отдаёт предпросмотр команды `sc`; действия register/update/start выполняются по запросу
-оператора. Обнаружение службы — по `binPath`, содержащему `ras.exe` (имя у операторов не
-стандартизировано); `ras.exe` ищется в тех же версионных bin-каталогах, что и `rac.exe`.
+оператора. Обнаружение службы — по `ImagePath`, содержащему `ras.exe` (имя у операторов не
+стандартизировано); `ras.exe` для регистрации ищется в тех же версионных bin-каталогах, что и `rac.exe`.
 Цель — локальный агент кластера (`localhost:1540`), порт службы — из `OneC.RAS.Endpoint`,
 платформа — `OneC.DefaultPlatformVersion` (хост фиксирован `localhost`, single-host ADR-28).
 Действия пишут аудит **600-серии** (`RasServiceRegistered`/`Updated`/`Started`, server-scope).
