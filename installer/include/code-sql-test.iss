@@ -130,29 +130,3 @@ begin
   DeleteFile(outPath);
 end;
 
-{ ===== Обработчик кнопки «Проверить подключение» ===== }
-
-procedure TestButtonClick(Sender: TObject);
-var
-  ok: Boolean;
-  errMsg: string;
-begin
-  WizardForm.ActiveControl := nil;
-  TestResultLabel.Caption := 'Проверка подключения...';
-  TestResultLabel.Font.Color := clNavy;
-  WizardForm.Refresh;
-
-  ok := TestSqlConnection(errMsg);
-  ConnTestPassed := ok;
-  if ok then
-  begin
-    TestResultLabel.Caption := 'OK: SQL доступен. Логин службы установщик создаст сам.';
-    TestResultLabel.Font.Color := clGreen;
-  end
-  else
-  begin
-    TestResultLabel.Caption := 'Ошибка: ' + errMsg;
-    TestResultLabel.Font.Color := clRed;
-  end;
-end;
-

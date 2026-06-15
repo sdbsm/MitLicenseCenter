@@ -43,47 +43,38 @@ begin
   PageSql.Values[0] := '.';
   PageSql.Values[1] := 'MitLicenseCenter';
 
-  { --- Страница «Подключение установщика к SQL» (MLC-171/172) --- }
+  { --- Страница «Подключение установщика к SQL»: РЕЖИМ (радио, MLC-175) --- }
   { Под какой личностью УСТАНОВЩИК подключается к SQL, чтобы создать Windows-логин учётки службы
     (CREATE LOGIN … FROM WINDOWS + sysadmin) и проверить достижимость. Ортогонально выбору учётки
     службы (страница ниже): создаётся ВСЕГДА Windows-логин; SQL-логин (sa) — лишь разовый «ключ»
-    провижининга, в конфиг не пишется и нигде не сохраняется. Режим выводится из поля логина:
-    пусто → Integrated Security (дефолт), заполнено → SQL-логин (ProvisioningMode). Родные поля
-    InputQueryPage отображаются гарантированно — в отличие от кастомных контролов на radio-странице,
-    которые вставали ниже растянутого CheckListBox и были не видны (баг MLC-172). }
-  PageProv := CreateInputQueryPage(PageSql.ID,
+    провижининга, в конфиг не пишется и нигде не сохраняется. ЯВНЫЙ выбор радио (MLC-175): индекс
+    PROV_INTEGRATED (дефолт) / PROV_SQLLOGIN — вместо неявного «пусто = Integrated» (MLC-172). Поля
+    SQL-логина — на ОТДЕЛЬНОЙ странице ниже (radio+edit на одной странице = невидимые контролы,
+    баг MLC-172). Проверка подключения — авто при «Далее» (отдельной кнопки нет). }
+  PageProvMode := CreateInputOptionPage(PageSql.ID,
     'Подключение установщика к SQL',
-    'Как установщик подключится к SQL для создания учётной записи службы',
-    'Оставьте поля пустыми, если вы — sysadmin на SQL (Integrated Security, рекомендуется). ' +
-    'Иначе укажите SQL-логин с ролью sysadmin (например sa) и пароль. Данные используются ' +
-    'однократно и не сохраняются.');
-  PageProv.Add('SQL-логин (sysadmin); пусто = Integrated Security:', False);
-  PageProv.Add('Пароль:', True);
+    'Как установщик один раз подключится к SQL, чтобы создать учётную запись службы',
+    'Выберите личность, под которой установщик создаст SQL-логин учётной записи службы и проверит ' +
+    'доступность SQL. Данные используются однократно и не сохраняются. Проверка подключения ' +
+    'выполняется автоматически при нажатии «Далее».',
+    True, False);
+  PageProvMode.Add('Integrated Security текущего администратора (рекомендуется) — вы sysadmin на SQL.');
+  PageProvMode.Add('SQL-логин с ролью sysadmin (например sa) — для экземпляра в смешанном режиме.');
+  PageProvMode.SelectedValueIndex := PROV_INTEGRATED;
 
-  { Кнопка теста + метка-результат под полями — родной паттерн InputQueryPage (как был на PageCreds
-    до MLC-171, рабочий в проде с MLC-101). Тест идёт под выбранной личностью провижининга и работает
-    для ОБОИХ режимов учётки службы (у виртуальной своей страницы кредов нет). }
-  TestButton := TNewButton.Create(WizardForm);
-  TestButton.Parent := PageProv.Surface;
-  TestButton.Caption := 'Проверить подключение';
-  TestButton.Width := ScaleX(150);
-  TestButton.Height := ScaleY(25);
-  TestButton.Left := 0;
-  TestButton.Top := PageProv.Edits[1].Top + PageProv.Edits[1].Height + ScaleY(16);
-  TestButton.OnClick := @TestButtonClick;
-
-  TestResultLabel := TNewStaticText.Create(WizardForm);
-  TestResultLabel.Parent := PageProv.Surface;
-  TestResultLabel.Left := 0;
-  TestResultLabel.Top := TestButton.Top + TestButton.Height + ScaleY(10);
-  TestResultLabel.Width := PageProv.SurfaceWidth;
-  TestResultLabel.AutoSize := False;
-  TestResultLabel.Height := ScaleY(40);
-  TestResultLabel.WordWrap := True;
-  TestResultLabel.Caption := '';
+  { --- Страница «Учётные данные SQL-логина» (только PROV_SQLLOGIN, ShouldSkipPage) --- }
+  { Показывается, только если на странице режима выбран SQL-логин. Родные поля InputQueryPage
+    отображаются гарантированно. Пароль маскируется (флаг True в .Add); транзиентен (ADR-49). }
+  PageProvCreds := CreateInputQueryPage(PageProvMode.ID,
+    'Учётные данные SQL-логина',
+    'SQL-логин с ролью sysadmin для подключения установщика',
+    'Укажите SQL-логин с ролью sysadmin (например sa) и пароль. Данные используются однократно ' +
+    'и не сохраняются. Проверка подключения выполняется автоматически при нажатии «Далее».');
+  PageProvCreds.Add('SQL-логин (sysadmin):', False);
+  PageProvCreds.Add('Пароль:', True);
 
   { --- Страница «Учётная запись службы» (ADR-49) --- }
-  PageAuthMode := CreateInputOptionPage(PageProv.ID,
+  PageAuthMode := CreateInputOptionPage(PageProvCreds.ID,
     'Учётная запись службы',
     'Под какой учётной записью работает служба панели',
     'К SQL во всех случаях — по Windows-аутентификации (Trusted_Connection).',
@@ -150,23 +141,23 @@ begin
     учётной записи ввод не требуется, страницу пропускаем. }
   if (PageCreds <> nil) and (PageID = PageCreds.ID) then
     Result := (AccountMode = ACCT_VIRTUAL);
+  { Страница учётных данных SQL-логина — только при PROV_SQLLOGIN (MLC-175). Для Integrated
+    Security ввод не нужен, страницу пропускаем. }
+  if (PageProvCreds <> nil) and (PageID = PageProvCreds.ID) then
+    Result := (ProvisioningMode = PROV_INTEGRATED);
 end;
 
 { Сброс результата теста при заходе на страницу провижининга + обновление состояния полей;
   подсказки по именованной учётке на странице учётных данных. }
 procedure CurPageChanged(CurPageID: Integer);
 begin
-  { Страница «Подключение установщика к SQL» (MLC-171): сбрасываем прежний результат теста
-    (личность провижининга могла измениться при правке полей). }
-  if (PageProv <> nil) and (CurPageID = PageProv.ID) then
-  begin
+  { Страницы провижининга (MLC-175): при входе на страницу режима ИЛИ на страницу кредов сбрасываем
+    прежний результат теста — личность провижининга могла измениться (смена радио или правка логина/
+    пароля). Авто-тест перевыполнится при следующем «Далее». }
+  if (PageProvMode <> nil) and (CurPageID = PageProvMode.ID) then
     ConnTestPassed := False;
-    if TestResultLabel <> nil then
-    begin
-      TestResultLabel.Caption := '';
-      TestResultLabel.Font.Color := clNavy;
-    end;
-  end;
+  if (PageProvCreds <> nil) and (CurPageID = PageProvCreds.ID) then
+    ConnTestPassed := False;
 
   if (PageCreds <> nil) and (CurPageID = PageCreds.ID) then
   begin
@@ -266,33 +257,53 @@ begin
     end;
   end;
 
-  { --- Подключение установщика к SQL (MLC-171/172) --- }
-  { Режим выводится из поля логина: пусто → Integrated Security; заполнено → SQL-логин. Если логин
-    задан, требуем и пароль. В обоих режимах требуем успешный тест достижимости под выбранной
-    личностью (тестируем тем же, чем будем создавать логин службы). Гейт ConnTestPassed единый. }
-  if (PageProv <> nil) and (CurPageID = PageProv.ID) then
+  { --- Подключение установщика к SQL: РЕЖИМ (MLC-175) --- }
+  { Для Integrated Security страница кредов пропускается (ShouldSkipPage) — поэтому авто-тест
+    достижимости SQL выполняем здесь, при «Далее» со страницы режима. Для SQL-логина тут НЕ
+    тестируем (креды вводятся на следующей странице) — тест будет на ней. }
+  if (PageProvMode <> nil) and (CurPageID = PageProvMode.ID) then
   begin
-    if (ProvUser <> '') and (ProvPassword = '') then
+    if (ProvisioningMode = PROV_INTEGRATED) and (not ConnTestPassed) then
     begin
-      MsgBox('Укажите пароль SQL-логина — либо очистите поле логина, чтобы использовать ' +
-             'Integrated Security (текущий администратор).', mbError, MB_OK);
+      if not TestSqlConnection(errMsg) then
+      begin
+        MsgBox('Проверка подключения не пройдена:' + #13#10 + errMsg + #13#10#13#10 +
+               'Исправьте параметры SQL и повторите. Продолжить нельзя без успешной проверки. ' +
+               'Если экземпляр в смешанном режиме, а текущий администратор не sysadmin — вернитесь ' +
+               'и выберите «SQL-логин с ролью sysadmin».',
+               mbError, MB_OK);
+        Result := False;
+        Exit;
+      end;
+      ConnTestPassed := True;
+    end;
+  end;
+
+  { --- Учётные данные SQL-логина (только PROV_SQLLOGIN; Integrated — страница пропущена) --- }
+  { Логин обязателен; при заданном логине обязателен пароль. Затем авто-тест достижимости SQL под
+    введённым SQL-логином (тестируем тем же, чем будем создавать логин службы). Гейт ConnTestPassed. }
+  if (PageProvCreds <> nil) and (CurPageID = PageProvCreds.ID) then
+  begin
+    if ProvUser = '' then
+    begin
+      MsgBox('Укажите SQL-логин с ролью sysadmin (или вернитесь и выберите «Integrated Security»).',
+             mbError, MB_OK);
       Result := False;
       Exit;
     end;
-    { Гейт: требуем успешный тест достижимости SQL под выбранной личностью. }
+    if ProvPassword = '' then
+    begin
+      MsgBox('Укажите пароль SQL-логина.', mbError, MB_OK);
+      Result := False;
+      Exit;
+    end;
     if not ConnTestPassed then
     begin
       if not TestSqlConnection(errMsg) then
       begin
-        if TestResultLabel <> nil then
-        begin
-          TestResultLabel.Caption := 'Ошибка: ' + errMsg;
-          TestResultLabel.Font.Color := clRed;
-        end;
         MsgBox('Проверка подключения не пройдена:' + #13#10 + errMsg + #13#10#13#10 +
-               'Исправьте данные и повторите. Продолжить установку нельзя без успешной проверки. ' +
-               'Если экземпляр работает только в режиме Windows-аутентификации — выберите вариант ' +
-               '«Integrated Security».',
+               'Проверьте SQL-логин, пароль и роль sysadmin. Если экземпляр работает только в режиме ' +
+               'Windows-аутентификации — вернитесь и выберите «Integrated Security».',
                mbError, MB_OK);
         Result := False;
         Exit;
@@ -388,6 +399,49 @@ begin
       Exit;
     end;
   end;
+end;
+
+{ Сводка на экране «Готово к установке» (MLC-175): recap решений мастера родным механизмом
+  UpdateReadyMemo (не отдельная страница). Inno передаёт Space (отступ) и NewLine. Первой строкой
+  оставляем MemoDirInfo (каталог установки), далее — собранные параметры. DbAlreadyInitialized к
+  этому моменту уже вычислен (на уходе со страницы «Сеть»), поэтому строка про admin точна. }
+function UpdateReadyMemo(Space, NewLine, MemoUserInfoInfo, MemoDirInfo,
+  MemoTypeInfo, MemoComponentsInfo, MemoGroupInfo, MemoTasksInfo: String): String;
+var
+  S, prov, acct, adminLine: string;
+begin
+  if ProvisioningMode = PROV_SQLLOGIN then
+    prov := 'SQL-логин «' + ProvUser + '» (sysadmin)'
+  else
+    prov := 'Integrated Security (текущий администратор)';
+
+  if AccountMode = ACCT_VIRTUAL then
+    acct := 'виртуальная «{#MyVirtualAccount}»'
+  else if IsGmsa then
+    acct := 'gMSA «' + CredUser + '» (без пароля)'
+  else
+    acct := 'именованная «' + CredUser + '»';
+
+  if ServiceExists then
+    adminLine := 'Пароль администратора: не запрашивается (обновление)'
+  else if DbAlreadyInitialized then
+    adminLine := 'Пароль администратора: не применяется (база уже инициализирована)'
+  else
+    adminLine := 'Пароль администратора: будет задан для пользователя admin';
+
+  S := MemoDirInfo + NewLine + NewLine;
+  S := S + 'SQL Server:' + NewLine;
+  S := S + Space + 'Экземпляр: ' + SqlInstance + NewLine;
+  S := S + Space + 'База данных: ' + SqlDatabase + NewLine + NewLine;
+  S := S + 'Подключение установщика к SQL:' + NewLine;
+  S := S + Space + prov + NewLine + NewLine;
+  S := S + 'Учётная запись службы:' + NewLine;
+  S := S + Space + acct + NewLine + NewLine;
+  S := S + 'Сеть:' + NewLine;
+  S := S + Space + 'TCP-порт: ' + NetPort + NewLine;
+  S := S + Space + 'AllowedHosts: ' + NetAllowedHosts + NewLine + NewLine;
+  S := S + adminLine;
+  Result := S;
 end;
 
 { После копирования файлов (ssPostInstall) — порядок ADR-49 (MLC-170). Учётная запись службы
