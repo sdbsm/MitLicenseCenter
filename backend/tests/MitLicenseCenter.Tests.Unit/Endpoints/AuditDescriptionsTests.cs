@@ -37,8 +37,6 @@ public sealed class AuditDescriptionsTests
     [Fact]
     public void Publication_in_infobase_aggregate_descriptions_match_expected()
     {
-        AuditDescriptions.PublicationCreatedForInfobase("Default Web Site/ib", "Бухгалтерия", "admin")
-            .Should().Be("Публикация «Default Web Site/ib» создана для инфобазы «Бухгалтерия» администратором admin.");
         AuditDescriptions.PublicationUpdatedForInfobase("Default Web Site/ib", "Бухгалтерия", "admin")
             .Should().Be("Публикация «Default Web Site/ib» обновлена для инфобазы «Бухгалтерия» администратором admin.");
         AuditDescriptions.PublicationDeletedWithInfobase("Default Web Site/ib", "Бухгалтерия", "admin")

@@ -45,9 +45,8 @@ internal static class AuditDescriptions
         $"База кластера «{name}» возвращена в список нераспределённых администратором {initiator}.";
 
     // ── Публикации в составе агрегата Infobase ─────────────────────────────────────
-    public static string PublicationCreatedForInfobase(string label, string infobaseName, string initiator) =>
-        $"Публикация «{label}» создана для инфобазы «{infobaseName}» администратором {initiator}.";
-
+    // MLC-164: «публикация создана при добавлении базы» больше не пишется (служебная запись,
+    // webinst не запускался) — соответствующего хелпера нет. Update/Delete-флоу остаются.
     public static string PublicationUpdatedForInfobase(string label, string infobaseName, string initiator) =>
         $"Публикация «{label}» обновлена для инфобазы «{infobaseName}» администратором {initiator}.";
 
