@@ -17,6 +17,8 @@
     "pausedStatus": "На паузе",
     "filter": "Фильтр",
     "search": "Поиск",
+    "selectAll": "Выбрать все",
+    "deselectAll": "Снять все",
     "reset": "Сбросить",
     "details": "Подробнее",
     "back": "Назад",

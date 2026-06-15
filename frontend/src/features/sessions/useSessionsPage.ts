@@ -14,7 +14,7 @@ import { useTableDensity } from "@/components/ui/data-table";
 import { useMe } from "@/features/auth/useAuth";
 import { useInfobases } from "@/features/infobases/useInfobases";
 import { buildSessionColumns } from "./sessionColumns";
-import { appTypeLabel, isInteractiveAppId } from "./appTypes";
+import { appTypeLabel, isInteractiveAppId, KNOWN_APP_IDS } from "./appTypes";
 import type { SessionSnapshotEntry } from "./types";
 import { useSessionsSnapshot } from "./useSessionsSnapshot";
 
@@ -49,6 +49,9 @@ export function parseParams(params: URLSearchParams) {
             .split(",")
             .map((s) => s.trim())
             .filter(Boolean),
+    // MLC-167: тумблер «Только лицензионные». ВКЛ по умолчанию — отсутствие параметра
+    // означает «показывать только Consuming». `consuming=0` явно выключает режим.
+    consuming: params.get("consuming") !== "0",
   };
 }
 
@@ -110,7 +113,10 @@ export function sortRows(rows: SessionSnapshotEntry[], sort: SessionSort): Sessi
 export function useSessionsPage() {
   const { t } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { q, infobaseId, appIds } = useMemo(() => parseParams(searchParams), [searchParams]);
+  const { q, infobaseId, appIds, consuming } = useMemo(
+    () => parseParams(searchParams),
+    [searchParams]
+  );
 
   // MLC-156: пауза авто-обновления + ручной форс-обход. При паузе refetchInterval=false.
   const [isPaused, setIsPaused] = useState(false);
@@ -168,15 +174,20 @@ export function useSessionsPage() {
     [appIds, presentAppIds]
   );
 
-  // Опции селекта «Тип сеанса»: из присутствующих app-id + человеческое имя (или сам
-  // app-id, если типа нет в маппинге). Сортировка по подписи для предсказуемого порядка.
-  const appTypeOptions = useMemo(
-    () =>
-      presentAppIds
-        .map((appId) => ({ value: appId, label: appTypeLabel(t, appId) }))
-        .sort((a, b) => a.label.localeCompare(b.label, "ru")),
-    [presentAppIds, t]
-  );
+  // Опции селекта «Тип сеанса» (MLC-167): полный каталог KNOWN_APP_IDS (в каноническом
+  // порядке) ∪ присутствующие в снапшоте типы, которых нет в каталоге (незнакомые app-id
+  // из кластера — в конец). Полный каталог даёт возможность заранее отметить тип, которого
+  // ещё нет онлайн. Человеческое имя — из маппинга (или сам app-id, если типа нет).
+  const appTypeOptions = useMemo(() => {
+    const known = new Set<string>(KNOWN_APP_IDS);
+    const extras = presentAppIds
+      .filter((appId) => !known.has(appId))
+      .sort((a, b) => a.localeCompare(b, "ru"));
+    return [...KNOWN_APP_IDS, ...extras].map((appId) => ({
+      value: appId,
+      label: appTypeLabel(t, appId),
+    }));
+  }, [presentAppIds, t]);
 
   // Фильтрация q/infobaseId/appIds — кросс-колоночная, остаётся вне tanstack columnFilters
   // (как раньше, чтобы не менять имена URL-параметров).
@@ -192,12 +203,19 @@ export function useSessionsPage() {
       const name = infobaseById.get(infobaseId);
       if (name) rows = rows.filter((r) => r.infobaseName === name);
     }
-    // Явный пустой выбор (`appIds === []`) трактуем как «показать пусто» — это валидное
-    // состояние «оператор снял все типы». Дефолт (appIds===null) — интерактивные.
-    const appIdSet = new Set(effectiveAppIds);
-    rows = rows.filter((r) => appIdSet.has(r.appId));
+    // MLC-167: тумблер «Только лицензионные» перекрывает фильтр типов. ВКЛ (дефолт) →
+    // показываем только фактически потребляющие лицензию (licenseStatus === "Consuming");
+    // Pending/NotConsuming скрыты, фильтр типов игнорируется. ВЫКЛ → действует фильтр типов.
+    if (consuming) {
+      rows = rows.filter((r) => r.licenseStatus === "Consuming");
+    } else {
+      // Явный пустой выбор (`appIds === []`) трактуем как «показать пусто» — это валидное
+      // состояние «оператор снял все типы». Дефолт (appIds===null) — интерактивные.
+      const appIdSet = new Set(effectiveAppIds);
+      rows = rows.filter((r) => appIdSet.has(r.appId));
+    }
     return rows;
-  }, [data, q, infobaseId, infobaseById, effectiveAppIds]);
+  }, [data, q, infobaseId, infobaseById, effectiveAppIds, consuming]);
 
   const handleKillClick = (session: SessionSnapshotEntry) => {
     setSelectedSession(session);
@@ -234,7 +252,12 @@ export function useSessionsPage() {
   }, [pageCount, pagination.pageIndex]);
 
   // Любая смена сортировки/фильтра возвращает на первую страницу.
-  const setFilter = (next: { q?: string; infobaseId?: string; appIds?: string[] }) => {
+  const setFilter = (next: {
+    q?: string;
+    infobaseId?: string;
+    appIds?: string[];
+    consuming?: boolean;
+  }) => {
     const params = new URLSearchParams();
     const newQ = next.q !== undefined ? next.q : q;
     const newInfobaseId = next.infobaseId !== undefined ? next.infobaseId : infobaseId;
@@ -245,6 +268,10 @@ export function useSessionsPage() {
     // Если в этом вызове не трогали — сохраняем текущее URL-состояние (явное или дефолт).
     const newAppIds = next.appIds !== undefined ? next.appIds : appIds;
     if (newAppIds !== null) params.set("appIds", newAppIds.join(","));
+    // MLC-167: consuming пишем в URL только когда ВЫКЛ (`consuming=0`), чтобы дефолтный
+    // URL (тумблер вкл) оставался чистым. ВКЛ = отсутствие параметра.
+    const newConsuming = next.consuming !== undefined ? next.consuming : consuming;
+    if (!newConsuming) params.set("consuming", "0");
     setSearchParams(params, { replace: true });
     setPagination((p) => ({ ...p, pageIndex: 0 }));
   };
@@ -266,6 +293,7 @@ export function useSessionsPage() {
     infobases: infobasesData?.items ?? [],
     q,
     infobaseId,
+    consuming,
     appTypeOptions,
     selectedAppIds: effectiveAppIds,
     filtered,

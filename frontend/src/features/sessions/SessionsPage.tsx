@@ -26,6 +26,7 @@ export function SessionsPage() {
     infobases,
     q,
     infobaseId,
+    consuming,
     appTypeOptions,
     selectedAppIds,
     table,
@@ -113,6 +114,7 @@ export function SessionsPage() {
               infobases={infobases}
               appTypeOptions={appTypeOptions}
               selectedAppIds={selectedAppIds}
+              consuming={consuming}
               onChange={setFilter}
             />
           }
