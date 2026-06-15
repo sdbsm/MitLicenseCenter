@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -5,6 +6,7 @@ import { SettingField } from "./SettingField";
 import { PlatformPicker } from "./PlatformPicker";
 import { RasPortField } from "./RasPortField";
 import { DatabaseServerField } from "./DatabaseServerField";
+import { RasServiceCard } from "./RasServiceCard";
 import type { SettingDescriptor } from "./types";
 import { useSettings } from "./useSettings";
 
@@ -119,54 +121,59 @@ export function SettingsPage() {
       )}
 
       {SECTIONS.map((section) => (
-        <Card key={section.titleKey}>
-          <CardHeader>
-            <CardTitle>{t(section.titleKey)}</CardTitle>
-            <CardDescription>
-              {t(`${section.titleKey}.description`, { defaultValue: "" })}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-5">
-            {isLoading
-              ? section.keys.map((k) => <Skeleton key={k} className="h-16 w-full" />)
-              : section.keys.map((k) => {
-                  const setting = byKey.get(k);
-                  if (!setting) {
-                    return null;
-                  }
-                  // Спец-рендер: порт RAS и единый пикер платформы заменяют плоские
-                  // поля OneC.RAS.Endpoint / OneC.RAS.ExePath (последний ведёт ещё и
-                  // OneC.DefaultPlatformVersion — он в SECTIONS не перечислен).
-                  if (k === "OneC.RAS.Endpoint") {
-                    return <RasPortField key={k} setting={setting} />;
-                  }
-                  if (k === "OneC.RAS.ExePath") {
+        <Fragment key={section.titleKey}>
+          <Card>
+            <CardHeader>
+              <CardTitle>{t(section.titleKey)}</CardTitle>
+              <CardDescription>
+                {t(`${section.titleKey}.description`, { defaultValue: "" })}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-5">
+              {isLoading
+                ? section.keys.map((k) => <Skeleton key={k} className="h-16 w-full" />)
+                : section.keys.map((k) => {
+                    const setting = byKey.get(k);
+                    if (!setting) {
+                      return null;
+                    }
+                    // Спец-рендер: порт RAS и единый пикер платформы заменяют плоские
+                    // поля OneC.RAS.Endpoint / OneC.RAS.ExePath (последний ведёт ещё и
+                    // OneC.DefaultPlatformVersion — он в SECTIONS не перечислен).
+                    if (k === "OneC.RAS.Endpoint") {
+                      return <RasPortField key={k} setting={setting} />;
+                    }
+                    if (k === "OneC.RAS.ExePath") {
+                      return (
+                        <PlatformPicker
+                          key={k}
+                          racSetting={setting}
+                          versionSetting={byKey.get("OneC.DefaultPlatformVersion")}
+                        />
+                      );
+                    }
+                    // MLC-056: сервер БД — пикер локальных SQL-инстансов (ручной fallback).
+                    if (k === "Sql.Server") {
+                      return <DatabaseServerField key={k} setting={setting} />;
+                    }
+                    const meta = FIELD_META[k] ?? { type: "text" as const };
                     return (
-                      <PlatformPicker
+                      <SettingField
                         key={k}
-                        racSetting={setting}
-                        versionSetting={byKey.get("OneC.DefaultPlatformVersion")}
+                        setting={setting}
+                        inputType={meta.type}
+                        min={meta.min}
+                        max={meta.max}
+                        placeholder={meta.placeholder}
                       />
                     );
-                  }
-                  // MLC-056: сервер БД — пикер локальных SQL-инстансов (ручной fallback).
-                  if (k === "Sql.Server") {
-                    return <DatabaseServerField key={k} setting={setting} />;
-                  }
-                  const meta = FIELD_META[k] ?? { type: "text" as const };
-                  return (
-                    <SettingField
-                      key={k}
-                      setting={setting}
-                      inputType={meta.type}
-                      min={meta.min}
-                      max={meta.max}
-                      placeholder={meta.placeholder}
-                    />
-                  );
-                })}
-          </CardContent>
-        </Card>
+                  })}
+            </CardContent>
+          </Card>
+          {/* Блок состояния службы RAS (MLC-160, ADR-47) — сразу после секции
+            «Подключение к 1С/RAS». Admin-only + ленивая диагностика — внутри карточки. */}
+          {section.titleKey === "settings.sections.cluster" && <RasServiceCard />}
+        </Fragment>
       ))}
     </div>
   );
