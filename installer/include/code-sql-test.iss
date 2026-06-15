@@ -7,7 +7,7 @@
   создаём). Возвращает True при успехе; errMsg — текст. }
 function TestSqlConnection(out errMsg: string): Boolean;
 var
-  connStr, psScript, scriptPath, cmdLine: string;
+  connStr, psScript, scriptPath: string;
   rc: Integer;
 begin
   Result := False;
@@ -46,17 +46,12 @@ begin
     Exit;
   end;
 
-  cmdLine := '-NoProfile -ExecutionPolicy Bypass -File "' + scriptPath + '"';
-  if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
-              cmdLine, '', SW_HIDE, ewWaitUntilTerminated, rc) then
+  { RunPowerShellFile удаляет временный скрипт (в нём строка подключения с паролем) сразу после запуска. }
+  if not RunPowerShellFile(scriptPath, rc) then
   begin
-    DeleteFile(scriptPath);
     errMsg := 'Не удалось запустить powershell.exe для проверки.';
     Exit;
   end;
-
-  { Удалить временный скрипт (в нём строка подключения с паролем). }
-  DeleteFile(scriptPath);
 
   if rc = 0 then
     Result := True
@@ -79,7 +74,7 @@ end;
   SQL-логин учётки службы создаётся позже. }
 function DatabaseHasPanelUsers: Boolean;
 var
-  connStr, psScript, scriptPath, outPath, cmdLine: string;
+  connStr, psScript, scriptPath, outPath: string;
   outData: AnsiString;  { LoadStringFromFile требует var AnsiString — не String. }
   rc: Integer;
 begin
@@ -118,17 +113,12 @@ begin
   if not SaveStringToFile(scriptPath, psScript, False) then
     Exit;  { fail-open }
 
-  cmdLine := '-NoProfile -ExecutionPolicy Bypass -File "' + scriptPath + '"';
-  if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
-              cmdLine, '', SW_HIDE, ewWaitUntilTerminated, rc) then
+  { RunPowerShellFile удаляет временный скрипт (несёт строку подключения с паролем) сразу после запуска. }
+  if not RunPowerShellFile(scriptPath, rc) then
   begin
-    DeleteFile(scriptPath);
     DeleteFile(outPath);
     Exit;  { fail-open: не смогли запустить }
   end;
-
-  { Временный скрипт содержит строку подключения (пароль) — удаляем сразу. }
-  DeleteFile(scriptPath);
 
   if rc = 0 then
   begin

@@ -4,7 +4,6 @@
   SERVICE_CONTROL_STOP = $00000001;    { control-код для ControlService (MLC-116): НЕ путать с SERVICE_STOP — раньше в ControlService ошибочно передавался access right $0020, функция возвращала ERROR_INVALID_PARAMETER и служба НЕ останавливалась }
   SC_MANAGER_CONNECT   = $0001;
   SERVICE_STOPPED      = 1;
-  SERVICE_STOP_PENDING = 3;
 
   { Учётная запись службы (индекс radio на странице «Учётная запись службы»), ADR-49. }
   ACCT_VIRTUAL = 0;  { Виртуальная учётка NT SERVICE\MitLicenseCenter (по умолчанию), без пароля. }

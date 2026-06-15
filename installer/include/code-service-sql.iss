@@ -1,4 +1,21 @@
-﻿{ ===== Параметры для [Run] (sc/netsh) ===== }
+﻿{ ===== Запуск временного PowerShell-сценария (общий помощник) ===== }
+
+{ Все SQL/provisioning-шаги (тест подключения, проба БД, создание SQL-логина, добавление учётки
+  в Администраторов) запускают записанный во временный .ps1 сценарий ОДИНАКОВО: powershell.exe по
+  полному пути (без PATH-hijack), -NoProfile -ExecutionPolicy Bypass -File. Сценарий может нести
+  строку подключения с паролем в '...'-литерале, поэтому файл ВСЕГДА удаляется сразу после запуска
+  (и при неудачном запуске тоже). Возвращает True, если powershell удалось запустить (тогда rc —
+  код возврата сценария); False, если запуск не удался. Запись сценария и реакцию на rc держит у
+  себя вызывающий — они различаются (fail-open / предупреждение / жёсткий откат). }
+function RunPowerShellFile(const scriptPath: string; out rc: Integer): Boolean;
+begin
+  Result := Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+                 '-NoProfile -ExecutionPolicy Bypass -File "' + scriptPath + '"',
+                 '', SW_HIDE, ewWaitUntilTerminated, rc);
+  DeleteFile(scriptPath);
+end;
+
+{ ===== Параметры для [Run] (sc/netsh) ===== }
 
 { REL-03 (ADR-40): выводит имя ЛОКАЛЬНОЙ SQL-службы из выбранного инстанса для
   производной SCM-зависимости. Возвращает '' (пусто), если инстанс не распознан как
@@ -49,28 +66,31 @@ begin
     Result := 'MSSQL$' + namePart;  { .\SQLEXPRESS -> MSSQL$SQLEXPRESS }
 end;
 
-{ sc create … — на чистой установке (ADR-49). ВСЕГДА obj= <учётка службы>; password= только
-  для обычной именованной Windows-учётки (ServiceAccountUsesPassword). Для виртуальной учётки
-  «NT SERVICE\MitLicenseCenter» и для gMSA пароль НЕ передаётся (им управляет Windows; SCM сам
-  материализует учётку/SID и выдаёт SeServiceLogonRight). }
-function GetScCreateParams(Param: string): string;
+{ Общий хвост sc create/config (ADR-49): obj= <учётка службы> [password= …]. password= только
+  для обычной именованной Windows-учётки с паролем (ServiceAccountUsesPassword). Для виртуальной
+  учётки «NT SERVICE\MitLicenseCenter» и для gMSA пароль НЕ передаётся (им управляет Windows; SCM
+  сам материализует учётку/SID и выдаёт SeServiceLogonRight). }
+function ScObjectTail: string;
 begin
-  Result := 'create {#MyServiceName} binPath= "' +
-            ExpandConstant('{app}\{#MyExeName}') + '" start= auto DisplayName= "{#MyAppName}"' +
-            ' obj= "' + CmdQuoteInner(ServiceAccountName) + '"';
+  Result := ' obj= "' + CmdQuoteInner(ServiceAccountName) + '"';
   if ServiceAccountUsesPassword then
     Result := Result + ' password= "' + CmdQuoteInner(CredPassword) + '"';
 end;
 
-{ sc config … — на апгрейде: выравниваем binPath + учётку под текущий выбор (ADR-49).
-  ВСЕГДА obj= <учётка службы>; password= только для именованной не-gMSA учётки с паролем. }
-function GetScConfigParams(Param: string): string;
+{ sc create … — на чистой установке (ADR-49). binPath/start/DisplayName + общий хвост учётки. }
+function GetScCreateParams: string;
+begin
+  Result := 'create {#MyServiceName} binPath= "' +
+            ExpandConstant('{app}\{#MyExeName}') + '" start= auto DisplayName= "{#MyAppName}"' +
+            ScObjectTail;
+end;
+
+{ sc config … — на апгрейде: выравниваем binPath + учётку под текущий выбор (ADR-49). }
+function GetScConfigParams: string;
 begin
   Result := 'config {#MyServiceName} binPath= "' +
             ExpandConstant('{app}\{#MyExeName}') + '" start= auto' +
-            ' obj= "' + CmdQuoteInner(ServiceAccountName) + '"';
-  if ServiceAccountUsesPassword then
-    Result := Result + ' password= "' + CmdQuoteInner(CredPassword) + '"';
+            ScObjectTail;
 end;
 
 { netsh … add rule — порт из ввода. Старое одноимённое правило снимается в CurStepChanged
@@ -79,7 +99,7 @@ end;
   НЕ на Public (недоверенные сети) — порт остаётся закрыт на публичных подключениях, без регресса
   для домена/частной сети. remoteip= намеренно НЕ задаём: localsubnet сломал бы LAN с несколькими
   подсетями; сужение по источнику документируется как опция в OPERATIONS (SEC-09). }
-function GetFirewallAddParams(Param: string): string;
+function GetFirewallAddParams: string;
 begin
   Result := 'advfirewall firewall add rule name="{#MyFirewallRule}"' +
             ' dir=in action=allow protocol=TCP localport=' + NetPort +
@@ -155,7 +175,7 @@ end;
   который закрывал MLC-107). }
 procedure ProvisionSqlLogin;
 var
-  connStr, acct, psScript, scriptPath, cmdLine: string;
+  connStr, acct, psScript, scriptPath: string;
   rc: Integer;
 begin
   acct := ServiceAccountName;
@@ -209,11 +229,8 @@ begin
     RaiseException('Не удалось записать временный скрипт ProvisionSqlLogin.');
   end;
 
-  cmdLine := '-NoProfile -ExecutionPolicy Bypass -File "' + scriptPath + '"';
-  if (not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
-               cmdLine, '', SW_HIDE, ewWaitUntilTerminated, rc)) or (rc <> 0) then
+  if (not RunPowerShellFile(scriptPath, rc)) or (rc <> 0) then
   begin
-    DeleteFile(scriptPath);
     Log('ProvisionSqlLogin: создание SQL-логина «' + acct + '» завершилось с кодом ' + IntToStr(rc));
     if ProvisioningMode = PROV_SQLLOGIN then
       { Провижининг под введённым SQL-логином: причины — неверный логин/пароль, у логина нет
@@ -244,7 +261,6 @@ begin
     { Жёсткий fail/откат: без логина служба упадёт на старте с 18456 — не завершаем «успехом». }
     RaiseException('Создание SQL-логина учётной записи службы завершилось с кодом ' + IntToStr(rc) + '.');
   end;
-  DeleteFile(scriptPath);
   Log('ProvisionSqlLogin: SQL-логин «' + acct + '» создан/подтверждён (sysadmin).');
 end;
 
@@ -259,7 +275,7 @@ end;
   (без локального админа панель и SQL работают, деградируют только IIS-функции). }
 procedure AddServiceAccountToAdministrators;
 var
-  acct, psScript, scriptPath, cmdLine: string;
+  acct, psScript, scriptPath: string;
   rc: Integer;
 begin
   acct := ServiceAccountName;
@@ -286,11 +302,8 @@ begin
     Exit;
   end;
 
-  cmdLine := '-NoProfile -ExecutionPolicy Bypass -File "' + scriptPath + '"';
-  if (not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
-               cmdLine, '', SW_HIDE, ewWaitUntilTerminated, rc)) or (rc <> 0) then
+  if (not RunPowerShellFile(scriptPath, rc)) or (rc <> 0) then
   begin
-    DeleteFile(scriptPath);
     Log('AddServiceAccountToAdministrators: добавление «' + acct + '» в Администраторов завершилось с кодом ' + IntToStr(rc));
     MsgBox('Не удалось добавить учётную запись службы в локальную группу «Администраторы»:' + #13#10 +
            acct + #13#10#13#10 +
@@ -301,7 +314,6 @@ begin
            mbError, MB_OK);
     Exit;
   end;
-  DeleteFile(scriptPath);
   Log('AddServiceAccountToAdministrators: «' + acct + '» — член локальной группы Администраторов.');
 end;
 
@@ -326,7 +338,7 @@ begin
   if not ServiceExists then
   begin
     { --- Чистая установка: создаём службу --- }
-    if (not Exec(ExpandConstant('{sys}\sc.exe'), GetScCreateParams(''),
+    if (not Exec(ExpandConstant('{sys}\sc.exe'), GetScCreateParams,
                  '', SW_HIDE, ewWaitUntilTerminated, rc)) or (rc <> 0) then
     begin
       if rc = 1057 then
@@ -354,7 +366,7 @@ begin
   begin
     { --- Апгрейд: пересоздавать службу не нужно, выравниваем binPath/аккаунт (без пароля для
       виртуальной/gMSA) --- }
-    if (not Exec(ExpandConstant('{sys}\sc.exe'), GetScConfigParams(''),
+    if (not Exec(ExpandConstant('{sys}\sc.exe'), GetScConfigParams,
                  '', SW_HIDE, ewWaitUntilTerminated, rc)) or (rc <> 0) then
       MsgBox('Не удалось обновить параметры службы «{#MyServiceName}» (код ' + IntToStr(rc) + ').' + #13#10 +
              'Служба сохранена, но путь к программе или учётная запись могли не примениться — ' +
@@ -393,7 +405,7 @@ begin
   ConfigureSqlDependency;
 
   { --- Firewall: входящий TCP на выбранный порт --- }
-  if (not Exec(ExpandConstant('{sys}\netsh.exe'), GetFirewallAddParams(''),
+  if (not Exec(ExpandConstant('{sys}\netsh.exe'), GetFirewallAddParams,
                '', SW_HIDE, ewWaitUntilTerminated, rc)) or (rc <> 0) then
     MsgBox('Не удалось открыть TCP-порт ' + NetPort + ' в брандмауэре Windows (код ' + IntToStr(rc) + ').' + #13#10 +
            'Панель установлена, но может быть недоступна по сети — откройте порт вручную ' +
