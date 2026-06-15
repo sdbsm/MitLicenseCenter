@@ -85,7 +85,7 @@ public sealed class HotEnforcementMeasurementTests
         const string infobaseName = "БП";
 
         var sessions = Enumerable.Range(0, consuming).Select(i => new ClusterSession(
-            Guid.NewGuid(), clusterInfobaseId, "1CV8C", $"user{i}", "WS01", true,
+            Guid.NewGuid(), clusterInfobaseId, "1CV8C", $"user{i}", "WS01",
             baseTime.AddSeconds(i))).ToList();
 
         var cluster = new CountingClusterClient(sessions);
@@ -97,6 +97,11 @@ public sealed class HotEnforcementMeasurementTests
         var metrics = TestMetrics.Reconciliation(registry);
         var settings = Substitute.For<ISettingsSnapshot>();
 
+        // ADR-48 (MLC-166): факт лицензий доступен, все сессии Consuming (как пометил бы
+        // прошлый холодный цикл). Горячий тир читает кэш — второго fetch rac нет.
+        var licenseFactCache = new LicenseFactCache();
+        licenseFactCache.Update(sessions.ToDictionary(s => s.SessionId, _ => true), available: true);
+
         var db = TestHelpers.NewInMemoryDb($"measure-{Guid.NewGuid():N}");
         db.Tenants.Add(new Tenant { Id = tenantId, Name = tenantName, MaxConcurrentLicenses = Limit, IsActive = true, CreatedAt = baseTime });
         db.Infobases.Add(new Infobase { Id = Guid.NewGuid(), TenantId = tenantId, Name = infobaseName, ClusterInfobaseId = clusterInfobaseId, DatabaseName = "db", CreatedAt = baseTime });
@@ -105,13 +110,13 @@ public sealed class HotEnforcementMeasurementTests
         // Снимок уже знает маппинг IB→tenant (tenant hot → cold промоутил его ранее).
         var seeded = sessions.Select(s => new SnapshotSessionEntry(
             s.SessionId, s.ClusterInfobaseId, tenantId, tenantName, infobaseName,
-            s.AppId, s.UserName, s.Host, s.ConsumesLicense, s.StartedAtUtc)).ToList();
-        store.Replace(new SnapshotPayload(seeded, baseTime, 0, "Ras"));
+            s.AppId, s.UserName, s.Host, LicenseStatus.Consuming, s.StartedAtUtc)).ToList();
+        store.Replace(new SnapshotPayload(seeded, baseTime, 0, "Ras", LicenseFactAvailable: true));
 
         var enforcer = new KillEnforcer(cluster, new NoopAuditLogger(), db, settings, clock, metrics, NullLogger<KillEnforcer>.Instance);
         var hot = new HotTierPollingService(
             Substitute.For<IServiceScopeFactory>(), store, registry, gate, settings,
-            clock, metrics, NullLogger<HotTierPollingService>.Instance);
+            licenseFactCache, clock, metrics, NullLogger<HotTierPollingService>.Instance);
 
         return (cluster, hot, enforcer);
     }
@@ -131,6 +136,11 @@ public sealed class HotEnforcementMeasurementTests
             Interlocked.Increment(ref _listCalls);
             return Task.FromResult(sessions);
         }
+
+        // ADR-48: горячий тир этот метод НЕ зовёт (классификация из кэша). Реализован
+        // для полноты интерфейса; считать его вызовы не нужно.
+        public Task<IReadOnlySet<Guid>?> ListLicensedSessionIdsAsync(CancellationToken ct)
+            => Task.FromResult<IReadOnlySet<Guid>?>(sessions.Select(s => s.SessionId).ToHashSet());
 
         public Task<KillSessionResult> KillSessionAsync(SessionDescriptor descriptor, CancellationToken ct)
         {

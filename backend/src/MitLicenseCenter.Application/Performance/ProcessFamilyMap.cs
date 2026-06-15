@@ -1,8 +1,9 @@
 namespace MitLicenseCenter.Application.Performance;
 
 // Настраиваемый маппинг «имя процесса → семья» для атрибуции потребления ресурсов
-// (MLC-064, ADR-26). Образец — LicenseConsumingAppIds: дефолт фиксируется здесь, оператор
-// переопределяет список через dbo.Settings (Performance.ProcessFamilyMap) без редеплоя.
+// (MLC-064, ADR-26). Паттерн «дефолт-в-коде + override через Settings»: дефолт фиксируется
+// здесь, оператор переопределяет список через dbo.Settings (Performance.ProcessFamilyMap)
+// без редеплоя.
 // Пустое/битое значение → Default, поэтому поведение по умолчанию детерминировано.
 //
 // Формат строки: семьи через «;», внутри «Имя=маска,маска,…».
@@ -32,8 +33,8 @@ public sealed class ProcessFamilyMap
     {
         var families = ParseGroups(string.IsNullOrWhiteSpace(raw) ? Default : raw);
 
-        // Битая строка (ни одной валидной семьи) откатывается на дефолт — как
-        // LicenseConsumingAppIds. Default — константа, валидна, рекурсия конечна.
+        // Битая строка (ни одной валидной семьи) откатывается на дефолт.
+        // Default — константа, валидна, рекурсия конечна.
         return families.Count > 0 ? new ProcessFamilyMap(families) : new ProcessFamilyMap(ParseGroups(Default));
     }
 

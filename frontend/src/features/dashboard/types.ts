@@ -36,6 +36,9 @@ export const dashboardSummarySchema = z.object({
   sessionsActiveTotal: z.number(),
   licensesConsumedTotal: z.number(),
   licensesAvailableTotal: z.number(),
+  // ADR-48 (MLC-166): false ⇒ факт rac --licenses недоступен → баннер у потребления.
+  // non-nullable bool на бэкенде; .default страхует parity при отсутствии ключа.
+  licenseFactAvailable: z.boolean().default(false),
   topTenantsByConsumption: z.array(tenantConsumptionRowSchema),
   ras: dashboardRasHealthSchema,
 });

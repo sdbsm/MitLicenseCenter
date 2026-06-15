@@ -19,11 +19,6 @@ public static class SettingKey
     public const string OneCRasEndpoint = "OneC.RAS.Endpoint";
     public const string OneCRasExePath = "OneC.RAS.ExePath";
 
-    // Whitelist client-типов 1С (app-id), потребляющих лицензию (MLC-024). Список через
-    // запятую; пусто → дефолтный набор (LicenseConsumingAppIds.Default). Вынесен в
-    // Settings, чтобы менять политику без редеплоя.
-    public const string OneCLicenseConsumingAppIds = "OneC.LicenseConsumingAppIds";
-
     // IIS / publications (используется в PR 3.5).
     public const string IisDefaultVrdRoot = "IIS.DefaultVrdRoot";
 

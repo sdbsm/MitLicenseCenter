@@ -57,13 +57,13 @@ public sealed class KillEnforcerBatchAuditTests
             AppId: "1CV8C",
             UserName: $"user{i}",
             Host: "WS01",
-            ConsumesLicense: true,
+            LicenseStatus: LicenseStatus.Consuming,
             StartedAtUtc: baseTime.AddMinutes(i))).ToList();
 
-        var payload = new SnapshotPayload(sessions, baseTime.AddMinutes(30), 42, "Rest");
+        var payload = new SnapshotPayload(sessions, baseTime.AddMinutes(30), 42, "Rest", LicenseFactAvailable: true);
 
         var freshSessions = sessions.Select(s => new ClusterSession(
-            s.SessionId, s.ClusterInfobaseId, s.AppId, s.UserName, s.Host, s.ConsumesLicense, s.StartedAtUtc))
+            s.SessionId, s.ClusterInfobaseId, s.AppId, s.UserName, s.Host, s.StartedAtUtc))
             .ToList();
 
         var cluster = Substitute.For<IClusterClient>();
@@ -128,10 +128,10 @@ public sealed class KillEnforcerBatchAuditTests
             AppId: "1CV8C",
             UserName: $"user{i}",
             Host: "WS01",
-            ConsumesLicense: true,
+            LicenseStatus: LicenseStatus.Consuming,
             StartedAtUtc: baseTime.AddMinutes(i))).ToList();
 
-        var payload = new SnapshotPayload(sessions, baseTime.AddMinutes(30), 42, "Rest");
+        var payload = new SnapshotPayload(sessions, baseTime.AddMinutes(30), 42, "Rest", LicenseFactAvailable: true);
 
         var cluster = Substitute.For<IClusterClient>();
         cluster.KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>())

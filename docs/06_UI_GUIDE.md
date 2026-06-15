@@ -447,7 +447,7 @@ Recharts не наследует CSS-переменные автоматичес
 фронтенде из снапшота сеансов (`GET /api/v1/sessions/snapshot`, обновляется каждые 5 с).
 
 Хук `useTenantConsumption()` строит `Map<tenantId, consumed>` через функцию
-`buildConsumedByTenant(items)`: считает записи с `consumesLicense === true`, группирует
+`buildConsumedByTenant(items)`: считает записи со `licenseStatus === "Consuming"`, группирует
 по `tenantId`. Это намеренное небольшое дублирование канонического backend-метода
 `LicenseConsumption.CountByTenant` — на FE это визуальный оверлей, не контракт/не parity-правило.
 

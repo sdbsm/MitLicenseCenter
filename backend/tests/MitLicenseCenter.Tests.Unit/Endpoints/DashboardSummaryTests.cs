@@ -17,7 +17,8 @@ public sealed class DashboardSummaryTests
     private static IActiveSessionSnapshotStore MakeStore(IReadOnlyList<SnapshotSessionEntry> items, string source = "Ras")
     {
         var store = Substitute.For<IActiveSessionSnapshotStore>();
-        store.Current().Returns(new SnapshotPayload(items, DateTime.UtcNow, TookMs: 5, Source: source));
+        store.Current().Returns(new SnapshotPayload(
+            items, DateTime.UtcNow, TookMs: 5, Source: source, LicenseFactAvailable: true));
         return store;
     }
 
@@ -47,7 +48,8 @@ public sealed class DashboardSummaryTests
             AppId: "1CV8C",
             UserName: "u",
             Host: "h",
-            ConsumesLicense: consumes,
+            // ADR-48: consumes → Consuming, иначе NotConsuming.
+            LicenseStatus: consumes ? LicenseStatus.Consuming : LicenseStatus.NotConsuming,
             StartedAtUtc: DateTime.UtcNow);
     }
 
@@ -173,6 +175,21 @@ public sealed class DashboardSummaryTests
         body.LicensesAvailableTotal.Should().Be(8);
     }
 
+    // ADR-48 (MLC-166): признак доступности факта лицензий пробрасывается в summary.
+    [Fact]
+    public async Task License_fact_unavailable_propagates_to_response()
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+        var store = Substitute.For<IActiveSessionSnapshotStore>();
+        store.Current().Returns(new SnapshotPayload(
+            [], DateTime.UtcNow, TookMs: 5, Source: "Ras", LicenseFactAvailable: false));
+
+        var result = await DashboardEndpoints.SummaryAsync(db, store, MakeRasHealth(), NewCache(), CancellationToken.None);
+        var body = ((Ok<DashboardSummaryResponse>)result).Value!;
+
+        body.LicenseFactAvailable.Should().BeFalse();
+    }
+
     [Fact]
     public async Task Ras_health_propagates_to_response()
     {
@@ -221,7 +238,7 @@ public sealed class DashboardSummaryTests
         await db.SaveChangesAsync();
 
         var snapshotStore = Substitute.For<IActiveSessionSnapshotStore>();
-        snapshotStore.Current().Returns(new SnapshotPayload([], DateTime.UtcNow, 1, "Ras"));
+        snapshotStore.Current().Returns(new SnapshotPayload([], DateTime.UtcNow, 1, "Ras", LicenseFactAvailable: true));
         var rasHealth = MakeRasHealth();
         var cache = NewCache();
 

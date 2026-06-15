@@ -29,7 +29,7 @@ public sealed class SessionsKillEndpointTests
             AppId: "1CV8C",
             UserName: "admin",
             Host: "WS01",
-            ConsumesLicense: true,
+            LicenseStatus: LicenseStatus.Consuming,
             StartedAtUtc: new DateTime(2026, 5, 20, 10, 0, 0, DateTimeKind.Utc));
     }
 
@@ -37,7 +37,7 @@ public sealed class SessionsKillEndpointTests
     public async Task Returns_NotFound_when_session_not_in_snapshot()
     {
         var store = Substitute.For<IActiveSessionSnapshotStore>();
-        store.Current().Returns(new SnapshotPayload([], DateTime.UtcNow, 0, "None"));
+        store.Current().Returns(new SnapshotPayload([], DateTime.UtcNow, 0, "None", LicenseFactAvailable: true));
 
         var cluster = Substitute.For<IClusterClient>();
         var audit = new TestHelpers.CapturingAuditLogger();
@@ -61,7 +61,7 @@ public sealed class SessionsKillEndpointTests
     {
         var session = MakeSession();
         var store = Substitute.For<IActiveSessionSnapshotStore>();
-        store.Current().Returns(new SnapshotPayload([session], DateTime.UtcNow, 10, "Rest"));
+        store.Current().Returns(new SnapshotPayload([session], DateTime.UtcNow, 10, "Rest", LicenseFactAvailable: true));
 
         var cluster = Substitute.For<IClusterClient>();
         cluster.ListActiveSessionsAsync(Arg.Any<CancellationToken>())
@@ -95,7 +95,7 @@ public sealed class SessionsKillEndpointTests
     {
         var session = MakeSession();
         var store = Substitute.For<IActiveSessionSnapshotStore>();
-        store.Current().Returns(new SnapshotPayload([session], DateTime.UtcNow, 10, "Rest"));
+        store.Current().Returns(new SnapshotPayload([session], DateTime.UtcNow, 10, "Rest", LicenseFactAvailable: true));
 
         var cluster = Substitute.For<IClusterClient>();
         cluster.ListActiveSessionsAsync(Arg.Any<CancellationToken>())
@@ -125,7 +125,7 @@ public sealed class SessionsKillEndpointTests
         // Это считается завершением — аудит пишется (как в KillEnforcer).
         var session = MakeSession();
         var store = Substitute.For<IActiveSessionSnapshotStore>();
-        store.Current().Returns(new SnapshotPayload([session], DateTime.UtcNow, 10, "Rest"));
+        store.Current().Returns(new SnapshotPayload([session], DateTime.UtcNow, 10, "Rest", LicenseFactAvailable: true));
 
         var cluster = Substitute.For<IClusterClient>();
         cluster.ListActiveSessionsAsync(Arg.Any<CancellationToken>())
@@ -156,7 +156,7 @@ public sealed class SessionsKillEndpointTests
         // в неизменяемом журнале недопустима), наружу — 502 CLUSTER_UNAVAILABLE.
         var session = MakeSession();
         var store = Substitute.For<IActiveSessionSnapshotStore>();
-        store.Current().Returns(new SnapshotPayload([session], DateTime.UtcNow, 10, "Rest"));
+        store.Current().Returns(new SnapshotPayload([session], DateTime.UtcNow, 10, "Rest", LicenseFactAvailable: true));
 
         var cluster = Substitute.For<IClusterClient>();
         cluster.ListActiveSessionsAsync(Arg.Any<CancellationToken>())
@@ -188,7 +188,7 @@ public sealed class SessionsKillEndpointTests
         // (изменился StartedAt). Не убиваем чужой сеанс — 409 SESSION_STALE.
         var session = MakeSession();
         var store = Substitute.For<IActiveSessionSnapshotStore>();
-        store.Current().Returns(new SnapshotPayload([session], DateTime.UtcNow, 10, "Rest"));
+        store.Current().Returns(new SnapshotPayload([session], DateTime.UtcNow, 10, "Rest", LicenseFactAvailable: true));
 
         var fresh = new ClusterSession(
             SessionId: session.SessionId,
@@ -196,7 +196,6 @@ public sealed class SessionsKillEndpointTests
             AppId: session.AppId,
             UserName: session.UserName,
             Host: session.Host,
-            ConsumesLicense: true,
             StartedAtUtc: session.StartedAtUtc.AddMinutes(30));
 
         var cluster = Substitute.For<IClusterClient>();

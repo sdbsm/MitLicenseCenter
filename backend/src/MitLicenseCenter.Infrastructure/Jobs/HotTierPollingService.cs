@@ -21,6 +21,7 @@ internal sealed partial class HotTierPollingService : BackgroundService
     private readonly IHotTierRegistry _registry;
     private readonly IEnforcementGate _gate;
     private readonly ISettingsSnapshot _settings;
+    private readonly ILicenseFactCache _licenseFactCache;
     private readonly TimeProvider _clock;
     private readonly ReconciliationMetrics _metrics;
     private readonly ILogger<HotTierPollingService> _logger;
@@ -31,6 +32,7 @@ internal sealed partial class HotTierPollingService : BackgroundService
         IHotTierRegistry registry,
         IEnforcementGate gate,
         ISettingsSnapshot settings,
+        ILicenseFactCache licenseFactCache,
         TimeProvider clock,
         ReconciliationMetrics metrics,
         ILogger<HotTierPollingService> logger)
@@ -40,6 +42,7 @@ internal sealed partial class HotTierPollingService : BackgroundService
         _registry = registry;
         _gate = gate;
         _settings = settings;
+        _licenseFactCache = licenseFactCache;
         _clock = clock;
         _metrics = metrics;
         _logger = logger;
@@ -109,6 +112,11 @@ internal sealed partial class HotTierPollingService : BackgroundService
 
         var hotTenantSet = hotTenants.ToHashSet();
 
+        // ADR-48 (MLC-166): горячий тир НЕ спавнит `--licenses` (один вызов rac на тик).
+        // Классификацию берём из последнего холодного факта: известен → Consuming/
+        // NotConsuming, неизвестен (свежий сеанс ещё не в факт-снимке) → Pending.
+        var licenseFact = _licenseFactCache.Current();
+
         // Denormalize fresh sessions for hot tenants only.
         var freshEntries = new List<SnapshotSessionEntry>();
         foreach (var s in freshSessions)
@@ -128,7 +136,7 @@ internal sealed partial class HotTierPollingService : BackgroundService
                 s.AppId,
                 s.UserName,
                 s.Host,
-                s.ConsumesLicense,
+                licenseFact.Classify(s.SessionId),
                 s.StartedAtUtc));
         }
 
@@ -139,13 +147,15 @@ internal sealed partial class HotTierPollingService : BackgroundService
             .ToList();
 
         var now = _clock.GetUtcNow().UtcDateTime;
-        _store.Replace(new SnapshotPayload(overlaid, now, (int)sw.ElapsedMilliseconds, AdapterSource));
+        _store.Replace(new SnapshotPayload(
+            overlaid, now, (int)sw.ElapsedMilliseconds, AdapterSource, licenseFact.Available));
 
         // MLC-044: enforce строго по hot-тенантам (базис = freshEntries, чисто свежие
         // данные). over-limit (Consumed>Limit, >100%) ⊆ hot (≥90%), поэтому non-hot строки
         // в базис не входят и kills не дают. freshSessions переиспользуется как
         // fresh-проверка — второго спавна rac.exe нет (ADR-3.3).
-        var hotPayload = new SnapshotPayload(freshEntries, now, (int)sw.ElapsedMilliseconds, AdapterSource);
+        var hotPayload = new SnapshotPayload(
+            freshEntries, now, (int)sw.ElapsedMilliseconds, AdapterSource, licenseFact.Available);
         await enforcer.EnforceAsync(hotPayload, freshSessions, ct).ConfigureAwait(false);
 
         LogHotOverlay(_logger, hotTenants.Count, freshEntries.Count, (int)sw.ElapsedMilliseconds);

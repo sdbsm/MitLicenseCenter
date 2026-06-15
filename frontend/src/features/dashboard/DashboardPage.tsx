@@ -46,6 +46,17 @@ export function DashboardPage() {
           </div>
         )}
 
+        {/* License-fact unavailable banner (ADR-48, MLC-166): факт rac --licenses не
+            получен → показатели «Использовано/Свободно» могут быть неактуальны. */}
+        {data && !data.licenseFactAvailable && (
+          <div
+            role="status"
+            className="rounded-md border border-amber-500/40 bg-amber-500/5 p-4 text-sm text-amber-800 dark:text-amber-300"
+          >
+            <p className="font-medium">{t("dashboard.licenseFactUnavailable")}</p>
+          </div>
+        )}
+
         <KpiGrid data={data} isLoading={isLoading} isFetching={isFetching} />
 
         {/* Строка состояния системы (MLC-085, аудит §3.4): RAS-статус + здоровье хоста. */}

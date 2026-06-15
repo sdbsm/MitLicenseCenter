@@ -39,25 +39,6 @@ function setup() {
   render(<SettingsPage />, { wrapper });
 }
 
-describe("SettingsPage — OneC.LicenseConsumingAppIds (MLC-024)", () => {
-  beforeEach(() => {
-    mockedApi.mockReset();
-  });
-
-  it("рендерит поле whitelist'а лицензионных app-id из каталога настроек", async () => {
-    mockedApi.mockResolvedValue([
-      descriptor("OneC.LicenseConsumingAppIds", "1CV8,1CV8C,WebClient,Designer,COMConnection"),
-    ]);
-
-    setup();
-
-    // Label из i18n + текстовый input с засеянным значением — поле появилось на странице.
-    expect(await screen.findByText("App-id, потребляющие лицензию")).toBeInTheDocument();
-    const input = await waitFor(() => screen.getByLabelText("App-id, потребляющие лицензию"));
-    expect(input).toHaveValue("1CV8,1CV8C,WebClient,Designer,COMConnection");
-  });
-});
-
 describe("SettingsPage — RAS-порт и пикер платформы (MLC-055)", () => {
   beforeEach(() => {
     mockedApi.mockReset();

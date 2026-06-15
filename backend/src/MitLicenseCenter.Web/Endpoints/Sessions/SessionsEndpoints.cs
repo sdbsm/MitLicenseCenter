@@ -54,7 +54,7 @@ public static class SessionsEndpoints
             e.AppId,
             e.UserName,
             e.Host,
-            e.ConsumesLicense,
+            e.LicenseStatus,
             e.StartedAtUtc,
             (int)(now - e.StartedAtUtc).TotalSeconds)).ToList();
 
@@ -62,7 +62,8 @@ public static class SessionsEndpoints
             Items: items,
             CapturedAt: payload.CapturedAtUtc,
             TookMs: payload.TookMs,
-            Source: payload.Source));
+            Source: payload.Source,
+            LicenseFactAvailable: payload.LicenseFactAvailable));
     }
 
     internal static async Task<Results<NoContent, NotFound, Conflict<ProblemDetails>, ProblemHttpResult>> KillAsync(

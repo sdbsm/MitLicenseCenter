@@ -29,6 +29,7 @@ const sampleResponse: DashboardSummaryResponse = {
   sessionsActiveTotal: 5,
   licensesConsumedTotal: 5,
   licensesAvailableTotal: 95,
+  licenseFactAvailable: true,
   topTenantsByConsumption: [],
   ras: {
     healthy: true,

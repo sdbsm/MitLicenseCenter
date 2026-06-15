@@ -3,6 +3,15 @@ namespace MitLicenseCenter.Application.Clusters;
 public interface IClusterClient
 {
     Task<IReadOnlyList<ClusterSession>> ListActiveSessionsAsync(CancellationToken ct);
+
+    // ADR-48 (MLC-166): множество session-GUID, реально потребляющих клиентскую лицензию,
+    // по факту `rac session list --licenses`. Нелицензионные сеансы в вывод rac не
+    // попадают, поэтому отсутствие id в множестве = «не потребляет». Возврат null =
+    // «факт недоступен» (exit≠0 / таймаут / нет прав) — холодный тир ставит всем сеансам
+    // Pending и приостанавливает enforcement (не рубит вслепую). Отдельная проекция rac
+    // **без поля infobase** — поэтому сшивается с ListActiveSessionsAsync по SessionId.
+    Task<IReadOnlySet<Guid>?> ListLicensedSessionIdsAsync(CancellationToken ct);
+
     Task<KillSessionResult> KillSessionAsync(SessionDescriptor descriptor, CancellationToken ct);
     Task<ClusterPingResult> PingAsync(CancellationToken ct);
 

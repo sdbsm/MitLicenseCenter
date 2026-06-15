@@ -25,12 +25,16 @@ function formatDuration(seconds: number): string {
 const ruStringSort: SortingFn<SessionSnapshotEntry> = (a, b, columnId) =>
   String(a.getValue(columnId)).localeCompare(String(b.getValue(columnId)), "ru");
 
-// Булева колонка consumesLicense: true («считается») выше false при asc — как раньше.
-const boolSort: SortingFn<SessionSnapshotEntry> = (a, b, columnId) => {
-  const av = a.getValue<boolean>(columnId);
-  const bv = b.getValue<boolean>(columnId);
-  return av === bv ? 0 : av ? -1 : 1;
+// Колонка licenseStatus (ADR-48): порядок Consuming → NotConsuming → Pending при asc
+// (считается → не считается → определяется). Числовой ранг даёт стабильный компаратор.
+const licenseStatusRank: Record<SessionSnapshotEntry["licenseStatus"], number> = {
+  Consuming: 0,
+  NotConsuming: 1,
+  Pending: 2,
 };
+const licenseStatusSort: SortingFn<SessionSnapshotEntry> = (a, b, columnId) =>
+  licenseStatusRank[a.getValue<SessionSnapshotEntry["licenseStatus"]>(columnId)] -
+  licenseStatusRank[b.getValue<SessionSnapshotEntry["licenseStatus"]>(columnId)];
 
 interface ColumnContext {
   t: TFunction;
@@ -42,7 +46,7 @@ interface ColumnContext {
  * Колонки таблицы сеансов для `DataTable` (MLC-144). Клиентская сортировка по 6 ключам
  * (tanstack `getSortedRowModel`) с иконками ↑↓↕ через `DataTableColumnHeader`; компараторы
  * повторяют прежнюю семантику UX-14. Колонки sessionId/appId/action — несортируемые.
- * Статус consumesLicense — только через `StatusBadge` (инвариант).
+ * Статус licenseStatus (ADR-48) — только через `StatusBadge` (инвариант).
  */
 export function buildSessionColumns(ctx: ColumnContext): ColumnDef<SessionSnapshotEntry>[] {
   const { t, isAdmin, onKill } = ctx;
@@ -159,22 +163,29 @@ export function buildSessionColumns(ctx: ColumnContext): ColumnDef<SessionSnapsh
       cell: ({ row }) => formatDuration(row.original.durationSeconds),
     },
     {
-      id: "consumesLicense",
-      accessorKey: "consumesLicense",
+      id: "licenseStatus",
+      accessorKey: "licenseStatus",
       header: ({ column }) => (
         <DataTableColumnHeader column={column}>
           {t("sessions.table.consumesLicense")}
         </DataTableColumnHeader>
       ),
-      sortingFn: boolSort,
+      sortingFn: licenseStatusSort,
       meta: { label: t("sessions.table.consumesLicense"), headClassName: "w-28" },
-      cell: ({ row }) => (
-        <StatusBadge variant={row.original.consumesLicense ? "success" : "neutral"}>
-          {row.original.consumesLicense
+      // ADR-48: трёхсостояние через StatusBadge. Consuming→success «Считается»;
+      // NotConsuming→neutral «Не считается»; Pending→info «Определяется…».
+      cell: ({ row }) => {
+        const status = row.original.licenseStatus;
+        const variant =
+          status === "Consuming" ? "success" : status === "Pending" ? "info" : "neutral";
+        const label =
+          status === "Consuming"
             ? t("sessions.badges.consumesYes")
-            : t("sessions.badges.consumesNo")}
-        </StatusBadge>
-      ),
+            : status === "Pending"
+              ? t("sessions.badges.consumesPending")
+              : t("sessions.badges.consumesNo");
+        return <StatusBadge variant={variant}>{label}</StatusBadge>;
+      },
     },
   ];
 

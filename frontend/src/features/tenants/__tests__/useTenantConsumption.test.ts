@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { buildConsumedByTenant } from "../useTenantConsumption";
-import type { SessionSnapshotEntry } from "@/features/sessions/types";
+import type { LicenseStatus, SessionSnapshotEntry } from "@/features/sessions/types";
 
+// ADR-48 (MLC-166): consumes bool отображается на licenseStatus.
 function makeEntry(
   tenantId: string,
-  consumesLicense: boolean,
-  sessionId = Math.random().toString()
+  consumes: boolean,
+  sessionId = Math.random().toString(),
+  status?: LicenseStatus
 ): SessionSnapshotEntry {
   return {
     sessionId,
@@ -16,7 +18,7 @@ function makeEntry(
     appId: "1cv8",
     userName: "user",
     host: "host",
-    consumesLicense,
+    licenseStatus: status ?? (consumes ? "Consuming" : "NotConsuming"),
     startedAt: "2026-01-01T00:00:00Z",
     durationSeconds: 60,
   };
@@ -28,14 +30,23 @@ describe("buildConsumedByTenant", () => {
     expect(result.size).toBe(0);
   });
 
-  it("counts only consumesLicense===true entries", () => {
+  it("counts only licenseStatus===Consuming entries", () => {
     const items = [
       makeEntry("t1", true),
-      makeEntry("t1", false), // не считается
+      makeEntry("t1", false), // NotConsuming — не считается
       makeEntry("t1", true),
     ];
     const result = buildConsumedByTenant(items);
     expect(result.get("t1")).toBe(2);
+  });
+
+  it("excludes Pending sessions from the count (ADR-48)", () => {
+    const items = [
+      makeEntry("t1", true),
+      makeEntry("t1", false, undefined, "Pending"), // определяется — не считается
+    ];
+    const result = buildConsumedByTenant(items);
+    expect(result.get("t1")).toBe(1);
   });
 
   it("groups by tenantId correctly", () => {

@@ -15,6 +15,7 @@ internal static class RacStub
     {
         ClusterList,
         SessionList,
+        SessionLicenses,
         SessionTerminate,
         InfobaseSummaryList,
         Unknown,
@@ -26,6 +27,14 @@ internal static class RacStub
         if (hasSession && Has(args, "terminate"))
         {
             return RacCommand.SessionTerminate;
+        }
+        // ADR-48 (MLC-166): `session list --licenses` — отдельная проекция факта лицензий.
+        // Заглушка считает ВСЕ сценарные сессии лицензионными (профиль over-limit строится
+        // числом сессий), поэтому возвращает их с блоком license-type — иначе backend
+        // классифицирует всех как NotConsuming и kill-поток не зажигается.
+        if (hasSession && Has(args, "list") && Has(args, "--licenses"))
+        {
+            return RacCommand.SessionLicenses;
         }
         if (hasSession && Has(args, "list"))
         {
@@ -49,6 +58,7 @@ internal static class RacStub
         {
             RacCommand.ClusterList => (0, RenderClusterList(scenario)),
             RacCommand.SessionList => (0, RenderSessionList(scenario)),
+            RacCommand.SessionLicenses => (0, RenderSessionLicenses(scenario)),
             RacCommand.InfobaseSummaryList => (0, RenderInfobaseList(scenario)),
             RacCommand.SessionTerminate => (0, string.Empty),
             _ => (0, string.Empty),
@@ -95,6 +105,31 @@ internal static class RacStub
             sb.Append("started-at : ")
                 .Append(s.StartedAtUtc.ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture))
                 .Append('\n');
+            sb.Append('\n');
+        }
+        return sb.ToString();
+    }
+
+    // ADR-48 (MLC-166): проекция `session list --licenses`. Реальный rac опускает поле
+    // infobase и добавляет блок лицензии; нелицензионные сессии не попадают в вывод вовсе.
+    // Заглушка считает все сценарные сессии лицензионными (HASP), чтобы перф-сценарий
+    // over-limit/kill работал так же, как до перехода на факт.
+    private static string RenderSessionLicenses(PerfScenario? scenario)
+    {
+        if (scenario is null || scenario.Sessions.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var sb = new StringBuilder(scenario.Sessions.Count * 200);
+        foreach (var s in scenario.Sessions)
+        {
+            sb.Append("session          : ").Append(s.SessionId.ToString("D")).Append('\n');
+            sb.Append("user-name        : ").Append(s.UserName).Append('\n');
+            sb.Append("host             : ").Append(s.Host).Append('\n');
+            sb.Append("app-id           : ").Append(s.AppId).Append('\n');
+            sb.Append("license-type     : HASP\n");
+            sb.Append("short-presentation : ").Append(s.AppId).Append('\n');
             sb.Append('\n');
         }
         return sb.ToString();

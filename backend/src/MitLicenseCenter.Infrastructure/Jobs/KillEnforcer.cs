@@ -51,11 +51,20 @@ internal sealed partial class KillEnforcer : IKillEnforcer
         _logger = logger;
     }
 
+    // Дефолт холодного интервала на случай несидированной настройки (зеркалит
+    // SettingDefinitions Polling.ColdIntervalSeconds).
+    private const int DefaultColdIntervalSeconds = 15;
+
     public async Task EnforceAsync(
         SnapshotPayload snapshot,
         IReadOnlyList<ClusterSession>? freshSessions,
         CancellationToken ct)
     {
+        // ADR-48 (MLC-166): факт `rac --licenses` недоступен → enforcement приостановлен.
+        // «Не рубить вслепую»: без подтверждённого факта потребления никого не завершаем.
+        if (!snapshot.LicenseFactAvailable)
+            return;
+
         var tenantLimits = await _db.Tenants
             .AsNoTracking()
             .Where(t => t.IsActive)
@@ -79,8 +88,18 @@ internal sealed partial class KillEnforcer : IKillEnforcer
             freshBySessionId.TryAdd(s.SessionId, s);
 
         var nowUtc = _clock.GetUtcNow().UtcDateTime;
-        var killGracePeriod = TimeSpan.FromSeconds(
-            _settings.GetInt(SettingKey.EnforcementKillGraceSeconds) ?? DefaultKillGraceSeconds);
+
+        // ADR-48 (MLC-166) инвариант «grace ≥ холодного интервала»: факт лицензии
+        // обновляется каждый холодный цикл (Polling.ColdIntervalSeconds). Эффективный
+        // grace = max(KillGrace, ColdInterval) гарантирует, что любой сеанс, доросший до
+        // права на завершение, уже классифицирован свежим фактом rac — мы никогда не
+        // рубим по неподтверждённому/устаревшему факту, даже если оператор задал
+        // KillGrace ниже холодного интервала.
+        var killGraceSeconds =
+            _settings.GetInt(SettingKey.EnforcementKillGraceSeconds) ?? DefaultKillGraceSeconds;
+        var coldIntervalSeconds =
+            _settings.GetInt(SettingKey.PollingColdIntervalSeconds) ?? DefaultColdIntervalSeconds;
+        var killGracePeriod = TimeSpan.FromSeconds(Math.Max(killGraceSeconds, coldIntervalSeconds));
         var totalKills = 0;
 
         foreach (var (tenantId, consumed, limit) in overLimitTenants)

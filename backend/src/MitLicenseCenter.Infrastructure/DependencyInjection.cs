@@ -239,6 +239,10 @@ public static class DependencyInjection
         services.AddSingleton<IActiveSessionSnapshotStore, ActiveSessionSnapshotStore>();
         services.AddSingleton<IHotTierRegistry, HotTierRegistry>();
 
+        // License fact cache (ADR-48, MLC-166): singleton — холодный цикл пишет факт
+        // `rac --licenses`, горячий тир читает классификацию без второго спавна rac.exe.
+        services.AddSingleton<ILicenseFactCache, LicenseFactCache>();
+
         // License usage accumulator (MLC-048, ADR-25): singleton — состояние текущего
         // 15-мин бакета переживает scoped-инвокации cold-цикла.
         services.AddSingleton<ILicenseUsageAccumulator, LicenseUsageAccumulator>();

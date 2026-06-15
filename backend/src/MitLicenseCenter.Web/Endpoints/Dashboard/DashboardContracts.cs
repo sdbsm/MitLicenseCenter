@@ -7,6 +7,10 @@ public sealed record DashboardSummaryResponse(
     int SessionsActiveTotal,
     int LicensesConsumedTotal,
     int LicensesAvailableTotal,
+    // ADR-48 (MLC-166): false ⇒ факт rac --licenses недоступен; фронт показывает баннер
+    // «данные о лицензиях недоступны» рядом с потреблением (счётчик отражает последний
+    // факт, не ложный 0).
+    bool LicenseFactAvailable,
     IReadOnlyList<TenantConsumptionRow> TopTenantsByConsumption,
     DashboardRasHealth Ras);
 

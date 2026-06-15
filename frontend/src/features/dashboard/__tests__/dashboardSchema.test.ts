@@ -33,6 +33,24 @@ describe("dashboardSummarySchema", () => {
     expect(parsed.ras.lastErrorMessage).toBeNull();
     expect(parsed.ras.healthy).toBe(false);
     expect(parsed.tenantsActive).toBe(2);
+    // ADR-48 (MLC-166): отсутствие ключа → дефолт false (parity-резерв).
+    expect(parsed.licenseFactAvailable).toBe(false);
+  });
+
+  it("принимает licenseFactAvailable=true и пробрасывает его (ADR-48)", () => {
+    const parsed = dashboardSummarySchema.parse({
+      tenantsTotal: 1,
+      tenantsActive: 1,
+      infobasesTotal: 1,
+      sessionsActiveTotal: 1,
+      licensesConsumedTotal: 1,
+      licensesAvailableTotal: 4,
+      licenseFactAvailable: true,
+      topTenantsByConsumption: [],
+      ras: { healthy: true, consecutiveFailures: 0 },
+    });
+
+    expect(parsed.licenseFactAvailable).toBe(true);
   });
 
   it("принимает заполненный ответ (RAS здоров, проверка прошла)", () => {
