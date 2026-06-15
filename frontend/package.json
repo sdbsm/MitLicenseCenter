@@ -1,6 +1,6 @@
 {
   "name": "mitlicense-center-frontend",
-  "version": "0.5.3-beta",
+  "version": "0.5.4-beta",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.0.8",
