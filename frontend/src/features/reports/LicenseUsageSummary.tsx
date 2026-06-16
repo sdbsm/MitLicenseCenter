@@ -32,7 +32,9 @@ export function LicenseUsageSummary({ data, isLoading }: LicenseUsageSummaryProp
             {t("reports.summary.effectiveRange", {
               from: format(new Date(data.fromUtc), "dd.MM.yyyy HH:mm", { locale: ru }),
               to: format(new Date(data.toUtc), "dd.MM.yyyy HH:mm", { locale: ru }),
-            })}
+            })}{" "}
+            {/* MLC-177: время рисуется в локальном поясе браузера оператора. */}
+            <span className="text-xs">({t("reports.summary.timezoneHint")})</span>
           </p>
         )}
       </CardHeader>
@@ -45,6 +47,14 @@ export function LicenseUsageSummary({ data, isLoading }: LicenseUsageSummaryProp
           <ReportsEmptyState />
         ) : (
           <LicenseUsageChart buckets={data.buckets} isLoading={isLoading} />
+        )}
+
+        {/* MLC-177: накопитель закрывает 15-мин бакет приходом следующего сэмпла —
+            последний интервал отстаёт до ~15 мин. */}
+        {!isEmpty && (
+          <p className="text-muted-foreground border-l-2 pl-3 text-xs">
+            {t("reports.summary.freshnessCaveat")}
+          </p>
         )}
 
         {/* Оговорка: сумма по бакету — обзорная цифра, не одновременный пик платформы. */}
