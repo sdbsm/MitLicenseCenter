@@ -1,5 +1,3 @@
-import { format } from "date-fns";
-import { ru } from "date-fns/locale";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -14,6 +12,7 @@ import {
   YAxis,
 } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
+import { formatBucketAxisLabel } from "./reportsUrlState";
 import type { LicenseUsageBucketPoint } from "./types";
 
 // Первое применение recharts в проекте (вводит паттерн графиков). Один компонент на
@@ -46,7 +45,7 @@ export function LicenseUsageChart({ buckets, isLoading }: LicenseUsageChartProps
   const data = useMemo<ChartRow[]>(
     () =>
       buckets.map((b) => ({
-        label: format(new Date(b.bucketStartUtc), "dd.MM HH:mm", { locale: ru }),
+        label: formatBucketAxisLabel(b.bucketStartUtc),
         consumedMax: b.consumedMax,
         // Среднее по бакету — дробное; округляем до десятых для читаемости оси/подсказки.
         consumedAvg: Math.round(b.consumedAvg * 10) / 10,
