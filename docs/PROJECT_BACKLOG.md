@@ -253,7 +253,7 @@ Integrated-не-sysadmin → откат). Плюс непогашенное по
   фильтр «не найдена в кластере» (150), optimistic concurrency Infobase/Publication (151); SQL
   least-privilege (152) **проведён трассой, но откачен** `MLC-153` — для мультитенанта с динамическими
   базами `sysadmin` штатен, бэкап-rewrite не давал выгоды (вывод трассы — в ADR-44).
-  **Strategy B отклонена** (ROADMAP). Версия забампана `0.5.0-beta`. Индекс — `PROJECT_BACKLOG_ARCHIVE.md`.
+  **Strategy B отклонена** (ADR-3.3). Версия забампана `0.5.0-beta`. Индекс — `PROJECT_BACKLOG_ARCHIVE.md`.
 - **Трек «Свежесть данных на страницах»** — `MLC-154..156` 3/3 (2026-06-15): устранение задержки
   появления данных. Cold-цикл сеансов вынесен из Hangfire в `ColdTierPollingService : BackgroundService`
   — настройка `Polling.ColdIntervalSeconds` стала реальной (60с→дефолт 15с), ADR-6.1 Update;
@@ -378,7 +378,7 @@ Integrated-не-sysadmin → откат). Плюс непогашенное по
 закрыты в релизе `0.4.0-beta` как `MLC-144`/`142`; `MLC-080` закрыта в составе `MLC-081`,
 `MLC-079` — в составе `MLC-084`; `MLC-011(a)`, `MLC-028`, `MLC-006(a)` сняты с реестра триажем
 2026-06-10 — их несут ADR-20 / DECISIONS «Deployment topology» + ROADMAP / запись `MLC-025`;
-`MLC-036` — ROADMAP «RAS Strategy B», отклонена). Трек релиза `0.4.0-beta` (`MLC-140..144`), трек
+`MLC-036` — ADR-3.3 «RAS Strategy B», отклонена). Трек релиза `0.4.0-beta` (`MLC-140..144`), трек
 релиза `0.5.0-beta` (`MLC-147..152` + `MLC-027`), трек «Свежесть данных на страницах»
 (`MLC-154..156`), трек «Авто-регистрация службы RAS» (`MLC-159..161`, релиз `0.5.4-beta`, ADR-47)
 патч `0.5.5-beta` (`MLC-162` — фикс обнаружения службы RAS через реестр) и патч `0.5.6-beta`
