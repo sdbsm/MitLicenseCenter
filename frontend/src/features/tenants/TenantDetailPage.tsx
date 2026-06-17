@@ -121,9 +121,7 @@ export function TenantDetailPage() {
               </h2>
               {tenant &&
                 (tenant.isActive ? (
-                  <Badge className="border-transparent bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
-                    {t("tenants.status.active")}
-                  </Badge>
+                  <StatusBadge variant="success">{t("tenants.status.active")}</StatusBadge>
                 ) : (
                   <Badge variant="secondary">{t("tenants.status.inactive")}</Badge>
                 ))}

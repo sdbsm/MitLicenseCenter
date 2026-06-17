@@ -47,7 +47,12 @@
 | `--status-neutral` | grey | Нейтральный |
 
 Компонент `StatusBadge` оборачивает `Badge` с пятью вариантами:
-`success`, `warning`, `danger`, `info`, `neutral`.
+`success`, `warning`, `danger`, `info`, `neutral`. Это **единственный** способ нарисовать цветную
+плашку статуса: он гарантирует единый вид статуса на всех экранах и контраст WCAG AA (MLC-138).
+Запрет «сырых» цветовых классов в обход компонента машинно-проверяем — кастомное ESLint-правило
+`mlc/no-raw-status-badge` (`frontend/eslint-rules/`) ловит сигнатуру чипа `bg-{fam}-500/15` и требует
+`StatusBadge`; баннеры, сплошные шкалы и текст-подписи не флагаются. Сам `StatusBadge.tsx` под правило
+не попадает (`eslint.config.js` игнорит `src/components/ui/**`).
 
 ### Типографика
 

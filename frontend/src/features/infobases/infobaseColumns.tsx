@@ -15,7 +15,6 @@ import {
 } from "lucide-react";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { TFunction } from "i18next";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -34,7 +33,7 @@ import {
   type PublicationSource,
 } from "@/features/publications/types";
 import { formatBytes } from "@/lib/formatBytes";
-import { statusBadgeClass } from "./infobaseFormat";
+import { statusBadgeVariant } from "./infobaseFormat";
 import type { InfobaseListItem } from "./types";
 
 // MLC-185d — ячейка «Размер»: сумма data+log из последнего снимка телеметрии,
@@ -190,9 +189,9 @@ export function buildInfobaseColumns(ctx: InfobaseColumnContext): ColumnDef<Info
         const missing = missingSet.has(item.clusterInfobaseId);
         return (
           <div className="flex flex-wrap items-center gap-1.5">
-            <Badge className={statusBadgeClass(item.status)}>
+            <StatusBadge variant={statusBadgeVariant(item.status)}>
               {t(`infobases.status.${item.status}`)}
-            </Badge>
+            </StatusBadge>
             {missing && (
               <Tooltip>
                 <TooltipTrigger asChild>
