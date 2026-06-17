@@ -104,7 +104,7 @@ stand-фидбэк 182/183/184): влит в `main`, pre-release `<Version>`=`1.
 |---|---|---|---|
 | 185 | размер баз | Мониторинг размера баз MSSQL + отчёт по динамике (BE+FE). Питает Обзор (186). | **Done** (a–g) |
 | 186 | редизайн Обзора | Живой «Обзор» + полировка под shadcn (FE). Дизайн согласован с владельцем (эскиз одобрен). | **Done** (a–d) |
-| 187 | ESLint | Правило-линтер: запрет «сырых» цветовых классов статусов мимо `StatusBadge` (FE-инфра, низкий приоритет). Независим. | Open |
+| 187 | ESLint | Правило-линтер: запрет «сырых» цветовых классов статусов мимо `StatusBadge` (FE-инфра, низкий приоритет). Независим. | **Done** |
 | 188 | дефект квоты | «Превышение лимита» показывается уже при `severity=danger` (≥90%) и при ровно `N/N` (100%); превышение — только `consumed > limit`. FE-фикс формулировки. Независим. | **Done** |
 
 Порядок: **185 → 186** (186 использует данные 185); **187/188** — в любой момент (мелкие независимые FE).
@@ -159,6 +159,22 @@ quota.nearLimit` — `features/tenants/TenantDetailPage.tsx:164`, `features/tena
 → новый ключ «Лимит достигнут»; `>= warning` и `< limit` → «Близко к лимиту». severity-цвета (danger ≥90%)
 НЕ трогаем — это визуальный акцент, корректен. Свериться с формулировкой алертов «Требует внимания» (186a/b)
 — там «нарушители квоты» должны означать то же. FE-only, parity не затронут, аудит-enum не трогаем.
+
+**`MLC-187` Done** (2026-06-17, FE-only, решение владельца — вариант A: мигрировать живые нарушения).
+Кастомное ESLint-правило `mlc/no-raw-status-badge` (flat-конфиг; правило — `frontend/eslint-rules/no-raw-status-badge.js`
++ `.d.ts`-двойник для tsc, импортируется в `eslint.config.js` как плагин `mlc`). Сигнатура — чип
+`bg-{fam}-500/15` (`emerald|amber|rose|sky|green|red`) в строковых литералах и статических сегментах
+шаблонных строк; баннеры (`bg-{fam}-600/5`/`-500/5`), сплошные шкалы (`bg-{fam}-500`), текст-подписи
+(`text-{fam}-600`) и пилюли иного shade (`bg-{fam}-100`, напр. `LiveControls` «на паузе») законно НЕ
+флагаются. **Doc divergence исправлен:** ROADMAP #1 утверждал «живых нарушений нет» — на деле нашлись и
+переведены на `<StatusBadge variant=…>` **4 места**: `audit/AuditTable` (`actionVariant`: Created→success,
+Deleted→danger, Updated→info, иначе→neutral), `infobases/infobaseFormat` (`statusBadgeVariant`: Active→success,
+Maintenance→warning, Suspended→danger; 2 call-site — список+карточка инфобазы; warning получил WCAG-исправленный
+`amber-800` вместо `amber-700`), `tenants/tenantColumns`+`TenantDetailPage` («активен» → success). Тесты к
+классам не привязаны (биндятся к `data-variant`) — миграция только добавила атрибут. Тест правила — RuleTester
+в `src/lint/no-raw-status-badge.test.ts` (с `eslint-disable mlc/no-raw-status-badge` в шапке: фикстуры содержат
+запрещённую строку). Канон — `06_UI_GUIDE` §1 + ROADMAP #1. Гейт: FE type-check + lint (0 ошибок) + vitest
+(правило 14/14, бейдж-тесты audit/tenants/infobases зелёные). **Закрывает этап 2 расширенного 1.1.0 → промоут v1.1.0.**
 
 | MLC | Роадмап | Суть | Статус |
 |---|---|---|---|

@@ -5,7 +5,7 @@ import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 import { getCoreRowModel, useReactTable, type ColumnDef } from "@tanstack/react-table";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge, type StatusBadgeVariant } from "@/components/ui/StatusBadge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TableCell } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -130,9 +130,9 @@ function buildAuditColumns(
         headClassName: "w-56",
       },
       cell: ({ row }) => (
-        <Badge className={actionBadgeClass(row.original.actionType)}>
+        <StatusBadge variant={actionVariant(row.original.actionType)}>
           {t(`audit.actions.${row.original.actionType}`)}
-        </Badge>
+        </StatusBadge>
       ),
     },
     {
@@ -211,23 +211,17 @@ function AuditSkeletonCells() {
 }
 
 // ---------------------------------------------------------------------------
-// Цвета бейджей типа действия (статусная семантика через Badge-классы)
+// Вариант StatusBadge по типу действия аудита (статусная семантика)
 // ---------------------------------------------------------------------------
 
-// Цвета зеркалят семантику domain-state (docs/06_UI_GUIDE.md):
+// Действие аудита → семантический вариант StatusBadge (docs/06_UI_GUIDE.md §1):
 //  - Created — success (green)
 //  - Updated — info (blue)
 //  - Deleted — danger (rose)
-//  - Auth — neutral
-function actionBadgeClass(action: AuditActionType): string {
-  if (action.endsWith("Created")) {
-    return "border-transparent bg-emerald-500/15 text-emerald-700 dark:text-emerald-300";
-  }
-  if (action.endsWith("Deleted")) {
-    return "border-transparent bg-rose-500/15 text-rose-700 dark:text-rose-300";
-  }
-  if (action.endsWith("Updated")) {
-    return "border-transparent bg-sky-500/15 text-sky-700 dark:text-sky-300";
-  }
-  return "border-transparent bg-muted text-muted-foreground";
+//  - прочее (Auth и т.п.) — neutral
+function actionVariant(action: AuditActionType): StatusBadgeVariant {
+  if (action.endsWith("Created")) return "success";
+  if (action.endsWith("Deleted")) return "danger";
+  if (action.endsWith("Updated")) return "info";
+  return "neutral";
 }

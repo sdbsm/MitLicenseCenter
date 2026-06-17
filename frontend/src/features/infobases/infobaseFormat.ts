@@ -1,12 +1,15 @@
+import type { StatusBadgeVariant } from "@/components/ui/StatusBadge";
 import type { InfobaseStatus } from "./types";
 
-export function statusBadgeClass(status: InfobaseStatus): string {
+// Статус инфобазы → семантический вариант StatusBadge (docs/06_UI_GUIDE.md §1).
+// Active — норма (success), Maintenance — пороговое (warning), Suspended — danger.
+export function statusBadgeVariant(status: InfobaseStatus): StatusBadgeVariant {
   switch (status) {
     case "Active":
-      return "border-transparent bg-emerald-500/15 text-emerald-700 dark:text-emerald-300";
+      return "success";
     case "Maintenance":
-      return "border-transparent bg-amber-500/15 text-amber-700 dark:text-amber-300";
+      return "warning";
     case "Suspended":
-      return "border-transparent bg-rose-500/15 text-rose-700 dark:text-rose-300";
+      return "danger";
   }
 }

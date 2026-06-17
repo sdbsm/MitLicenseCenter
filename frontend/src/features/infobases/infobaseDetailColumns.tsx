@@ -10,7 +10,6 @@ import {
 } from "lucide-react";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { TFunction } from "i18next";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -23,7 +22,7 @@ import { StatusBadge, type StatusBadgeVariant } from "@/components/ui/StatusBadg
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { PublicationPublishStatus, PublicationSource } from "@/features/publications/types";
 import { SizeCell } from "./infobaseColumns";
-import { statusBadgeClass } from "./infobaseFormat";
+import { statusBadgeVariant } from "./infobaseFormat";
 import type { InfobaseListItem } from "./types";
 
 const PUBLISH_STATUS_VARIANT: Record<PublicationPublishStatus, StatusBadgeVariant> = {
@@ -77,9 +76,9 @@ export function buildInfobaseDetailColumns(
       enableSorting: false,
       meta: { label: t("infobases.fields.status") },
       cell: ({ row }) => (
-        <Badge className={statusBadgeClass(row.original.status)}>
+        <StatusBadge variant={statusBadgeVariant(row.original.status)}>
           {t(`infobases.status.${row.original.status}`)}
-        </Badge>
+        </StatusBadge>
       ),
     },
     {
