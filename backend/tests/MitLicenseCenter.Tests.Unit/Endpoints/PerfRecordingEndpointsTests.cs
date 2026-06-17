@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using MitLicenseCenter.Application.Clusters;
 using MitLicenseCenter.Application.Performance;
+using MitLicenseCenter.Domain.Audit;
 using MitLicenseCenter.Infrastructure.Persistence;
 using MitLicenseCenter.Infrastructure.Reporting;
 using MitLicenseCenter.Web.Endpoints;
@@ -34,13 +35,20 @@ public sealed class PerfRecordingEndpointsTests
             StartedBy = "admin",
         });
         await db.SaveChangesAsync();
+        var audit = new TestHelpers.CapturingAuditLogger();
 
-        var result = await PerformanceEndpoints.StartRecordingAsync(svc, db, TestHelpers.NewHttpContext("admin"), CancellationToken.None);
+        var result = await PerformanceEndpoints.StartRecordingAsync(svc, db, audit, TestHelpers.NewHttpContext("admin"), CancellationToken.None);
 
         var created = result.Result.Should().BeOfType<Created<RecordingSummary>>().Subject;
         created.Value!.Id.Should().Be(id);
         created.Value!.Status.Should().Be(PerfRecordingStatus.Active);
         created.Location.Should().Be($"/api/v1/performance/recordings/{id}");
+
+        var entry = audit.Entries.Should().ContainSingle().Subject;
+        entry.Action.Should().Be(AuditActionType.PerfRecordingStarted);
+        entry.Initiator.Should().Be("admin");
+        entry.TenantId.Should().BeNull("запись быстродействия — host-уровневая, с клиентом не связана");
+        entry.Description.Should().Contain(id.ToString("N"));
     }
 
     [Fact]
@@ -50,11 +58,13 @@ public sealed class PerfRecordingEndpointsTests
         var svc = Substitute.For<IPerfRecordingService>();
         svc.StartAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new PerfRecordingStartResult(PerfRecordingStartOutcome.AlreadyActive, Guid.NewGuid()));
+        var audit = new TestHelpers.CapturingAuditLogger();
 
-        var result = await PerformanceEndpoints.StartRecordingAsync(svc, db, TestHelpers.NewHttpContext(), CancellationToken.None);
+        var result = await PerformanceEndpoints.StartRecordingAsync(svc, db, audit, TestHelpers.NewHttpContext(), CancellationToken.None);
 
         var conflict = result.Result.Should().BeOfType<Conflict<ProblemDetails>>().Subject;
         conflict.Value!.Extensions["code"].Should().Be(ProblemCodes.RecordingActive);
+        audit.Entries.Should().BeEmpty("запись уже идёт — фактического старта нет, аудит не пишем");
     }
 
     [Fact]
@@ -74,12 +84,19 @@ public sealed class PerfRecordingEndpointsTests
             StartedBy = "admin",
         });
         await db.SaveChangesAsync();
+        var audit = new TestHelpers.CapturingAuditLogger();
 
-        var result = await PerformanceEndpoints.StopRecordingAsync(id, svc, db, CancellationToken.None);
+        var result = await PerformanceEndpoints.StopRecordingAsync(id, svc, db, audit, TestHelpers.NewHttpContext("admin"), CancellationToken.None);
 
         var ok = result.Result.Should().BeOfType<Ok<RecordingSummary>>().Subject;
         ok.Value!.Status.Should().Be(PerfRecordingStatus.Stopped);
         ok.Value!.StopReason.Should().Be(PerfRecordingStopReason.Manual);
+
+        var entry = audit.Entries.Should().ContainSingle().Subject;
+        entry.Action.Should().Be(AuditActionType.PerfRecordingStopped);
+        entry.Initiator.Should().Be("admin");
+        entry.TenantId.Should().BeNull();
+        entry.Description.Should().Contain(id.ToString("N"));
     }
 
     [Fact]
@@ -88,10 +105,12 @@ public sealed class PerfRecordingEndpointsTests
         using var db = TestHelpers.NewInMemoryDb();
         var svc = Substitute.For<IPerfRecordingService>();
         svc.StopAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(PerfRecordingStopOutcome.NotActive);
+        var audit = new TestHelpers.CapturingAuditLogger();
 
-        var result = await PerformanceEndpoints.StopRecordingAsync(Guid.NewGuid(), svc, db, CancellationToken.None);
+        var result = await PerformanceEndpoints.StopRecordingAsync(Guid.NewGuid(), svc, db, audit, TestHelpers.NewHttpContext(), CancellationToken.None);
 
         result.Result.Should().BeOfType<NotFound>();
+        audit.Entries.Should().BeEmpty("записи нет / не активна — фактической остановки нет, аудит не пишем");
     }
 
     [Fact]
@@ -202,11 +221,18 @@ public sealed class PerfRecordingEndpointsTests
             StartedBy = "admin",
         });
         await db.SaveChangesAsync();
+        var audit = new TestHelpers.CapturingAuditLogger();
 
-        var result = await PerformanceEndpoints.DeleteRecordingAsync(id, db, CancellationToken.None);
+        var result = await PerformanceEndpoints.DeleteRecordingAsync(id, db, audit, TestHelpers.NewHttpContext("admin"), CancellationToken.None);
 
         result.Result.Should().BeOfType<NoContent>();
         db.PerfRecordings.Count().Should().Be(0);
+
+        var entry = audit.Entries.Should().ContainSingle().Subject;
+        entry.Action.Should().Be(AuditActionType.PerfRecordingDeleted);
+        entry.Initiator.Should().Be("admin");
+        entry.TenantId.Should().BeNull();
+        entry.Description.Should().Contain(id.ToString("N"));
     }
 
     [Fact]
@@ -222,22 +248,26 @@ public sealed class PerfRecordingEndpointsTests
             StartedBy = "admin",
         });
         await db.SaveChangesAsync();
+        var audit = new TestHelpers.CapturingAuditLogger();
 
-        var result = await PerformanceEndpoints.DeleteRecordingAsync(id, db, CancellationToken.None);
+        var result = await PerformanceEndpoints.DeleteRecordingAsync(id, db, audit, TestHelpers.NewHttpContext(), CancellationToken.None);
 
         var conflict = result.Result.Should().BeOfType<Conflict<ProblemDetails>>().Subject;
         conflict.Value!.Extensions["code"].Should().Be(ProblemCodes.RecordingActive);
         db.PerfRecordings.Count().Should().Be(1, "идущую запись удалять нельзя — сначала остановить");
+        audit.Entries.Should().BeEmpty("активную запись не удалили — аудит не пишем");
     }
 
     [Fact]
     public async Task DeleteRecording_missing_returns_not_found()
     {
         using var db = TestHelpers.NewInMemoryDb();
+        var audit = new TestHelpers.CapturingAuditLogger();
 
-        var result = await PerformanceEndpoints.DeleteRecordingAsync(Guid.NewGuid(), db, CancellationToken.None);
+        var result = await PerformanceEndpoints.DeleteRecordingAsync(Guid.NewGuid(), db, audit, TestHelpers.NewHttpContext(), CancellationToken.None);
 
         result.Result.Should().BeOfType<NotFound>();
+        audit.Entries.Should().BeEmpty("записи нет — удалять нечего, аудит не пишем");
     }
 
     private static PerfRecordingSample NewSample(Guid recordingId) => new()

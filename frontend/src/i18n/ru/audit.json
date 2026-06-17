@@ -71,7 +71,10 @@
       "IisStarted": "Полный запуск IIS",
       "RasServiceRegistered": "Служба RAS зарегистрирована",
       "RasServiceUpdated": "Служба RAS перенастроена",
-      "RasServiceStarted": "Служба RAS запущена"
+      "RasServiceStarted": "Служба RAS запущена",
+      "PerfRecordingStarted": "Запись быстродействия запущена",
+      "PerfRecordingStopped": "Запись быстродействия остановлена",
+      "PerfRecordingDeleted": "Запись быстродействия удалена"
     },
     "empty": {
       "title": "Записей нет",

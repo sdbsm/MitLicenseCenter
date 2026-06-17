@@ -485,6 +485,9 @@ Consuming`, сгруппированных по `TenantId` (`Pending`/`NotConsum
 | 600 | RasServiceRegistered | Управление службой RAS (ADR-47): регистрация (`sc create`) |
 | 601 | RasServiceUpdated | Перенастройка под платформу/порт (`sc config`) |
 | 602 | RasServiceStarted | Запуск остановленной службы |
+| 700 | PerfRecordingStarted | «Быстродействие» (MLC-179): старт диагностической записи (host-уровень, `TenantId=null`) |
+| 701 | PerfRecordingStopped | Ручной стоп активной записи |
+| 702 | PerfRecordingDeleted | Удаление завершённой записи (+ каскад сэмплов) |
 
 ### 5.2 `AuditReason`
 

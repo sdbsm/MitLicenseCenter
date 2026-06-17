@@ -109,4 +109,12 @@ public enum AuditActionType
     RasServiceRegistered = 600,
     RasServiceUpdated = 601,
     RasServiceStarted = 602,
+
+    // Диагностические записи раздела «Быстродействие» / Performance (MLC-179): новая
+    // 700-серия (frozen-int). Started — оператор запустил расследование; Stopped — ручной
+    // стоп активной записи; Deleted — удаление завершённой записи. Host-уровневые операции
+    // (TenantId не пишется — запись с клиентом не связана). 703+ — резерв.
+    PerfRecordingStarted = 700,
+    PerfRecordingStopped = 701,
+    PerfRecordingDeleted = 702,
 }

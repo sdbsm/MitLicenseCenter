@@ -59,6 +59,9 @@ const ALL_ACTION_TYPES: Record<AuditActionType, true> = {
   RasServiceRegistered: true,
   RasServiceUpdated: true,
   RasServiceStarted: true,
+  PerfRecordingStarted: true,
+  PerfRecordingStopped: true,
+  PerfRecordingDeleted: true,
 };
 
 const unionMembers = Object.keys(ALL_ACTION_TYPES).sort();
