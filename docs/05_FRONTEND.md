@@ -71,7 +71,7 @@ frontend/src/
 | `performance` | `/performance` — метрики хоста, 1С, SQL |
 | `profile` | форма смены пароля (в ForcePasswordChange и профиле) |
 | `publications` | мутации публикации/смены платформы/проверки IIS |
-| `reports` | `/reports` — график потребления лицензий |
+| `reports` | `/reports` — отчёты (вкладки: потребление лицензий · размер баз) |
 | `sessions` | `/sessions` — live-снимок сеансов, kill |
 | `settings` | `/settings` (Admin) — параметры системы; блок состояния службы RAS (`RasServiceCard` + `RasServiceActionDialog`, `useRasService.ts`, ADR-47); карточка обновлений (`UpdateCheckCard`, фича `updates`, ADR-50) |
 | `tenants` | `/tenants` — CRUD клиентов |
@@ -441,7 +441,7 @@ Runtime-валидация через `api(..., { schema })` включена н
 | `publications` | `publicationStatusResponseSchema` | `useCheckStatus`, `usePublish`, `useUnpublish`, `useChangePlatform` |
 | `infobases` | `clusterIdAvailabilitySchema`, `infobaseDetailSchema` | `useClusterIdAvailability`, `useCreateInfobase`, `useUpdateInfobase`, `useReassignInfobase` |
 | `settings` | `settingsListSchema`, `rasServiceStatusSchema`, `rasServiceOperationSchema` | `useSettings`, `useRasServiceStatus`, `useRasServiceOperation` |
-| `reports` | `licenseUsageSeriesResponseSchema` | `useLicenseUsage`, `useLicenseUsageByTenant` |
+| `reports` | `licenseUsageSeriesResponseSchema`, `databaseSizeSeriesResponseSchema`, `databaseSizeTenantSeriesResponseSchema` | `useLicenseUsage`, `useLicenseUsageByTenant`, `useDatabaseSize`, `useDatabaseSizeByTenant` |
 | `audit` | `auditPagedResponseSchema`, `auditRetentionResponseSchema` | `useAuditLog`, `useAuditRetention` |
 
 **Read-границы, валидируемые с более ранних задач (учтены FE-09, MLC-133):** эти схемы

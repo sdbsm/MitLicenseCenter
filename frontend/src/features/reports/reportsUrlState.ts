@@ -1,6 +1,13 @@
 import { addMonths, format, parseISO } from "date-fns";
 import { ru } from "date-fns/locale";
-import type { ReportsFilters, ReportsRange } from "./types";
+import type { ReportKind, ReportsFilters, ReportsRange } from "./types";
+
+// MLC-185f: какой отчёт открыт — использование лицензий (дефолт) или размер баз.
+// Хранится в URL (`?report=size`), чтобы выбор пережил перезагрузку. Любое иное/битое
+// значение трактуется как дефолт «license» — страница не падает.
+export function parseReportKind(params: URLSearchParams): ReportKind {
+  return params.get("report") === "size" ? "size" : "license";
+}
 
 // Разбор URL → фильтры. Битый параметр не роняет страницу: tenantId берётся как есть
 // (валидируется наличием в списке клиентов на месте), даты — сырой `YYYY-MM-DD` из
@@ -13,11 +20,18 @@ export function parseFiltersFromUrl(params: URLSearchParams): ReportsFilters {
   };
 }
 
-export function filtersToUrl(filters: ReportsFilters): URLSearchParams {
+// MLC-185f: report-kind пишется только для «size» (дефолт «license» опускаем — чистый
+// URL для основного отчёта). Старые вызовы без report → license → параметр не ставится,
+// поведение прежнее.
+export function filtersToUrl(
+  filters: ReportsFilters,
+  report: ReportKind = "license"
+): URLSearchParams {
   const params = new URLSearchParams();
   if (filters.from) params.set("from", filters.from);
   if (filters.to) params.set("to", filters.to);
   if (filters.tenantId) params.set("tenant", filters.tenantId);
+  if (report === "size") params.set("report", "size");
   return params;
 }
 

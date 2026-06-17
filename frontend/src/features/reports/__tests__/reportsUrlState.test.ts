@@ -5,6 +5,7 @@ import {
   formatBucketAxisLabel,
   monthToRange,
   parseFiltersFromUrl,
+  parseReportKind,
   shiftMonth,
 } from "../reportsUrlState";
 import type { ReportsFilters } from "../types";
@@ -44,6 +45,32 @@ describe("filtersToUrl", () => {
   it("produces an empty query for cleared filters", () => {
     const filters: ReportsFilters = { from: null, to: null, tenantId: null };
     expect(filtersToUrl(filters).toString()).toBe("");
+  });
+
+  // MLC-185f: дефолтный отчёт «license» не пишет report-параметр (чистый URL),
+  // «size» — пишет `report=size`, переживая перезагрузку.
+  it("omits the report param for the default license report", () => {
+    const filters: ReportsFilters = { from: null, to: null, tenantId: null };
+    expect(filtersToUrl(filters, "license").toString()).toBe("");
+  });
+
+  it("writes report=size alongside the filters for the size report", () => {
+    const filters: ReportsFilters = { from: "2026-06-01", to: null, tenantId: "abc" };
+    expect(filtersToUrl(filters, "size").toString()).toBe("from=2026-06-01&tenant=abc&report=size");
+  });
+});
+
+describe("parseReportKind", () => {
+  it("reads `size` from the report param", () => {
+    expect(parseReportKind(new URLSearchParams("report=size"))).toBe("size");
+  });
+
+  it("defaults to `license` when the param is absent", () => {
+    expect(parseReportKind(new URLSearchParams())).toBe("license");
+  });
+
+  it("treats an unknown report value as the default license report", () => {
+    expect(parseReportKind(new URLSearchParams("report=bogus"))).toBe("license");
   });
 });
 
