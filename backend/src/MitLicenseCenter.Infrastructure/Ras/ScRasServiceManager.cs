@@ -12,15 +12,18 @@ namespace MitLicenseCenter.Infrastructure.Ras;
 // «не зарегистрирована»). Имя службы не стандартизировано, ищем по ImagePath.
 // Диагностика — 4 состояния. Команды-мутации register/update/start — через sc.exe
 // (sc create / stop→config→start / start). Хост фиксирован localhost (single-host,
-// ADR-28); порт — OneC.RAS.Endpoint; платформа — OneC.DefaultPlatformVersion.
+// ADR-28); порт службы RAS — OneC.RAS.Endpoint; порт агента кластера ragent —
+// OneC.RAS.AgentPort (дефолт 1540, MLC-194); платформа — OneC.DefaultPlatformVersion.
 internal sealed partial class ScRasServiceManager : IRasServiceManager
 {
     // Стандартный порт самой службы RAS, если в OneC.RAS.Endpoint порт не задан.
     private const string DefaultRasPort = "1545";
 
-    // Адрес локального агента кластера ragent: single-host → loopback, 1540 —
-    // стандартный порт агента кластера 1С. Цель ras.exe (последний позиционный аргумент).
-    private const string LocalAgentAddress = "localhost:1540";
+    // Хост локального агента кластера ragent: single-host → всегда loopback (ADR-28).
+    private const string LocalAgentHost = "localhost";
+
+    // Стандартный порт агента кластера 1С (ragent), если OneC.RAS.AgentPort пуст/некорректен.
+    private const string DefaultAgentPort = "1540";
 
     // Коды возврата sc.exe (Win32), которые нужно трактовать особо.
     private const int ScSuccess = 0;
@@ -64,7 +67,7 @@ internal sealed partial class ScRasServiceManager : IRasServiceManager
             : _rasResolver.ResolveForVersion(platformVersion);
 
         var target = rasExePath is not null
-            ? new RasServiceTarget(rasExePath, platformVersion, desiredPort, LocalAgentAddress)
+            ? new RasServiceTarget(rasExePath, platformVersion, desiredPort, ResolveAgentAddress())
             : null;
 
         var service = FindRasService();
@@ -272,7 +275,19 @@ internal sealed partial class ScRasServiceManager : IRasServiceManager
             ?? throw new RasServiceOperationException(
                 $"Не найден ras.exe платформы {platformVersion}. Проверьте установку 1С выбранной версии.");
 
-        return new RasServiceTarget(rasExePath, platformVersion, ResolveDesiredPort(), LocalAgentAddress);
+        return new RasServiceTarget(rasExePath, platformVersion, ResolveDesiredPort(), ResolveAgentAddress());
+    }
+
+    // Адрес локального агента кластера ragent (цель ras.exe, последний позиционный аргумент).
+    // Хост фиксирован localhost (single-host, ADR-28), порт — OneC.RAS.AgentPort. Пусто или
+    // не-число → стандартный 1540. По образцу ResolveDesiredPort (порт самой службы RAS).
+    private string ResolveAgentAddress()
+    {
+        var configured = (_settings.GetString(SettingKey.OneCRasAgentPort) ?? string.Empty).Trim();
+        var port = configured.Length > 0 && configured.All(char.IsDigit)
+            ? configured
+            : DefaultAgentPort;
+        return $"{LocalAgentHost}:{port}";
     }
 
     private static string BuildTargetIssue(string platformVersion)

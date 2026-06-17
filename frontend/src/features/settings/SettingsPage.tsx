@@ -28,6 +28,7 @@ const SECTIONS: { titleKey: string; keys: string[] }[] = [
       "OneC.Cluster.AdminUser",
       "OneC.Cluster.AdminPassword",
       "OneC.RAS.Endpoint",
+      "OneC.RAS.AgentPort",
       "OneC.RAS.ExePath",
     ],
   },
@@ -74,6 +75,8 @@ const FIELD_META: Record<
   "OneC.Cluster.AdminUser": { type: "text" },
   "OneC.Cluster.AdminPassword": { type: "password" },
   // OneC.RAS.Endpoint → RasPortField, OneC.RAS.ExePath → PlatformPicker (см. renderField).
+  // MLC-194: порт агента кластера ragent — обычное числовое поле (host фиксирован localhost).
+  "OneC.RAS.AgentPort": { type: "number", min: 1024, max: 65535 },
   "IIS.DefaultVrdRoot": { type: "text" },
   "Sql.Server": { type: "text", placeholder: "sql.local или (local)" },
   "IIS.DefaultSiteName": { type: "text", placeholder: "Default Web Site" },

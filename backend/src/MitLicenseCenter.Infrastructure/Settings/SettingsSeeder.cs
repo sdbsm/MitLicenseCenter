@@ -64,6 +64,7 @@ public static partial class SettingsSeeder
         }
 
         await HealRasEndpointAsync(db, now, ct).ConfigureAwait(false);
+        await HealRasAgentPortAsync(db, now, ct).ConfigureAwait(false);
     }
 
     // MLC-117: целевой heal апгрейда. На БД, засеянной до того, как у OneC.RAS.Endpoint
@@ -87,6 +88,37 @@ public static partial class SettingsSeeder
 
         // Лечим только реально пустую строку (plain без значения): ValueText пустой и
         // зашифрованный Value отсутствует. Если оператор уже задал endpoint — не трогаем.
+        if (entry is null ||
+            !string.IsNullOrWhiteSpace(entry.ValueText) ||
+            entry.Value is not null)
+        {
+            return;
+        }
+
+        entry.ValueText = defaultValue;
+        entry.UpdatedBy = "System";
+        entry.UpdatedAt = now;
+        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+    }
+
+    // MLC-194: тот же heal апгрейда для OneC.RAS.AgentPort (порт агента кластера ragent).
+    // На БД, засеянной до появления этого ключа, строки нет вовсе → её создаст сидер выше
+    // (с дефолтом 1540). Heal страхует случай, когда строка существует с пустым ValueText
+    // (например, после ручного очищения): без порта агента авто-регистрация RAS соберёт
+    // адрес без порта. Идемпотентно: непустые значения и другие ключи не трогаем; дефолт —
+    // из каталога (одна точка истины).
+    private static async Task HealRasAgentPortAsync(AppDbContext db, DateTime now, CancellationToken ct)
+    {
+        var defaultValue = SettingDefinitions.All[SettingKey.OneCRasAgentPort].DefaultValue;
+        if (string.IsNullOrWhiteSpace(defaultValue))
+        {
+            return;
+        }
+
+        var entry = await db.Settings
+            .SingleOrDefaultAsync(s => s.Key == SettingKey.OneCRasAgentPort, ct)
+            .ConfigureAwait(false);
+
         if (entry is null ||
             !string.IsNullOrWhiteSpace(entry.ValueText) ||
             entry.Value is not null)

@@ -47,6 +47,19 @@ public static class SettingDefinitions
                 Kind: SettingValueKind.HostPort,
                 DefaultValue: "localhost:1545"),
 
+            // MLC-194: порт локального агента кластера ragent — цель ras.exe при авто-
+            // регистрации службы RAS (ADR-47). Хост фиксирован localhost (single-host,
+            // ADR-28), настраивается только порт. Стандартный — 1540; меняется лишь при
+            // нестандартном порту агента 1С (иначе служба RAS не цепляется к кластеру).
+            [SettingKey.OneCRasAgentPort] = new(
+                SettingKey.OneCRasAgentPort,
+                IsSecret: false,
+                Description: "Порт локального агента кластера 1С (ragent), к которому подключается служба RAS. Стандартный — 1540; меняйте только при нестандартном порту агента 1С.",
+                Kind: SettingValueKind.Number,
+                DefaultValue: "1540",
+                Min: 1024,
+                Max: 65535),
+
             // ADR-3.3: дефолт не сидируем — 1С 8.5 положил rac.exe в версионную
             // папку (`1cv8\<version>\bin\`), в `1cv8\common\` его нет. Оператор
             // обязан задать явно через «Параметры» при настройке RAS fallback'а.

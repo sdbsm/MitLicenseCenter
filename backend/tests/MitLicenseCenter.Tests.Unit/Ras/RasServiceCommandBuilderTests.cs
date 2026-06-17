@@ -24,6 +24,24 @@ public sealed class RasServiceCommandBuilderTests
     }
 
     [Fact]
+    public void BuildRasArguments_carries_custom_agent_port()
+    {
+        // MLC-194: при нестандартном порту агента кластера (1541) адрес-цель ras.exe
+        // должен нести этот порт — иначе служба RAS не цепляется к ragent.
+        var args = RasServiceCommandBuilder.BuildRasArguments(Port, "localhost:1541");
+
+        args.Should().Equal("cluster", "--service", "--port=1545", "localhost:1541");
+    }
+
+    [Fact]
+    public void BuildScCreateArguments_carries_custom_agent_port()
+    {
+        var args = RasServiceCommandBuilder.BuildScCreateArguments("MitLicenseRas", RasPath, Port, "localhost:1541");
+
+        args.Should().Contain("--port=1545 localhost:1541");
+    }
+
+    [Fact]
     public void BuildRasCommandLine_quotes_exe_path_with_spaces()
     {
         var cmd = RasServiceCommandBuilder.BuildRasCommandLine(RasPath, Port, Agent);
