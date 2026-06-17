@@ -319,6 +319,39 @@ public sealed class InfobaseIdsEndpointTests
         response.Items.Should().HaveCount(5000); // усечён до кэпа
     }
 
+    // MLC-184a — регрессия на РЕАЛЬНОЙ SQL-трансляции. InMemory-тесты выше маскируют баг:
+    // ORDER BY по членам спроецированного record EF Core клиентски досортировывает. На
+    // реальном провайдере (SQLite, как у DatabaseBackupPersistenceTests) такой ORDER BY не
+    // транслируется и бросает InvalidOperationException. Этот тест засевает базы в SQLite,
+    // зовёт IdsAsync и ожидает Ok с верным порядком по имени — на старом коде (OrderBy по
+    // x.InfobaseName) падает на трансляции, на фиксе (OrderBy по x.ib.Name до проекции) зелёный.
+    [Fact]
+    public async Task Ids_orders_by_name_on_real_sql_translation()
+    {
+        using var sqlite = TestHelpers.SqliteTestDb.Create();
+        var tenant = NewTenant("Acme");
+        using (var seed = sqlite.NewContext())
+        {
+            seed.Tenants.Add(tenant);
+            // Порядок вставки намеренно НЕ алфавитный — проверяем именно ORDER BY.
+            AddBase(seed, tenant.Id, "Гамма", PublicationPublishStatus.Published);
+            AddBase(seed, tenant.Id, "Альфа", PublicationPublishStatus.Published);
+            AddBase(seed, tenant.Id, "Бета", PublicationPublishStatus.Published);
+            await seed.SaveChangesAsync();
+        }
+
+        using var db = sqlite.NewContext();
+        var result = await InfobasesEndpoints.IdsAsync(
+            db, ClusterWith(), new UnassignedInfobasesCache(),
+            NullLoggerFactory.Instance, TestHelpers.FixedClock(Now),
+            null, null, null, null, CancellationToken.None);
+
+        var response = result.Result.Should().BeOfType<Ok<InfobaseBulkIdsResponse>>().Subject.Value!;
+        response.Total.Should().Be(3);
+        response.Items.Select(x => x.InfobaseName)
+            .Should().ContainInOrder("Альфа", "Бета", "Гамма");
+    }
+
     private static void AddBase(
         AppDbContext db, Guid tenantId, string name, PublicationPublishStatus status,
         Guid? clusterId = null, string dbName = "db")
