@@ -294,8 +294,9 @@ RAS (`Available=false`) эндпоинт **не** фильтрует по неп
 (нет `ras.exe` выбранной платформы / не задана `OneC.DefaultPlatformVersion`) — действие
 выполнить нельзя. Обнаружение службы — по `ImagePath` (из реестра), содержащему `ras.exe`
 (имя службы у операторов не стандартизировано); состояние — через `ServiceController`. Порт
-берётся из `OneC.RAS.Endpoint`, платформа — из `OneC.DefaultPlatformVersion`, цель — локальный
-агент `localhost:1540`.
+службы берётся из `OneC.RAS.Endpoint`, платформа — из `OneC.DefaultPlatformVersion`, цель —
+локальный агент кластера `localhost:<OneC.RAS.AgentPort>` (порт по умолчанию `1540`, настройка
+MLC-194; меняется только при нестандартном порту агента 1С).
 
 Действия идемпотентны: `register` создаёт службу (`sc create` → `start`), `update`
 перенастраивает существующую под платформу/порт (`stop` → `sc config` → `start`), `start`

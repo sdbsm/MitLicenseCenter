@@ -19,6 +19,11 @@ public static class SettingKey
     public const string OneCRasEndpoint = "OneC.RAS.Endpoint";
     public const string OneCRasExePath = "OneC.RAS.ExePath";
 
+    // Порт локального агента кластера ragent (MLC-194). Цель ras.exe при авто-регистрации
+    // службы RAS (ADR-47): host фиксирован localhost (single-host, ADR-28), настраивается
+    // только порт. Стандартный — 1540; меняется лишь при нестандартном порту агента 1С.
+    public const string OneCRasAgentPort = "OneC.RAS.AgentPort";
+
     // IIS / publications (используется в PR 3.5).
     public const string IisDefaultVrdRoot = "IIS.DefaultVrdRoot";
 

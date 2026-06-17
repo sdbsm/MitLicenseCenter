@@ -20,6 +20,7 @@ namespace MitLicenseCenter.Tests.Unit.Settings;
 public sealed class SettingsSeederTests
 {
     private const string RasDefault = "localhost:1545";
+    private const string AgentPortDefault = "1540";
 
     [Fact]
     public async Task Fresh_db_seeds_ras_endpoint_with_default()
@@ -76,6 +77,63 @@ public sealed class SettingsSeederTests
 
         var entry = await harness.GetAsync(SettingKey.OneCRasEndpoint);
         entry!.ValueText.Should().Be(existingValue);
+        entry.UpdatedBy.Should().Be("operator", "heal не трогает уже заданное значение");
+    }
+
+    [Fact]
+    public async Task Fresh_db_seeds_ras_agent_port_with_default()
+    {
+        using var harness = SeederHarness.Create();
+
+        await harness.SeedAsync();
+
+        var entry = await harness.GetAsync(SettingKey.OneCRasAgentPort);
+        entry.Should().NotBeNull();
+        entry!.ValueText.Should().Be(AgentPortDefault);
+        entry.Value.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Heal_fills_empty_existing_ras_agent_port_row()
+    {
+        using var harness = SeederHarness.Create();
+
+        // Апгрейд: строка ключа существует с пустым ValueText (например, после ручного
+        // очищения) — heal проставляет дефолт, иначе адрес агента собирается без порта.
+        await harness.SeedRawAsync(new SettingEntry
+        {
+            Key = SettingKey.OneCRasAgentPort,
+            IsSecret = false,
+            ValueText = null,
+            Value = null,
+            UpdatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            UpdatedBy = "System",
+        });
+
+        await harness.SeedAsync();
+
+        var entry = await harness.GetAsync(SettingKey.OneCRasAgentPort);
+        entry!.ValueText.Should().Be(AgentPortDefault);
+    }
+
+    [Fact]
+    public async Task Heal_does_not_overwrite_non_empty_ras_agent_port()
+    {
+        using var harness = SeederHarness.Create();
+        await harness.SeedRawAsync(new SettingEntry
+        {
+            Key = SettingKey.OneCRasAgentPort,
+            IsSecret = false,
+            ValueText = "1541",
+            Value = null,
+            UpdatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            UpdatedBy = "operator",
+        });
+
+        await harness.SeedAsync();
+
+        var entry = await harness.GetAsync(SettingKey.OneCRasAgentPort);
+        entry!.ValueText.Should().Be("1541");
         entry.UpdatedBy.Should().Be("operator", "heal не трогает уже заданное значение");
     }
 

@@ -133,8 +133,9 @@ Health кластера отслеживает независимый фонов
 и отдаёт предпросмотр команды `sc`; действия register/update/start выполняются по запросу
 оператора. Обнаружение службы — по `ImagePath`, содержащему `ras.exe` (имя у операторов не
 стандартизировано); `ras.exe` для регистрации ищется в тех же версионных bin-каталогах, что и `rac.exe`.
-Цель — локальный агент кластера (`localhost:1540`), порт службы — из `OneC.RAS.Endpoint`,
-платформа — `OneC.DefaultPlatformVersion` (хост фиксирован `localhost`, single-host ADR-28).
+Цель — локальный агент кластера (`localhost:<OneC.RAS.AgentPort>`, дефолт `1540`), порт службы
+— из `OneC.RAS.Endpoint`, платформа — `OneC.DefaultPlatformVersion` (хост фиксирован `localhost`,
+single-host ADR-28; настраивается только порт агента — MLC-194).
 Действия пишут аудит **600-серии** (`RasServiceRegistered`/`Updated`/`Started`, server-scope).
 
 ---

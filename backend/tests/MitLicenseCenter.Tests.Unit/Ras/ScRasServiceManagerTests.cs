@@ -142,6 +142,35 @@ public sealed class ScRasServiceManagerTests
         d.Service!.IsRunning.Should().BeFalse();
     }
 
+    // ── Порт агента кластера (MLC-194) ──────────────────────────────────────────────────
+
+    [Fact]
+    public async Task Diagnose_custom_agent_port_lands_in_target_and_command()
+    {
+        // Нестандартный порт агента 1С (1541) должен попасть в адрес-цель ras.exe и в
+        // команду регистрации — иначе служба RAS соберёт неверный адрес агента.
+        var registry = new FakeRegistry(); // службы RAS нет → preview команды create
+
+        var d = await NewManager(registry, agentPort: "1541").DiagnoseAsync(CancellationToken.None);
+
+        d.Target!.AgentAddress.Should().Be("localhost:1541");
+        d.CommandPreview.Should().Contain("localhost:1541");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("not-a-number")]
+    public async Task Diagnose_blank_or_invalid_agent_port_falls_back_to_1540(string? agentPort)
+    {
+        var registry = new FakeRegistry();
+
+        var d = await NewManager(registry, agentPort: agentPort).DiagnoseAsync(CancellationToken.None);
+
+        d.Target!.AgentAddress.Should().Be("localhost:1540");
+    }
+
     // ── Операции ──────────────────────────────────────────────────────────────────────
 
     [Fact]
@@ -257,10 +286,12 @@ public sealed class ScRasServiceManagerTests
         FakeScRunner? sc = null,
         string platformVersion = "8.5.1.1302",
         string endpoint = "localhost:1545",
+        string? agentPort = "1540",
         string? rasPath = RasPath85)
     {
         var settings = Substitute.For<ISettingsSnapshot>();
         settings.GetString(SettingKey.OneCRasEndpoint).Returns(endpoint);
+        settings.GetString(SettingKey.OneCRasAgentPort).Returns(agentPort);
         settings.GetString(SettingKey.OneCDefaultPlatformVersion).Returns(platformVersion);
 
         var resolver = new FakeResolver(rasPath);
