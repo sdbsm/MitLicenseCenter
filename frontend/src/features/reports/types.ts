@@ -35,6 +35,70 @@ export const licenseUsageSeriesResponseSchema = z.object({
 export type LicenseUsageBucketPoint = z.infer<typeof licenseUsageBucketPointSchema>;
 export type LicenseUsageSeriesResponse = z.infer<typeof licenseUsageSeriesResponseSchema>;
 
+/**
+ * Zod-схемы отчёта «Размер баз» (MLC-185f).
+ * Зеркало DatabaseSizeSeriesResponse / DatabaseSizeTenantSeriesResponse и вложенных
+ * строк (ReportsContracts.cs, бэкенд 185e). Backend опускает null-поля
+ * (JsonIgnoreCondition.WhenWritingNull, ADR-32): tenantId/tenantName=null
+ * («без клиента») → ключ отсутствует → omittable().
+ */
+
+// Точка ряда размера во времени (итог по хосту или по одному клиенту).
+export const databaseSizePointSchema = z.object({
+  atUtc: z.string(),
+  dataBytes: z.number(),
+  logBytes: z.number(),
+  totalBytes: z.number(),
+});
+
+// Строка разбивки по клиенту на последний снимок периода. tenantId/tenantName
+// опускаются для «без клиента» (агрегат баз без привязки к тенанту).
+export const databaseSizeTenantRowSchema = z.object({
+  tenantId: omittable(z.string()),
+  tenantName: omittable(z.string()),
+  dataBytes: z.number(),
+  logBytes: z.number(),
+  totalBytes: z.number(),
+  databaseCount: z.number(),
+});
+
+export const databaseSizeSeriesResponseSchema = z.object({
+  points: z.array(databaseSizePointSchema),
+  tenants: z.array(databaseSizeTenantRowSchema),
+  fromUtc: z.string(),
+  toUtc: z.string(),
+  clamped: z.boolean(),
+  maxSpanDays: z.number(),
+});
+
+// Строка конкретной базы клиента (drill-down, последний снимок периода).
+export const databaseSizeDatabaseRowSchema = z.object({
+  databaseName: z.string(),
+  dataBytes: z.number(),
+  logBytes: z.number(),
+  totalBytes: z.number(),
+});
+
+export const databaseSizeTenantSeriesResponseSchema = z.object({
+  points: z.array(databaseSizePointSchema),
+  databases: z.array(databaseSizeDatabaseRowSchema),
+  fromUtc: z.string(),
+  toUtc: z.string(),
+  clamped: z.boolean(),
+  maxSpanDays: z.number(),
+});
+
+export type DatabaseSizePoint = z.infer<typeof databaseSizePointSchema>;
+export type DatabaseSizeTenantRow = z.infer<typeof databaseSizeTenantRowSchema>;
+export type DatabaseSizeSeriesResponse = z.infer<typeof databaseSizeSeriesResponseSchema>;
+export type DatabaseSizeDatabaseRow = z.infer<typeof databaseSizeDatabaseRowSchema>;
+export type DatabaseSizeTenantSeriesResponse = z.infer<
+  typeof databaseSizeTenantSeriesResponseSchema
+>;
+
+// MLC-185f: какой отчёт показывает страница «Отчёты». «license» — дефолт.
+export type ReportKind = "license" | "size";
+
 // UI-состояние страницы: общий период (date-only из `<input type="date">`) +
 // выбранный для детализации клиент. Период применяется к обеим секциям, tenantId —
 // только к блоку детализации (сводка видна всегда).

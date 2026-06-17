@@ -6,3 +6,6 @@
  * useLicenseUsage реэкспортирует reportsQueryKey отсюда — публичный API не меняется.
  */
 export const reportsQueryKey = ["reports", "license-usage"] as const;
+
+// MLC-185f: ключ отчёта «Размер баз» (отдельный кэш-неймспейс от лицензий).
+export const databaseSizeQueryKey = ["reports", "database-size"] as const;
