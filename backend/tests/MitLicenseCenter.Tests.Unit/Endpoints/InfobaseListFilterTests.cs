@@ -45,13 +45,14 @@ public sealed class InfobaseListFilterTests
         Guid? tenantId = null,
         string? publishStatus = null,
         bool? notInCluster = null,
+        string? search = null,
         IClusterClient? cluster = null,
         int page = 1,
         int pageSize = 50) =>
         InfobasesEndpoints.ListAsync(
             db, cluster ?? ClusterWith(), new UnassignedInfobasesCache(),
             NullLoggerFactory.Instance, TestHelpers.FixedClock(Now),
-            tenantId, publishStatus, notInCluster, page, pageSize, CancellationToken.None);
+            tenantId, publishStatus, notInCluster, search, page, pageSize, CancellationToken.None);
 
     [Fact]
     public async Task List_filters_by_publish_status()
@@ -131,6 +132,159 @@ public sealed class InfobaseListFilterTests
 
         result.Result.Should().BeOfType<Ok<InfobaseListResponse>>()
             .Subject.Value!.Total.Should().Be(1);
+    }
+
+    // ── MLC-181a: серверный текстовый поиск по имени базы / имени БД ──────────────────
+    // ГОЧА: на InMemory string.Contains ordinal-чувствителен к регистру; регистронезависимость —
+    // за CI-collation БД (в unit не проверяется). В коде — ТОЛЬКО plain Contains → LIKE.
+
+    [Fact]
+    public async Task Search_matches_by_name()
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+        var tenant = NewTenant("Acme");
+        db.Tenants.Add(tenant);
+        AddBase(db, tenant.Id, "Бухгалтерия", PublicationPublishStatus.Published);
+        AddBase(db, tenant.Id, "Зарплата", PublicationPublishStatus.Published);
+        await db.SaveChangesAsync();
+
+        var result = await ListAsync(db, search: "Бухгал");
+
+        var ok = result.Result.Should().BeOfType<Ok<InfobaseListResponse>>().Subject;
+        ok.Value!.Total.Should().Be(1);
+        ok.Value.Items.Should().ContainSingle().Which.Name.Should().Be("Бухгалтерия");
+    }
+
+    [Fact]
+    public async Task Search_does_not_match_absent_term()
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+        var tenant = NewTenant("Acme");
+        db.Tenants.Add(tenant);
+        AddBase(db, tenant.Id, "Бухгалтерия", PublicationPublishStatus.Published, dbName: "acme_bp");
+        await db.SaveChangesAsync();
+
+        var result = await ListAsync(db, search: "нетакого");
+
+        var ok = result.Result.Should().BeOfType<Ok<InfobaseListResponse>>().Subject;
+        ok.Value!.Total.Should().Be(0);
+        ok.Value.Items.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Search_matches_by_database_name()
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+        var tenant = NewTenant("Acme");
+        db.Tenants.Add(tenant);
+        AddBase(db, tenant.Id, "Бухгалтерия", PublicationPublishStatus.Published, dbName: "acme_bp");
+        AddBase(db, tenant.Id, "Зарплата", PublicationPublishStatus.Published, dbName: "globex_zup");
+        await db.SaveChangesAsync();
+
+        var result = await ListAsync(db, search: "acme_bp");
+
+        var ok = result.Result.Should().BeOfType<Ok<InfobaseListResponse>>().Subject;
+        ok.Value!.Total.Should().Be(1);
+        ok.Value.Items.Should().ContainSingle().Which.Name.Should().Be("Бухгалтерия");
+    }
+
+    [Fact]
+    public async Task Search_or_logic_matches_name_or_database_name()
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+        var tenant = NewTenant("Acme");
+        db.Tenants.Add(tenant);
+        // Терм совпадает с именем одной базы и с DatabaseName другой → обе в результате (OR).
+        AddBase(db, tenant.Id, "match_in_name", PublicationPublishStatus.Published, dbName: "db1");
+        AddBase(db, tenant.Id, "Прочее", PublicationPublishStatus.Published, dbName: "match_in_db");
+        AddBase(db, tenant.Id, "Чужая", PublicationPublishStatus.Published, dbName: "other");
+        await db.SaveChangesAsync();
+
+        var result = await ListAsync(db, search: "match");
+
+        var ok = result.Result.Should().BeOfType<Ok<InfobaseListResponse>>().Subject;
+        ok.Value!.Total.Should().Be(2);
+        ok.Value.Items.Select(i => i.Name).Should().BeEquivalentTo("match_in_name", "Прочее");
+    }
+
+    [Fact]
+    public async Task Search_total_is_honest_after_filter()
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+        var tenant = NewTenant("Acme");
+        db.Tenants.Add(tenant);
+        AddBase(db, tenant.Id, "Alpha", PublicationPublishStatus.Published);
+        AddBase(db, tenant.Id, "Beta", PublicationPublishStatus.Published);
+        AddBase(db, tenant.Id, "Gamma", PublicationPublishStatus.Published);
+        await db.SaveChangesAsync();
+
+        // pageSize=1 — Total отражает отфильтрованный набор (1), а не общее число баз.
+        var result = await ListAsync(db, search: "Alpha", pageSize: 1);
+
+        var ok = result.Result.Should().BeOfType<Ok<InfobaseListResponse>>().Subject;
+        ok.Value!.Total.Should().Be(1);
+        ok.Value.Items.Should().ContainSingle().Which.Name.Should().Be("Alpha");
+    }
+
+    [Fact]
+    public async Task Search_composes_with_tenant_filter()
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+        var acme = NewTenant("Acme");
+        var globex = NewTenant("Globex");
+        db.Tenants.AddRange(acme, globex);
+        AddBase(db, acme.Id, "Shared", PublicationPublishStatus.Published);
+        AddBase(db, globex.Id, "Shared", PublicationPublishStatus.Published);
+        await db.SaveChangesAsync();
+
+        var result = await ListAsync(db, tenantId: acme.Id, search: "Shared");
+
+        var ok = result.Result.Should().BeOfType<Ok<InfobaseListResponse>>().Subject;
+        ok.Value!.Items.Should().ContainSingle().Which.TenantId.Should().Be(acme.Id);
+    }
+
+    [Fact]
+    public async Task Search_composes_with_publish_status_filter()
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+        var tenant = NewTenant("Acme");
+        db.Tenants.Add(tenant);
+        AddBase(db, tenant.Id, "Shared-Pub", PublicationPublishStatus.Published);
+        AddBase(db, tenant.Id, "Shared-Err", PublicationPublishStatus.Error);
+        await db.SaveChangesAsync();
+
+        var result = await ListAsync(db, publishStatus: "Error", search: "Shared");
+
+        var ok = result.Result.Should().BeOfType<Ok<InfobaseListResponse>>().Subject;
+        ok.Value!.Items.Should().ContainSingle().Which.Name.Should().Be("Shared-Err");
+    }
+
+    [Fact]
+    public async Task Search_too_long_returns_validation_problem()
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+
+        var result = await ListAsync(db, search: new string('x', 201));
+
+        result.Result.Should().BeOfType<ValidationProblem>();
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task Search_blank_or_whitespace_applies_no_filter(string term)
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+        var tenant = NewTenant("Acme");
+        db.Tenants.Add(tenant);
+        AddBase(db, tenant.Id, "A", PublicationPublishStatus.Published);
+        AddBase(db, tenant.Id, "B", PublicationPublishStatus.Published);
+        await db.SaveChangesAsync();
+
+        var result = await ListAsync(db, search: term);
+
+        result.Result.Should().BeOfType<Ok<InfobaseListResponse>>()
+            .Subject.Value!.Total.Should().Be(2);
     }
 
     // ── MLC-150: серверный фильтр «не найдена в кластере» (обратный дрейф) ────────────
@@ -242,7 +396,7 @@ public sealed class InfobaseListFilterTests
 
     private static void AddBase(
         AppDbContext db, Guid tenantId, string name, PublicationPublishStatus status,
-        Guid? clusterId = null)
+        Guid? clusterId = null, string dbName = "db")
     {
         var ib = new Infobase
         {
@@ -250,7 +404,7 @@ public sealed class InfobaseListFilterTests
             TenantId = tenantId,
             Name = name,
             ClusterInfobaseId = clusterId ?? Guid.NewGuid(),
-            DatabaseName = "db",
+            DatabaseName = dbName,
             Status = InfobaseStatus.Active,
             CreatedAt = Now,
         };

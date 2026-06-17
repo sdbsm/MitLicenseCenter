@@ -1,12 +1,13 @@
 import { getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import { AlertTriangleIcon, DatabaseIcon, PlusIcon } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DataTable, useTableDensity } from "@/components/ui/data-table";
+import { Input } from "@/components/ui/input";
 import { PaginationBar } from "@/components/PaginationBar";
 import {
   Select,
@@ -104,14 +105,46 @@ export function InfobasesPage() {
   // MLC-150 — серверный фильтр «не найдена в кластере» (обратный дрейф). Только для
   // админа: при недоступном RAS показываем честное состояние, а не «0 найдено».
   const notInClusterFilter = isAdmin && searchParams.get("notInCluster") === "true";
+  // MLC-181a — серверный текстовый поиск по имени базы / имени БД. Терм живёт в URL
+  // (?search=) рядом с остальными фильтрами — отфильтрованный список шарится ссылкой.
+  const searchParam = searchParams.get("search") ?? "";
 
   const [page, setPage] = useState(1);
+
+  // MLC-181a: черновик в инпуте, коммит — после debounce в URL-параметр; при смене терма
+  // возвращаемся на первую страницу (иначе вторая может оказаться пустой). Образец — TenantsPage.
+  const [searchDraft, setSearchDraft] = useState(searchParam);
+  // Внешнее изменение URL (назад/вперёд, шаринг ссылки, сброс фильтров) подтягиваем в инпут.
+  useEffect(() => {
+    setSearchDraft(searchParam);
+  }, [searchParam]);
+  useEffect(() => {
+    const id = setTimeout(() => {
+      const next = searchDraft.trim();
+      if (next === searchParam) return;
+      setSearchParams(
+        (prev) => {
+          const nextParams = new URLSearchParams(prev);
+          if (next) nextParams.set("search", next);
+          else nextParams.delete("search");
+          return nextParams;
+        },
+        { replace: true }
+      );
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(id);
+    // searchParam исключён намеренно: дебаунс реагирует на ввод, не на синхронизацию из URL.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchDraft]);
+
   const { data, isLoading, isError, isFetching, refetch } = useInfobases(
     tenantIdParam,
     publishStatusParam,
     notInClusterFilter,
     page,
-    PAGE_SIZE
+    PAGE_SIZE,
+    searchParam
   );
   // BE заполняет clusterAvailable только при notInCluster=true; false ⇒ RAS недоступен,
   // фильтрация не выполнена — показываем «не удалось проверить кластер» вместо пустого списка.
@@ -169,6 +202,7 @@ export function InfobasesPage() {
         next.delete("tenantId");
         next.delete("publishStatus");
         next.delete("notInCluster");
+        next.delete("search");
         return next;
       },
       { replace: true }
@@ -176,7 +210,10 @@ export function InfobasesPage() {
     setPage(1);
   };
   const anyFilterActive =
-    tenantFilter !== ALL_TENANTS || statusFilter !== ALL_STATUSES || notInClusterFilter;
+    tenantFilter !== ALL_TENANTS ||
+    statusFilter !== ALL_STATUSES ||
+    notInClusterFilter ||
+    searchParam !== "";
 
   const items = useMemo<InfobaseListItem[]>(() => data?.items ?? [], [data]);
   const total = data?.total ?? 0;
@@ -484,6 +521,14 @@ export function InfobasesPage() {
               }
               toolbarChildren={
                 <>
+                  <Input
+                    type="search"
+                    className="max-w-xs"
+                    placeholder={t("infobases.searchPlaceholder")}
+                    value={searchDraft}
+                    onChange={(e) => setSearchDraft(e.target.value)}
+                    aria-label={t("infobases.searchPlaceholder")}
+                  />
                   <Select value={tenantFilter} onValueChange={changeTenantFilter}>
                     <SelectTrigger className="w-72">
                       <SelectValue placeholder={t("infobases.filters.tenant")} />

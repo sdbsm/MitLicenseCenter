@@ -18,6 +18,7 @@ public static partial class InfobasesEndpoints
 {
     private const int DefaultPageSize = 50;
     private const int MaxPageSize = 200;
+    private const int MaxSearchLength = 200;
 
     public static void MapInfobasesEndpoints(this IEndpointRouteBuilder endpoints, ApiVersionSet versionSet)
     {
@@ -45,10 +46,24 @@ public static partial class InfobasesEndpoints
         [FromQuery] Guid? tenantId,
         [FromQuery] string? publishStatus,
         [FromQuery] bool? notInCluster,
+        [FromQuery] string? search,
         [FromQuery] int? page,
         [FromQuery] int? pageSize,
         CancellationToken ct)
     {
+        // MLC-181a: серверный текстовый поиск по имени базы и имени БД (server-side, до
+        // CountAsync и до ранней notInCluster-ветки — Total честный, «кластер недоступен»
+        // путь не ломается). Преамбула 1:1 с TenantsEndpoints/BackupsEndpoints.
+        var searchTerm = search?.Trim();
+        if (searchTerm is { Length: > MaxSearchLength })
+        {
+            return TypedResults.ValidationProblem(
+                new Dictionary<string, string[]>(StringComparer.Ordinal)
+                {
+                    [nameof(search)] = [$"Не длиннее {MaxSearchLength} символов."],
+                });
+        }
+
         // MLC-090: фильтр по статусу публикации (server-side, до пагинации — счёт честный).
         // Гоча CLAUDE.md: DataAnnotations в minimal API не валидируются в runtime, поэтому
         // значение enum'а проверяем руками (как actionType на /audit) и на мусор отвечаем 400.
@@ -82,6 +97,15 @@ public static partial class InfobasesEndpoints
             // Публикация 1:1 с инфобазой — коррелированный EXISTS по статусу её проверки.
             baseQuery = baseQuery.Where(x =>
                 db.Publications.Any(pub => pub.InfobaseId == x.Id && pub.LastCheckStatus == status));
+        }
+        if (!string.IsNullOrEmpty(searchTerm))
+        {
+            // Подстрочный поиск по имени базы и имени БД обычным string.Contains →
+            // EF Core SQL Server-провайдер транслирует в `LIKE '%term%'`.
+            // Регистронезависимость обеспечивает CI-collation БД, а не код.
+#pragma warning disable CA1862 // EF транслирует только plain Contains → LIKE; StringComparison не транслируется (рантайм-бросок на SQL Server)
+            baseQuery = baseQuery.Where(x => x.Name.Contains(searchTerm) || x.DatabaseName.Contains(searchTerm));
+#pragma warning restore CA1862
         }
 
         // MLC-150: серверный фильтр «не найдена в кластере» (обратный дрейф). Снапшот RAS
