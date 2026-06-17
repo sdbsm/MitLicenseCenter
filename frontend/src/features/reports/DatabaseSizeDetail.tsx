@@ -21,6 +21,8 @@ import {
 } from "@/components/ui/table";
 import { formatBytes } from "@/lib/formatBytes";
 import { DatabaseSizeChart } from "./DatabaseSizeChart";
+import { SizeExportMenu } from "./export/SizeExportMenu";
+import type { SizeExportData } from "./export/sizeExport";
 import { ReportsEmptyState } from "./ReportsEmptyState";
 import type { DatabaseSizeTenantSeriesResponse } from "./types";
 
@@ -55,20 +57,33 @@ export function DatabaseSizeDetail({
   const hasTenant = selectedTenantId !== null;
   const isEmpty = !data || data.points.length === 0;
 
+  // Разрез выгрузки — детализация по клиенту: ряд роста клиента + его базы.
+  const exportData: SizeExportData | undefined = data && {
+    scope: { tenantName: selectedTenantName },
+    points: data.points,
+    fromUtc: data.fromUtc,
+    toUtc: data.toUtc,
+    tenants: [],
+    databases: data.databases,
+  };
+
   return (
     <Card>
       <CardHeader className="gap-3">
-        <div className="flex items-center gap-3">
-          <CardTitle>{t("reports.size.detail.title")}</CardTitle>
-          {selectedTenantId && (
-            <Link
-              to={`/tenants/${selectedTenantId}`}
-              className="text-primary flex items-center gap-1 text-xs underline"
-            >
-              <ExternalLinkIcon className="size-3" />
-              {t("reports.detail.tenantLink")}
-            </Link>
-          )}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-3">
+            <CardTitle>{t("reports.size.detail.title")}</CardTitle>
+            {selectedTenantId && (
+              <Link
+                to={`/tenants/${selectedTenantId}`}
+                className="text-primary flex items-center gap-1 text-xs underline"
+              >
+                <ExternalLinkIcon className="size-3" />
+                {t("reports.detail.tenantLink")}
+              </Link>
+            )}
+          </div>
+          <SizeExportMenu data={exportData} />
         </div>
         <div className="grid max-w-sm gap-1.5">
           <Label className="text-xs font-medium">{t("reports.detail.tenant")}</Label>
