@@ -18,13 +18,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import { Separator } from "@/components/ui/separator";
 import { DiscoveryField } from "@/features/discovery/DiscoveryField";
 import type { Tenant } from "@/features/tenants/types";
@@ -98,20 +92,21 @@ export function InfobaseFormDialog({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>{t("infobases.fields.tenant")}</FormLabel>
-                  <Select value={field.value} onValueChange={field.onChange} disabled={isEdit}>
-                    <FormControl>
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder={t("infobases.form.tenantPlaceholder")} />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {tenants.map((tenant) => (
-                        <SelectItem key={tenant.id} value={tenant.id}>
-                          {tenant.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <FormControl>
+                    <SearchableSelect
+                      options={tenants.map((tenant) => ({
+                        value: tenant.id,
+                        label: tenant.name,
+                      }))}
+                      value={field.value || null}
+                      onChange={(v) => field.onChange(v ?? "")}
+                      disabled={isEdit}
+                      placeholder={t("infobases.form.tenantPlaceholder")}
+                      searchPlaceholder={t("common.search")}
+                      aria-label={t("infobases.fields.tenant")}
+                      triggerClassName="w-full"
+                    />
+                  </FormControl>
                   {isEdit && (
                     <FormDescription>{t("infobases.form.tenantLockedHint")}</FormDescription>
                   )}

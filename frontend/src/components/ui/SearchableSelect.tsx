@@ -21,6 +21,8 @@ interface SearchableSelectProps {
   searchPlaceholder?: string;
   /** Текст пустого результата фильтрации. */
   emptyText?: string;
+  /** Отключённый триггер: не открывает поповер, показывает текущий label/placeholder. */
+  disabled?: boolean;
   className?: string;
   triggerClassName?: string;
   "aria-label"?: string;
@@ -41,6 +43,7 @@ export function SearchableSelect({
   placeholder,
   searchPlaceholder,
   emptyText,
+  disabled = false,
   className,
   triggerClassName,
   "aria-label": ariaLabel,
@@ -67,6 +70,7 @@ export function SearchableSelect({
     <Popover
       open={open}
       onOpenChange={(next) => {
+        if (disabled) return;
         setOpen(next);
         if (!next) setFilter("");
       }}
@@ -78,6 +82,7 @@ export function SearchableSelect({
           aria-expanded={open}
           aria-haspopup="listbox"
           aria-label={ariaLabel}
+          disabled={disabled}
           className={cn(
             "flex h-9 items-center justify-between gap-2 rounded-md border border-input bg-transparent px-3 py-2 text-sm whitespace-nowrap shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30 dark:hover:bg-input/50",
             !selected && "text-muted-foreground",
