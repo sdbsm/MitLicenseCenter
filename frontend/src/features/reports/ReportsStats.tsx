@@ -11,7 +11,7 @@ import type { LicenseUsageSeriesResponse } from "./types";
 export function ReportsStats({ data }: { data: LicenseUsageSeriesResponse }) {
   const { t } = useTranslation();
 
-  const { percent, severity, badgeVariant } = quotaDisplay(data.peakConsumed, data.peakLimit);
+  const { percent, badgeVariant, label } = quotaDisplay(data.peakConsumed, data.peakLimit);
   const average = Math.round(data.averageConsumed * 10) / 10;
   const peakAt = data.peakAtUtc
     ? format(new Date(data.peakAtUtc), "dd.MM.yyyy HH:mm", { locale: ru })
@@ -31,11 +31,7 @@ export function ReportsStats({ data }: { data: LicenseUsageSeriesResponse }) {
           </span>
           {peakAt && <span className="text-muted-foreground"> ({peakAt})</span>}
         </p>
-        {severity !== "ok" && (
-          <StatusBadge variant={badgeVariant}>
-            {severity === "danger" ? t("common.quota.exceeded") : t("common.quota.nearLimit")}
-          </StatusBadge>
-        )}
+        {label && <StatusBadge variant={badgeVariant}>{t(`common.quota.${label}`)}</StatusBadge>}
       </div>
       <p>
         <span className="text-muted-foreground">{t("reports.stats.average")}:</span>{" "}
