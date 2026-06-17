@@ -16,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TableCell } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -529,21 +530,18 @@ export function InfobasesPage() {
                     onChange={(e) => setSearchDraft(e.target.value)}
                     aria-label={t("infobases.searchPlaceholder")}
                   />
-                  <Select value={tenantFilter} onValueChange={changeTenantFilter}>
-                    <SelectTrigger className="w-72">
-                      <SelectValue placeholder={t("infobases.filters.tenant")} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={ALL_TENANTS}>
-                        {t("infobases.filters.allTenants")}
-                      </SelectItem>
-                      {tenants.map((tenant) => (
-                        <SelectItem key={tenant.id} value={tenant.id}>
-                          {tenant.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <SearchableSelect
+                    options={tenants.map((tenant) => ({
+                      value: tenant.id,
+                      label: tenant.name,
+                    }))}
+                    value={tenantIdParam}
+                    onChange={(v) => changeTenantFilter(v ?? ALL_TENANTS)}
+                    placeholder={t("infobases.filters.allTenants")}
+                    searchPlaceholder={t("common.search")}
+                    aria-label={t("infobases.filters.tenant")}
+                    triggerClassName="w-72"
+                  />
                   <Select value={statusFilter} onValueChange={changeStatusFilter}>
                     <SelectTrigger className="w-56">
                       <SelectValue placeholder={t("infobases.filters.publishStatus")} />

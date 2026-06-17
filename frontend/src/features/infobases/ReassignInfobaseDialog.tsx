@@ -11,13 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import { matchConflictCode } from "@/lib/apiErrors";
 import type { Tenant } from "@/features/tenants/types";
 import type { InfobaseListItem } from "./types";
@@ -78,25 +72,19 @@ export function ReassignInfobaseDialog({
         </DialogHeader>
 
         <div className="grid gap-2">
-          <Label htmlFor="reassign-target">{t("infobases.reassign.targetLabel")}</Label>
-          <Select
-            value={targetTenantId}
-            onValueChange={(v) => {
-              setTargetTenantId(v);
+          <Label>{t("infobases.reassign.targetLabel")}</Label>
+          <SearchableSelect
+            options={candidates.map((tnt) => ({ value: tnt.id, label: tnt.name }))}
+            value={targetTenantId || null}
+            onChange={(v) => {
+              setTargetTenantId(v ?? "");
               setError(null);
             }}
-          >
-            <SelectTrigger id="reassign-target" className="w-full">
-              <SelectValue placeholder={t("infobases.reassign.targetPlaceholder")} />
-            </SelectTrigger>
-            <SelectContent>
-              {candidates.map((tnt) => (
-                <SelectItem key={tnt.id} value={tnt.id}>
-                  {tnt.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            placeholder={t("infobases.reassign.targetPlaceholder")}
+            searchPlaceholder={t("common.search")}
+            aria-label={t("infobases.reassign.targetLabel")}
+            triggerClassName="w-full"
+          />
           {error && <p className="text-destructive text-sm">{error}</p>}
         </div>
 
