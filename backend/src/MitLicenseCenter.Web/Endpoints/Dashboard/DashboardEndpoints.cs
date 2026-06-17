@@ -27,10 +27,10 @@ public static class DashboardEndpoints
     internal const string AlertsCacheKeyViewer = "dashboard:alerts:viewer";
     internal static readonly TimeSpan AlertsCacheTtl = TimeSpan.FromSeconds(30);
 
-    // Пороги severity квоты лицензий — зеркало frontend/src/lib/quota.ts (держать в синхроне):
-    // danger pct ≥ 90, warning 75 ≤ pct < 90. Бакеты непересекающиеся.
+    // Нижняя граница «близко к лимиту» для бакетов виджета «Требует внимания» — зеркало
+    // QUOTA_WARNING_THRESHOLD из frontend/src/lib/quota.ts (держать в синхроне). Цвет-severity
+    // (danger ≥ 90 %) живёт на фронте; бакеты квоты считаются по факту consumed vs limit (MLC-193).
     private const int QuotaWarningThreshold = 75;
-    private const int QuotaDangerThreshold = 90;
 
     public static void MapDashboardEndpoints(this IEndpointRouteBuilder endpoints, ApiVersionSet versionSet)
     {
@@ -181,19 +181,27 @@ public static class DashboardEndpoints
 
         var consumedByTenant = LicenseConsumption.CountByTenant(snapshot.Current().Items);
 
-        var quotaWarning = 0;
-        var quotaDanger = 0;
+        // MLC-193 — три ФАКТИЧЕСКИХ бакета (зеркало frontend/src/lib/quota.ts quotaLabel):
+        // превышение (consumed > limit), лимит достигнут (consumed == limit), близко к лимиту
+        // (consumed ниже лимита, но процент ≥ warning-порога). «danger ≥ 90 %» — это визуальный
+        // цвет на фронте, НЕ бакет: 90–99 % и ровно N/N — это «близко»/«достигнут», не «превышение».
+        var quotaExceeded = 0;
+        var quotaAtLimit = 0;
+        var quotaNearLimit = 0;
         foreach (var t in activeLimits)
         {
             var consumed = consumedByTenant.GetValueOrDefault(t.Id, 0);
-            var percent = (int)Math.Round(consumed * 100.0 / t.MaxConcurrentLicenses);
-            if (percent >= QuotaDangerThreshold)
+            switch (QuotaBucket(consumed, t.MaxConcurrentLicenses))
             {
-                quotaDanger++;
-            }
-            else if (percent >= QuotaWarningThreshold)
-            {
-                quotaWarning++;
+                case QuotaLabel.Exceeded:
+                    quotaExceeded++;
+                    break;
+                case QuotaLabel.AtLimit:
+                    quotaAtLimit++;
+                    break;
+                case QuotaLabel.NearLimit:
+                    quotaNearLimit++;
+                    break;
             }
         }
 
@@ -222,7 +230,22 @@ public static class DashboardEndpoints
         // Папка/сервер не заданы → Configured=false (без обращения к SQL). FreeBytes=null → «не знаем».
         var backupDisk = await ComputeBackupDiskAsync(settings, backupService, ct).ConfigureAwait(false);
 
-        return new DashboardAlertsResponse(quotaWarning, quotaDanger, clusterDrift, backupDisk);
+        return new DashboardAlertsResponse(
+            quotaExceeded, quotaAtLimit, quotaNearLimit, clusterDrift, backupDisk);
+    }
+
+    // MLC-193 — фактический бакет квоты по consumed vs limit (зеркало quotaLabel из lib/quota.ts):
+    // превышение только при consumed > limit; равенство (N из N) — «достигнут»; ниже лимита, но
+    // процент ≥ warning-порога — «близко». Прочее (безлимит/ниже warning) — None (в виджет не идёт).
+    private enum QuotaLabel { None, Exceeded, AtLimit, NearLimit }
+
+    private static QuotaLabel QuotaBucket(int consumed, int limit)
+    {
+        if (limit <= 0) return QuotaLabel.None;
+        if (consumed > limit) return QuotaLabel.Exceeded;
+        if (consumed == limit) return QuotaLabel.AtLimit;
+        var percent = (int)Math.Round(consumed * 100.0 / limit);
+        return percent >= QuotaWarningThreshold ? QuotaLabel.NearLimit : QuotaLabel.None;
     }
 
     private static async Task<DashboardBackupDiskAlert> ComputeBackupDiskAsync(

@@ -64,9 +64,13 @@ export const dashboardBackupDiskSchema = z.object({
   low: z.boolean(),
 });
 
+// MLC-193 — три ФАКТИЧЕСКИХ бакета квоты лицензий (зеркало backend QuotaBucket / lib/quota.ts
+// quotaLabel), а НЕ severity-цвет: превышение = consumed > limit; лимит достигнут = consumed ==
+// limit; близко к лимиту = ниже лимита, но процент ≥ warning-порога (75 %).
 export const dashboardAlertsSchema = z.object({
-  quotaWarning: z.number(),
-  quotaDanger: z.number(),
+  quotaExceeded: z.number(),
+  quotaAtLimit: z.number(),
+  quotaNearLimit: z.number(),
   clusterDrift: omittable(dashboardClusterDriftSchema),
   backupDisk: dashboardBackupDiskSchema,
 });

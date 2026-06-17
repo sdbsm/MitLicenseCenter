@@ -37,8 +37,12 @@ public sealed record DashboardRasHealth(
 // /summary): источники тяжелее/медленнее (снапшот RAS через TTL-кэш 60с; server-side чтение
 // свободного места SQL-диска) и каданс реже, чем у лёгкого 5-секундного summary.
 public sealed record DashboardAlertsResponse(
-    int QuotaWarning,
-    int QuotaDanger,
+    // MLC-193 — три ФАКТИЧЕСКИХ бакета квоты лицензий (зеркало quotaLabel из lib/quota.ts), а НЕ
+    // severity-цвет: превышение = consumed > limit; лимит достигнут = consumed == limit; близко к
+    // лимиту = ниже лимита, но процент ≥ warning-порога (75 %).
+    int QuotaExceeded,
+    int QuotaAtLimit,
+    int QuotaNearLimit,
     DashboardClusterDriftAlert? ClusterDrift,   // null ⇒ вызывающий не Admin (discovery — Admin-only)
     DashboardBackupDiskAlert BackupDisk);
 

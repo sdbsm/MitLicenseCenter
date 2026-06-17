@@ -251,9 +251,13 @@ RAS (`Available=false`) эндпоинт **не** фильтрует по неп
 трогается. RAS-здоровье и факт лицензий уже в `/summary` — здесь не дублируются.
 
 `DashboardAlertsResponse`:
-- `quotaWarning` / `quotaDanger` — число активных тенантов с положительным лимитом в зонах
-  75 ≤ pct < 90 и pct ≥ 90 (бакеты непересекающиеся; пороги зеркалят `frontend/src/lib/quota.ts`,
-  держатся в синхроне константами `DashboardEndpoints`). Потребление — факт rac (`Consuming`, ADR-48).
+- `quotaExceeded` / `quotaAtLimit` / `quotaNearLimit` — число активных тенантов с положительным
+  лимитом в трёх ФАКТИЧЕСКИХ бакетах по `consumed` vs `limit` (MLC-193, зеркало `quotaLabel` из
+  `frontend/src/lib/quota.ts`): превышение (`consumed > limit`), лимит достигнут (`consumed == limit`)
+  и близко к лимиту (ниже лимита, но процент ≥ 75 %). Бакеты непересекающиеся; нижняя граница
+  «близко» — константа `QuotaWarningThreshold` в синхроне с `QUOTA_WARNING_THRESHOLD`. Цвет-severity
+  (danger ≥ 90 %) — визуальный язык фронта, в бакетах не участвует. Потребление — факт rac
+  (`Consuming`, ADR-48).
 - `clusterDrift` (`DashboardClusterDriftAlert?`) — дрейф панель↔кластер: `unassignedBases`
   (в кластере, не в панели, не скрытые) + `basesNotInCluster` (в панели, нет в кластере). Считается
   через **тот же** TTL-кэш снапшота (`UnassignedInfobasesCache`, общий хелпер `CountDriftAsync`),
