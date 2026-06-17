@@ -10,6 +10,15 @@
     "actions": {
       "add": "Добавить инфобазу"
     },
+    "bulk": {
+      "filterSummary": {
+        "tenant": "клиент: {{name}}",
+        "status": "статус публикации: {{status}}",
+        "notInCluster": "не найдены в кластере",
+        "search": "поиск: «{{term}}»",
+        "allBases": "все базы (без фильтра)"
+      }
+    },
     "filters": {
       "tenant": "Клиент",
       "allTenants": "Все клиенты",

@@ -65,6 +65,32 @@ export type InfobaseListItem = z.infer<typeof infobaseListItemSchema>;
 export type InfobaseListResponse = z.infer<typeof infobaseListResponseSchema>;
 
 /**
+ * Ответ `GET /api/v1/infobases/ids` (MLC-181c) — облегчённый id-набор для bulk-операции
+ * «Выбрать все N по фильтру». Критичная граница (валидируется runtime): BE отдаёт только
+ * строки, пригодные для bulk (у которых есть публикация), по ТОМУ ЖЕ фильтру, что и список.
+ * Поля `items` минимальны — ровно те, что нужны bulk-диалогам для label
+ * (`infobaseName — siteName+virtualPath`) и наполнения внешнего выбора (publicationId).
+ * `capped=true` ⇒ пригодных строк больше серверного кэпа (`items` усечён, `total` реальный):
+ * FE по `capped` НЕ наполняет выбор и просит уточнить фильтр.
+ */
+export const infobaseBulkIdItemSchema = z.object({
+  infobaseId: z.string(),
+  publicationId: z.string(),
+  infobaseName: z.string(),
+  siteName: z.string(),
+  virtualPath: z.string(),
+});
+
+export const infobaseBulkIdsResponseSchema = z.object({
+  items: z.array(infobaseBulkIdItemSchema),
+  total: z.number(),
+  capped: z.boolean(),
+});
+
+export type InfobaseBulkIdItem = z.infer<typeof infobaseBulkIdItemSchema>;
+export type InfobaseBulkIdsResponse = z.infer<typeof infobaseBulkIdsResponseSchema>;
+
+/**
  * Zod-схемы ответов detail/availability (MLC-132, FE-09).
  * InfobaseDetailResponse = { infobase: InfobaseResponse, publication: PublicationResponse }.
  * ClusterIdAvailabilityResponse: takenByTenantName=null → ключ отсутствует → omittable().

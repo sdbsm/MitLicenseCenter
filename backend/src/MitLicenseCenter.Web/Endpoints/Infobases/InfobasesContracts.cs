@@ -51,6 +51,24 @@ public sealed record InfobaseDetailResponse(
     InfobaseResponse Infobase,
     PublicationResponse Publication);
 
+// MLC-181c — облегчённый id-набор для bulk-операции «Выбрать все N по фильтру».
+// Лёгкие строки (id публикации + минимум полей для label диалогов), БЕЗ пагинации,
+// по ТОМУ ЖЕ фильтру, что и список (общий BuildFilteredQuery). FE наполняет ими тот же
+// внешний выбор, существующий per-id bulk-движок применяет действие.
+// capped=true ⇒ пригодных строк больше MaxBulkIds: items усечён до кэпа, total — реальное
+// число; FE по capped отказывается выбирать и просит уточнить фильтр.
+public sealed record InfobaseBulkIdItem(
+    Guid InfobaseId,
+    Guid PublicationId,
+    string InfobaseName,
+    string SiteName,
+    string VirtualPath);
+
+public sealed record InfobaseBulkIdsResponse(
+    IReadOnlyList<InfobaseBulkIdItem> Items,
+    int Total,
+    bool Capped);
+
 // Точечная проверка занятости базы кластера: одна база кластера принадлежит ровно
 // одному клиенту (IX_Infobases_ClusterInfobaseId). Фронт дёргает её при выборе базы,
 // чтобы не выгружать весь список инфобаз ради проверки уникальности (MLC-015).

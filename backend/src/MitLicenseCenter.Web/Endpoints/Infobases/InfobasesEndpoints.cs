@@ -19,6 +19,10 @@ public static partial class InfobasesEndpoints
     private const int DefaultPageSize = 50;
     private const int MaxPageSize = 200;
     private const int MaxSearchLength = 200;
+    // MLC-181c — потолок для «Выбрать все N по фильтру»: набор сверх него FE отказывается
+    // выбирать (capped=true) и просит уточнить фильтр, чтобы не наполнять выбор десятками
+    // тысяч строк и не запускать неуправляемую пачку.
+    private const int MaxBulkIds = 5000;
 
     public static void MapInfobasesEndpoints(this IEndpointRouteBuilder endpoints, ApiVersionSet versionSet)
     {
@@ -29,6 +33,7 @@ public static partial class InfobasesEndpoints
             .WithTags("Infobases");
 
         group.MapGet("/", ListAsync).RequireAuthorization(Roles.Viewer);
+        group.MapGet("/ids", IdsAsync).RequireAuthorization(Roles.Viewer);
         group.MapGet("/cluster-id-availability", ClusterIdAvailabilityAsync).RequireAuthorization(Roles.Admin);
         group.MapGet("/{id:guid}", GetAsync).RequireAuthorization(Roles.Viewer);
         group.MapPost("/", CreateAsync).RequireAuthorization(Roles.Admin);
@@ -87,56 +92,21 @@ public static partial class InfobasesEndpoints
         var p = page is > 0 ? page.Value : 1;
         var ps = pageSize is > 0 ? Math.Min(pageSize.Value, MaxPageSize) : DefaultPageSize;
 
-        var baseQuery = db.Infobases.AsNoTracking();
-        if (tenantId is { } tid)
+        // MLC-181c — единый набор фильтров строит общий хелпер, чтобы список и /ids видели
+        // РОВНО ОДНО и то же (иначе «выбрать всё по фильтру» отметило бы не то, что показано).
+        var filtered = await BuildFilteredQueryAsync(
+            db, cluster, clusterCache, loggerFactory, clock,
+            tenantId, parsedPublishStatus, notInCluster, searchTerm, ct).ConfigureAwait(false);
+        if (filtered.ClusterUnavailable)
         {
-            baseQuery = baseQuery.Where(x => x.TenantId == tid);
-        }
-        if (parsedPublishStatus is { } status)
-        {
-            // Публикация 1:1 с инфобазой — коррелированный EXISTS по статусу её проверки.
-            baseQuery = baseQuery.Where(x =>
-                db.Publications.Any(pub => pub.InfobaseId == x.Id && pub.LastCheckStatus == status));
-        }
-        if (!string.IsNullOrEmpty(searchTerm))
-        {
-            // Подстрочный поиск по имени базы и имени БД обычным string.Contains →
-            // EF Core SQL Server-провайдер транслирует в `LIKE '%term%'`.
-            // Регистронезависимость обеспечивает CI-collation БД, а не код.
-#pragma warning disable CA1862 // EF транслирует только plain Contains → LIKE; StringComparison не транслируется (рантайм-бросок на SQL Server)
-            baseQuery = baseQuery.Where(x => x.Name.Contains(searchTerm) || x.DatabaseName.Contains(searchTerm));
-#pragma warning restore CA1862
+            // RAS недоступен — отдаём пустой набор с ClusterAvailable=false (не фильтруем
+            // по неполному снапшоту, не показываем вводящий в заблуждение «0»).
+            return TypedResults.Ok(new InfobaseListResponse(
+                Array.Empty<InfobaseListItemResponse>(), 0, p, ps, ClusterAvailable: false));
         }
 
-        // MLC-150: серверный фильтр «не найдена в кластере» (обратный дрейф). Снапшот RAS
-        // берём через общий TTL-кэш (тот же, что у /infobases/unassigned) — без второго
-        // спавна rac.exe (ADR-3.3). При недоступном RAS НЕ возвращаем ложный пустой список:
-        // фильтр не применяем, ClusterAvailable=false — фронт показывает честное «не удалось
-        // проверить кластер», а не «0 найдено» (отличить «нет пропавших» от «не знаем»
-        // нельзя). Доступность кластера отдаётся в ответе только при запрошенном фильтре.
-        bool? clusterAvailable = null;
-        if (notInCluster is true)
-        {
-            var snapshot = await UnassignedInfobasesEndpoints.GetClusterSnapshotAsync(
-                cluster, clusterCache, loggerFactory, clock, refresh: null, ct).ConfigureAwait(false);
-            clusterAvailable = snapshot.Available;
-            if (snapshot.Available)
-            {
-                // !IN по списку UUID кластера: записи панели, чьего ClusterInfobaseId нет в
-                // снапшоте. Фильтр до пагинации/счёта — Total честный для отфильтрованного набора.
-                var clusterIds = snapshot.Infobases.Select(i => i.Id).ToList();
-                baseQuery = baseQuery.Where(x => !clusterIds.Contains(x.ClusterInfobaseId));
-            }
-            else
-            {
-                // RAS недоступен — отдаём пустой набор с ClusterAvailable=false (не фильтруем
-                // по неполному снапшоту, не показываем вводящий в заблуждение «0»).
-                return TypedResults.Ok(new InfobaseListResponse(
-                    Array.Empty<InfobaseListItemResponse>(), 0, p, ps, ClusterAvailable: false));
-            }
-        }
-
-        var orderedQuery = baseQuery.OrderBy(x => x.Name).ThenBy(x => x.Id);
+        var clusterAvailable = filtered.ClusterAvailable;
+        var orderedQuery = filtered.Query.OrderBy(x => x.Name).ThenBy(x => x.Id);
         var total = await orderedQuery.CountAsync(ct).ConfigureAwait(false);
 
         // Join'им Tenant и Publication одним запросом — UI выводит «Клиент» и
@@ -184,6 +154,153 @@ public static partial class InfobasesEndpoints
 
         return TypedResults.Ok(new InfobaseListResponse(items, total, p, ps, clusterAvailable));
     }
+
+    // MLC-181c — облегчённый id-набор для bulk-операции «Выбрать все N по фильтру».
+    // Те же query-параметры и ТОТ ЖЕ фильтр, что у ListAsync (общий BuildFilteredQueryAsync) —
+    // без пагинации. Проецирует только строки, пригодные для bulk: bulk работает по
+    // публикациям, поэтому, как и список (inner-Join Publications), берём лишь записи,
+    // у которых есть публикация. Кэп MaxBulkIds: сверх него items усечён, total — реальное
+    // число пригодных строк, capped=true (FE откажется выбирать и попросит уточнить фильтр).
+    internal static async Task<Results<Ok<InfobaseBulkIdsResponse>, ValidationProblem>> IdsAsync(
+        AppDbContext db,
+        [FromServices] IClusterClient cluster,
+        [FromServices] UnassignedInfobasesCache clusterCache,
+        [FromServices] ILoggerFactory loggerFactory,
+        [FromServices] TimeProvider clock,
+        [FromQuery] Guid? tenantId,
+        [FromQuery] string? publishStatus,
+        [FromQuery] bool? notInCluster,
+        [FromQuery] string? search,
+        CancellationToken ct)
+    {
+        var searchTerm = search?.Trim();
+        if (searchTerm is { Length: > MaxSearchLength })
+        {
+            return TypedResults.ValidationProblem(
+                new Dictionary<string, string[]>(StringComparer.Ordinal)
+                {
+                    [nameof(search)] = [$"Не длиннее {MaxSearchLength} символов."],
+                });
+        }
+
+        PublicationPublishStatus? parsedPublishStatus = null;
+        if (!string.IsNullOrWhiteSpace(publishStatus))
+        {
+            if (Enum.TryParse<PublicationPublishStatus>(publishStatus, ignoreCase: true, out var parsed)
+                && Enum.IsDefined(parsed))
+            {
+                parsedPublishStatus = parsed;
+            }
+            else
+            {
+                return TypedResults.ValidationProblem(new Dictionary<string, string[]>(StringComparer.Ordinal)
+                {
+                    [nameof(publishStatus)] = ["Неизвестный статус публикации."],
+                });
+            }
+        }
+
+        var filtered = await BuildFilteredQueryAsync(
+            db, cluster, clusterCache, loggerFactory, clock,
+            tenantId, parsedPublishStatus, notInCluster, searchTerm, ct).ConfigureAwait(false);
+        if (filtered.ClusterUnavailable)
+        {
+            // RAS недоступен — пустой набор без капа (фильтр не применён, как у списка).
+            return TypedResults.Ok(new InfobaseBulkIdsResponse(
+                Array.Empty<InfobaseBulkIdItem>(), 0, Capped: false));
+        }
+
+        // Inner-Join Publications = «строка пригодна для bulk» (тот же критерий, что у списка).
+        var bulkRows = filtered.Query
+            .Join(
+                db.Publications.AsNoTracking(),
+                ib => ib.Id,
+                pub => pub.InfobaseId,
+                (ib, pub) => new InfobaseBulkIdItem(ib.Id, pub.Id, ib.Name, pub.SiteName, pub.VirtualPath))
+            .OrderBy(x => x.InfobaseName).ThenBy(x => x.InfobaseId);
+
+        var total = await bulkRows.CountAsync(ct).ConfigureAwait(false);
+        if (total > MaxBulkIds)
+        {
+            // Сверх кэпа — усечённый набор + реальный total; FE по capped не наполняет выбор.
+            var capped = await bulkRows.Take(MaxBulkIds).ToListAsync(ct).ConfigureAwait(false);
+            return TypedResults.Ok(new InfobaseBulkIdsResponse(capped, total, Capped: true));
+        }
+
+        var items = await bulkRows.ToListAsync(ct).ConfigureAwait(false);
+        return TypedResults.Ok(new InfobaseBulkIdsResponse(items, total, Capped: false));
+    }
+
+    // MLC-181c — общий построитель отфильтрованного набора инфобаз для ListAsync и IdsAsync.
+    // Применяет РОВНО ОДИН набор фильтров (tenantId / publishStatus / notInCluster / search),
+    // перенесённый из ListAsync байт-в-байт. Возвращает запрос + признаки доступности кластера:
+    // ClusterUnavailable=true ⇒ запрошен notInCluster, но RAS недоступен (вызывающий отдаёт
+    // честный пустой ответ); ClusterAvailable несёт значение только при notInCluster (иначе null).
+    private static async Task<FilteredInfobases> BuildFilteredQueryAsync(
+        AppDbContext db,
+        IClusterClient cluster,
+        UnassignedInfobasesCache clusterCache,
+        ILoggerFactory loggerFactory,
+        TimeProvider clock,
+        Guid? tenantId,
+        PublicationPublishStatus? parsedPublishStatus,
+        bool? notInCluster,
+        string? searchTerm,
+        CancellationToken ct)
+    {
+        var baseQuery = db.Infobases.AsNoTracking();
+        if (tenantId is { } tid)
+        {
+            baseQuery = baseQuery.Where(x => x.TenantId == tid);
+        }
+        if (parsedPublishStatus is { } status)
+        {
+            // Публикация 1:1 с инфобазой — коррелированный EXISTS по статусу её проверки.
+            baseQuery = baseQuery.Where(x =>
+                db.Publications.Any(pub => pub.InfobaseId == x.Id && pub.LastCheckStatus == status));
+        }
+        if (!string.IsNullOrEmpty(searchTerm))
+        {
+            // Подстрочный поиск по имени базы и имени БД обычным string.Contains →
+            // EF Core SQL Server-провайдер транслирует в `LIKE '%term%'`.
+            // Регистронезависимость обеспечивает CI-collation БД, а не код.
+#pragma warning disable CA1862 // EF транслирует только plain Contains → LIKE; StringComparison не транслируется (рантайм-бросок на SQL Server)
+            baseQuery = baseQuery.Where(x => x.Name.Contains(searchTerm) || x.DatabaseName.Contains(searchTerm));
+#pragma warning restore CA1862
+        }
+
+        // MLC-150: серверный фильтр «не найдена в кластере» (обратный дрейф). Снапшот RAS
+        // берём через общий TTL-кэш (тот же, что у /infobases/unassigned) — без второго
+        // спавна rac.exe (ADR-3.3). При недоступном RAS НЕ возвращаем ложный пустой список:
+        // фильтр не применяем, ClusterAvailable=false — фронт показывает честное «не удалось
+        // проверить кластер», а не «0 найдено» (отличить «нет пропавших» от «не знаем»
+        // нельзя). Доступность кластера отдаётся в ответе только при запрошенном фильтре.
+        bool? clusterAvailable = null;
+        if (notInCluster is true)
+        {
+            var snapshot = await UnassignedInfobasesEndpoints.GetClusterSnapshotAsync(
+                cluster, clusterCache, loggerFactory, clock, refresh: null, ct).ConfigureAwait(false);
+            clusterAvailable = snapshot.Available;
+            if (snapshot.Available)
+            {
+                // !IN по списку UUID кластера: записи панели, чьего ClusterInfobaseId нет в
+                // снапшоте. Фильтр до пагинации/счёта — Total честный для отфильтрованного набора.
+                var clusterIds = snapshot.Infobases.Select(i => i.Id).ToList();
+                baseQuery = baseQuery.Where(x => !clusterIds.Contains(x.ClusterInfobaseId));
+            }
+            else
+            {
+                return new FilteredInfobases(baseQuery, ClusterAvailable: false, ClusterUnavailable: true);
+            }
+        }
+
+        return new FilteredInfobases(baseQuery, clusterAvailable, ClusterUnavailable: false);
+    }
+
+    private readonly record struct FilteredInfobases(
+        IQueryable<Infobase> Query,
+        bool? ClusterAvailable,
+        bool ClusterUnavailable);
 
     // Занятость базы кластера для формы добавления/редактирования инфобазы. Возвращает
     // имя клиента-владельца, если база уже привязана (с исключением собственной базы при
