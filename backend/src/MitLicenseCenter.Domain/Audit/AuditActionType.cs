@@ -52,6 +52,11 @@ public enum AuditActionType
     // frozen-int rule: число переиспользовать нельзя).
     LoginFailed = 108,
 
+    // Жёсткое удаление учётки из веб-панели (MLC-180): UserManager.DeleteAsync.
+    // Server-scope (TenantId не пишется). Новое число — 109 (следующее свободное в
+    // 100-серии; frozen-int rule: новое число, не переиспользуется).
+    UserDeleted = 109,
+
     SessionKilled = 200,
     LimitChanged = 201,
 

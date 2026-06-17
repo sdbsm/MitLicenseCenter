@@ -34,6 +34,7 @@ export type AuditActionType =
   | "UserPasswordReset"
   | "UserEnabled"
   | "UserRoleChanged"
+  | "UserDeleted"
   | "SessionKilled"
   | "LimitChanged"
   | "PublicationDriftDetected"
@@ -91,6 +92,7 @@ export const AUDIT_ACTION_TYPES: readonly AuditActionType[] = [
   "UserPasswordReset",
   "UserEnabled",
   "UserRoleChanged",
+  "UserDeleted",
   "SessionKilled",
   "LimitChanged",
   "SettingChanged",

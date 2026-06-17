@@ -110,6 +110,10 @@ internal static class AuditDescriptions
     public static string UserDisabled(string userName, string initiator) =>
         $"Учётная запись «{userName}» отключена администратором {initiator}.";
 
+    // MLC-180 — жёсткое удаление учётки (UserManager.DeleteAsync). Необратимо.
+    public static string UserDeleted(string userName, string initiator) =>
+        $"Учётная запись «{userName}» удалена администратором {initiator}.";
+
     public static string UserEnabled(string userName, string initiator) =>
         $"Учётная запись «{userName}» включена администратором {initiator}.";
 

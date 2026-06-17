@@ -49,6 +49,7 @@
       "UserPasswordReset": "Пароль сброшен",
       "UserEnabled": "Учётная запись включена",
       "UserRoleChanged": "Роль изменена",
+      "UserDeleted": "Учётная запись удалена",
       "SessionKilled": "Сеанс завершён",
       "LimitChanged": "Лимит изменён",
       "ClusterAdapterCircuitOpened": "Цепь к 1С разомкнута",

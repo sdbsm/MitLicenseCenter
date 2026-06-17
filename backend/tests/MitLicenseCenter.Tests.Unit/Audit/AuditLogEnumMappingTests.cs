@@ -68,6 +68,8 @@ public sealed class AuditLogEnumMappingTests
     [InlineData(AuditActionType.UserEnabled, 106)]
     [InlineData(AuditActionType.UserRoleChanged, 107)]
     [InlineData(AuditActionType.LoginFailed, 108)]
+    // MLC-180 — жёсткое удаление учётки (frozen-int rule: новое число, не переиспользуется).
+    [InlineData(AuditActionType.UserDeleted, 109)]
     [InlineData(AuditActionType.SessionKilled, 200)]
     // MLC-119 (BE-11) — LimitChanged оживлён, но int=201 заморожен (frozen-int rule).
     [InlineData(AuditActionType.LimitChanged, 201)]

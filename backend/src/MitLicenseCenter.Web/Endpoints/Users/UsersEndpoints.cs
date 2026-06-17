@@ -34,6 +34,7 @@ public static class UsersEndpoints
         group.MapPost("/{id:guid}/disable", DisableAsync).RequireAuthorization(Roles.Admin);
         group.MapPost("/{id:guid}/enable", EnableAsync).RequireAuthorization(Roles.Admin);
         group.MapPost("/{id:guid}/role", ChangeRoleAsync).RequireAuthorization(Roles.Admin);
+        group.MapDelete("/{id:guid}", DeleteAsync).RequireAuthorization(Roles.Admin);
     }
 
     internal static async Task<Ok<UserListResponse>> ListAsync(
@@ -211,6 +212,59 @@ public static class UsersEndpoints
 
         await httpContext.AuditAsync(audit, AuditActionType.UserDisabled,
             init => AuditDescriptions.UserDisabled(user.UserName!, init),
+            tenantId: null, ct).ConfigureAwait(false);
+
+        return TypedResults.NoContent();
+    }
+
+    // MLC-180 — жёсткое удаление учётки (UserManager.DeleteAsync). Те же guard'ы, что у
+    // отключения (self / последний активный Admin) применяются ДО удаления; аудит пишется
+    // ТОЛЬКО после успешного удаления (не пишем запись-ложь на отказе). «Отключить» остаётся.
+    internal static async Task<Results<NoContent, NotFound<ProblemDetails>, Conflict<ProblemDetails>>> DeleteAsync(
+        Guid id,
+        UserManager<AppUser> userManager,
+        IAuditLogger audit,
+        HttpContext httpContext,
+        TimeProvider clock,
+        CancellationToken ct)
+    {
+        var user = await userManager.FindByIdAsync(id.ToString()).ConfigureAwait(false);
+        if (user is null)
+        {
+            return TypedResults.NotFound(Problems.UserNotFound());
+        }
+
+        // Guard «сам себя» — нельзя удалить собственную учётку (как у отключения).
+        var initiatorName = httpContext.ResolveInitiator();
+        var current = await userManager.FindByNameAsync(initiatorName).ConfigureAwait(false);
+        if (current is not null && current.Id == user.Id)
+        {
+            return TypedResults.Conflict(Problems.UserCannotDisableSelf());
+        }
+
+        // Guard «последний активный администратор» — как у отключения: считаем именно учётки
+        // роли Admin; применяем, только если удаляемая учётка сама в роли Admin.
+        if (await userManager.IsInRoleAsync(user, Roles.Admin).ConfigureAwait(false)
+            && !await HasOtherActiveAdminAsync(userManager, user.Id, clock.GetUtcNow()).ConfigureAwait(false))
+        {
+            return TypedResults.Conflict(Problems.UserLastActiveAdmin());
+        }
+
+        // Снимаем имя ДО удаления — после DeleteAsync сущность отсоединена.
+        var userName = user.UserName!;
+
+        var result = await userManager.DeleteAsync(user).ConfigureAwait(false);
+        if (!result.Succeeded)
+        {
+            // Guard'ы уже пройдены — провал удаления не ожидается; не маскируем его
+            // 409/400 (как CreateAsync с прочими сбоями), отдаём как 500.
+            throw new InvalidOperationException(
+                "Не удалось удалить учётную запись: "
+                + string.Join("; ", result.Errors.Select(e => $"{e.Code}: {e.Description}")));
+        }
+
+        await httpContext.AuditAsync(audit, AuditActionType.UserDeleted,
+            init => AuditDescriptions.UserDeleted(userName, init),
             tenantId: null, ct).ConfigureAwait(false);
 
         return TypedResults.NoContent();

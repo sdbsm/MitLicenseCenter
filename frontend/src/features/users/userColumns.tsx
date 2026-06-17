@@ -4,6 +4,7 @@ import {
   KeyRoundIcon,
   MoreHorizontalIcon,
   ShieldOffIcon,
+  Trash2Icon,
   UserCheckIcon,
   UserCogIcon,
 } from "lucide-react";
@@ -35,6 +36,7 @@ interface ColumnContext {
   onChangeRole: (user: User) => void;
   onDisable: (user: User) => void;
   onEnable: (user: User) => void;
+  onDelete: (user: User) => void;
 }
 
 /**
@@ -43,7 +45,7 @@ interface ColumnContext {
  * Действия (меню) колонка несортируемая и не скрываемая.
  */
 export function buildUserColumns(ctx: ColumnContext): ColumnDef<User>[] {
-  const { t, onResetPassword, onChangeRole, onDisable, onEnable } = ctx;
+  const { t, onResetPassword, onChangeRole, onDisable, onEnable, onDelete } = ctx;
 
   return [
     {
@@ -138,6 +140,12 @@ export function buildUserColumns(ctx: ColumnContext): ColumnDef<User>[] {
                     {t("users.actions.enable")}
                   </DropdownMenuItem>
                 )}
+                {/* MLC-180 — удаление показываем всегда (в отличие от взаимоисключающих
+                    Отключить/Включить): необратимое жёсткое удаление учётки. */}
+                <DropdownMenuItem variant="destructive" onSelect={() => onDelete(user)}>
+                  <Trash2Icon className="size-4" />
+                  {t("users.actions.delete")}
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>

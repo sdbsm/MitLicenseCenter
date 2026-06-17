@@ -193,6 +193,78 @@ public sealed class UsersEndpointsTests
         conflict.Value!.Extensions["code"].Should().Be(ProblemCodes.UserCannotDisableSelf);
     }
 
+    // ── MLC-180 — жёсткое удаление учётки ──────────────────────────────────────────
+
+    [Fact]
+    public async Task Delete_removes_user_and_writes_audit()
+    {
+        await using var h = await UserTestHarness.CreateAsync();
+        await h.CreateUserAsync("keeper", Roles.Admin);          // другой активный админ → guard не сработает
+        var target = await h.CreateUserAsync("operator", Roles.Admin);
+        var audit = new TestHelpers.CapturingAuditLogger();
+
+        var result = await UsersEndpoints.DeleteAsync(
+            target.Id, h.UserManager, audit, TestHelpers.NewHttpContext("keeper"),
+            TimeProvider.System, CancellationToken.None);
+
+        result.Result.Should().BeOfType<NoContent>();
+        (await h.UserManager.FindByIdAsync(target.Id.ToString())).Should().BeNull("учётка удалена");
+
+        var entry = audit.Entries.Should().ContainSingle(e => e.Action == AuditActionType.UserDeleted).Subject;
+        entry.Initiator.Should().Be("keeper");
+        entry.TenantId.Should().BeNull("операция server-scope — клиент не пишется");
+        entry.Description.Should().Contain("operator");
+    }
+
+    [Fact]
+    public async Task Delete_self_is_blocked()
+    {
+        await using var h = await UserTestHarness.CreateAsync();
+        await h.CreateUserAsync("keeper", Roles.Admin);          // другой активный админ есть → не last-admin
+        var me = await h.CreateUserAsync("operator", Roles.Admin);
+        var audit = new TestHelpers.CapturingAuditLogger();
+
+        var result = await UsersEndpoints.DeleteAsync(
+            me.Id, h.UserManager, audit, TestHelpers.NewHttpContext("operator"),
+            TimeProvider.System, CancellationToken.None);
+
+        var conflict = result.Result.Should().BeOfType<Conflict<ProblemDetails>>().Subject;
+        conflict.Value!.Extensions["code"].Should().Be(ProblemCodes.UserCannotDisableSelf);
+        (await h.UserManager.FindByIdAsync(me.Id.ToString())).Should().NotBeNull("отказ — учётка не удалена");
+        audit.Entries.Should().NotContain(e => e.Action == AuditActionType.UserDeleted);
+    }
+
+    [Fact]
+    public async Task Delete_last_active_admin_is_blocked()
+    {
+        await using var h = await UserTestHarness.CreateAsync();
+        var onlyAdmin = await h.CreateUserAsync("operator", Roles.Admin);
+        await h.CreateUserAsync("watcher", Roles.Viewer);        // Viewer не считается активным админом
+        var audit = new TestHelpers.CapturingAuditLogger();
+
+        // Инициатор "ghost" не существует → self-guard пропускается, проверяем именно last-admin.
+        var result = await UsersEndpoints.DeleteAsync(
+            onlyAdmin.Id, h.UserManager, audit, TestHelpers.NewHttpContext("ghost"),
+            TimeProvider.System, CancellationToken.None);
+
+        var conflict = result.Result.Should().BeOfType<Conflict<ProblemDetails>>().Subject;
+        conflict.Value!.Extensions["code"].Should().Be(ProblemCodes.UserLastActiveAdmin);
+        (await h.UserManager.FindByIdAsync(onlyAdmin.Id.ToString())).Should().NotBeNull("отказ — учётка не удалена");
+        audit.Entries.Should().NotContain(e => e.Action == AuditActionType.UserDeleted);
+    }
+
+    [Fact]
+    public async Task Delete_unknown_id_returns_not_found()
+    {
+        await using var h = await UserTestHarness.CreateAsync();
+        var result = await UsersEndpoints.DeleteAsync(
+            Guid.NewGuid(), h.UserManager, new TestHelpers.CapturingAuditLogger(),
+            TestHelpers.NewHttpContext("keeper"), TimeProvider.System, CancellationToken.None);
+
+        var nf = result.Result.Should().BeOfType<NotFound<ProblemDetails>>().Subject;
+        nf.Value!.Extensions["code"].Should().Be(ProblemCodes.UserNotFound);
+    }
+
     // ── MLC-061 — смена роли существующей учётки ───────────────────────────────────
 
     [Fact]

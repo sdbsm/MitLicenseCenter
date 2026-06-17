@@ -32,6 +32,7 @@ const ALL_ACTION_TYPES: Record<AuditActionType, true> = {
   UserPasswordReset: true,
   UserEnabled: true,
   UserRoleChanged: true,
+  UserDeleted: true,
   SessionKilled: true,
   LimitChanged: true,
   PublicationDriftDetected: true,
