@@ -20,6 +20,13 @@
       "Succeeded": "Готов",
       "Failed": "Ошибка"
     },
+    "estimate": {
+      "free": "Свободно на диске: {{free}}",
+      "size": "Оценка бэкапа: ~{{size}}",
+      "beforeCompression": "до сжатия",
+      "insufficient": "места может не хватить (оценка до сжатия; реальный .bak обычно меньше)",
+      "unavailable": "оценка недоступна"
+    },
     "fileMissing": "файл отсутствует",
     "fileSuperseded": "вытеснен",
     "fileSupersededHint": "Файл удалён автоматически — хранится только последний бэкап (keep-latest).",

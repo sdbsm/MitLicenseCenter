@@ -36,3 +36,15 @@ public sealed record BackupsPagedResponse(
 
 // POST /backups: инфобаза задаёт пару server+db (снимок берёт оркестратор).
 public sealed record StartBackupRequest(Guid InfobaseId);
+
+// GET /backups/estimate (MLC-183): предпоказ disk-guard ДО запуска. EstimatedSizeBytes/
+// FreeSpaceBytes опускаются JSON-policy WhenWritingNull при degraded (фронт читает через
+// omittable). FolderConfigured=false — папка/сервер не настроены: диалог показывает «оценка
+// недоступна», но не ломается (200, не 409/500). Reason — строкой (JsonStringEnumConverter).
+public sealed record BackupEstimateResponse(
+    long? EstimatedSizeBytes,
+    long? FreeSpaceBytes,
+    long SafetyMarginBytes,
+    bool Sufficient,
+    bool FolderConfigured,
+    BackupFailureReason Reason);

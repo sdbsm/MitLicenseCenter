@@ -7,7 +7,7 @@ import "@/i18n";
 import type * as ApiModule from "@/lib/api";
 import type { InfobaseListItem } from "@/features/infobases/types";
 import { BackupsDialog } from "../BackupsDialog";
-import type { BackupSummary } from "../types";
+import type { BackupEstimate, BackupSummary } from "../types";
 
 vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
@@ -98,7 +98,19 @@ function setMe(roles: string[]) {
   } as unknown as ReturnType<typeof useMe>);
 }
 
-function setup(backups: BackupSummary[] | Promise<BackupSummary[]> = []) {
+const sufficientEstimate: BackupEstimate = {
+  estimatedSizeBytes: 512 * 1024 * 1024,
+  freeSpaceBytes: 100 * 1024 * 1024 * 1024,
+  safetyMarginBytes: 2048 * 1024 * 1024,
+  sufficient: true,
+  folderConfigured: true,
+  reason: "None",
+};
+
+function setup(
+  backups: BackupSummary[] | Promise<BackupSummary[]> = [],
+  estimate: BackupEstimate = sufficientEstimate
+) {
   // Эндпоинт пагинирован (MLC-130): GET отдаёт конверт { items, total, page, pageSize }.
   const toPaged = (items: BackupSummary[]) => ({
     items,
@@ -106,11 +118,15 @@ function setup(backups: BackupSummary[] | Promise<BackupSummary[]> = []) {
     page: 1,
     pageSize: 100,
   });
-  mockedApi.mockImplementation((path: string) =>
-    path.startsWith("/api/v1/backups?")
-      ? Promise.resolve(backups).then(toPaged)
-      : Promise.reject(new Error(path))
-  );
+  mockedApi.mockImplementation((path: string) => {
+    if (path.startsWith("/api/v1/backups/estimate?")) {
+      return Promise.resolve(estimate);
+    }
+    if (path.startsWith("/api/v1/backups?")) {
+      return Promise.resolve(backups).then(toPaged);
+    }
+    return Promise.reject(new Error(path));
+  });
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -193,6 +209,62 @@ describe("BackupsDialog", () => {
     expect(await screen.findByText("Готов")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Сделать бэкап/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Удалить бэкап" })).not.toBeInTheDocument();
+  });
+
+  it("предпоказ (MLC-183): достаточно места → строка со свободным и оценкой, без предупреждения", async () => {
+    setup([succeeded]);
+
+    expect(await screen.findByText(/Свободно на диске:/)).toBeInTheDocument();
+    expect(screen.getByText(/Оценка бэкапа:/)).toBeInTheDocument();
+    // «до сжатия» присутствует, предупреждения о нехватке нет.
+    expect(screen.getByText(/до сжатия/)).toBeInTheDocument();
+    expect(screen.queryByText(/места может не хватить/)).not.toBeInTheDocument();
+  });
+
+  it("предпоказ (MLC-183): нехватка места → заметное предупреждение, кнопка АКТИВНА", async () => {
+    const insufficient: BackupEstimate = {
+      estimatedSizeBytes: 90 * 1024 * 1024 * 1024,
+      freeSpaceBytes: 10 * 1024 * 1024 * 1024,
+      safetyMarginBytes: 2048 * 1024 * 1024,
+      sufficient: false,
+      folderConfigured: true,
+      reason: "InsufficientSpace",
+    };
+    setup([], insufficient);
+
+    expect(await screen.findByText(/места может не хватить/)).toBeInTheDocument();
+    // Оценка — верхняя граница; жёсткой блокировки нет, серверный guard остаётся стоп-краном.
+    expect(screen.getByRole("button", { name: /Сделать бэкап/ })).toBeEnabled();
+  });
+
+  it("предпоказ (MLC-183): degraded (folderConfigured=false) → «оценка недоступна», кнопка активна", async () => {
+    const degraded: BackupEstimate = {
+      estimatedSizeBytes: null,
+      freeSpaceBytes: null,
+      safetyMarginBytes: 0,
+      sufficient: false,
+      folderConfigured: false,
+      reason: "BackupFailed",
+    };
+    setup([], degraded);
+
+    expect(await screen.findByText("оценка недоступна")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Сделать бэкап/ })).toBeEnabled();
+  });
+
+  it("предпоказ (MLC-183): PermissionDenied → «оценка недоступна» (цифры не показываем)", async () => {
+    const denied: BackupEstimate = {
+      estimatedSizeBytes: null,
+      freeSpaceBytes: null,
+      safetyMarginBytes: 2048 * 1024 * 1024,
+      sufficient: false,
+      folderConfigured: true,
+      reason: "PermissionDenied",
+    };
+    setup([], denied);
+
+    expect(await screen.findByText("оценка недоступна")).toBeInTheDocument();
+    expect(screen.queryByText(/Свободно на диске:/)).not.toBeInTheDocument();
   });
 
   it("пустое состояние «Бэкапов ещё нет»", async () => {

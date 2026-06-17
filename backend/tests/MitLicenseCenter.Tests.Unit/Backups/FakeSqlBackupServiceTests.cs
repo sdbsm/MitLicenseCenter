@@ -41,6 +41,26 @@ public sealed class FakeSqlBackupServiceTests
     }
 
     [Fact]
+    public async Task Estimate_records_arguments_and_returns_configured_result()
+    {
+        // MLC-183: предпоказ — фейк отдаёт NextEstimate и фиксирует вызов в EstimateCalls.
+        var fake = new FakeSqlBackupService();
+        var configured = new SqlBackupEstimate(
+            EstimatedSizeBytes: 700L * 1024 * 1024,
+            FreeSpaceBytes: 800L * 1024 * 1024,
+            SafetyMarginBytes: 2048L * 1024 * 1024,
+            Sufficient: false,
+            Reason: BackupFailureReason.InsufficientSpace);
+        fake.NextEstimate = configured;
+
+        var result = await fake.EstimateAsync("sql.local", "acme_bp", @"D:\Backups", 2048, CancellationToken.None);
+
+        result.Should().BeSameAs(configured);
+        fake.EstimateCalls.Should().ContainSingle()
+            .Which.Should().Be(new FakeSqlBackupService.EstimateCall("sql.local", "acme_bp", @"D:\Backups", 2048));
+    }
+
+    [Fact]
     public async Task Backup_gate_suspends_completion_until_signaled()
     {
         // Ворота — опора конкурентных тестов MLC-077 (потолок/per-db эксклюзия): бэкап

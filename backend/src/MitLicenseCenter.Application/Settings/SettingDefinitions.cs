@@ -247,4 +247,29 @@ public static class SettingDefinitions
                 Min: 0,
                 Max: 1),
         };
+
+    // Клампит числовую настройку к её whitelist-диапазону (Min/Max из каталога):
+    // валидация на записи могла отстать от ужесточения диапазона, а потребители
+    // (оркестратор бэкапов, предпоказ оценки) обязаны брать ОДНО склампленное значение
+    // — поэтому логика вынесена сюда из BackupOrchestrator (MLC-183). Неизвестный ключ
+    // или ключ без Min/Max → значение как есть.
+    public static int ClampToRange(string key, int value)
+    {
+        if (!All.TryGetValue(key, out var def))
+        {
+            return value;
+        }
+
+        if (def.Min is { } min && value < min)
+        {
+            value = min;
+        }
+
+        if (def.Max is { } max && value > max)
+        {
+            value = max;
+        }
+
+        return value;
+    }
 }

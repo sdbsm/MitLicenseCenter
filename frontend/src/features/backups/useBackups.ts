@@ -1,7 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useInvalidatingMutation } from "@/lib/useInvalidatingMutation";
-import { backupsPagedSchema, backupSummarySchema, type BackupSummary } from "./types";
+import {
+  backupEstimateSchema,
+  backupsPagedSchema,
+  backupSummarySchema,
+  type BackupSummary,
+} from "./types";
 
 // Ключ всегда параметризован инфобазой (для id=null — плейсхолдер), чтобы НЕ коллидировать
 // между диалогами разных баз и с disabled-запросом закрытого диалога (урок MLC-071:
@@ -27,6 +32,20 @@ export function useBackups(infobaseId: string | null) {
     enabled: infobaseId !== null,
     refetchInterval: 5_000,
     placeholderData: (prev) => prev,
+  });
+}
+
+// Предпоказ disk-guard ДО запуска (MLC-183): свободное место + оценка размера бэкапа. Чтение =
+// Viewer. БЕЗ поллинга (в отличие от useBackups) — оценка статична, обновлять каждые 5с незачем;
+// диалог запрашивает её один раз при открытии. Ключ обособлен per-infobase. Схема — граница MLC-016.
+export function useBackupEstimate(infobaseId: string | null) {
+  return useQuery({
+    queryKey: ["backup-estimate", infobaseId] as const,
+    queryFn: () =>
+      api(`/api/v1/backups/estimate?infobaseId=${infobaseId}`, {
+        schema: backupEstimateSchema,
+      }),
+    enabled: infobaseId !== null,
   });
 }
 

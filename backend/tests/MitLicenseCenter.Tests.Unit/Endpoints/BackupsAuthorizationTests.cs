@@ -17,6 +17,7 @@ public sealed class BackupsAuthorizationTests
 {
     [Theory]
     [InlineData("GET", "backups", Roles.Viewer)]
+    [InlineData("GET", "backups/estimate", Roles.Viewer)]
     [InlineData("GET", "backups/{id:guid}", Roles.Viewer)]
     [InlineData("POST", "backups", Roles.Viewer)]
     [InlineData("DELETE", "backups/{id:guid}", Roles.Admin)]

@@ -45,6 +45,21 @@ public sealed record SqlBackupResult(
 // Итог server-side удаления устаревших .bak (TTL-джоба / Admin-удаление).
 public sealed record SqlDeleteResult(bool Succeeded, string? ErrorMessage);
 
+// Предпоказ disk-guard ДО запуска бэкапа (MLC-183): оценка размера базы + свободное место
+// на диске папки бэкапов + запас, чтобы оператор видел нехватку заранее. Единицы — БАЙТЫ
+// (внутренние КБ/МБ адаптер конвертирует). EstimatedSizeBytes/FreeSpaceBytes = null при
+// degraded (нет sysadmin / SQL недоступен / FILEPROPERTY вернул NULL / диск не найден).
+// Sufficient = обе цифры не null И Estimated + SafetyMargin <= Free. Reason переиспользует
+// замороженный BackupFailureReason (None — оценка получена; PermissionDenied/EstimateUnavailable/
+// BackupFailed — degraded-причина). Это предпоказ, не стоп-кран: серверный disk-guard в
+// BackupAsync остаётся единственным жёстким барьером.
+public sealed record SqlBackupEstimate(
+    long? EstimatedSizeBytes,
+    long? FreeSpaceBytes,
+    long SafetyMarginBytes,
+    bool Sufficient,
+    BackupFailureReason Reason);
+
 // Итог постановки бэкапа в очередь (MLC-077): Queued — заведена новая строка;
 // AlreadyActive — у этой пары (server, db) уже есть Queued/Running строка, эндпоинт
 // отвечает 409 BACKUP_ACTIVE (паттерн PerfRecordingStartOutcome).

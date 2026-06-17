@@ -136,6 +136,149 @@ public sealed class BackupsEndpointsTests
         result.Result.Should().BeOfType<NotFound>();
     }
 
+    // ── Предпоказ оценки бэкапа (MLC-183) ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task Estimate_unknown_infobase_returns_not_found()
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+
+        var result = await BackupsEndpoints.EstimateAsync(
+            Guid.NewGuid(), db, ConfiguredSettings(), new FakeSqlBackupService(), CancellationToken.None);
+
+        result.Result.Should().BeOfType<NotFound>();
+    }
+
+    [Fact]
+    public async Task Estimate_returns_numbers_and_sufficient_from_service()
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+        var infobase = NewInfobase();
+        db.Infobases.Add(infobase);
+        await db.SaveChangesAsync();
+        var fake = new FakeSqlBackupService
+        {
+            NextEstimate = new SqlBackupEstimate(
+                EstimatedSizeBytes: 512L * 1024 * 1024,
+                FreeSpaceBytes: 100L * 1024 * 1024 * 1024,
+                SafetyMarginBytes: 2048L * 1024 * 1024,
+                Sufficient: true,
+                Reason: BackupFailureReason.None),
+        };
+
+        var result = await BackupsEndpoints.EstimateAsync(
+            infobase.Id, db, ConfiguredSettings(), fake, CancellationToken.None);
+
+        var dto = result.Result.Should().BeOfType<Ok<BackupEstimateResponse>>().Subject.Value!;
+        dto.EstimatedSizeBytes.Should().Be(512L * 1024 * 1024);
+        dto.FreeSpaceBytes.Should().Be(100L * 1024 * 1024 * 1024);
+        dto.Sufficient.Should().BeTrue();
+        dto.FolderConfigured.Should().BeTrue();
+        dto.Reason.Should().Be(BackupFailureReason.None);
+        // Сервис вызван с именем базы инфобазы и сервером из настройки (MLC-088).
+        var call = fake.EstimateCalls.Should().ContainSingle().Subject;
+        call.Server.Should().Be("SQL01");
+        call.DatabaseName.Should().Be(infobase.DatabaseName);
+        call.FolderRoot.Should().Be(@"D:\Backups");
+    }
+
+    [Fact]
+    public async Task Estimate_returns_insufficient_with_numbers()
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+        var infobase = NewInfobase();
+        db.Infobases.Add(infobase);
+        await db.SaveChangesAsync();
+        var fake = new FakeSqlBackupService
+        {
+            NextEstimate = new SqlBackupEstimate(
+                EstimatedSizeBytes: 90L * 1024 * 1024 * 1024,
+                FreeSpaceBytes: 10L * 1024 * 1024 * 1024,
+                SafetyMarginBytes: 2048L * 1024 * 1024,
+                Sufficient: false,
+                Reason: BackupFailureReason.InsufficientSpace),
+        };
+
+        var result = await BackupsEndpoints.EstimateAsync(
+            infobase.Id, db, ConfiguredSettings(), fake, CancellationToken.None);
+
+        var dto = result.Result.Should().BeOfType<Ok<BackupEstimateResponse>>().Subject.Value!;
+        dto.Sufficient.Should().BeFalse();
+        dto.FolderConfigured.Should().BeTrue();
+        dto.EstimatedSizeBytes.Should().NotBeNull();
+        dto.FreeSpaceBytes.Should().NotBeNull();
+        dto.Reason.Should().Be(BackupFailureReason.InsufficientSpace);
+    }
+
+    [Fact]
+    public async Task Estimate_without_configured_folder_returns_degraded_200_without_touching_service()
+    {
+        // Папка не настроена → 200 degraded (FolderConfigured=false, цифры null), а не 409/500
+        // (диалог не должен ломаться). Сервис не вызывается.
+        using var db = TestHelpers.NewInMemoryDb();
+        var infobase = NewInfobase();
+        db.Infobases.Add(infobase);
+        await db.SaveChangesAsync();
+        var settings = Substitute.For<ISettingsSnapshot>(); // GetString → null
+        var fake = new FakeSqlBackupService();
+
+        var result = await BackupsEndpoints.EstimateAsync(infobase.Id, db, settings, fake, CancellationToken.None);
+
+        var dto = result.Result.Should().BeOfType<Ok<BackupEstimateResponse>>().Subject.Value!;
+        dto.FolderConfigured.Should().BeFalse();
+        dto.EstimatedSizeBytes.Should().BeNull();
+        dto.FreeSpaceBytes.Should().BeNull();
+        dto.Sufficient.Should().BeFalse();
+        fake.EstimateCalls.Should().BeEmpty("папка/сервер не настроены — в SQL не ходим");
+    }
+
+    [Fact]
+    public async Task Estimate_permission_denied_is_degraded_with_null_numbers()
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+        var infobase = NewInfobase();
+        db.Infobases.Add(infobase);
+        await db.SaveChangesAsync();
+        var fake = new FakeSqlBackupService
+        {
+            NextEstimate = new SqlBackupEstimate(
+                null, null, 2048L * 1024 * 1024, Sufficient: false, BackupFailureReason.PermissionDenied),
+        };
+
+        var result = await BackupsEndpoints.EstimateAsync(
+            infobase.Id, db, ConfiguredSettings(), fake, CancellationToken.None);
+
+        var dto = result.Result.Should().BeOfType<Ok<BackupEstimateResponse>>().Subject.Value!;
+        dto.FolderConfigured.Should().BeTrue("папка задана — сервис вызывался, но без прав");
+        dto.EstimatedSizeBytes.Should().BeNull();
+        dto.FreeSpaceBytes.Should().BeNull();
+        dto.Reason.Should().Be(BackupFailureReason.PermissionDenied);
+    }
+
+    [Fact]
+    public async Task Estimate_when_sql_unavailable_is_degraded_with_null_numbers()
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+        var infobase = NewInfobase();
+        db.Infobases.Add(infobase);
+        await db.SaveChangesAsync();
+        var fake = new FakeSqlBackupService
+        {
+            NextEstimate = new SqlBackupEstimate(
+                null, null, 2048L * 1024 * 1024, Sufficient: false, BackupFailureReason.BackupFailed),
+        };
+
+        var result = await BackupsEndpoints.EstimateAsync(
+            infobase.Id, db, ConfiguredSettings(), fake, CancellationToken.None);
+
+        var dto = result.Result.Should().BeOfType<Ok<BackupEstimateResponse>>().Subject.Value!;
+        dto.FolderConfigured.Should().BeTrue();
+        dto.EstimatedSizeBytes.Should().BeNull();
+        dto.FreeSpaceBytes.Should().BeNull();
+        dto.Sufficient.Should().BeFalse();
+        dto.Reason.Should().Be(BackupFailureReason.BackupFailed);
+    }
+
     [Fact]
     public async Task Start_with_unknown_infobase_returns_not_found()
     {

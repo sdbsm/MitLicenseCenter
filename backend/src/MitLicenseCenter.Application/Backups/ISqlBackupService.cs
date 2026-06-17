@@ -14,6 +14,15 @@ public interface ISqlBackupService
     Task<SqlBackupResult> BackupAsync(
         string server, string databaseName, string folderRoot, int safetyMarginMb, CancellationToken ct);
 
+    // Предпоказ disk-guard ДО запуска бэкапа (MLC-183): та же оценка размера базы + свободное
+    // место + запас, что считает BackupAsync, но без побочных эффектов — диалог бэкапов
+    // показывает оператору, хватит ли места. «Never throws»: любой сбой (нет sysadmin /
+    // SQL недоступен / FILEPROPERTY вернул NULL) → degraded SqlBackupEstimate (цифры null,
+    // Sufficient=false, типизированная Reason). Это предпоказ, не стоп-кран — реальный
+    // disk-guard остаётся в BackupAsync.
+    Task<SqlBackupEstimate> EstimateAsync(
+        string server, string databaseName, string folderRoot, int safetyMarginMb, CancellationToken ct);
+
     // Server-side удаление .bak старше cutoffUtc в папке folderPath (xp_delete_file) —
     // для TTL-ретенции (MLC-077) и Admin-удаления бэкапа. Тоже «never throws».
     Task<SqlDeleteResult> DeleteBackupsOlderThanAsync(

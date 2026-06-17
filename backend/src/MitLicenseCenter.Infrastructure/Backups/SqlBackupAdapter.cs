@@ -82,40 +82,15 @@ internal sealed partial class SqlBackupAdapter : ISqlBackupService
                     $"База «{databaseName}» не найдена на сервере «{server}».");
             }
 
-            // (2) Оценка по занятым данным — сознательный over-estimate (COMPRESSION ужмёт
-            // реальный .bak); NULL → не стартуем (ADR-27: нет оценки — нет бэкапа).
-            var estimateKb = await ReadUsedDataKbAsync(connection, databaseName, ct).ConfigureAwait(false);
-            if (estimateKb is null or <= 0)
+            // (2) + (3) disk-guard вынесен в ComputeEstimateAsync (MLC-183) — та же оценка,
+            // что показывает предпоказ EstimateAsync; здесь только переводим её degraded-причину
+            // в прежний человекочитаемый текст (поведение байт-эквивалентно). NULL-оценка → не
+            // стартуем (ADR-27: нет оценки — нет бэкапа); нехватка места — стоп-кран.
+            var estimate = await ComputeEstimateAsync(
+                connection, databaseName, folderRoot, safetyMarginMb, ct).ConfigureAwait(false);
+            if (!estimate.Sufficient)
             {
-                return Fail(BackupFailureReason.EstimateUnavailable,
-                    $"Не удалось оценить размер базы «{databaseName}» (FILEPROPERTY вернул NULL) — " +
-                    "без оценки бэкап не стартует (защита диска).");
-            }
-
-            // (3) xp_fixeddrives видит только локальные диски — UNC/относительный путь
-            // отклоняем явно, а не пропуском проверки места.
-            if (!TryGetDriveLetter(folderRoot, out var drive))
-            {
-                return Fail(BackupFailureReason.BackupFailed,
-                    $"Папка бэкапов «{folderRoot}» должна указывать на локальный диск SQL-сервера " +
-                    "в виде «D:\\Backups» (UNC и относительные пути не поддерживаются).");
-            }
-
-            var freeMb = await ReadFreeMbAsync(connection, drive, ct).ConfigureAwait(false);
-            if (freeMb is null)
-            {
-                return Fail(BackupFailureReason.BackupFailed,
-                    $"Диск «{drive}:» не найден среди локальных дисков SQL-сервера (xp_fixeddrives) — " +
-                    "проверка свободного места невозможна.");
-            }
-
-            var estimateMb = estimateKb.Value / 1024;
-            var requiredMb = estimateMb + safetyMarginMb;
-            if (freeMb.Value < requiredMb)
-            {
-                return Fail(BackupFailureReason.InsufficientSpace,
-                    $"Недостаточно места на диске «{drive}:»: свободно {freeMb.Value} МБ, требуется " +
-                    $"не менее {requiredMb} МБ (данные базы ≈{estimateMb} МБ + запас {safetyMarginMb} МБ).");
+                return Fail(estimate.Reason, DescribeGuardFailure(estimate, databaseName, folderRoot, safetyMarginMb));
             }
 
             // (4)
@@ -154,6 +129,47 @@ internal sealed partial class SqlBackupAdapter : ISqlBackupService
             // Битая строка подключения / соединение умерло посреди операции.
             LogBackupFailed(_logger, server, databaseName, ex);
             return Fail(BackupFailureReason.BackupFailed, ex.Message);
+        }
+    }
+
+    // Предпоказ disk-guard (MLC-183): открыть коннект → sysadmin-гейт → база существует →
+    // ComputeEstimateAsync (та же оценка, что в BackupAsync) → SqlBackupEstimate. «Never throws»:
+    // любой сбой деградирует в SqlBackupEstimate(null, null, margin*1MiB, false, причина).
+    public async Task<SqlBackupEstimate> EstimateAsync(
+        string server, string databaseName, string folderRoot, int safetyMarginMb, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(_baseConnectionString))
+        {
+            return DegradedEstimate(safetyMarginMb, BackupFailureReason.BackupFailed);
+        }
+
+        try
+        {
+            await using var connection = new SqlConnection(BuildConnectionString(server));
+            await connection.OpenAsync(ct).ConfigureAwait(false);
+
+            if (!await IsSysadminAsync(connection, ct).ConfigureAwait(false))
+            {
+                return DegradedEstimate(safetyMarginMb, BackupFailureReason.PermissionDenied);
+            }
+
+            if (!await DatabaseExistsAsync(connection, databaseName, ct).ConfigureAwait(false))
+            {
+                return DegradedEstimate(safetyMarginMb, BackupFailureReason.BackupFailed);
+            }
+
+            return await ComputeEstimateAsync(connection, databaseName, folderRoot, safetyMarginMb, ct)
+                .ConfigureAwait(false);
+        }
+        catch (SqlException ex)
+        {
+            LogBackupFailed(_logger, server, databaseName, ex);
+            return DegradedEstimate(safetyMarginMb, BackupFailureReason.BackupFailed);
+        }
+        catch (InvalidOperationException ex)
+        {
+            LogBackupFailed(_logger, server, databaseName, ex);
+            return DegradedEstimate(safetyMarginMb, BackupFailureReason.BackupFailed);
         }
     }
 
@@ -248,6 +264,88 @@ internal sealed partial class SqlBackupAdapter : ISqlBackupService
 
     private static SqlBackupResult Fail(BackupFailureReason reason, string message) =>
         new(false, reason, null, null, message);
+
+    private const long BytesPerMb = 1024L * 1024L;
+
+    // Ровно те же шаги disk-guard, что были inline в BackupAsync (MLC-183): оценка размера базы
+    // (ReadUsedDataKbAsync) → буква диска (TryGetDriveLetter) → свободное место (ReadFreeMbAsync) →
+    // сравнение «оценка + запас ≤ свободно». Единственная реализация — её зовут и BackupAsync
+    // (стоп-кран), и EstimateAsync (предпоказ). Все числа конвертируются в БАЙТЫ. Любая degraded-
+    // ветка (NULL-оценка / путь не локальный диск / диск не найден) → Sufficient=false с
+    // типизированной причиной; человекочитаемый текст для BackupAsync собирает DescribeGuardFailure.
+    private static async Task<SqlBackupEstimate> ComputeEstimateAsync(
+        SqlConnection connection, string databaseName, string folderRoot, int safetyMarginMb, CancellationToken ct)
+    {
+        var marginBytes = (long)safetyMarginMb * BytesPerMb;
+
+        // (2) Оценка по занятым данным — сознательный over-estimate (COMPRESSION ужмёт
+        // реальный .bak); NULL → не стартуем (ADR-27: нет оценки — нет бэкапа).
+        var estimateKb = await ReadUsedDataKbAsync(connection, databaseName, ct).ConfigureAwait(false);
+        if (estimateKb is null or <= 0)
+        {
+            return new SqlBackupEstimate(null, null, marginBytes, false, BackupFailureReason.EstimateUnavailable);
+        }
+
+        var estimateMb = estimateKb.Value / 1024;
+        var estimateBytes = estimateMb * BytesPerMb;
+
+        // (3) xp_fixeddrives видит только локальные диски — UNC/относительный путь
+        // отклоняем явно, а не пропуском проверки места.
+        if (!TryGetDriveLetter(folderRoot, out var drive))
+        {
+            return new SqlBackupEstimate(estimateBytes, null, marginBytes, false, BackupFailureReason.BackupFailed);
+        }
+
+        var freeMb = await ReadFreeMbAsync(connection, drive, ct).ConfigureAwait(false);
+        if (freeMb is null)
+        {
+            return new SqlBackupEstimate(estimateBytes, null, marginBytes, false, BackupFailureReason.BackupFailed);
+        }
+
+        var freeBytes = freeMb.Value * BytesPerMb;
+        var sufficient = freeMb.Value >= estimateMb + safetyMarginMb;
+        return new SqlBackupEstimate(
+            estimateBytes, freeBytes, marginBytes, sufficient,
+            sufficient ? BackupFailureReason.None : BackupFailureReason.InsufficientSpace);
+    }
+
+    // Воспроизводит прежний человекочитаемый текст BackupAsync для каждой degraded-ветки
+    // disk-guard (поведение байт-эквивалентно). Числа берём из estimate (байты → МБ обратимы,
+    // т.к. в ComputeEstimateAsync хранятся как целые МБ × 1 МиБ).
+    private static string DescribeGuardFailure(
+        SqlBackupEstimate estimate, string databaseName, string folderRoot, int safetyMarginMb)
+    {
+        if (estimate.Reason == BackupFailureReason.EstimateUnavailable)
+        {
+            return $"Не удалось оценить размер базы «{databaseName}» (FILEPROPERTY вернул NULL) — " +
+                "без оценки бэкап не стартует (защита диска).";
+        }
+
+        if (estimate.Reason == BackupFailureReason.BackupFailed)
+        {
+            // BackupFailed на этом этапе — либо путь не локальный диск, либо диск не найден
+            // среди локальных (xp_fixeddrives). Различаем тем же чистым TryGetDriveLetter.
+            if (!TryGetDriveLetter(folderRoot, out var drive))
+            {
+                return $"Папка бэкапов «{folderRoot}» должна указывать на локальный диск SQL-сервера " +
+                    "в виде «D:\\Backups» (UNC и относительные пути не поддерживаются).";
+            }
+
+            return $"Диск «{drive}:» не найден среди локальных дисков SQL-сервера (xp_fixeddrives) — " +
+                "проверка свободного места невозможна.";
+        }
+
+        // InsufficientSpace — обе цифры заполнены.
+        TryGetDriveLetter(folderRoot, out var spaceDrive);
+        var freeMb = (estimate.FreeSpaceBytes ?? 0) / BytesPerMb;
+        var estimateMb = (estimate.EstimatedSizeBytes ?? 0) / BytesPerMb;
+        var requiredMb = estimateMb + safetyMarginMb;
+        return $"Недостаточно места на диске «{spaceDrive}:»: свободно {freeMb} МБ, требуется " +
+            $"не менее {requiredMb} МБ (данные базы ≈{estimateMb} МБ + запас {safetyMarginMb} МБ).";
+    }
+
+    private static SqlBackupEstimate DegradedEstimate(int safetyMarginMb, BackupFailureReason reason) =>
+        new(null, null, (long)safetyMarginMb * BytesPerMb, false, reason);
 
     private string BuildConnectionString(string server) =>
         new SqlConnectionStringBuilder(_baseConnectionString)

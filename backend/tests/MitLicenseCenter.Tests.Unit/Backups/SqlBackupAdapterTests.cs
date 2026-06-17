@@ -55,6 +55,25 @@ public sealed class SqlBackupAdapterTests
         result.Should().BeEmpty();
     }
 
+    // MLC-183: EstimateAsync «never throws». Реальные FILEPROPERTY/xp_fixeddrives —
+    // integration-only (как BACKUP/VERIFY); здесь покрываем чистую degraded-ветку без SQL.
+    [Fact]
+    public async Task EstimateAsync_returns_degraded_when_connection_string_missing()
+    {
+        // Нет ConnectionStrings:Default → degraded SqlBackupEstimate (цифры null, Sufficient=false,
+        // SafetyMarginBytes = margin × 1 МиБ), без броска.
+        var adapter = NewAdapter(connectionString: null);
+
+        var estimate = await adapter.EstimateAsync(
+            "any", "acme_bp", @"D:\Backups", safetyMarginMb: 2048, CancellationToken.None);
+
+        estimate.EstimatedSizeBytes.Should().BeNull();
+        estimate.FreeSpaceBytes.Should().BeNull();
+        estimate.Sufficient.Should().BeFalse();
+        estimate.SafetyMarginBytes.Should().Be(2048L * 1024 * 1024);
+        estimate.Reason.Should().Be(MitLicenseCenter.Application.Backups.BackupFailureReason.BackupFailed);
+    }
+
     private static SqlBackupAdapter NewAdapter(string? connectionString)
     {
         var settings = new Dictionary<string, string?>();

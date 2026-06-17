@@ -1,6 +1,12 @@
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
-import { ArchiveIcon, CircleIcon, DatabaseBackupIcon, Trash2Icon } from "lucide-react";
+import {
+  ArchiveIcon,
+  CircleIcon,
+  DatabaseBackupIcon,
+  Trash2Icon,
+  TriangleAlertIcon,
+} from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -27,8 +33,8 @@ import type { InfobaseListItem } from "@/features/infobases/types";
 import { matchConflictCode } from "@/lib/apiErrors";
 import { backupStatusVariant, formatBackupSize } from "./backupFormat";
 import { DeleteBackupDialog } from "./DeleteBackupDialog";
-import type { BackupSummary } from "./types";
-import { useBackups, useStartBackup } from "./useBackups";
+import type { BackupEstimate, BackupSummary } from "./types";
+import { useBackupEstimate, useBackups, useStartBackup } from "./useBackups";
 
 interface BackupsDialogProps {
   infobase: InfobaseListItem | null;
@@ -54,6 +60,7 @@ export function BackupsDialog({ infobase, open, onOpenChange }: BackupsDialogPro
   const isAdmin = me?.roles?.includes("Admin") ?? false;
 
   const { data, isLoading, isError } = useBackups(open ? (infobase?.id ?? null) : null);
+  const estimate = useBackupEstimate(open ? (infobase?.id ?? null) : null);
   const start = useStartBackup();
   const [deleting, setDeleting] = useState<BackupSummary | null>(null);
 
@@ -97,6 +104,7 @@ export function BackupsDialog({ infobase, open, onOpenChange }: BackupsDialogPro
             <DialogDescription>
               {t("backups.subtitle", { db: infobase.databaseName })}
             </DialogDescription>
+            <EstimateLine isLoading={estimate.isLoading} estimate={estimate.data ?? null} />
           </DialogHeader>
 
           {isError && !data && (
@@ -213,4 +221,62 @@ export function BackupsDialog({ infobase, open, onOpenChange }: BackupsDialogPro
       />
     </>
   );
+}
+
+/**
+ * Предпоказ disk-guard (MLC-183): «Свободно на диске … · Оценка бэкапа ~… (до сжатия)». Состояния:
+ * - обе цифры есть, `sufficient` → спокойный muted;
+ * - обе цифры есть, `!sufficient` → заметное предупреждение (destructive + иконка), но кнопку
+ *   «Сделать бэкап» НЕ блокируем (оценка — верхняя граница; серверный disk-guard остаётся
+ *   стоп-краном);
+ * - цифры недоступны (degraded: нет чисел / `!folderConfigured` / `reason==='PermissionDenied'`)
+ *   → нейтральное «оценка недоступна» (причина в `title`);
+ * - loading → лёгкий плейсхолдер в одну строку (список не блокируем).
+ */
+function EstimateLine({
+  isLoading,
+  estimate,
+}: {
+  isLoading: boolean;
+  estimate: BackupEstimate | null;
+}) {
+  const { t } = useTranslation();
+
+  if (isLoading && !estimate) {
+    return <Skeleton className="mt-1 h-4 w-64" />;
+  }
+
+  const hasNumbers =
+    estimate != null &&
+    estimate.folderConfigured &&
+    estimate.estimatedSizeBytes != null &&
+    estimate.freeSpaceBytes != null &&
+    estimate.reason !== "PermissionDenied";
+
+  if (!hasNumbers) {
+    return (
+      <p className="text-muted-foreground mt-1 text-xs" title={estimate?.reason ?? undefined}>
+        {t("backups.estimate.unavailable")}
+      </p>
+    );
+  }
+
+  const free = formatBackupSize(estimate.freeSpaceBytes);
+  const size = formatBackupSize(estimate.estimatedSizeBytes);
+  const summary = `${t("backups.estimate.free", { free })} · ${t("backups.estimate.size", {
+    size,
+  })} (${t("backups.estimate.beforeCompression")})`;
+
+  if (!estimate.sufficient) {
+    return (
+      <p className="text-destructive mt-1 flex items-center gap-1.5 text-xs">
+        <TriangleAlertIcon className="size-3.5 shrink-0" />
+        <span>
+          {summary} — {t("backups.estimate.insufficient")}
+        </span>
+      </p>
+    );
+  }
+
+  return <p className="text-muted-foreground mt-1 text-xs">{summary}</p>;
 }
