@@ -26,8 +26,9 @@ vi.mock("@/features/auth/useAuth", () => ({
 }));
 
 const baseAlerts: DashboardAlertsResponse = {
-  quotaWarning: 0,
-  quotaDanger: 0,
+  quotaExceeded: 0,
+  quotaAtLimit: 0,
+  quotaNearLimit: 0,
   clusterDrift: { available: true, unassignedBases: 0, basesNotInCluster: 0 },
   backupDisk: { configured: true, freeBytes: 1_000_000, safetyMarginBytes: 100_000, low: false },
 };
@@ -72,18 +73,41 @@ describe("AttentionWidget (MLC-186b)", () => {
     expect(screen.getByText("Всё в порядке")).toBeInTheDocument();
   });
 
-  it("quotaDanger → danger-строка со ссылкой на /tenants", () => {
-    alertsState.data = { ...baseAlerts, quotaDanger: 2 };
+  it("quotaExceeded → danger-строка со ссылкой на /tenants", () => {
+    alertsState.data = { ...baseAlerts, quotaExceeded: 2 };
     renderWidget();
     const row = screen.getByText("2 клиента превысили квоту лицензий");
     expect(row.closest("a")).toHaveAttribute("href", "/tenants");
   });
 
-  it("quotaWarning → warning-строка со ссылкой на /tenants", () => {
-    alertsState.data = { ...baseAlerts, quotaWarning: 1 };
+  it("quotaAtLimit → danger-строка со ссылкой на /tenants", () => {
+    alertsState.data = { ...baseAlerts, quotaAtLimit: 1 };
+    renderWidget();
+    const row = screen.getByText("1 клиент достиг лимита лицензий");
+    expect(row.closest("a")).toHaveAttribute("href", "/tenants");
+  });
+
+  it("quotaNearLimit → warning-строка со ссылкой на /tenants", () => {
+    alertsState.data = { ...baseAlerts, quotaNearLimit: 1 };
     renderWidget();
     const row = screen.getByText("1 клиент близок к лимиту лицензий");
     expect(row.closest("a")).toHaveAttribute("href", "/tenants");
+  });
+
+  it("все три бакета квоты → 3 строки в порядке превышение → достигнут → близко", () => {
+    alertsState.data = {
+      ...baseAlerts,
+      quotaExceeded: 1,
+      quotaAtLimit: 2,
+      quotaNearLimit: 3,
+    };
+    renderWidget();
+    const texts = screen.getAllByText(/лицензий$/).map((el) => el.textContent);
+    expect(texts).toEqual([
+      "1 клиент превысил квоту лицензий",
+      "2 клиента достигли лимита лицензий",
+      "3 клиента близки к лимиту лицензий",
+    ]);
   });
 
   it("дрейф кластера → строки со ссылкой на /infobases", () => {

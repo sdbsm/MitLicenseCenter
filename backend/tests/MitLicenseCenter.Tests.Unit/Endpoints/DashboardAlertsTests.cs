@@ -88,33 +88,36 @@ public sealed class DashboardAlertsTests
         => new() { Id = Guid.NewGuid(), Name = name, MaxConcurrentLicenses = limit, IsActive = active, CreatedAt = DateTime.UtcNow };
 
     [Fact]
-    public async Task Quota_buckets_count_warning_and_danger_disjointly()
+    public async Task Quota_buckets_count_exceeded_atLimit_and_nearLimit_by_fact()
     {
         using var db = TestHelpers.NewInMemoryDb();
-        var t74 = Tenant("ok-74", 100);
-        var t75 = Tenant("warn-75", 100);
-        var t89 = Tenant("warn-89", 100);
-        var t90 = Tenant("danger-90", 100);
-        var t95 = Tenant("danger-95", 100);
+        // Маленькие лимиты дают точные границы факта (consumed vs limit), а не округлённый процент.
+        var tNear9 = Tenant("near-9of10", 10);   // 9/10 = 90 % < limit → близко
+        var tAt10 = Tenant("at-10of10", 10);     // 10/10 = limit → достигнут
+        var tOver11 = Tenant("over-11of10", 10); // 11/10 > limit → превышение
+        // Граница «близко»: 74 % (ниже warning → не в виджете) vs 75 % (в «близко»).
+        var tOk74 = Tenant("ok-74of100", 100);   // 74 % < 75 % → не считается
+        var tNear75 = Tenant("near-75of100", 100); // 75 % → близко
         var tZero = Tenant("zerolimit", 0);             // limit=0 → исключён
-        var tInactive = Tenant("inactive", 100, active: false); // неактивен → исключён
-        db.Tenants.AddRange(t74, t75, t89, t90, t95, tZero, tInactive);
+        var tInactive = Tenant("inactive", 10, active: false); // неактивен → исключён
+        db.Tenants.AddRange(tNear9, tAt10, tOver11, tOk74, tNear75, tZero, tInactive);
         await db.SaveChangesAsync();
 
         var sessions = new List<SnapshotSessionEntry>();
         void Add(Tenant t, int n) => sessions.AddRange(Enumerable.Range(0, n).Select(_ => Session(t.Id)));
-        Add(t74, 74);
-        Add(t75, 75);
-        Add(t89, 89);
-        Add(t90, 90);
-        Add(t95, 95);
-        Add(tZero, 10);     // не должно учитываться
-        Add(tInactive, 99); // не должно учитываться
+        Add(tNear9, 9);
+        Add(tAt10, 10);
+        Add(tOver11, 11);
+        Add(tOk74, 74);
+        Add(tNear75, 75);
+        Add(tZero, 10);     // не должно учитываться (безлимит)
+        Add(tInactive, 11); // не должно учитываться (неактивен)
 
         var body = await RunAsync(db, Principal(Roles.Viewer), MakeStore(sessions));
 
-        body.QuotaWarning.Should().Be(2); // 75, 89
-        body.QuotaDanger.Should().Be(2);  // 90, 95
+        body.QuotaExceeded.Should().Be(1);  // 11/10
+        body.QuotaAtLimit.Should().Be(1);   // 10/10
+        body.QuotaNearLimit.Should().Be(2); // 9/10, 75/100
     }
 
     [Fact]

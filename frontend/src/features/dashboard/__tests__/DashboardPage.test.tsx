@@ -38,8 +38,9 @@ const summary: DashboardSummaryResponse = {
 // /dashboard/alerts. Нейтральная заглушка (всё в норме): сигналов не добавляет,
 // существующие проверки страницы не затрагивает.
 const alerts: DashboardAlertsResponse = {
-  quotaWarning: 0,
-  quotaDanger: 0,
+  quotaExceeded: 0,
+  quotaAtLimit: 0,
+  quotaNearLimit: 0,
   clusterDrift: { available: true, unassignedBases: 0, basesNotInCluster: 0 },
   backupDisk: { configured: true, freeBytes: 1_000_000, safetyMarginBytes: 100_000, low: false },
 };

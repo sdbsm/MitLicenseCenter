@@ -13,8 +13,9 @@ import { dashboardAlertsSchema } from "../types";
 describe("dashboardAlertsSchema", () => {
   it("принимает Viewer-ответ с ОПУЩЕННЫМ clusterDrift → null (дрейф Admin-only)", () => {
     const raw = {
-      quotaWarning: 1,
-      quotaDanger: 0,
+      quotaExceeded: 0,
+      quotaAtLimit: 0,
+      quotaNearLimit: 1,
       // clusterDrift ОТСУТСТВУЕТ (вызывающий не Admin).
       backupDisk: {
         configured: true,
@@ -28,15 +29,16 @@ describe("dashboardAlertsSchema", () => {
 
     expect(parsed.clusterDrift).toBeNull();
     expect(parsed.backupDisk.freeBytes).toBeNull();
-    expect(parsed.quotaWarning).toBe(1);
+    expect(parsed.quotaNearLimit).toBe(1);
     expect(parsed.backupDisk.configured).toBe(true);
     expect(parsed.backupDisk.low).toBe(false);
   });
 
   it("принимает заполненный Admin-ответ (дрейф доступен, диск настроен)", () => {
     const parsed = dashboardAlertsSchema.parse({
-      quotaWarning: 2,
-      quotaDanger: 1,
+      quotaExceeded: 1,
+      quotaAtLimit: 1,
+      quotaNearLimit: 2,
       clusterDrift: {
         available: true,
         unassignedBases: 3,
@@ -50,7 +52,9 @@ describe("dashboardAlertsSchema", () => {
       },
     });
 
-    expect(parsed.quotaDanger).toBe(1);
+    expect(parsed.quotaExceeded).toBe(1);
+    expect(parsed.quotaAtLimit).toBe(1);
+    expect(parsed.quotaNearLimit).toBe(2);
     expect(parsed.clusterDrift?.available).toBe(true);
     expect(parsed.clusterDrift?.unassignedBases).toBe(3);
     expect(parsed.clusterDrift?.basesNotInCluster).toBe(1);
@@ -59,8 +63,9 @@ describe("dashboardAlertsSchema", () => {
 
   it("принимает clusterDrift при недоступном RAS (Available:false → счётчики опущены/null)", () => {
     const parsed = dashboardAlertsSchema.parse({
-      quotaWarning: 0,
-      quotaDanger: 0,
+      quotaExceeded: 0,
+      quotaAtLimit: 0,
+      quotaNearLimit: 0,
       clusterDrift: {
         available: false,
         // unassignedBases / basesNotInCluster ОТСУТСТВУЮТ — RAS недоступен, не «ложный ноль».
@@ -76,8 +81,9 @@ describe("dashboardAlertsSchema", () => {
 
   it("disk low: free < margin → low=true", () => {
     const parsed = dashboardAlertsSchema.parse({
-      quotaWarning: 0,
-      quotaDanger: 0,
+      quotaExceeded: 0,
+      quotaAtLimit: 0,
+      quotaNearLimit: 0,
       backupDisk: {
         configured: true,
         freeBytes: 1073741824,
@@ -91,20 +97,22 @@ describe("dashboardAlertsSchema", () => {
 
   it("незнакомое доп.поле будущего бэкенда НЕ роняет парс (толерантность)", () => {
     const parsed = dashboardAlertsSchema.parse({
-      quotaWarning: 0,
-      quotaDanger: 0,
+      quotaExceeded: 0,
+      quotaAtLimit: 0,
+      quotaNearLimit: 0,
       backupDisk: { configured: false, safetyMarginBytes: 0, low: false, futureField: 1 },
       futureTopLevelField: 42,
     });
 
-    expect(parsed.quotaWarning).toBe(0);
+    expect(parsed.quotaNearLimit).toBe(0);
   });
 
   it("отсутствие required-числа отвергается (граница строга к контракту)", () => {
     expect(() =>
       dashboardAlertsSchema.parse({
-        // quotaWarning отсутствует
-        quotaDanger: 0,
+        // quotaExceeded отсутствует
+        quotaAtLimit: 0,
+        quotaNearLimit: 0,
         backupDisk: { configured: false, safetyMarginBytes: 0, low: false },
       })
     ).toThrow();

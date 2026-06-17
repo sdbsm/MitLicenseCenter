@@ -53,22 +53,32 @@ export function AttentionWidget({ summary }: AttentionWidgetProps) {
   const rows: AlertRow[] = [];
 
   if (alerts) {
-    // Квоты — danger перед warning.
-    if (alerts.quotaDanger > 0) {
+    // Квоты — три ФАКТИЧЕСКИХ бакета (MLC-193, зеркало lib/quota.ts): превышение и «лимит
+    // достигнут» оба danger-цвет, «близко» — warning. Порядок: превышение → достигнут → близко.
+    if (alerts.quotaExceeded > 0) {
       rows.push({
-        key: "quota-danger",
+        key: "quota-exceeded",
         icon: UsersIcon,
         variant: "danger",
-        text: t("dashboard.alerts.quotaDanger", { count: alerts.quotaDanger }),
+        text: t("dashboard.alerts.quotaExceeded", { count: alerts.quotaExceeded }),
         to: "/tenants",
       });
     }
-    if (alerts.quotaWarning > 0) {
+    if (alerts.quotaAtLimit > 0) {
       rows.push({
-        key: "quota-warning",
+        key: "quota-at-limit",
+        icon: UsersIcon,
+        variant: "danger",
+        text: t("dashboard.alerts.quotaAtLimit", { count: alerts.quotaAtLimit }),
+        to: "/tenants",
+      });
+    }
+    if (alerts.quotaNearLimit > 0) {
+      rows.push({
+        key: "quota-near-limit",
         icon: UsersIcon,
         variant: "warning",
-        text: t("dashboard.alerts.quotaWarning", { count: alerts.quotaWarning }),
+        text: t("dashboard.alerts.quotaNearLimit", { count: alerts.quotaNearLimit }),
         to: "/tenants",
       });
     }

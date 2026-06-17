@@ -651,7 +651,11 @@ URL-параметры фильтров (`actionType`, `tenantId`, `from`, `to`,
   серверного агрегата `GET /dashboard/alerts` (`useDashboardAlerts`, MLC-186a) ПЛЮС RAS-health и
   факт лицензий из `summary` (передаётся пропсом — без второго запроса). Строки показываются
   только при активном сигнале (danger перед warning), severity-иконки/цвета — палитра
-  `StatusBadge`/`lib/quota.ts`; переход даётся ссылкой только если цель доступна роли
+  `StatusBadge`/`lib/quota.ts`. Квота лицензий — **три ФАКТИЧЕСКИХ бакета** по `consumed` vs
+  `limit` (MLC-193, зеркало `quotaLabel` из `lib/quota.ts`), а не severity-цвет: «превысили квоту»
+  (`consumed > limit`, danger), «достигли лимита» (`consumed == limit`, danger) и «близки к
+  лимиту» (ниже лимита, но процент ≥ 75 %, warning) — в этом порядке; счётчики приходят из
+  агрегата как `quotaExceeded`/`quotaAtLimit`/`quotaNearLimit`. Переход даётся ссылкой только если цель доступна роли
   (`/settings` — Admin-only, гейт через `useMe()`). Дрейф панель↔кластер приходит `null` для
   не-Admin (Admin-only на бэкенде) → строк нет. Пусто → success-строка «Всё в порядке».
   Отдельный амбер-баннер «факт лицензий недоступен» убран — теперь это строка виджета.
