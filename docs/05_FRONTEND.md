@@ -64,7 +64,7 @@ frontend/src/
 | `audit` | `/audit` — журнал операций |
 | `auth` | `/login`, `ProtectedRoute`, `ForcePasswordChange` |
 | `backups` | диалог бэкапов на карточке инфобазы |
-| `dashboard` | `/` — KPI-карточки (кликабельны), recharts-график топ-клиентов, здоровье хоста |
+| `dashboard` | `/` — живой «Обзор»: KPI-карточки (кликабельны; спарклайн лицензий + live-точка сеансов), виджет «Требует внимания», тренды (лицензии/размер баз 7д), здоровье RAS+хоста, топ-клиенты + лента свежей активности |
 | `discovery` | `DiscoveryField` — общий компонент автоподстановки |
 | `health` | версия панели в подвале сайдбара (анонимный `/api/v1/health`) |
 | `infobases` | `/infobases` — CRUD инфобаз и публикаций |
@@ -309,6 +309,7 @@ invalidate: (infobaseId) => backupsQueryKey(infobaseId)
 |---|---|---|
 | `useSessionsSnapshot` | 5 с | near-realtime: согласован с hot-каденцией enforce (~4 с) |
 | `useDashboardSummary` | 5 с | KPI дашборда отражает near-realtime |
+| `useDashboardAlerts` | 30 с | сигналы «Требует внимания», не live-KPI; бэкенд кеширует агрегат 30 с |
 | `useHostMetrics` (performance) | 5 с | live-метрики хоста |
 | `useDashboardHostHealth` | 45 с | «есть ли проблема», не «какая» |
 | `useBackups` | 5 с | poll прогресса Queued→Running→Succeeded |
@@ -640,6 +641,29 @@ URL-параметры фильтров (`actionType`, `tenantId`, `from`, `to`,
 ставит полный диагноз (4 состояния) и чинит службу RAS. Источник сигнала —
 **дешёвый** in-memory health-снимок `summary.ras` (`RasHealthProbingService`); дорогой
 `GET /ras-service/status` (перебор служб Windows) с дашборда **не** вызывается.
+
+### 7.6 Композиция «Обзора» (MLC-186)
+
+`DashboardPage` сверху вниз: заголовок (+ время обновления) → **KPI-ряд** (5 кликабельных
+карточек, MLC-085: Клиенты · Инфобазы · Сеансы (live-точка) · Использовано (мини-спарклайн
+лицензий 7д) · Свободно) → виджет **«Требует внимания»** → **тренды** (лицензии 7д + рост
+размера баз) → строка здоровья (RAS + хост) → нижний ряд **топ-клиенты + свежая активность**.
+
+- **`AttentionWidget`** (`features/dashboard`) — единый список actionable-сигналов из
+  серверного агрегата `GET /dashboard/alerts` (`useDashboardAlerts`, MLC-186a) ПЛЮС RAS-health и
+  факт лицензий из `summary` (передаётся пропсом — без второго запроса). Строки показываются
+  только при активном сигнале (danger перед warning), severity-иконки/цвета — палитра
+  `StatusBadge`/`lib/quota.ts`; переход даётся ссылкой только если цель доступна роли
+  (`/settings` — Admin-only, гейт через `useMe()`). Дрейф панель↔кластер приходит `null` для
+  не-Admin (Admin-only на бэкенде) → строк нет. Пусто → success-строка «Всё в порядке».
+  Отдельный амбер-баннер «факт лицензий недоступен» убран — теперь это строка виджета.
+- **Тренды** (`LicenseTrendCard`/`DatabaseSizeTrendCard`) — компактные recharts на хуках отчётов
+  `useLicenseUsage`/`useDatabaseSize` с **фиксированным 7-дневным** диапазоном (`lastNDaysRange(7)`,
+  мемоизирован один раз — стабильный query-key; локально-суточные границы общие с «Отчётами»,
+  MLC-177). Один license/size-запрос на страницу делят трендовая карточка и KPI-спарклайн.
+- **`RecentActivityCard`** — последние 5 записей журнала через `useAuditLog` (мемоизированный
+  фильтр), лейблы действий `t('audit.actions.*')` и `RelativeTime` как на `/audit`; «Показать
+  всё» ведёт в `/audit` (Viewer-доступен).
 
 ---
 

@@ -14,6 +14,7 @@ import { AttentionWidget } from "./AttentionWidget";
 import { DatabaseSizeTrendCard } from "./DatabaseSizeTrendCard";
 import { HostHealthCard } from "./HostHealthCard";
 import { LicenseTrendCard } from "./LicenseTrendCard";
+import { RecentActivityCard } from "./RecentActivityCard";
 import { TopTenantsChart, TopTenantsLegend } from "./TopTenantsChart";
 import { lastNDaysRange } from "./trendsRange";
 import type { DashboardRasHealth, DashboardSummaryResponse, TenantConsumptionRow } from "./types";
@@ -84,17 +85,6 @@ export function DashboardPage() {
           </div>
         )}
 
-        {/* License-fact unavailable banner (ADR-48, MLC-166): факт rac --licenses не
-            получен → показатели «Использовано/Свободно» могут быть неактуальны. */}
-        {data && !data.licenseFactAvailable && (
-          <div
-            role="status"
-            className="rounded-md border border-amber-500/40 bg-amber-500/5 p-4 text-sm text-amber-800 dark:text-amber-300"
-          >
-            <p className="font-medium">{t("dashboard.licenseFactUnavailable")}</p>
-          </div>
-        )}
-
         <KpiGrid
           data={data}
           isLoading={isLoading}
@@ -129,7 +119,12 @@ export function DashboardPage() {
           <HostHealthCard isFetching={isFetching} />
         </div>
 
-        <TopTenantsCard data={data?.topTenantsByConsumption ?? null} isLoading={isLoading} />
+        {/* MLC-186d — нижняя строка «Обзора»: топ клиентов по нагрузке + лента
+            свежей активности (последние записи аудита) бок о бок. */}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <TopTenantsCard data={data?.topTenantsByConsumption ?? null} isLoading={isLoading} />
+          <RecentActivityCard />
+        </div>
       </div>
     </TooltipProvider>
   );
