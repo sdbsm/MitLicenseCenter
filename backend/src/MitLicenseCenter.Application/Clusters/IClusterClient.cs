@@ -12,7 +12,12 @@ public interface IClusterClient
     // **без поля infobase** — поэтому сшивается с ListActiveSessionsAsync по SessionId.
     Task<IReadOnlySet<Guid>?> ListLicensedSessionIdsAsync(CancellationToken ct);
 
-    Task<KillSessionResult> KillSessionAsync(SessionDescriptor descriptor, CancellationToken ct);
+    // errorMessage (MLC-190): опциональный текст-причина для тонкого клиента 1С — уходит как
+    // rac session terminate --error-message и показывается пользователю модальным окном. Null/пусто
+    // → флаг не передаётся (сеанс гасится молча). Заполняется только enforcement-путём (KillEnforcer);
+    // ручное завершение оператором из панели передаёт null (решение владельца).
+    Task<KillSessionResult> KillSessionAsync(
+        SessionDescriptor descriptor, CancellationToken ct, string? errorMessage = null);
     Task<ClusterPingResult> PingAsync(CancellationToken ct);
 
     // Discovery: перечень инфобаз, зарегистрированных в кластере 1С.

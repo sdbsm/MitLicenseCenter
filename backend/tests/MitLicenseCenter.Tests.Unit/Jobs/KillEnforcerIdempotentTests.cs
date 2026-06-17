@@ -40,7 +40,7 @@ public sealed class KillEnforcerIdempotentTests
 
         var cluster = Substitute.For<IClusterClient>();
         cluster.ListActiveSessionsAsync(Arg.Any<CancellationToken>()).Returns(freshSessions);
-        cluster.KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>())
+        cluster.KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>(), Arg.Any<string?>())
             .Returns(new KillSessionResult(Killed: false, AlreadyGone: true));
 
         var audit = new TestHelpers.CapturingAuditLogger();
@@ -63,7 +63,7 @@ public sealed class KillEnforcerIdempotentTests
         await act.Should().NotThrowAsync();
 
         // Assert: 1 kill attempted, AlreadyGone treated as success, 1 audit row.
-        await cluster.Received(1).KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>());
+        await cluster.Received(1).KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>(), Arg.Any<string?>());
         audit.Entries.Should().ContainSingle();
         audit.Entries[0].Action.Should().Be(AuditActionType.SessionKilled);
         audit.Entries[0].Reason.Should().Be(AuditReason.LimitExceeded);

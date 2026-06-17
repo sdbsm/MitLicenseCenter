@@ -52,7 +52,7 @@ public sealed class SessionsKillEndpointTests
             CancellationToken.None);
 
         result.Result.Should().BeOfType<NotFound>();
-        await cluster.DidNotReceive().KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>());
+        await cluster.DidNotReceive().KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>(), Arg.Any<string?>());
         audit.Entries.Should().BeEmpty();
     }
 
@@ -66,7 +66,7 @@ public sealed class SessionsKillEndpointTests
         var cluster = Substitute.For<IClusterClient>();
         cluster.ListActiveSessionsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<ClusterSession>());
-        cluster.KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>())
+        cluster.KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>(), Arg.Any<string?>())
             .Returns(new KillSessionResult(Killed: true, AlreadyGone: false));
 
         var audit = new TestHelpers.CapturingAuditLogger();
@@ -100,7 +100,7 @@ public sealed class SessionsKillEndpointTests
         var cluster = Substitute.For<IClusterClient>();
         cluster.ListActiveSessionsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<ClusterSession>());
-        cluster.KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>())
+        cluster.KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>(), Arg.Any<string?>())
             .Returns(new KillSessionResult(Killed: true, AlreadyGone: false));
 
         var audit = new TestHelpers.CapturingAuditLogger();
@@ -130,7 +130,7 @@ public sealed class SessionsKillEndpointTests
         var cluster = Substitute.For<IClusterClient>();
         cluster.ListActiveSessionsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<ClusterSession>());
-        cluster.KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>())
+        cluster.KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>(), Arg.Any<string?>())
             .Returns(new KillSessionResult(Killed: false, AlreadyGone: true));
 
         var audit = new TestHelpers.CapturingAuditLogger();
@@ -161,7 +161,7 @@ public sealed class SessionsKillEndpointTests
         var cluster = Substitute.For<IClusterClient>();
         cluster.ListActiveSessionsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<ClusterSession>());
-        cluster.KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>())
+        cluster.KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>(), Arg.Any<string?>())
             .Returns(new KillSessionResult(Killed: false, AlreadyGone: false));
 
         var audit = new TestHelpers.CapturingAuditLogger();
@@ -215,7 +215,7 @@ public sealed class SessionsKillEndpointTests
 
         var conflict = result.Result.Should().BeOfType<Conflict<ProblemDetails>>().Which;
         conflict.Value!.Extensions["code"].Should().Be(ProblemCodes.SessionStale);
-        await cluster.DidNotReceive().KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>());
+        await cluster.DidNotReceive().KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>(), Arg.Any<string?>());
         audit.Entries.Should().BeEmpty();
     }
 

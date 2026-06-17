@@ -100,6 +100,12 @@ internal sealed partial class KillEnforcer : IKillEnforcer
         var coldIntervalSeconds =
             _settings.GetInt(SettingKey.PollingColdIntervalSeconds) ?? DefaultColdIntervalSeconds;
         var killGracePeriod = TimeSpan.FromSeconds(Math.Max(killGraceSeconds, coldIntervalSeconds));
+
+        // MLC-190: текст-причина для тонкого клиента 1С при завершении по лимиту. Пусто →
+        // null → rac terminate без --error-message (сеанс гасится молча, текущее поведение).
+        // Передаётся только здесь, на enforcement-пути; ручное завершение оператором — без текста.
+        var terminateMessage = _settings.GetString(SettingKey.EnforcementTerminateMessage);
+
         var totalKills = 0;
 
         foreach (var (tenantId, consumed, limit) in overLimitTenants)
@@ -151,7 +157,7 @@ internal sealed partial class KillEnforcer : IKillEnforcer
                     candidate.AppId,
                     candidate.StartedAtUtc);
 
-                var result = await _cluster.KillSessionAsync(descriptor, ct).ConfigureAwait(false);
+                var result = await _cluster.KillSessionAsync(descriptor, ct, terminateMessage).ConfigureAwait(false);
 
                 if (result.Killed || result.AlreadyGone)
                 {

@@ -73,7 +73,7 @@ frontend/src/
 | `publications` | мутации публикации/смены платформы/проверки IIS |
 | `reports` | `/reports` — отчёты (вкладки: потребление лицензий · размер баз) |
 | `sessions` | `/sessions` — live-снимок сеансов, kill |
-| `settings` | `/settings` (Admin) — параметры системы; блок состояния службы RAS (`RasServiceCard` + `RasServiceActionDialog`, `useRasService.ts`, ADR-47); карточка обновлений (`UpdateCheckCard`, фича `updates`, ADR-50) |
+| `settings` | `/settings` (Admin) — параметры системы; `SettingsPage` раскладывает ключи каталога настроек по секциям (`SECTIONS`/`FIELD_META`), включая `Enforcement.TerminateMessage` (свободный текст в секции «Опрос 1С» — причина+контакты для тонкого клиента 1С при завершении сеанса по лимиту, MLC-190); блок состояния службы RAS (`RasServiceCard` + `RasServiceActionDialog`, `useRasService.ts`, ADR-47); карточка обновлений (`UpdateCheckCard`, фича `updates`, ADR-50) |
 | `tenants` | `/tenants` — CRUD клиентов |
 | `updates` | глобальный баннер «доступна версия» в `AppShell` (все роли) + карточка «Проверить сейчас» в `/settings` (Admin); ADR-50 |
 | `users` | `/users` (Admin) — учётные записи |
