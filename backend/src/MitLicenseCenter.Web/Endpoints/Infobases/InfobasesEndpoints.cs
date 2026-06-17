@@ -211,13 +211,18 @@ public static partial class InfobasesEndpoints
         }
 
         // Inner-Join Publications = «строка пригодна для bulk» (тот же критерий, что у списка).
+        // MLC-184a — ORDER BY по членам спроецированного record (InfobaseName/InfobaseId) EF Core
+        // на реальном SQL Server не транслирует → InvalidOperationException (InMemory маскирует
+        // клиентской оценкой). Сортируем по ИСХОДНЫМ сущностям ДО проекции (как ListAsync).
         var bulkRows = filtered.Query
             .Join(
                 db.Publications.AsNoTracking(),
                 ib => ib.Id,
                 pub => pub.InfobaseId,
-                (ib, pub) => new InfobaseBulkIdItem(ib.Id, pub.Id, ib.Name, pub.SiteName, pub.VirtualPath))
-            .OrderBy(x => x.InfobaseName).ThenBy(x => x.InfobaseId);
+                (ib, pub) => new { ib, pub })
+            .OrderBy(x => x.ib.Name).ThenBy(x => x.ib.Id)
+            .Select(x => new InfobaseBulkIdItem(
+                x.ib.Id, x.pub.Id, x.ib.Name, x.pub.SiteName, x.pub.VirtualPath));
 
         var total = await bulkRows.CountAsync(ct).ConfigureAwait(false);
         if (total > MaxBulkIds)
