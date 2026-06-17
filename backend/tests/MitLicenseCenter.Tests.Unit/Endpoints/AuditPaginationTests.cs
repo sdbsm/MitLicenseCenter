@@ -36,7 +36,6 @@ public sealed class AuditPaginationTests
             from: null,
             to: null,
             search: null,
-            initiator: null,
             page: 2,
             pageSize: 25,
             ct: CancellationToken.None);
@@ -72,7 +71,6 @@ public sealed class AuditPaginationTests
             from: null,
             to: null,
             search: null,
-            initiator: null,
             page: 3,
             pageSize: 25,
             ct: CancellationToken.None);
@@ -99,7 +97,6 @@ public sealed class AuditPaginationTests
             from: null,
             to: null,
             search: null,
-            initiator: null,
             page: null,
             pageSize: requested,
             ct: CancellationToken.None);
@@ -120,7 +117,6 @@ public sealed class AuditPaginationTests
             from: null,
             to: null,
             search: null,
-            initiator: null,
             page: null,
             pageSize: null,
             ct: CancellationToken.None);

@@ -24,7 +24,6 @@ export function RecentActivityCard() {
       from: null,
       to: null,
       search: null,
-      initiator: null,
       page: 1,
       pageSize: 25,
     }),

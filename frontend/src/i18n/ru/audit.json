@@ -11,8 +11,6 @@
       "searchTenant": "Поиск клиента…",
       "search": "Поиск",
       "searchPlaceholder": "По описанию и инициатору…",
-      "initiator": "Инициатор",
-      "initiatorPlaceholder": "Имя или System",
       "from": "С даты",
       "to": "По дату",
       "pageSize": "Размер страницы"
