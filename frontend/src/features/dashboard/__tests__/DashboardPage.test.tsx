@@ -78,13 +78,18 @@ const emptyDatabaseSize = {
   maxSpanDays: 31,
 };
 
-// Маршрутизация мок-ответов по URL: host/alerts/reports → свои заглушки, остальное →
-// summary. Переиспользуется во всех тестах (включая RAS-сбойные сценарии).
+// MLC-186d — «Обзор» теперь грузит последние записи аудита (RecentActivityCard).
+// Пустая страница держит ленту в empty-state и не трогает существующие проверки.
+const emptyAudit = { items: [], total: 0, page: 1, pageSize: 25 };
+
+// Маршрутизация мок-ответов по URL: host/alerts/reports/audit → свои заглушки,
+// остальное → summary. Переиспользуется во всех тестах (включая RAS-сбойные сценарии).
 function resolveUrl(url: string, summaryResponse: unknown): unknown {
   if (url.includes("/performance/host")) return host;
   if (url.includes("/dashboard/alerts")) return alerts;
   if (url.includes("/reports/license-usage")) return emptyLicenseUsage;
   if (url.includes("/reports/database-size")) return emptyDatabaseSize;
+  if (url.includes("/audit")) return emptyAudit;
   return summaryResponse;
 }
 
