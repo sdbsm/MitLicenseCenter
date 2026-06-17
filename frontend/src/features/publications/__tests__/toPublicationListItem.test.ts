@@ -14,6 +14,8 @@ function infobase(overrides: Partial<InfobaseListItem["publication"]> = {}): Inf
     createdAt: "2026-06-01T00:00:00Z",
     updatedAt: null,
     rowVersion: null,
+    currentDataBytes: null,
+    currentLogBytes: null,
     publication: {
       id: "pub-1",
       infobaseId: "ib-1",

@@ -29,6 +29,12 @@ public sealed record InfobaseListItemResponse(
     DateTime CreatedAt,
     DateTime? UpdatedAt,
     PublicationResponse Publication,
+    // MLC-185d — текущий размер базы из ПОСЛЕДНЕГО снимка телеметрии (DatabaseSizeSnapshot
+    // по DatabaseName, max SnapshotAtUtc). Allocated, байты; UI показывает сумму
+    // (Data+Log) форматтером КБ/МБ/ГБ. null (опускается на проводе, WhenWritingNull):
+    // снимка ещё нет — ночная джоба не отработала / база была недоступна при замере.
+    long? CurrentDataBytes = null,
+    long? CurrentLogBytes = null,
     // MLC-151 — токен инфобазы для формы редактирования (открывается из элемента списка):
     // без него FE прислал бы null → OriginalValue не выставится → защита от гонки молча не
     // сработала бы. omit-null: под InMemory токен не материализуется.

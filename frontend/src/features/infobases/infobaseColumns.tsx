@@ -33,8 +33,35 @@ import {
   type PublicationPublishStatus,
   type PublicationSource,
 } from "@/features/publications/types";
+import { formatBytes } from "@/lib/formatBytes";
 import { statusBadgeClass } from "./infobaseFormat";
 import type { InfobaseListItem } from "./types";
+
+// MLC-185d — ячейка «Размер»: сумма data+log из последнего снимка телеметрии,
+// форматированная общим formatBytes (КБ/МБ/ГБ). Обоих полей нет (снимка нет) → «—».
+// Тултип раскрывает разбивку «данные X · журнал Y». Переиспользуется списком и
+// карточкой клиента.
+export function SizeCell({ item, t }: { item: InfobaseListItem; t: TFunction }) {
+  const { currentDataBytes, currentLogBytes } = item;
+  if (currentDataBytes === null && currentLogBytes === null) {
+    return <span className="text-muted-foreground">—</span>;
+  }
+  const data = currentDataBytes ?? 0;
+  const log = currentLogBytes ?? 0;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="cursor-help tabular-nums">{formatBytes(data + log)}</span>
+      </TooltipTrigger>
+      <TooltipContent>
+        {t("infobases.size.breakdown", {
+          data: formatBytes(data),
+          log: formatBytes(log),
+        })}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
 
 const PUBLISH_STATUS_VARIANT: Record<PublicationPublishStatus, StatusBadgeVariant> = {
   Published: "success",
@@ -241,6 +268,17 @@ export function buildInfobaseColumns(ctx: InfobaseColumnContext): ColumnDef<Info
         cellClassName: "text-muted-foreground font-mono text-xs",
       },
       cell: ({ row }) => row.original.publication.platformVersion,
+    },
+    {
+      id: "size",
+      header: t("infobases.fields.size"),
+      enableSorting: false,
+      meta: {
+        label: t("infobases.fields.size"),
+        headClassName: "w-24",
+        cellClassName: "text-muted-foreground",
+      },
+      cell: ({ row }) => <SizeCell item={row.original} t={t} />,
     },
     {
       id: "lastChecked",

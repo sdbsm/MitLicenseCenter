@@ -111,6 +111,12 @@ public static partial class InfobasesEndpoints
 
         // Join'им Tenant и Publication одним запросом — UI выводит «Клиент» и
         // компактный «VirtualPath, PlatformVersion» прямо в строке таблицы.
+        // MLC-185d — текущий размер базы тянем тем же запросом коррелированным
+        // подзапросом по DatabaseName (последний снимок = max SnapshotAtUtc). Подзапрос в
+        // проекции применяется ТОЛЬКО к строкам страницы (после Skip/Take) — не N+1, не на
+        // весь набор. Сопоставление обычным равенством DatabaseName (StringComparison-перегрузка
+        // не транслируется; регистр в SQL за коллацией сервера). Снимка нет → null → поля
+        // опускаются (WhenWritingNull).
         var items = await orderedQuery
             .Skip((p - 1) * ps)
             .Take(ps)
@@ -123,7 +129,8 @@ public static partial class InfobasesEndpoints
                 db.Publications.AsNoTracking(),
                 x => x.Infobase.Id,
                 pub => pub.InfobaseId,
-                (x, pub) => new InfobaseListItemResponse(
+                (x, pub) => new { x.Infobase, x.TenantName, Publication = pub })
+            .Select(x => new InfobaseListItemResponse(
                     x.Infobase.Id,
                     x.Infobase.TenantId,
                     x.TenantName,
@@ -134,21 +141,32 @@ public static partial class InfobasesEndpoints
                     x.Infobase.CreatedAt,
                     x.Infobase.UpdatedAt,
                     new PublicationResponse(
-                        pub.Id,
-                        pub.InfobaseId,
-                        pub.SiteName,
-                        pub.VirtualPath,
-                        pub.PlatformVersion,
-                        pub.Source,
-                        pub.CreatedAt,
-                        pub.UpdatedAt,
-                        pub.LastCheckStatus,
-                        pub.LastCheckAt,
-                        pub.LastCheckDetails,
-                        pub.PhysicalPathOverride,
+                        x.Publication.Id,
+                        x.Publication.InfobaseId,
+                        x.Publication.SiteName,
+                        x.Publication.VirtualPath,
+                        x.Publication.PlatformVersion,
+                        x.Publication.Source,
+                        x.Publication.CreatedAt,
+                        x.Publication.UpdatedAt,
+                        x.Publication.LastCheckStatus,
+                        x.Publication.LastCheckAt,
+                        x.Publication.LastCheckDetails,
+                        x.Publication.PhysicalPathOverride,
                         // MLC-151 — токены для формы редактирования (открывается из элемента
                         // списка); без них оптимистическая блокировка молча не сработала бы.
-                        pub.RowVersion),
+                        x.Publication.RowVersion),
+                    // MLC-185d — последний снимок размера по имени базы (коррелированный подзапрос).
+                    db.DatabaseSizeSnapshots
+                        .Where(s => s.DatabaseName == x.Infobase.DatabaseName)
+                        .OrderByDescending(s => s.SnapshotAtUtc)
+                        .Select(s => (long?)s.DataBytes)
+                        .FirstOrDefault(),
+                    db.DatabaseSizeSnapshots
+                        .Where(s => s.DatabaseName == x.Infobase.DatabaseName)
+                        .OrderByDescending(s => s.SnapshotAtUtc)
+                        .Select(s => (long?)s.LogBytes)
+                        .FirstOrDefault(),
                     x.Infobase.RowVersion))
             .ToListAsync(ct).ConfigureAwait(false);
 

@@ -77,6 +77,8 @@ function makeItem(suffix: string): InfobaseListItem {
     createdAt: "2026-06-01T00:00:00Z",
     updatedAt: null,
     rowVersion: null,
+    currentDataBytes: null,
+    currentLogBytes: null,
     publication: {
       id: `pub-${suffix}`,
       infobaseId: `ib-${suffix}`,
