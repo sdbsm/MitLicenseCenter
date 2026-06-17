@@ -55,6 +55,39 @@ const host: HostMetricsSnapshot = {
   attributionIncomplete: false,
 };
 
+// MLC-186c — «Обзор» теперь грузит трендовые отчёты лицензий/размера баз. Пустые
+// 200-ответы (ряд накапливается) держат тренд-карточки в empty-state и не трогают
+// существующие проверки страницы.
+const emptyLicenseUsage = {
+  buckets: [],
+  fromUtc: "2026-06-10T00:00:00Z",
+  toUtc: "2026-06-17T00:00:00Z",
+  peakConsumed: 0,
+  peakLimit: 0,
+  averageConsumed: 0,
+  clamped: false,
+  maxSpanDays: 31,
+};
+
+const emptyDatabaseSize = {
+  points: [],
+  tenants: [],
+  fromUtc: "2026-06-10T00:00:00Z",
+  toUtc: "2026-06-17T00:00:00Z",
+  clamped: false,
+  maxSpanDays: 31,
+};
+
+// Маршрутизация мок-ответов по URL: host/alerts/reports → свои заглушки, остальное →
+// summary. Переиспользуется во всех тестах (включая RAS-сбойные сценарии).
+function resolveUrl(url: string, summaryResponse: unknown): unknown {
+  if (url.includes("/performance/host")) return host;
+  if (url.includes("/dashboard/alerts")) return alerts;
+  if (url.includes("/reports/license-usage")) return emptyLicenseUsage;
+  if (url.includes("/reports/database-size")) return emptyDatabaseSize;
+  return summaryResponse;
+}
+
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -69,15 +102,7 @@ function renderPage() {
 describe("DashboardPage (MLC-085: обзор с переходами)", () => {
   beforeEach(() => {
     mockedApi.mockReset();
-    mockedApi.mockImplementation((url: string) =>
-      Promise.resolve(
-        url.includes("/performance/host")
-          ? host
-          : url.includes("/dashboard/alerts")
-            ? alerts
-            : (summary as unknown)
-      )
-    );
+    mockedApi.mockImplementation((url: string) => Promise.resolve(resolveUrl(url, summary)));
   });
 
   it("KPI-карточки — ссылки в свои разделы", async () => {
@@ -111,9 +136,7 @@ describe("DashboardPage (MLC-085: обзор с переходами)", () => {
       Promise.resolve(
         url.includes("/performance/host")
           ? { ...host, measuring: true, cpu: { totalPercent: 0, queueLength: 0 } }
-          : url.includes("/dashboard/alerts")
-            ? alerts
-            : (summary as unknown)
+          : resolveUrl(url, summary)
       )
     );
     renderPage();
@@ -132,19 +155,15 @@ describe("DashboardPage (MLC-085: обзор с переходами)", () => {
   it("UX-17: при !healthy RAS-карточка показывает видимую подсказку + ссылку в «Параметры»", async () => {
     mockedApi.mockImplementation((url: string) =>
       Promise.resolve(
-        url.includes("/performance/host")
-          ? host
-          : url.includes("/dashboard/alerts")
-            ? alerts
-            : ({
-                ...summary,
-                ras: {
-                  healthy: false,
-                  lastCheckedAtUtc: "2026-06-10T12:00:00Z",
-                  lastErrorMessage: "rac.exe не найден по указанному пути.",
-                  consecutiveFailures: 3,
-                },
-              } as unknown)
+        resolveUrl(url, {
+          ...summary,
+          ras: {
+            healthy: false,
+            lastCheckedAtUtc: "2026-06-10T12:00:00Z",
+            lastErrorMessage: "rac.exe не найден по указанному пути.",
+            consecutiveFailures: 3,
+          },
+        })
       )
     );
     renderPage();
@@ -177,19 +196,15 @@ describe("DashboardPage (MLC-085: обзор с переходами)", () => {
   it("сигнал недоступности RAS НЕ вызывает дорогой /ras-service/status", async () => {
     mockedApi.mockImplementation((url: string) =>
       Promise.resolve(
-        url.includes("/performance/host")
-          ? host
-          : url.includes("/dashboard/alerts")
-            ? alerts
-            : ({
-                ...summary,
-                ras: {
-                  healthy: false,
-                  lastCheckedAtUtc: "2026-06-10T12:00:00Z",
-                  lastErrorMessage: "rac.exe не найден по указанному пути.",
-                  consecutiveFailures: 2,
-                },
-              } as unknown)
+        resolveUrl(url, {
+          ...summary,
+          ras: {
+            healthy: false,
+            lastCheckedAtUtc: "2026-06-10T12:00:00Z",
+            lastErrorMessage: "rac.exe не найден по указанному пути.",
+            consecutiveFailures: 2,
+          },
+        })
       )
     );
     renderPage();
@@ -200,5 +215,71 @@ describe("DashboardPage (MLC-085: обзор с переходами)", () => {
     const calledUrls = mockedApi.mock.calls.map((call) => String(call[0]));
     expect(calledUrls.some((url) => url.includes("/api/v1/dashboard/summary"))).toBe(true);
     expect(calledUrls.some((url) => url.includes("/ras-service/status"))).toBe(false);
+  });
+
+  // MLC-186c — «живой» индикатор на KPI «Активные сеансы» (число опрашивается онлайн).
+  it("KPI «Активные сеансы» показывает live-индикатор", async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Топ клиентов по нагрузке")).toBeInTheDocument());
+
+    const sessionsCard = screen.getByText("Активные сеансы").closest("a");
+    expect(sessionsCard?.querySelector('[data-testid="kpi-live-dot"]')).toBeInTheDocument();
+    // На прочих KPI индикатора нет.
+    expect(
+      screen
+        .getByText("Использовано лицензий")
+        .closest("a")
+        ?.querySelector('[data-testid="kpi-live-dot"]')
+    ).toBeNull();
+  });
+
+  // MLC-186c — спарклайн под KPI «Использовано лицензий» при накопленном ряде.
+  it("KPI «Использовано лицензий» рендерит спарклайн при наличии buckets", async () => {
+    mockedApi.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.includes("/reports/license-usage")
+          ? {
+              ...emptyLicenseUsage,
+              buckets: [
+                {
+                  bucketStartUtc: "2026-06-10T00:00:00Z",
+                  consumedAvg: 2,
+                  consumedMax: 4,
+                  limit: 10,
+                },
+                {
+                  bucketStartUtc: "2026-06-11T00:00:00Z",
+                  consumedAvg: 3,
+                  consumedMax: 6,
+                  limit: 10,
+                },
+              ],
+              peakConsumed: 6,
+              peakLimit: 10,
+            }
+          : resolveUrl(url, summary)
+      )
+    );
+    renderPage();
+
+    await waitFor(() =>
+      expect(
+        screen
+          .getByText("Использовано лицензий")
+          .closest("a")
+          ?.querySelector('[data-testid="kpi-sparkline"]')
+      ).toBeInTheDocument()
+    );
+  });
+
+  it("KPI «Использовано лицензий» без buckets — спарклайна нет", async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Топ клиентов по нагрузке")).toBeInTheDocument());
+    expect(
+      screen
+        .getByText("Использовано лицензий")
+        .closest("a")
+        ?.querySelector('[data-testid="kpi-sparkline"]')
+    ).toBeNull();
   });
 });
