@@ -231,6 +231,10 @@ semver-компаратор `AppVersion`/`UpdateComparison` (Domain/Updates). П
 | `database-size-collection` | `IDatabaseSizeCollectionJob.RunAsync` | `0 2 * * *` | Суточный снимок размеров баз инфобаз (`sys.master_files`, data+log allocated) в историю `DatabaseSizeSnapshots`; охват — только базы инфобаз; аудит не пишет |
 | `database-size-retention` | `IDatabaseSizeRetentionJob.RunAsync` | `0 4 * * *` | Ночная очистка истории размеров баз (окно — `DatabaseSize.RetentionDays`) |
 
+Шесть суточных («ночных») джоб планируются по **местному поясу хоста** (`TimeZoneInfo.Local`),
+а не по UTC, чтобы реально срабатывать ночью по часам сервера (ADR-52); cron-времена в таблице —
+по часам хоста. `publication-status-refresh` (раз в 5 мин) к поясу нечувствителен.
+
 Завершённым джобам выставляется ограниченный срок хранения в схеме `hangfire`. Дашборд
 Hangfire доступен на `/hangfire` только роли Admin.
 
