@@ -23,6 +23,13 @@ public interface ISqlBackupService
     Task<SqlBackupEstimate> EstimateAsync(
         string server, string databaseName, string folderRoot, int safetyMarginMb, CancellationToken ct);
 
+    // Свободное место на диске папки бэкапов в БАЙТАХ (server-side, xp_fixeddrives) — без оценки
+    // размера какой-либо базы. Дешёвый host-level сигнал «мало места» для дашборда (MLC-186a):
+    // сравнивается с тем же склампленным Backup.DiskSafetyMarginMb, что и предпоказ/disk-guard.
+    // «Never throws»: нет sysadmin / SQL недоступен / путь не локальный диск / диск не найден → null
+    // («не знаем», как degraded-цифры EstimateAsync). Отмену (OperationCanceledException) пробрасываем.
+    Task<long?> GetBackupDiskFreeBytesAsync(string server, string folderRoot, CancellationToken ct);
+
     // Server-side удаление .bak старше cutoffUtc в папке folderPath (xp_delete_file) —
     // для TTL-ретенции (MLC-077) и Admin-удаления бэкапа. Тоже «never throws».
     Task<SqlDeleteResult> DeleteBackupsOlderThanAsync(

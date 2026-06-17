@@ -46,3 +46,31 @@ export const dashboardSummarySchema = z.object({
 export type DashboardRasHealth = z.infer<typeof dashboardRasHealthSchema>;
 export type TenantConsumptionRow = z.infer<typeof tenantConsumptionRowSchema>;
 export type DashboardSummaryResponse = z.infer<typeof dashboardSummarySchema>;
+
+// MLC-186a — серверный агрегат сигналов «Требует внимания» (/dashboard/alerts). Отдельная
+// толерантная граница (как summary). Бэкенд опускает null-поля ([[api-omits-null-fields]]):
+// `clusterDrift` отсутствует для не-Admin (дрейф — Admin-only), `freeBytes`/счётчики дрейфа
+// отсутствуют в degraded — поэтому через `omittable()` (нормализует отсутствие/null → null).
+export const dashboardClusterDriftSchema = z.object({
+  available: z.boolean(),
+  unassignedBases: omittable(z.number()),
+  basesNotInCluster: omittable(z.number()),
+});
+
+export const dashboardBackupDiskSchema = z.object({
+  configured: z.boolean(),
+  freeBytes: omittable(z.number()),
+  safetyMarginBytes: z.number(),
+  low: z.boolean(),
+});
+
+export const dashboardAlertsSchema = z.object({
+  quotaWarning: z.number(),
+  quotaDanger: z.number(),
+  clusterDrift: omittable(dashboardClusterDriftSchema),
+  backupDisk: dashboardBackupDiskSchema,
+});
+
+export type DashboardClusterDriftAlert = z.infer<typeof dashboardClusterDriftSchema>;
+export type DashboardBackupDiskAlert = z.infer<typeof dashboardBackupDiskSchema>;
+export type DashboardAlertsResponse = z.infer<typeof dashboardAlertsSchema>;

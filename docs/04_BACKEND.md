@@ -242,6 +242,31 @@ RAS (`Available=false`) эндпоинт **не** фильтрует по неп
 а не вводящий в заблуждение «0 найдено» (нельзя отличить «нет пропавших» от «не знаем»; та же
 семантика, что у `Available` на `/infobases/unassigned`, MLC-095).
 
+#### Агрегат сигналов «Требует внимания» (MLC-186a)
+
+`GET /api/v1/dashboard/alerts` (Viewer) — серверный агрегат сигналов для виджета «Требует
+внимания» на «Обзоре»: всё одним запросом, не N вызовами с фронта. Отдельный эндпоинт (не
+расширение `/dashboard/summary`): источники тяжелее/медленнее (снапшот RAS, server-side чтение
+свободного места SQL-диска), каданс реже лёгкого 5-секундного summary; контракт summary не
+трогается. RAS-здоровье и факт лицензий уже в `/summary` — здесь не дублируются.
+
+`DashboardAlertsResponse`:
+- `quotaWarning` / `quotaDanger` — число активных тенантов с положительным лимитом в зонах
+  75 ≤ pct < 90 и pct ≥ 90 (бакеты непересекающиеся; пороги зеркалят `frontend/src/lib/quota.ts`,
+  держатся в синхроне константами `DashboardEndpoints`). Потребление — факт rac (`Consuming`, ADR-48).
+- `clusterDrift` (`DashboardClusterDriftAlert?`) — дрейф панель↔кластер: `unassignedBases`
+  (в кластере, не в панели, не скрытые) + `basesNotInCluster` (в панели, нет в кластере). Считается
+  через **тот же** TTL-кэш снапшота (`UnassignedInfobasesCache`, общий хелпер `CountDriftAsync`),
+  что `/infobases/unassigned` — без второго спавна rac. **Admin-only** (discovery — Admin-only):
+  для не-Admin `clusterDrift=null` и кластер **не опрашивается** (Viewer не триггерит rac).
+  `available=false` ⇒ RAS недоступен, счётчики `null` (не «ложный ноль», как MLC-095).
+- `backupDisk` (`DashboardBackupDiskAlert`) — мало места на диске бэкапов: `low = free <`
+  склампленный `Backup.DiskSafetyMarginMb`. Свободное место читает новый метод порта
+  `ISqlBackupService.GetBackupDiskFreeBytesAsync` (server-side `xp_fixeddrives`, без оценки размера
+  базы; «never throws» → `null`=«не знаем»). Папка/сервер не заданы ⇒ `configured=false` (без SQL).
+
+Ответ кэшируется per-role (`dashboard:alerts:admin|viewer`, TTL 30с). Аудита нет (enum заморожен).
+
 ### 3.5 Управление службой RAS (ADR-47, MLC-159)
 
 Группа `/api/v1/ras-service` (Admin-only) управляет локальной службой Windows, под

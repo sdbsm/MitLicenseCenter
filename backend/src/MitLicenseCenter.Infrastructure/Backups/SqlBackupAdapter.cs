@@ -173,6 +173,43 @@ internal sealed partial class SqlBackupAdapter : ISqlBackupService
         }
     }
 
+    // Свободное место диска папки бэкапов в байтах (MLC-186a): тот же путь, что disk-guard
+    // (sysadmin-гейт → буква диска → xp_fixeddrives), но без оценки размера базы — host-level
+    // сигнал «мало места» для дашборда. «Never throws»: любая degraded-ветка (нет sysadmin /
+    // путь не локальный диск / диск не найден / SQL недоступен) → null. Отмену пробрасываем.
+    public async Task<long?> GetBackupDiskFreeBytesAsync(
+        string server, string folderRoot, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(_baseConnectionString) || !TryGetDriveLetter(folderRoot, out var drive))
+        {
+            return null;
+        }
+
+        try
+        {
+            await using var connection = new SqlConnection(BuildConnectionString(server));
+            await connection.OpenAsync(ct).ConfigureAwait(false);
+
+            if (!await IsSysadminAsync(connection, ct).ConfigureAwait(false))
+            {
+                return null;
+            }
+
+            var freeMb = await ReadFreeMbAsync(connection, drive, ct).ConfigureAwait(false);
+            return freeMb is { } mb ? mb * BytesPerMb : null;
+        }
+        catch (SqlException ex)
+        {
+            LogBackupFailed(_logger, server, folderRoot, ex);
+            return null;
+        }
+        catch (InvalidOperationException ex)
+        {
+            LogBackupFailed(_logger, server, folderRoot, ex);
+            return null;
+        }
+    }
+
     public async Task<SqlDeleteResult> DeleteBackupsOlderThanAsync(
         string server, string folderPath, DateTime cutoffUtc, CancellationToken ct)
     {

@@ -27,7 +27,8 @@ public static class BackupsEndpoints
 
     // Дефолт запаса места при отсутствии настройки — тот же, что у оркестратора (MLC-183):
     // предпоказ и реальный disk-guard берут одно склампленное значение Backup.DiskSafetyMarginMb.
-    private const int DefaultDiskSafetyMarginMb = 2048;
+    // internal: дашборд-алерт «мало места» (MLC-186a) берёт тот же дефолт — один источник в web-слое.
+    internal const int DefaultDiskSafetyMarginMb = 2048;
 
     public static void MapBackupsEndpoints(this IEndpointRouteBuilder endpoints, ApiVersionSet versionSet)
     {

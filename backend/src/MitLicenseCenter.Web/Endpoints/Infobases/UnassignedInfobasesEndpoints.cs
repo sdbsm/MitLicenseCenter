@@ -183,6 +183,30 @@ public static partial class UnassignedInfobasesEndpoints
         return TypedResults.NoContent();
     }
 
+    // Счётчики дрейфа панель↔кластер по уже полученному снапшоту RAS (MLC-186a, дашборд-алерт).
+    // Зеркалит ту же exclusion-конвенцию, что GetUnassignedAsync (Items/MissingItems), но без
+    // tenant-join и проекций в DTO — нужны только числа: unassigned = базы кластера не в
+    // (панель ∪ скрытые); notInCluster = записи панели, чьего ClusterInfobaseId нет в кластере.
+    // Зовётся только при snapshot.Available (вызывающая сторона проверяет): сбой опроса RAS ≠
+    // пропавшие базы (MLC-095), для недоступного RAS счётчики null, а не ложный ноль.
+    internal static async Task<(int Unassigned, int NotInCluster)> CountDriftAsync(
+        AppDbContext db, UnassignedInfobasesCache.ClusterSnapshot snapshot, CancellationToken ct)
+    {
+        var panelClusterIds = await db.Infobases.AsNoTracking()
+            .Select(i => i.ClusterInfobaseId).ToListAsync(ct).ConfigureAwait(false);
+        var hiddenIds = await db.HiddenClusterInfobases.AsNoTracking()
+            .Select(h => h.ClusterInfobaseId).ToListAsync(ct).ConfigureAwait(false);
+
+        var excluded = panelClusterIds.ToHashSet();
+        excluded.UnionWith(hiddenIds);
+        var unassigned = snapshot.Infobases.Count(i => !excluded.Contains(i.Id));
+
+        var clusterIds = snapshot.Infobases.Select(i => i.Id).ToHashSet();
+        var notInCluster = panelClusterIds.Count(id => !clusterIds.Contains(id));
+
+        return (unassigned, notInCluster);
+    }
+
     // TTL-кэш снапшота RAS перед опросом: единая точка для GET /infobases/unassigned и
     // серверного фильтра «не найдена в кластере» на GET /infobases (MLC-150). Один спавн
     // rac.exe на TTL делится между обоими маршрутами — спавн-бюджет ADR-3.3 соблюдён.
