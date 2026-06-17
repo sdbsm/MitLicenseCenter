@@ -27,7 +27,6 @@ public sealed class AuditFilterTests
             from: null,
             to: null,
             search: null,
-            initiator: null,
             page: null,
             pageSize: null,
             ct: CancellationToken.None);
@@ -52,7 +51,6 @@ public sealed class AuditFilterTests
             from: from,
             to: to,
             search: null,
-            initiator: null,
             page: null,
             pageSize: null,
             ct: CancellationToken.None);
@@ -75,7 +73,6 @@ public sealed class AuditFilterTests
             from: BaseTime,
             to: BaseTime.AddHours(4),
             search: null,
-            initiator: null,
             page: null,
             pageSize: null,
             ct: CancellationToken.None);
@@ -99,7 +96,6 @@ public sealed class AuditFilterTests
             from: null,
             to: null,
             search: null,
-            initiator: null,
             page: null,
             pageSize: null,
             ct: CancellationToken.None);
@@ -119,7 +115,6 @@ public sealed class AuditFilterTests
             from: BaseTime.AddHours(5),
             to: BaseTime,
             search: null,
-            initiator: null,
             page: null,
             pageSize: null,
             ct: CancellationToken.None);
@@ -140,7 +135,6 @@ public sealed class AuditFilterTests
             from: null,
             to: null,
             search: null,
-            initiator: null,
             page: null,
             pageSize: null,
             ct: CancellationToken.None);
@@ -164,7 +158,6 @@ public sealed class AuditFilterTests
             // Тот же регистр, что в сиде («Альфа»): на InMemory-провайдере Contains
             // ordinal/регистрозависимый. Регистронезависимость — за collation БД (см. ниже).
             search: "Альфа",
-            initiator: null,
             page: null,
             pageSize: null,
             ct: CancellationToken.None);
@@ -187,7 +180,6 @@ public sealed class AuditFilterTests
             from: null,
             to: null,
             search: "operator",
-            initiator: null,
             page: null,
             pageSize: null,
             ct: CancellationToken.None);
@@ -211,7 +203,7 @@ public sealed class AuditFilterTests
         await SeedSearchableAsync(db);
 
         var upper = await AuditEndpoints.ListAsync(
-            db, null, null, null, null, search: "АЛЬФА", initiator: null,
+            db, null, null, null, null, search: "АЛЬФА",
             page: null, pageSize: null, ct: CancellationToken.None);
 
         var okUpper = upper.Result.Should().BeOfType<Ok<AuditPagedResponse>>().Subject;
@@ -225,40 +217,11 @@ public sealed class AuditFilterTests
         await SeedSearchableAsync(db);
 
         var result = await AuditEndpoints.ListAsync(
-            db, null, null, null, null, search: "   ", initiator: null,
+            db, null, null, null, null, search: "   ",
             page: null, pageSize: null, ct: CancellationToken.None);
 
         var ok = result.Result.Should().BeOfType<Ok<AuditPagedResponse>>().Subject;
         ok.Value!.Total.Should().Be(3, "пустой/пробельный терм не фильтрует");
-    }
-
-    [Fact]
-    public async Task Initiator_filter_matches_exactly()
-    {
-        using var db = TestHelpers.NewInMemoryDb();
-        await SeedSearchableAsync(db);
-
-        var result = await AuditEndpoints.ListAsync(
-            db, null, null, null, null, search: null, initiator: "System",
-            page: null, pageSize: null, ct: CancellationToken.None);
-
-        var ok = result.Result.Should().BeOfType<Ok<AuditPagedResponse>>().Subject;
-        ok.Value!.Items.Should().OnlyContain(e => e.Initiator == "System");
-        ok.Value.Items.Should().HaveCount(1);
-    }
-
-    [Fact]
-    public async Task Initiator_filter_does_not_match_substring()
-    {
-        using var db = TestHelpers.NewInMemoryDb();
-        await SeedSearchableAsync(db);
-
-        var result = await AuditEndpoints.ListAsync(
-            db, null, null, null, null, search: null, initiator: "operator",
-            page: null, pageSize: null, ct: CancellationToken.None);
-
-        var ok = result.Result.Should().BeOfType<Ok<AuditPagedResponse>>().Subject;
-        ok.Value!.Total.Should().Be(0, "initiator — точное совпадение, не подстрока");
     }
 
     [Fact]
@@ -274,7 +237,6 @@ public sealed class AuditFilterTests
             from: null,
             to: null,
             search: "клиент",
-            initiator: null,
             page: null,
             pageSize: null,
             ct: CancellationToken.None);
@@ -290,19 +252,7 @@ public sealed class AuditFilterTests
         using var db = TestHelpers.NewInMemoryDb();
 
         var result = await AuditEndpoints.ListAsync(
-            db, null, null, null, null, search: new string('x', 201), initiator: null,
-            page: null, pageSize: null, ct: CancellationToken.None);
-
-        result.Result.Should().BeOfType<ValidationProblem>();
-    }
-
-    [Fact]
-    public async Task Initiator_too_long_returns_ValidationProblem()
-    {
-        using var db = TestHelpers.NewInMemoryDb();
-
-        var result = await AuditEndpoints.ListAsync(
-            db, null, null, null, null, search: null, initiator: new string('y', 201),
+            db, null, null, null, null, search: new string('x', 201),
             page: null, pageSize: null, ct: CancellationToken.None);
 
         result.Result.Should().BeOfType<ValidationProblem>();

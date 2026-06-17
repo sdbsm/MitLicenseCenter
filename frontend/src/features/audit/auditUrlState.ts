@@ -30,7 +30,6 @@ export function parseFiltersFromUrl(params: URLSearchParams): AuditFilters {
     from: params.get("from"),
     to: params.get("to"),
     search: params.get("search"),
-    initiator: params.get("initiator"),
     page,
     pageSize,
   };
@@ -43,7 +42,6 @@ export function filtersToUrl(filters: AuditFilters): URLSearchParams {
   if (filters.from) params.set("from", filters.from);
   if (filters.to) params.set("to", filters.to);
   if (filters.search) params.set("search", filters.search);
-  if (filters.initiator) params.set("initiator", filters.initiator);
   if (filters.page !== 1) params.set("page", String(filters.page));
   if (filters.pageSize !== DEFAULT_AUDIT_PAGE_SIZE) {
     params.set("pageSize", String(filters.pageSize));

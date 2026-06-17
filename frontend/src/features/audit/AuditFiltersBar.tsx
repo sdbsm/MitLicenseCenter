@@ -62,34 +62,15 @@ export function AuditFiltersBar({ filters, onChange }: AuditFiltersBarProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchDraft]);
 
-  const [initiatorDraft, setInitiatorDraft] = useState(filters.initiator ?? "");
-  const committedInitiator = useRef(filters.initiator ?? "");
-  useEffect(() => {
-    if ((filters.initiator ?? "") !== committedInitiator.current) {
-      committedInitiator.current = filters.initiator ?? "";
-      setInitiatorDraft(filters.initiator ?? "");
-    }
-  }, [filters.initiator]);
-
-  const commitInitiator = () => {
-    const next = initiatorDraft.trim() === "" ? null : initiatorDraft.trim();
-    if ((next ?? "") === committedInitiator.current) return;
-    committedInitiator.current = next ?? "";
-    update({ initiator: next });
-  };
-
   const reset = () => {
     committedSearch.current = "";
-    committedInitiator.current = "";
     setSearchDraft("");
-    setInitiatorDraft("");
     onChange({
       actionType: null,
       tenantId: null,
       from: null,
       to: null,
       search: null,
-      initiator: null,
       page: 1,
       pageSize: DEFAULT_AUDIT_PAGE_SIZE,
     });
@@ -100,8 +81,7 @@ export function AuditFiltersBar({ filters, onChange }: AuditFiltersBarProps) {
     filters.tenantId !== null ||
     filters.from !== null ||
     filters.to !== null ||
-    filters.search !== null ||
-    filters.initiator !== null;
+    filters.search !== null;
 
   const actionOptions: SearchableSelectOption[] = AUDIT_ACTION_TYPES.map((action) => ({
     value: action,
@@ -151,23 +131,6 @@ export function AuditFiltersBar({ filters, onChange }: AuditFiltersBarProps) {
           placeholder={t("audit.filters.searchPlaceholder")}
           value={searchDraft}
           onChange={(e) => setSearchDraft(e.target.value)}
-        />
-      </div>
-
-      <div className="grid gap-1.5">
-        <Label className="text-xs font-medium" htmlFor="audit-initiator">
-          {t("audit.filters.initiator")}
-        </Label>
-        <Input
-          id="audit-initiator"
-          className="w-40"
-          placeholder={t("audit.filters.initiatorPlaceholder")}
-          value={initiatorDraft}
-          onChange={(e) => setInitiatorDraft(e.target.value)}
-          onBlur={commitInitiator}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") commitInitiator();
-          }}
         />
       </div>
 

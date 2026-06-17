@@ -16,7 +16,7 @@ public static class AuditEndpoints
     private const int DefaultPageSize = 50;
     // Server-side clamp: страница тяжелее tenants/infobases — фиксируем шаги вручную.
     private static readonly int[] AllowedPageSizes = [25, 50, 100];
-    // Свободный текст фильтров (search/initiator) ограничен по длине — защита от
+    // Свободный текст фильтра search ограничен по длине — защита от
     // непомерных LIKE-термов; превышение → ValidationProblem, не 500.
     private const int MaxFreeTextLength = 200;
 
@@ -47,7 +47,6 @@ public static class AuditEndpoints
         [FromQuery] DateTime? from,
         [FromQuery] DateTime? to,
         [FromQuery] string? search,
-        [FromQuery] string? initiator,
         [FromQuery] int? page,
         [FromQuery] int? pageSize,
         CancellationToken ct)
@@ -77,12 +76,6 @@ public static class AuditEndpoints
         if (searchTerm is { Length: > MaxFreeTextLength })
         {
             errors[nameof(search)] = [$"Не длиннее {MaxFreeTextLength} символов."];
-        }
-
-        var initiatorTerm = initiator?.Trim();
-        if (initiatorTerm is { Length: > MaxFreeTextLength })
-        {
-            errors[nameof(initiator)] = [$"Не длиннее {MaxFreeTextLength} символов."];
         }
 
         if (errors.Count > 0)
@@ -125,10 +118,6 @@ public static class AuditEndpoints
             query = query.Where(x =>
                 x.Description.Contains(searchTerm) || x.Initiator.Contains(searchTerm));
 #pragma warning restore CA1862
-        }
-        if (!string.IsNullOrEmpty(initiatorTerm))
-        {
-            query = query.Where(x => x.Initiator == initiatorTerm);
         }
 
         // CountAsync и Skip/Take по одному и тому же IQueryable — EF проводит их как
