@@ -55,6 +55,9 @@ public static class SettingKey
     // License usage time-series retention (MLC-048, ADR-25).
     public const string LicenseUsageRetentionDays = "LicenseUsage.RetentionDays";
 
+    // Database size snapshots time-series retention (MLC-185).
+    public const string DatabaseSizeRetentionDays = "DatabaseSize.RetentionDays";
+
     // Маппинг «имя процесса → семья» для атрибуции потребления ресурсов в разделе
     // «Быстродействие» (MLC-064, ADR-26). Формат «Семья=маска,маска;…»; пусто → дефолтный
     // набор (ProcessFamilyMap.Default). Вынесен в Settings, чтобы менять без редеплоя.

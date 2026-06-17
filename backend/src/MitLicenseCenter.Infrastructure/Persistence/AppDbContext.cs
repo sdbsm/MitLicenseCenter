@@ -23,6 +23,7 @@ public sealed class AppDbContext : IdentityDbContext<AppUser, AppRole, Guid>
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<SettingEntry> Settings => Set<SettingEntry>();
     public DbSet<LicenseUsageSnapshot> LicenseUsageSnapshots => Set<LicenseUsageSnapshot>();
+    public DbSet<DatabaseSizeSnapshot> DatabaseSizeSnapshots => Set<DatabaseSizeSnapshot>();
     public DbSet<PerfRecording> PerfRecordings => Set<PerfRecording>();
     public DbSet<PerfRecordingSample> PerfRecordingSamples => Set<PerfRecordingSample>();
     public DbSet<DatabaseBackup> DatabaseBackups => Set<DatabaseBackup>();
@@ -164,6 +165,28 @@ public sealed class AppDbContext : IdentityDbContext<AppUser, AppRole, Guid>
             e.HasIndex(x => new { x.TenantId, x.BucketStartUtc });
             // SetNull (как AuditLog): удаление тенанта обнуляет ссылку, но замеры остаются —
             // история использования переживает удаление клиента.
+            e.HasOne<Tenant>()
+                .WithMany()
+                .HasForeignKey(x => x.TenantId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        builder.Entity<DatabaseSizeSnapshot>(e =>
+        {
+            // MLC-185: снимок размера базы данных. Конфиг inline по паттерну
+            // LicenseUsageSnapshot (сущность-телеметрия). DatabaseName — ключ
+            // сопоставления (как у DatabaseBackup), max 200 — как Infobase.DatabaseName.
+            e.ToTable("DatabaseSizeSnapshots", "dbo");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.DatabaseName).IsRequired().HasMaxLength(200);
+            e.Property(x => x.SnapshotAtUtc).IsRequired();
+            e.Property(x => x.DataBytes).IsRequired();
+            e.Property(x => x.LogBytes).IsRequired();
+            // Дорога чтения отчётов: ряд по базе во времени + срез по клиенту во времени.
+            e.HasIndex(x => new { x.DatabaseName, x.SnapshotAtUtc });
+            e.HasIndex(x => new { x.TenantId, x.SnapshotAtUtc });
+            // SetNull (как LicenseUsageSnapshot): удаление тенанта обнуляет ссылку,
+            // но замеры остаются — история размера переживает удаление клиента.
             e.HasOne<Tenant>()
                 .WithMany()
                 .HasForeignKey(x => x.TenantId)

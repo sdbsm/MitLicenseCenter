@@ -148,6 +148,15 @@ public static class SettingDefinitions
                 Min: 30,
                 Max: 3650),
 
+            [SettingKey.DatabaseSizeRetentionDays] = new(
+                SettingKey.DatabaseSizeRetentionDays,
+                IsSecret: false,
+                Description: "Срок хранения истории размера баз (для отчётов) в днях. Старые замеры удаляются автоматически по ночам.",
+                Kind: SettingValueKind.Number,
+                DefaultValue: "365",
+                Min: 30,
+                Max: 3650),
+
             [SettingKey.PerformanceProcessFamilyMap] = new(
                 SettingKey.PerformanceProcessFamilyMap,
                 IsSecret: false,
