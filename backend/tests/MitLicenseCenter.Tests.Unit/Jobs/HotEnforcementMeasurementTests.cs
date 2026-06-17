@@ -142,7 +142,7 @@ public sealed class HotEnforcementMeasurementTests
         public Task<IReadOnlySet<Guid>?> ListLicensedSessionIdsAsync(CancellationToken ct)
             => Task.FromResult<IReadOnlySet<Guid>?>(sessions.Select(s => s.SessionId).ToHashSet());
 
-        public Task<KillSessionResult> KillSessionAsync(SessionDescriptor descriptor, CancellationToken ct)
+        public Task<KillSessionResult> KillSessionAsync(SessionDescriptor descriptor, CancellationToken ct, string? errorMessage = null)
         {
             Interlocked.Increment(ref _terminateCalls);
             return Task.FromResult(new KillSessionResult(Killed: true, AlreadyGone: false));

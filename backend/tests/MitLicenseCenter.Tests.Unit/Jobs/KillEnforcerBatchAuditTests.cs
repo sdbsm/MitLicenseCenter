@@ -68,7 +68,7 @@ public sealed class KillEnforcerBatchAuditTests
 
         var cluster = Substitute.For<IClusterClient>();
         cluster.ListActiveSessionsAsync(Arg.Any<CancellationToken>()).Returns(freshSessions);
-        cluster.KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>())
+        cluster.KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>(), Arg.Any<string?>())
             .Returns(new KillSessionResult(Killed: true, AlreadyGone: false));
 
         var counter = new CountingSaveInterceptor();
@@ -105,7 +105,7 @@ public sealed class KillEnforcerBatchAuditTests
             a.Initiator.Should().Be("System");
         });
 
-        await cluster.Received(4).KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>());
+        await cluster.Received(4).KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>(), Arg.Any<string?>());
 
         // Ровно один SaveChanges за весь цикл enforcement (батч), а не по одному на kill.
         (counter.SavedChangesCount - savesAfterSeed).Should()
@@ -134,7 +134,7 @@ public sealed class KillEnforcerBatchAuditTests
         var payload = new SnapshotPayload(sessions, baseTime.AddMinutes(30), 42, "Rest", LicenseFactAvailable: true);
 
         var cluster = Substitute.For<IClusterClient>();
-        cluster.KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>())
+        cluster.KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>(), Arg.Any<string?>())
             .Returns(new KillSessionResult(Killed: true, AlreadyGone: false));
 
         var counter = new CountingSaveInterceptor();

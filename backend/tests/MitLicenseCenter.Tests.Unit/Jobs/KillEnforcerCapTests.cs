@@ -42,7 +42,7 @@ public sealed class KillEnforcerCapTests
 
         var cluster = Substitute.For<IClusterClient>();
         cluster.ListActiveSessionsAsync(Arg.Any<CancellationToken>()).Returns(freshSessions);
-        cluster.KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>())
+        cluster.KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>(), Arg.Any<string?>())
             .Returns(new KillSessionResult(Killed: true, AlreadyGone: false));
 
         var audit = new TestHelpers.CapturingAuditLogger();
@@ -64,7 +64,7 @@ public sealed class KillEnforcerCapTests
         await enforcer.EnforceAsync(payload, freshSessions: null, CancellationToken.None);
 
         // Assert: exactly 20 kills (cap), not 30.
-        await cluster.Received(20).KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>());
+        await cluster.Received(20).KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>(), Arg.Any<string?>());
         audit.Entries.Should().HaveCount(20);
     }
 }

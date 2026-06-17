@@ -27,7 +27,7 @@ public sealed class KillEnforcerGraceTests
             newestStartedAtUtc: ClockNow.AddSeconds(-5),
             newestUserName: "user-newest");
 
-        await cluster.DidNotReceive().KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>());
+        await cluster.DidNotReceive().KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>(), Arg.Any<string?>());
         audit.Entries.Should().BeEmpty();
     }
 
@@ -39,7 +39,7 @@ public sealed class KillEnforcerGraceTests
             newestStartedAtUtc: ClockNow.AddSeconds(-20),
             newestUserName: "user-newest");
 
-        await cluster.Received(1).KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>());
+        await cluster.Received(1).KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>(), Arg.Any<string?>());
         audit.Entries.Should().ContainSingle();
     }
 
@@ -53,7 +53,7 @@ public sealed class KillEnforcerGraceTests
             newestUserName: "user-newest",
             graceSeconds: 30);
 
-        await cluster.DidNotReceive().KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>());
+        await cluster.DidNotReceive().KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>(), Arg.Any<string?>());
         audit.Entries.Should().BeEmpty();
     }
 
@@ -96,7 +96,7 @@ public sealed class KillEnforcerGraceTests
 
         var cluster = Substitute.For<IClusterClient>();
         cluster.ListActiveSessionsAsync(Arg.Any<CancellationToken>()).Returns(freshSessions);
-        cluster.KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>())
+        cluster.KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>(), Arg.Any<string?>())
             .Returns(new KillSessionResult(Killed: true, AlreadyGone: false));
 
         var audit = new TestHelpers.CapturingAuditLogger();

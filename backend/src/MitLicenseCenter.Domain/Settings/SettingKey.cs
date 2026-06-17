@@ -49,6 +49,14 @@ public static class SettingKey
     // в окне входа. См. KillEnforcer + DECISIONS.md «Kill grace period».
     public const string EnforcementKillGraceSeconds = "Enforcement.KillGraceSeconds";
 
+    // Текст-причина, передаваемый 1С при принудительном завершении сеанса по
+    // лимиту лицензий (enforcement, KillEnforcer → rac session terminate
+    // --error-message). Тонкий клиент показывает его модальным окном. Свободный
+    // текст: провайдер вписывает причину + свои контакты. Пусто → флаг не
+    // передаётся (текущее поведение). Только на enforcement-пути; ручное
+    // завершение оператором текст не несёт. См. MLC-190.
+    public const string EnforcementTerminateMessage = "Enforcement.TerminateMessage";
+
     // Audit retention (PR 4.3).
     public const string AuditRetentionDays = "Audit.RetentionDays";
 

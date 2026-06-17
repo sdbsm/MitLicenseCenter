@@ -60,7 +60,7 @@ public sealed class KillEnforcerStaleCandidateTests
         await enforcer.EnforceAsync(payload, freshSessions: null, CancellationToken.None);
 
         // Assert: no KillSessionAsync calls (all candidates stale), no audit.
-        await cluster.DidNotReceive().KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>());
+        await cluster.DidNotReceive().KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>(), Arg.Any<string?>());
         audit.Entries.Should().BeEmpty();
     }
 }

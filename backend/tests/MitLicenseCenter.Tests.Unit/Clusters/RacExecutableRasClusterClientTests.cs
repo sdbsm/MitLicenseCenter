@@ -248,6 +248,75 @@ public sealed class RacExecutableRasClusterClientTests
         result.AlreadyGone.Should().BeFalse();
     }
 
+    // --- MLC-190: текст-причина (--error-message) на enforcement-пути ---
+
+    [Fact]
+    public async Task KillSessionAsync_passes_error_message_arg_when_text_provided()
+    {
+        var settings = BuildSettings();
+        var captured = new List<IReadOnlyList<string>>();
+        var runner = Substitute.For<IRacProcessRunner>();
+        runner.RunAsync(Arg.Any<string>(), Arg.Do<IReadOnlyList<string>>(a => captured.Add(a)), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(new RacInvocation(0, FakeClusterListStdout, string.Empty), new RacInvocation(0, string.Empty, string.Empty));
+
+        var client = BuildClient(runner, settings);
+
+        await client.KillSessionAsync(
+            new SessionDescriptor(Guid.NewGuid(), Guid.NewGuid(), "1CV8C", DateTime.UtcNow),
+            default,
+            errorMessage: "Лимит лицензий. Звоните 8-800.");
+
+        // captured[0] = cluster list (резолв UUID), captured[1] = session terminate.
+        captured.Should().HaveCount(2);
+        captured[1].Should().Contain("session").And.Contain("terminate")
+            .And.Contain("--error-message=Лимит лицензий. Звоните 8-800.");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task KillSessionAsync_omits_error_message_arg_when_text_blank(string? message)
+    {
+        var settings = BuildSettings();
+        var captured = new List<IReadOnlyList<string>>();
+        var runner = Substitute.For<IRacProcessRunner>();
+        runner.RunAsync(Arg.Any<string>(), Arg.Do<IReadOnlyList<string>>(a => captured.Add(a)), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(new RacInvocation(0, FakeClusterListStdout, string.Empty), new RacInvocation(0, string.Empty, string.Empty));
+
+        var client = BuildClient(runner, settings);
+
+        await client.KillSessionAsync(
+            new SessionDescriptor(Guid.NewGuid(), Guid.NewGuid(), "1CV8C", DateTime.UtcNow),
+            default,
+            errorMessage: message);
+
+        captured.Should().HaveCount(2);
+        captured[1].Should().NotContainMatch("--error-message=*",
+            "пустая настройка = не передавать флаг (текущее поведение)");
+    }
+
+    [Fact]
+    public async Task KillSessionAsync_omits_error_message_arg_by_default()
+    {
+        // Дефолт параметра (ручное завершение оператором зовёт KillSessionAsync(descriptor, ct))
+        // — текст не передаётся.
+        var settings = BuildSettings();
+        var captured = new List<IReadOnlyList<string>>();
+        var runner = Substitute.For<IRacProcessRunner>();
+        runner.RunAsync(Arg.Any<string>(), Arg.Do<IReadOnlyList<string>>(a => captured.Add(a)), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(new RacInvocation(0, FakeClusterListStdout, string.Empty), new RacInvocation(0, string.Empty, string.Empty));
+
+        var client = BuildClient(runner, settings);
+
+        await client.KillSessionAsync(
+            new SessionDescriptor(Guid.NewGuid(), Guid.NewGuid(), "1CV8C", DateTime.UtcNow),
+            default);
+
+        captured.Should().HaveCount(2);
+        captured[1].Should().NotContainMatch("--error-message=*");
+    }
+
     [Fact]
     public async Task PingAsync_returns_Ok_true_on_cluster_list_exit_zero()
     {

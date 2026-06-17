@@ -168,7 +168,7 @@ public sealed class HotColdEnforcementOverKillTests
                 return Task.FromResult<IReadOnlySet<Guid>?>(_sessions.Keys.ToHashSet());
         }
 
-        public Task<KillSessionResult> KillSessionAsync(SessionDescriptor descriptor, CancellationToken ct)
+        public Task<KillSessionResult> KillSessionAsync(SessionDescriptor descriptor, CancellationToken ct, string? errorMessage = null)
         {
             Interlocked.Increment(ref _terminateCalls);
             lock (_gate)

@@ -394,6 +394,17 @@ DataAnnotations (`[Required]`, `[Range]`, `[MaxLength]`) на DTO-классах
 не входит в словарь — возвращается 404 с кодом `SETTING_UNKNOWN_KEY`. Тем же словарём
 `SettingsSeeder` сидирует дефолтные значения при первом запуске.
 
+`Enforcement.TerminateMessage` — свободный текст (`Kind = Text`, не секрет, с сидируемым
+RU-дефолтом), который `KillEnforcer` передаёт в `rac session terminate` флагом
+`--error-message` при завершении сеанса по лимиту лицензий: тонкий клиент 1С показывает его
+пользователю модальным окном (причина + контакты провайдера). Пустая настройка → флаг не
+передаётся, сеанс гасится молча (текущее поведение). Текст добавляется только на
+enforcement-пути (`KillEnforcer` → `IClusterClient.KillSessionAsync(..., errorMessage)` →
+`RacExecutableRasClusterClient`); ручное завершение сеанса оператором (`SessionsEndpoints`)
+вызывает `KillSessionAsync` без текста. Аргумент уходит через `ProcessStartInfo.ArgumentList`
+(wide-args .NET с авто-экранированием) — отдельная CP866/OEM-перекодировка не нужна (OEM
+касается только чтения stdout/stderr `rac.exe`). Поддерживается платформой 1С 8.x.
+
 ### 5.2 IsSecret и шифрование
 
 Параметры с `IsSecret = true` (например `OneC.Cluster.AdminPassword`) хранятся

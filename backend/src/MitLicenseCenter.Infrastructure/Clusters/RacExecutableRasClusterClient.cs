@@ -148,7 +148,8 @@ internal sealed partial class RacExecutableRasClusterClient : IClusterClient
         return licensed;
     }
 
-    public async Task<KillSessionResult> KillSessionAsync(SessionDescriptor descriptor, CancellationToken ct)
+    public async Task<KillSessionResult> KillSessionAsync(
+        SessionDescriptor descriptor, CancellationToken ct, string? errorMessage = null)
     {
         if (!TryGetExePath(out var exePath))
         {
@@ -165,6 +166,15 @@ internal sealed partial class RacExecutableRasClusterClient : IClusterClient
             "session", "terminate",
             $"--cluster={clusterUuid}",
             $"--session={descriptor.SessionId:D}");
+
+        // MLC-190: текст-причина для тонкого клиента 1С — добавляется только когда задан
+        // (enforcement-путь). Аргумент уходит через ArgumentList (wide-args .NET с
+        // авто-экранированием пробелов/кавычек) — отдельная CP866/OEM-перекодировка не нужна
+        // (OEM касается только ЧТЕНИЯ stdout/stderr rac.exe, см. SystemProcessRacRunner).
+        if (!string.IsNullOrWhiteSpace(errorMessage))
+        {
+            args.Add($"--error-message={errorMessage}");
+        }
 
         var invocation = await _runner.RunAsync(exePath, args, InvocationTimeout, ct)
             .ConfigureAwait(false);

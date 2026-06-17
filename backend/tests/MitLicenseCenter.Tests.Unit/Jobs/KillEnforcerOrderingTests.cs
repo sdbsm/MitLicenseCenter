@@ -44,7 +44,7 @@ public sealed class KillEnforcerOrderingTests
 
         var cluster = Substitute.For<IClusterClient>();
         cluster.ListActiveSessionsAsync(Arg.Any<CancellationToken>()).Returns(freshSessions);
-        cluster.KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>())
+        cluster.KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>(), Arg.Any<string?>())
             .Returns(new KillSessionResult(Killed: true, AlreadyGone: false));
 
         var audit = new TestHelpers.CapturingAuditLogger();
@@ -66,7 +66,7 @@ public sealed class KillEnforcerOrderingTests
         await enforcer.EnforceAsync(payload, freshSessions: null, CancellationToken.None);
 
         // Assert: 2 newest killed (index 4 and 3), 3 oldest survive.
-        await cluster.Received(2).KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>());
+        await cluster.Received(2).KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>(), Arg.Any<string?>());
 
         var killedIds = cluster.ReceivedCalls()
             .Where(c => c.GetMethodInfo().Name == nameof(IClusterClient.KillSessionAsync))

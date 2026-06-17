@@ -38,7 +38,7 @@ public sealed class KillEnforcerLicenseFactTests
 
         var (cluster, audit) = await RunAsync(tenantId, limit: 1, payload);
 
-        await cluster.DidNotReceive().KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>());
+        await cluster.DidNotReceive().KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>(), Arg.Any<string?>());
         audit.Entries.Should().BeEmpty();
         // Факт недоступен → re-fetch вообще не нужен (ранний выход до него).
         await cluster.DidNotReceive().ListActiveSessionsAsync(Arg.Any<CancellationToken>());
@@ -61,7 +61,7 @@ public sealed class KillEnforcerLicenseFactTests
         var (cluster, audit) = await RunAsync(tenantId, limit: 1, payload);
 
         // over by 2 → ровно 2 kill.
-        await cluster.Received(2).KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>());
+        await cluster.Received(2).KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>(), Arg.Any<string?>());
         audit.Entries.Should().HaveCount(2);
     }
 
@@ -88,7 +88,7 @@ public sealed class KillEnforcerLicenseFactTests
         var (cluster, audit) = await RunAsync(
             tenantId, limit: 1, payload, killGraceSeconds: 5, coldIntervalSeconds: 60);
 
-        await cluster.DidNotReceive().KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>());
+        await cluster.DidNotReceive().KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>(), Arg.Any<string?>());
         audit.Entries.Should().BeEmpty();
     }
 
@@ -104,7 +104,7 @@ public sealed class KillEnforcerLicenseFactTests
 
         var cluster = Substitute.For<IClusterClient>();
         cluster.ListActiveSessionsAsync(Arg.Any<CancellationToken>()).Returns(freshSessions);
-        cluster.KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>())
+        cluster.KillSessionAsync(Arg.Any<SessionDescriptor>(), Arg.Any<CancellationToken>(), Arg.Any<string?>())
             .Returns(new KillSessionResult(Killed: true, AlreadyGone: false));
 
         var audit = new TestHelpers.CapturingAuditLogger();
