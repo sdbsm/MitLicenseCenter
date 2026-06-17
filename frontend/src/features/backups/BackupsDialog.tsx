@@ -159,7 +159,13 @@ export function BackupsDialog({ infobase, open, onOpenChange }: BackupsDialogPro
                         {fmt(b.completedAtUtc)}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
-                        {b.filePath ? (
+                        {b.status === "Succeeded" && b.fileAvailable === false ? (
+                          // Живая сверка с диском (MLC-178): файл вытеснен/удалён — размер
+                          // приглушаем и помечаем «файл отсутствует». Кнопки «Скачать» нет.
+                          <span className="text-muted-foreground" title={b.filePath ?? undefined}>
+                            {t("backups.fileMissing")}
+                          </span>
+                        ) : b.filePath ? (
                           <span title={b.filePath}>{formatBackupSize(b.fileSizeBytes)}</span>
                         ) : (
                           formatBackupSize(b.fileSizeBytes)

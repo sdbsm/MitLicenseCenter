@@ -366,6 +366,25 @@ internal sealed partial class BackupOrchestrator : IBackupOrchestrator, IDisposa
                     backup.Status = BackupStatus.Succeeded;
                     backup.FilePath = result.FilePath;
                     backup.FileSizeBytes = result.FileSizeBytes;
+
+                    // keep-latest-1 (MLC-178): новый .bak вытеснил .bak предыдущих успешных
+                    // бэкапов той же пары (server, db) — адаптер удалил их файлы после VERIFYONLY.
+                    // Обнуляем FilePath/FileSizeBytes этих строк, чтобы список не показывал
+                    // путь/размер вытесненного файла. Строки НЕ удаляем (история), статус не
+                    // меняем, аудит не пишем. Имена БД в SQL Server регистронезависимы.
+                    var superseded = await db.DatabaseBackups
+                        .Where(b => b.Id != backupId
+                            && b.Status == BackupStatus.Succeeded
+                            && b.DatabaseServer == server
+                            && b.DatabaseName == databaseName
+                            && b.FilePath != null)
+                        .ToListAsync()
+                        .ConfigureAwait(false);
+                    foreach (var old in superseded)
+                    {
+                        old.FilePath = null;
+                        old.FileSizeBytes = null;
+                    }
                 }
                 else
                 {

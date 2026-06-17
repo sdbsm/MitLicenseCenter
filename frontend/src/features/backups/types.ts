@@ -54,6 +54,10 @@ export const backupSummarySchema = z.object({
   // None у Queued/Running/Succeeded; конкретная причина — только у Failed.
   failureReason: backupFailureReasonSchema,
   errorMessage: omittable(z.string()),
+  // Живой флаг наличия .bak на диске SQL-хоста (MLC-178): true — файл есть; false — файла
+  // нет (вытеснен keep-latest / удалён вручную / TTL-чистка раньше строки); null — не
+  // проверяли/сервис не смог. Опускается WhenWritingNull → omittable (как и прочие nullable).
+  fileAvailable: omittable(z.boolean()),
 });
 
 export const backupListSchema = z.array(backupSummarySchema);

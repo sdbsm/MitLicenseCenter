@@ -195,6 +195,57 @@ internal sealed partial class SqlBackupAdapter : ISqlBackupService
         }
     }
 
+    // Живой флаг доступности файлов на диске SQL-хоста (MLC-178). Server-side через
+    // xp_fileexist — на каждый путь EXEC master.dbo.xp_fileexist @path возвращает строку с
+    // колонкой «File Exists» (0/1). Один открытый коннект на весь список (round-trip на список,
+    // не на файл); тот же sysadmin-гейт, что у остальных xp_*-методов. «Never throws»: любой
+    // сбой → пустой словарь («не знаем»). Пустой paths → пустой словарь без обращения к SQL.
+    public async Task<IReadOnlyDictionary<string, bool>> FilesExistAsync(
+        string server, IReadOnlyCollection<string> paths, CancellationToken ct)
+    {
+        if (paths.Count == 0 || string.IsNullOrWhiteSpace(_baseConnectionString))
+        {
+            return EmptyResult;
+        }
+
+        try
+        {
+            await using var connection = new SqlConnection(BuildConnectionString(server));
+            await connection.OpenAsync(ct).ConfigureAwait(false);
+
+            if (!await IsSysadminAsync(connection, ct).ConfigureAwait(false))
+            {
+                return EmptyResult;
+            }
+
+            var result = new Dictionary<string, bool>(StringComparer.Ordinal);
+            foreach (var path in paths)
+            {
+                if (string.IsNullOrEmpty(path))
+                {
+                    continue;
+                }
+
+                result[path] = await FileExistsAsync(connection, path, ct).ConfigureAwait(false);
+            }
+
+            return result;
+        }
+        catch (SqlException ex)
+        {
+            LogFilesExistFailed(_logger, server, ex);
+            return EmptyResult;
+        }
+        catch (InvalidOperationException ex)
+        {
+            LogFilesExistFailed(_logger, server, ex);
+            return EmptyResult;
+        }
+    }
+
+    private static readonly IReadOnlyDictionary<string, bool> EmptyResult =
+        new Dictionary<string, bool>(StringComparer.Ordinal);
+
     private static SqlBackupResult Fail(BackupFailureReason reason, string message) =>
         new(false, reason, null, null, message);
 
@@ -337,6 +388,22 @@ EXEC sys.sp_executesql @sql, N'@path nvarchar(512)', @path = @path;";
         await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
 
+    // xp_fileexist возвращает одну строку с тремя колонками; нас интересует «File Exists»
+    // (1 — обычный файл существует, 0 — нет). Путь — всегда строковый параметр (без конкатенации).
+    private static async Task<bool> FileExistsAsync(
+        SqlConnection connection, string path, CancellationToken ct)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            "DECLARE @r TABLE ([File Exists] int, [File is a Directory] int, [Parent Directory Exists] int);" +
+            "INSERT INTO @r EXEC master.dbo.xp_fileexist @path;" +
+            "SELECT [File Exists] FROM @r;";
+        command.CommandTimeout = MetadataCommandTimeoutSeconds;
+        command.Parameters.AddWithValue("@path", path);
+        var value = await command.ExecuteScalarAsync(ct).ConfigureAwait(false);
+        return value is int i && i == 1;
+    }
+
     // Размер сжатого .bak из истории msdb — best-effort: нет строки/сбой чтения → null,
     // бэкап уже состоялся и провалом это не считается.
     private static async Task<long?> TryReadBackupSizeAsync(
@@ -370,4 +437,7 @@ ORDER BY bs.backup_finish_date DESC;";
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Бэкап БД: удаление устаревших файлов провалилось (сервер {Server}, папка {Folder})")]
     private static partial void LogDeleteFailed(ILogger logger, string server, string folder, Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Бэкап БД: проверка наличия файлов на диске провалилась (сервер {Server})")]
+    private static partial void LogFilesExistFailed(ILogger logger, string server, Exception ex);
 }

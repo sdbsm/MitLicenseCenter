@@ -2,6 +2,7 @@ using FluentAssertions;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using MitLicenseCenter.Application.Backups;
+using MitLicenseCenter.Infrastructure.Backups.Testing;
 using MitLicenseCenter.Infrastructure.Reporting;
 using MitLicenseCenter.Web.Endpoints;
 using Xunit;
@@ -30,6 +31,7 @@ public sealed class BackupsPaginationTests
             pageSize: 10,
             search: null,
             db: db,
+            backupService: new FakeSqlBackupService(),
             ct: CancellationToken.None);
 
         var ok = result.Result.Should().BeOfType<Ok<BackupsPagedResponse>>().Subject;
@@ -53,6 +55,7 @@ public sealed class BackupsPaginationTests
             pageSize: 25,
             search: null,
             db: db,
+            backupService: new FakeSqlBackupService(),
             ct: CancellationToken.None);
 
         var ok = result.Result.Should().BeOfType<Ok<BackupsPagedResponse>>().Subject;
@@ -71,6 +74,7 @@ public sealed class BackupsPaginationTests
             pageSize: null,
             search: null,
             db: db,
+            backupService: new FakeSqlBackupService(),
             ct: CancellationToken.None);
 
         var ok = result.Result.Should().BeOfType<Ok<BackupsPagedResponse>>().Subject;
@@ -95,6 +99,7 @@ public sealed class BackupsPaginationTests
             pageSize: 25,
             search: null,
             db: db,
+            backupService: new FakeSqlBackupService(),
             ct: CancellationToken.None);
 
         var ok = result.Result.Should().BeOfType<Ok<BackupsPagedResponse>>().Subject;
@@ -120,6 +125,7 @@ public sealed class BackupsPaginationTests
             pageSize: 25,
             search: "acme",
             db: db,
+            backupService: new FakeSqlBackupService(),
             ct: CancellationToken.None);
 
         var ok = result.Result.Should().BeOfType<Ok<BackupsPagedResponse>>().Subject;
@@ -138,6 +144,7 @@ public sealed class BackupsPaginationTests
             pageSize: 25,
             search: new string('x', 201),
             db: db,
+            backupService: new FakeSqlBackupService(),
             ct: CancellationToken.None);
 
         result.Result.Should().BeOfType<ValidationProblem>(

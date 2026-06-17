@@ -33,14 +33,78 @@ public sealed class BackupsEndpointsTests
         db.DatabaseBackups.AddRange(older, newer, foreign);
         await db.SaveChangesAsync();
 
-        var allResult = await BackupsEndpoints.ListAsync(null, null, null, null, db, CancellationToken.None);
-        var filteredResult = await BackupsEndpoints.ListAsync(infobaseId, null, null, null, db, CancellationToken.None);
+        var allResult = await BackupsEndpoints.ListAsync(null, null, null, null, db, new FakeSqlBackupService(), CancellationToken.None);
+        var filteredResult = await BackupsEndpoints.ListAsync(infobaseId, null, null, null, db, new FakeSqlBackupService(), CancellationToken.None);
 
         var all = allResult.Result.Should().BeOfType<Ok<BackupsPagedResponse>>().Subject.Value!;
         var filtered = filteredResult.Result.Should().BeOfType<Ok<BackupsPagedResponse>>().Subject.Value!;
 
         all.Items.Select(b => b.Id).Should().Equal([foreign.Id, newer.Id, older.Id], "свежие сверху");
         filtered.Items.Select(b => b.Id).Should().Equal([newer.Id, older.Id]);
+    }
+
+    [Fact]
+    public async Task List_sets_file_available_true_or_false_for_succeeded_rows_with_path()
+    {
+        // MLC-178: живая сверка с диском. Две Succeeded-строки с путём — одна есть на диске,
+        // другой нет; флаг проставляется по факту от FilesExistAsync.
+        using var db = TestHelpers.NewInMemoryDb();
+        var infobaseId = Guid.NewGuid();
+        var present = Row(infobaseId, "acme_db", BackupStatus.Succeeded, Now.AddHours(-1));
+        present.FilePath = @"D:\Backups\acme_db\present.bak";
+        var missing = Row(infobaseId, "acme_db", BackupStatus.Succeeded, Now.AddHours(-2));
+        missing.FilePath = @"D:\Backups\acme_db\missing.bak";
+        db.DatabaseBackups.AddRange(present, missing);
+        await db.SaveChangesAsync();
+        var fake = new FakeSqlBackupService { ExistingFilePaths = [present.FilePath] };
+
+        var result = await BackupsEndpoints.ListAsync(infobaseId, null, null, null, db, fake, CancellationToken.None);
+
+        var items = result.Result.Should().BeOfType<Ok<BackupsPagedResponse>>().Subject.Value!.Items;
+        items.Single(b => b.Id == present.Id).FileAvailable.Should().BeTrue();
+        items.Single(b => b.Id == missing.Id).FileAvailable.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task List_sets_file_available_null_for_non_succeeded_or_pathless_rows()
+    {
+        // MLC-178: Queued/Running/Failed и Succeeded-без-пути не проверяются → FileAvailable=null.
+        using var db = TestHelpers.NewInMemoryDb();
+        var infobaseId = Guid.NewGuid();
+        var queued = Row(infobaseId, "acme_db", BackupStatus.Queued, Now.AddHours(-1));
+        var running = Row(infobaseId, "acme_db", BackupStatus.Running, Now.AddHours(-2));
+        var failed = Row(infobaseId, "acme_db", BackupStatus.Failed, Now.AddHours(-3));
+        var succeededNoPath = Row(infobaseId, "acme_db", BackupStatus.Succeeded, Now.AddHours(-4));
+        db.DatabaseBackups.AddRange(queued, running, failed, succeededNoPath);
+        await db.SaveChangesAsync();
+        // Набор задан (сервис «смог»), но проверять нечего — все строки вне критериев.
+        var fake = new FakeSqlBackupService { ExistingFilePaths = [] };
+
+        var result = await BackupsEndpoints.ListAsync(infobaseId, null, null, null, db, fake, CancellationToken.None);
+
+        var items = result.Result.Should().BeOfType<Ok<BackupsPagedResponse>>().Subject.Value!.Items;
+        items.Should().OnlyContain(b => b.FileAvailable == null);
+        fake.FilesExistCalls.Should().BeEmpty("Succeeded-строк с путём нет — батч не вызывается");
+    }
+
+    [Fact]
+    public async Task List_sets_file_available_null_for_all_when_service_cannot_check()
+    {
+        // MLC-178: сервис не смог (пустой словарь = «не знаем») → FileAvailable=null у всех,
+        // даже у Succeeded-строк с путём (флаг не выдумываем).
+        using var db = TestHelpers.NewInMemoryDb();
+        var infobaseId = Guid.NewGuid();
+        var present = Row(infobaseId, "acme_db", BackupStatus.Succeeded, Now.AddHours(-1));
+        present.FilePath = @"D:\Backups\acme_db\present.bak";
+        db.DatabaseBackups.Add(present);
+        await db.SaveChangesAsync();
+        // ExistingFilePaths == null → фейк имитирует «не смог» (пустой словарь).
+        var fake = new FakeSqlBackupService();
+
+        var result = await BackupsEndpoints.ListAsync(infobaseId, null, null, null, db, fake, CancellationToken.None);
+
+        var items = result.Result.Should().BeOfType<Ok<BackupsPagedResponse>>().Subject.Value!.Items;
+        items.Single().FileAvailable.Should().BeNull();
     }
 
     [Fact]
@@ -53,7 +117,7 @@ public sealed class BackupsEndpointsTests
         db.DatabaseBackups.Add(row);
         await db.SaveChangesAsync();
 
-        var result = await BackupsEndpoints.GetAsync(row.Id, db, CancellationToken.None);
+        var result = await BackupsEndpoints.GetAsync(row.Id, db, new FakeSqlBackupService(), CancellationToken.None);
 
         var summary = result.Result.Should().BeOfType<Ok<BackupSummary>>().Subject.Value!;
         summary.Id.Should().Be(row.Id);
@@ -67,7 +131,7 @@ public sealed class BackupsEndpointsTests
     {
         using var db = TestHelpers.NewInMemoryDb();
 
-        var result = await BackupsEndpoints.GetAsync(Guid.NewGuid(), db, CancellationToken.None);
+        var result = await BackupsEndpoints.GetAsync(Guid.NewGuid(), db, new FakeSqlBackupService(), CancellationToken.None);
 
         result.Result.Should().BeOfType<NotFound>();
     }

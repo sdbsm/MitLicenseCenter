@@ -18,4 +18,14 @@ public interface ISqlBackupService
     // для TTL-ретенции (MLC-077) и Admin-удаления бэкапа. Тоже «never throws».
     Task<SqlDeleteResult> DeleteBackupsOlderThanAsync(
         string server, string folderPath, DateTime cutoffUtc, CancellationToken ct);
+
+    // Живой флаг доступности файлов бэкапов на диске SQL-хоста (MLC-178): для каждого пути из
+    // paths — есть ли там файл (server-side xp_fileexist). Список в карточке инфобазы берётся
+    // из БД и может расходиться с фактом (ручное удаление, keep-latest вытеснил файл, TTL-чистка
+    // удалила файл раньше строки) — этот метод сверяет с диском. «Never throws»: любой сбой
+    // (SqlException/InvalidOperationException/нет sysadmin/SQL недоступен) → ПУСТОЙ словарь
+    // = «не знаем». Пустой paths → пустой словарь без обращения к SQL. Ключи результата —
+    // ровно запрошенные пути (присутствующие); отсутствие пути в словаре трактуется как «не знаем».
+    Task<IReadOnlyDictionary<string, bool>> FilesExistAsync(
+        string server, IReadOnlyCollection<string> paths, CancellationToken ct);
 }

@@ -21,7 +21,11 @@ public sealed record BackupSummary(
     string? FilePath,
     long? FileSizeBytes,
     BackupFailureReason FailureReason,
-    string? ErrorMessage);
+    string? ErrorMessage,
+    // Живой флаг наличия .bak на диске SQL-хоста (MLC-178): true — файл есть; false — файла
+    // нет (ручное удаление / keep-latest вытеснил / TTL-чистка удалила файл раньше строки);
+    // null — не проверяли или сервис не смог. null опускается JSON-policy WhenWritingNull.
+    bool? FileAvailable);
 
 // Пагинированный список бэкапов (MLC-130, BE-17): конверт {items, total, page, pageSize}.
 public sealed record BackupsPagedResponse(
