@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { backupListSchema, backupSummarySchema } from "../types";
+import { backupEstimateSchema, backupListSchema, backupSummarySchema } from "../types";
 
 /**
  * Регрессия (урок [[api-omits-null-fields]], применён превентивно как в MLC-069/071):
@@ -116,5 +116,37 @@ describe("backupSummarySchema", () => {
         failureReason: "None",
       })
     ).toThrow();
+  });
+});
+
+describe("backupEstimateSchema (MLC-183)", () => {
+  it("принимает happy-ответ с заполненными цифрами", () => {
+    const parsed = backupEstimateSchema.parse({
+      estimatedSizeBytes: 536_870_912,
+      freeSpaceBytes: 107_374_182_400,
+      safetyMarginBytes: 2_147_483_648,
+      sufficient: true,
+      folderConfigured: true,
+      reason: "None",
+    });
+    expect(parsed.estimatedSizeBytes).toBe(536_870_912);
+    expect(parsed.freeSpaceBytes).toBe(107_374_182_400);
+    expect(parsed.sufficient).toBe(true);
+    expect(parsed.folderConfigured).toBe(true);
+  });
+
+  it("принимает degraded-ответ: nullable-цифры опущены (WhenWritingNull) → null", () => {
+    // Бэкенд опускает estimatedSizeBytes/freeSpaceBytes при degraded — omittable нормализует в null.
+    const parsed = backupEstimateSchema.parse({
+      safetyMarginBytes: 2_147_483_648,
+      sufficient: false,
+      folderConfigured: false,
+      reason: "BackupFailed",
+    });
+    expect(parsed.estimatedSizeBytes).toBeNull();
+    expect(parsed.freeSpaceBytes).toBeNull();
+    expect(parsed.sufficient).toBe(false);
+    expect(parsed.folderConfigured).toBe(false);
+    expect(parsed.reason).toBe("BackupFailed");
   });
 });

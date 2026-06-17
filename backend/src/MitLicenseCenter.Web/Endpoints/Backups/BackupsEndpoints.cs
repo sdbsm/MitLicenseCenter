@@ -25,6 +25,10 @@ public static class BackupsEndpoints
     private const int MaxPageSize = 100;
     private const int MaxSearchLength = 200;
 
+    // Дефолт запаса места при отсутствии настройки — тот же, что у оркестратора (MLC-183):
+    // предпоказ и реальный disk-guard берут одно склампленное значение Backup.DiskSafetyMarginMb.
+    private const int DefaultDiskSafetyMarginMb = 2048;
+
     public static void MapBackupsEndpoints(this IEndpointRouteBuilder endpoints, ApiVersionSet versionSet)
     {
         var group = endpoints
@@ -34,6 +38,7 @@ public static class BackupsEndpoints
             .WithTags("Backups");
 
         group.MapGet("/", ListAsync).RequireAuthorization(Roles.Viewer);
+        group.MapGet("/estimate", EstimateAsync).RequireAuthorization(Roles.Viewer);
         group.MapGet("/{id:guid}", GetAsync).RequireAuthorization(Roles.Viewer);
         group.MapPost("/", StartAsync).RequireAuthorization(Roles.Viewer);
         group.MapDelete("/{id:guid}", DeleteAsync).RequireAuthorization(Roles.Admin);
@@ -111,6 +116,62 @@ public static class BackupsEndpoints
 
         var withAvailability = await ApplyFileAvailabilityAsync(backupService, [summary], ct).ConfigureAwait(false);
         return TypedResults.Ok(withAvailability[0]);
+    }
+
+    // Предпоказ disk-guard ДО запуска (MLC-183, Viewer, read-only, без аудита): свободное место
+    // + оценка размера будущего бэкапа, чтобы оператор не запускал бэкап при явной нехватке.
+    // Папка/сервер не настроены → 200 degraded (FolderConfigured=false, Reason=BackupFailed,
+    // цифры null) — диалог не должен ломаться (не 409/500). Иначе marginMb берётся тем же
+    // склампленным значением Backup.DiskSafetyMarginMb, что и реальный disk-guard оркестратора.
+    internal static async Task<Results<Ok<BackupEstimateResponse>, NotFound>> EstimateAsync(
+        [FromQuery] Guid infobaseId,
+        [FromServices] AppDbContext db,
+        [FromServices] ISettingsSnapshot settings,
+        [FromServices] ISqlBackupService backupService,
+        CancellationToken ct)
+    {
+        var databaseName = await db.Infobases
+            .AsNoTracking()
+            .Where(ib => ib.Id == infobaseId)
+            .Select(ib => ib.DatabaseName)
+            .FirstOrDefaultAsync(ct)
+            .ConfigureAwait(false);
+
+        if (databaseName is null)
+        {
+            return TypedResults.NotFound();
+        }
+
+        var folderRoot = settings.GetString(SettingKey.BackupFolderPath);
+        var sqlServer = settings.GetString(SettingKey.SqlServer);
+        if (string.IsNullOrWhiteSpace(folderRoot) || string.IsNullOrWhiteSpace(sqlServer))
+        {
+            // Папка/сервер не настроены — честное degraded без обращения к SQL; диалог
+            // покажет «оценка недоступна», но останется рабочим.
+            return TypedResults.Ok(new BackupEstimateResponse(
+                EstimatedSizeBytes: null,
+                FreeSpaceBytes: null,
+                SafetyMarginBytes: 0,
+                Sufficient: false,
+                FolderConfigured: false,
+                Reason: BackupFailureReason.BackupFailed));
+        }
+
+        var marginMb = SettingDefinitions.ClampToRange(
+            SettingKey.BackupDiskSafetyMarginMb,
+            settings.GetInt(SettingKey.BackupDiskSafetyMarginMb) ?? DefaultDiskSafetyMarginMb);
+
+        var estimate = await backupService
+            .EstimateAsync(sqlServer, databaseName, folderRoot, marginMb, ct)
+            .ConfigureAwait(false);
+
+        return TypedResults.Ok(new BackupEstimateResponse(
+            estimate.EstimatedSizeBytes,
+            estimate.FreeSpaceBytes,
+            estimate.SafetyMarginBytes,
+            estimate.Sufficient,
+            FolderConfigured: true,
+            estimate.Reason));
     }
 
     // Постановка бэкапа в очередь (Viewer — операторская кнопка, ADR-27). Имя БД снимается

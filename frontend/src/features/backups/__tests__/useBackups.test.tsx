@@ -3,7 +3,13 @@ import { renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BackupSummary } from "../types";
-import { backupsQueryKey, useBackups, useDeleteBackup, useStartBackup } from "../useBackups";
+import {
+  backupsQueryKey,
+  useBackupEstimate,
+  useBackups,
+  useDeleteBackup,
+  useStartBackup,
+} from "../useBackups";
 
 vi.mock("@/lib/api", () => ({
   api: vi.fn(),
@@ -67,6 +73,38 @@ describe("useBackups", () => {
     );
 
     const { result } = renderHook(() => useBackups(null), { wrapper });
+
+    expect(result.current.data).toBeUndefined();
+    expect(mockedApi).not.toHaveBeenCalled();
+  });
+});
+
+describe("useBackupEstimate (MLC-183)", () => {
+  beforeEach(() => mockedApi.mockReset());
+
+  it("запрашивает оценку инфобазы с runtime-схемой, без поллинга", async () => {
+    const estimate = {
+      estimatedSizeBytes: 536_870_912,
+      freeSpaceBytes: 107_374_182_400,
+      safetyMarginBytes: 2_147_483_648,
+      sufficient: true,
+      folderConfigured: true,
+      reason: "None",
+    };
+    mockedApi.mockResolvedValueOnce(estimate);
+
+    const { result } = renderHook(() => useBackupEstimate(infobaseId), { wrapper: makeWrapper() });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toEqual(estimate);
+    expect(mockedApi).toHaveBeenCalledWith(
+      `/api/v1/backups/estimate?infobaseId=${infobaseId}`,
+      expect.objectContaining({ schema: expect.anything() })
+    );
+  });
+
+  it("disabled (id=null) не запрашивает", () => {
+    const { result } = renderHook(() => useBackupEstimate(null), { wrapper: makeWrapper() });
 
     expect(result.current.data).toBeUndefined();
     expect(mockedApi).not.toHaveBeenCalled();

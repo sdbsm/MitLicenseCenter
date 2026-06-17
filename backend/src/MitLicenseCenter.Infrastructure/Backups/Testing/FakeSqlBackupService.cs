@@ -13,6 +13,7 @@ internal sealed class FakeSqlBackupService : ISqlBackupService
 {
     private readonly object _gate = new();
     private readonly List<BackupCall> _backupCalls = [];
+    private readonly List<EstimateCall> _estimateCalls = [];
     private readonly List<DeleteCall> _deleteCalls = [];
     private readonly List<FilesExistCall> _filesExistCalls = [];
 
@@ -25,6 +26,15 @@ internal sealed class FakeSqlBackupService : ISqlBackupService
 
     public SqlDeleteResult NextDeleteResult { get; set; } = new(Succeeded: true, ErrorMessage: null);
 
+    // MLC-183: управляемый результат предпоказа оценки для EstimateAsync. По умолчанию —
+    // «места достаточно» (обе цифры заполнены, Sufficient=true).
+    public SqlBackupEstimate NextEstimate { get; set; } = new(
+        EstimatedSizeBytes: 512L * 1024 * 1024,
+        FreeSpaceBytes: 100L * 1024 * 1024 * 1024,
+        SafetyMarginBytes: 2048L * 1024 * 1024,
+        Sufficient: true,
+        Reason: BackupFailureReason.None);
+
     // Тест может задать «ворота», на которых BackupAsync повиснет до сигнала.
     public TaskCompletionSource? BackupGate { get; set; }
 
@@ -36,6 +46,11 @@ internal sealed class FakeSqlBackupService : ISqlBackupService
     public IReadOnlyList<BackupCall> BackupCalls
     {
         get { lock (_gate) { return _backupCalls.ToList(); } }
+    }
+
+    public IReadOnlyList<EstimateCall> EstimateCalls
+    {
+        get { lock (_gate) { return _estimateCalls.ToList(); } }
     }
 
     public IReadOnlyList<DeleteCall> DeleteCalls
@@ -62,6 +77,17 @@ internal sealed class FakeSqlBackupService : ISqlBackupService
         }
 
         return NextBackupResult;
+    }
+
+    public Task<SqlBackupEstimate> EstimateAsync(
+        string server, string databaseName, string folderRoot, int safetyMarginMb, CancellationToken ct)
+    {
+        lock (_gate)
+        {
+            _estimateCalls.Add(new EstimateCall(server, databaseName, folderRoot, safetyMarginMb));
+        }
+
+        return Task.FromResult(NextEstimate);
     }
 
     public Task<SqlDeleteResult> DeleteBackupsOlderThanAsync(
@@ -101,6 +127,8 @@ internal sealed class FakeSqlBackupService : ISqlBackupService
     }
 
     internal sealed record BackupCall(string Server, string DatabaseName, string FolderRoot, int SafetyMarginMb);
+
+    internal sealed record EstimateCall(string Server, string DatabaseName, string FolderRoot, int SafetyMarginMb);
 
     internal sealed record DeleteCall(string Server, string FolderPath, DateTime CutoffUtc);
 

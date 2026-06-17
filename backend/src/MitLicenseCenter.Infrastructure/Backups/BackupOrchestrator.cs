@@ -446,23 +446,11 @@ internal sealed partial class BackupOrchestrator : IBackupOrchestrator, IDisposa
 
     // Клампит числовую настройку к её whitelist-диапазону (паттерн PerfRecordingService):
     // валидация на записи могла отстать от ужесточения диапазона, а потолок параллельных
-    // обязан оставаться в разумных границах при любом значении.
-    private int ClampSetting(string key, int fallback)
-    {
-        var value = _settings.GetInt(key) ?? fallback;
-        var def = SettingDefinitions.All[key];
-        if (def.Min is { } min && value < min)
-        {
-            value = min;
-        }
-
-        if (def.Max is { } max && value > max)
-        {
-            value = max;
-        }
-
-        return value;
-    }
+    // обязан оставаться в разумных границах при любом значении. Сам кламп — общий хелпер
+    // SettingDefinitions.ClampToRange (MLC-183): предпоказ оценки и реальный disk-guard
+    // берут ОДНО склампленное значение Backup.DiskSafetyMarginMb.
+    private int ClampSetting(string key, int fallback) =>
+        SettingDefinitions.ClampToRange(key, _settings.GetInt(key) ?? fallback);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Backup {BackupId} of database {Database} queued by {RequestedBy}")]
     private static partial void LogQueued(ILogger logger, Guid backupId, string database, string requestedBy);

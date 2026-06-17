@@ -74,3 +74,19 @@ export const backupsPagedSchema = z.object({
 
 export type BackupSummary = z.infer<typeof backupSummarySchema>;
 export type BackupsPaged = z.infer<typeof backupsPagedSchema>;
+
+// Предпоказ disk-guard ДО запуска (MLC-183): свободное место на диске папки бэкапов + оценка
+// размера будущего бэкапа + запас. Критичная граница — оператор по ней судит, хватит ли места.
+// `estimatedSizeBytes`/`freeSpaceBytes` опускаются бэкендом при degraded (omittable, как у
+// `fileSizeBytes`). `folderConfigured=false` — папка/сервер не настроены: диалог покажет
+// «оценка недоступна». `reason` переиспользует `backupFailureReasonSchema`.
+export const backupEstimateSchema = z.object({
+  estimatedSizeBytes: omittable(z.number()),
+  freeSpaceBytes: omittable(z.number()),
+  safetyMarginBytes: z.number(),
+  sufficient: z.boolean(),
+  folderConfigured: z.boolean(),
+  reason: backupFailureReasonSchema,
+});
+
+export type BackupEstimate = z.infer<typeof backupEstimateSchema>;
