@@ -21,6 +21,8 @@
       "Failed": "Ошибка"
     },
     "fileMissing": "файл отсутствует",
+    "fileSuperseded": "вытеснен",
+    "fileSupersededHint": "Файл удалён автоматически — хранится только последний бэкап (keep-latest).",
     "failureReason": {
       "InsufficientSpace": "Недостаточно свободного места на диске",
       "EstimateUnavailable": "Не удалось оценить размер базы",

@@ -150,6 +150,23 @@ describe("BackupsDialog", () => {
     expect(screen.queryByText("117.7 МБ")).not.toBeInTheDocument();
   });
 
+  it("Succeeded с пустым filePath → спокойная пометка «вытеснен» (MLC-182)", async () => {
+    // keep-latest обнулил ссылку на файл предыдущего бэкапа — норма, не «файл отсутствует».
+    const superseded: BackupSummary = {
+      ...succeeded,
+      id: "66666666-6666-6666-6666-666666666666",
+      filePath: null,
+      fileSizeBytes: null,
+      fileAvailable: null,
+    };
+    setup([superseded]);
+
+    expect(await screen.findByText("Готов")).toBeInTheDocument();
+    expect(screen.getByText("вытеснен")).toBeInTheDocument();
+    // Это не сигнал «файл отсутствует» (тот — только для неожиданно пропавших).
+    expect(screen.queryByText("файл отсутствует")).not.toBeInTheDocument();
+  });
+
   it("Succeeded с fileAvailable=true/null → размер без пометки (MLC-178)", async () => {
     const unknown: BackupSummary = {
       ...succeeded,
