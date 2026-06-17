@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { AttentionWidget } from "./AttentionWidget";
 import { HostHealthCard } from "./HostHealthCard";
 import { TopTenantsChart, TopTenantsLegend } from "./TopTenantsChart";
 import type { DashboardRasHealth, DashboardSummaryResponse, TenantConsumptionRow } from "./types";
@@ -58,6 +59,11 @@ export function DashboardPage() {
         )}
 
         <KpiGrid data={data} isLoading={isLoading} isFetching={isFetching} />
+
+        {/* MLC-186b — единый виджет actionable-сигналов «Требует внимания» (квоты,
+            дрейф кластера, диск бэкапов, RAS, факт лицензий). Summary передаём пропсом
+            (DashboardPage уже грузит его) — виджет не дублирует запрос summary. */}
+        <AttentionWidget summary={data} />
 
         {/* Строка состояния системы (MLC-085, аудит §3.4): RAS-статус + здоровье хоста. */}
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">

@@ -4,7 +4,7 @@ import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import "@/i18n";
 import { DashboardPage } from "../DashboardPage";
-import type { DashboardSummaryResponse } from "../types";
+import type { DashboardAlertsResponse, DashboardSummaryResponse } from "../types";
 import type { HostMetricsSnapshot } from "@/features/performance/types";
 
 vi.mock("@/lib/api", () => ({
@@ -34,6 +34,16 @@ const summary: DashboardSummaryResponse = {
   },
 };
 
+// MLC-186b — DashboardPage теперь рендерит AttentionWidget, который дёргает
+// /dashboard/alerts. Нейтральная заглушка (всё в норме): сигналов не добавляет,
+// существующие проверки страницы не затрагивает.
+const alerts: DashboardAlertsResponse = {
+  quotaWarning: 0,
+  quotaDanger: 0,
+  clusterDrift: { available: true, unassignedBases: 0, basesNotInCluster: 0 },
+  backupDisk: { configured: true, freeBytes: 1_000_000, safetyMarginBytes: 100_000, low: false },
+};
+
 const host: HostMetricsSnapshot = {
   capturedAtUtc: "2026-06-10T12:00:00Z",
   measuring: false,
@@ -60,7 +70,13 @@ describe("DashboardPage (MLC-085: обзор с переходами)", () => {
   beforeEach(() => {
     mockedApi.mockReset();
     mockedApi.mockImplementation((url: string) =>
-      Promise.resolve(url.includes("/performance/host") ? host : (summary as unknown))
+      Promise.resolve(
+        url.includes("/performance/host")
+          ? host
+          : url.includes("/dashboard/alerts")
+            ? alerts
+            : (summary as unknown)
+      )
     );
   });
 
@@ -95,7 +111,9 @@ describe("DashboardPage (MLC-085: обзор с переходами)", () => {
       Promise.resolve(
         url.includes("/performance/host")
           ? { ...host, measuring: true, cpu: { totalPercent: 0, queueLength: 0 } }
-          : (summary as unknown)
+          : url.includes("/dashboard/alerts")
+            ? alerts
+            : (summary as unknown)
       )
     );
     renderPage();
@@ -116,15 +134,17 @@ describe("DashboardPage (MLC-085: обзор с переходами)", () => {
       Promise.resolve(
         url.includes("/performance/host")
           ? host
-          : ({
-              ...summary,
-              ras: {
-                healthy: false,
-                lastCheckedAtUtc: "2026-06-10T12:00:00Z",
-                lastErrorMessage: "rac.exe не найден по указанному пути.",
-                consecutiveFailures: 3,
-              },
-            } as unknown)
+          : url.includes("/dashboard/alerts")
+            ? alerts
+            : ({
+                ...summary,
+                ras: {
+                  healthy: false,
+                  lastCheckedAtUtc: "2026-06-10T12:00:00Z",
+                  lastErrorMessage: "rac.exe не найден по указанному пути.",
+                  consecutiveFailures: 3,
+                },
+              } as unknown)
       )
     );
     renderPage();
@@ -159,15 +179,17 @@ describe("DashboardPage (MLC-085: обзор с переходами)", () => {
       Promise.resolve(
         url.includes("/performance/host")
           ? host
-          : ({
-              ...summary,
-              ras: {
-                healthy: false,
-                lastCheckedAtUtc: "2026-06-10T12:00:00Z",
-                lastErrorMessage: "rac.exe не найден по указанному пути.",
-                consecutiveFailures: 2,
-              },
-            } as unknown)
+          : url.includes("/dashboard/alerts")
+            ? alerts
+            : ({
+                ...summary,
+                ras: {
+                  healthy: false,
+                  lastCheckedAtUtc: "2026-06-10T12:00:00Z",
+                  lastErrorMessage: "rac.exe не найден по указанному пути.",
+                  consecutiveFailures: 2,
+                },
+              } as unknown)
       )
     );
     renderPage();
