@@ -225,6 +225,14 @@ public static class DependencyInjection
         // FakeSqlBackupService (реальный адаптер ходит в SQL, integration-only).
         services.AddSingleton<ISqlBackupService, SqlBackupAdapter>();
 
+        // Замер размеров баз SQL (MLC-185): один запрос к sys.master_files — выделенное
+        // место (данные/лог) всех пользовательских баз инстанса. Чистый ADO.NET (как
+        // SqlBackupAdapter/SqlPerformanceProbe) — НЕ Windows-only, без #pragma CA1416.
+        // Stateless → singleton; сервер из настройки Sql.Server, остальное наследует из
+        // ConnectionStrings:Default. В тестах — FakeDatabaseSizeProbe (реальный адаптер
+        // ходит в SQL, integration-only).
+        services.AddSingleton<IDatabaseSizeProbe, DatabaseSizeProbe>();
+
         // Оркестратор очереди бэкапов (MLC-077, ADR-27). Singleton — держит in-memory набор
         // выполняющихся пар server+db (замок-на-базу) и wake-сигнал насоса между запросами;
         // БД и scoped IAuditLogger берёт через IServiceScopeFactory (паттерн
