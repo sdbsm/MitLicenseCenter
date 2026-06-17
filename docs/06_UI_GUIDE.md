@@ -427,10 +427,15 @@ Recharts не наследует CSS-переменные автоматичес
 ### Хелперы
 
 - `quotaPercent(consumed, limit)` — процент (0 при безлимите);
-- `quotaSeverity(consumed, limit)` — severity;
-- `severityToStatusBadgeVariant(severity)` — вариант `StatusBadge`;
+- `quotaSeverity(consumed, limit)` — severity (цвет акцента);
+- `quotaLabel(consumed, limit)` — **текст** ярлыка по ФАКТУ `consumed vs limit` (MLC-188):
+  `"exceeded"` только при `consumed > limit`; `"atLimit"` при равенстве (`N` из `N` — «лимит
+  достигнут», не превышение); `"nearLimit"` ниже лимита, но severity warning/danger; `null` иначе.
+  Текст ярлыка НЕ путать с цветом-severity (`danger` уже с ≥90%): «превышение» совпадает с
+  определением домена (`03_DOMAIN_MODEL` §enforcement: только `limit > 0` и `consumed > limit`).
+- `severityToStatusBadgeVariant(severity)` — вариант `StatusBadge` (цвет);
 - `severityToProgressClass(severity)` — Tailwind-класс для `Progress`;
-- `quotaDisplay(consumed, limit)` — все четыре значения разом.
+- `quotaDisplay(consumed, limit)` — все значения разом (`percent`, `severity`, `label`, `badgeVariant`, `progressClass`).
 
 ### Применение по экранам
 

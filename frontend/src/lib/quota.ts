@@ -14,6 +14,17 @@ export const QUOTA_DANGER_THRESHOLD = 90;
 export type QuotaSeverity = "ok" | "warning" | "danger";
 
 /**
+ * Текстовый ярлык состояния квоты — по ФАКТУ consumed vs limit (MLC-188), а НЕ по
+ * цвету-severity. Превышение — только когда потребление строго больше лимита; равенство
+ * (N из N) — «лимит достигнут», не «превышение».
+ * - "exceeded"  → consumed > limit (напр. 11 из 10);
+ * - "atLimit"   → consumed === limit (10 из 10);
+ * - "nearLimit" → ниже лимита, но severity warning/danger (≥75%, < limit);
+ * - null        → безлимит или потребление ниже warning-порога (ярлык не показываем).
+ */
+export type QuotaLabel = "exceeded" | "atLimit" | "nearLimit";
+
+/**
  * Процент потребления (0–100+).
  * limit <= 0 означает «безлимит» → 0 (нет смысла считать процент).
  */
@@ -35,6 +46,18 @@ export function quotaSeverity(consumed: number, limit: number): QuotaSeverity {
   if (pct >= QUOTA_DANGER_THRESHOLD) return "danger";
   if (pct >= QUOTA_WARNING_THRESHOLD) return "warning";
   return "ok";
+}
+
+/**
+ * Ярлык состояния квоты по факту consumed vs limit (MLC-188). Цвет-severity (≥90% danger)
+ * не путать с ярлыком: «превышение» только при consumed > limit, равенство — «достигнут».
+ */
+export function quotaLabel(consumed: number, limit: number): QuotaLabel | null {
+  if (limit <= 0) return null;
+  if (consumed > limit) return "exceeded";
+  if (consumed === limit) return "atLimit";
+  if (quotaSeverity(consumed, limit) === "ok") return null;
+  return "nearLimit";
 }
 
 /**
@@ -66,6 +89,7 @@ export function quotaDisplay(consumed: number, limit: number) {
   return {
     percent,
     severity,
+    label: quotaLabel(consumed, limit),
     badgeVariant: severityToStatusBadgeVariant(severity),
     progressClass: severityToProgressClass(severity),
   };

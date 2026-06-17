@@ -104,7 +104,7 @@ export function buildTenantColumns(ctx: ColumnContext): ColumnDef<Tenant>[] {
           );
         }
         const consumed = consumedByTenant.get(tenant.id) ?? 0;
-        const { percent, severity, badgeVariant } = quotaDisplay(
+        const { percent, badgeVariant, label } = quotaDisplay(
           consumed,
           tenant.maxConcurrentLicenses
         );
@@ -113,10 +113,8 @@ export function buildTenantColumns(ctx: ColumnContext): ColumnDef<Tenant>[] {
             <span className="text-muted-foreground text-sm tabular-nums">
               {t("tenants.quota.value", { consumed, limit: tenant.maxConcurrentLicenses, percent })}
             </span>
-            {severity !== "ok" && (
-              <StatusBadge variant={badgeVariant}>
-                {severity === "danger" ? t("common.quota.exceeded") : t("common.quota.nearLimit")}
-              </StatusBadge>
+            {label && (
+              <StatusBadge variant={badgeVariant}>{t(`common.quota.${label}`)}</StatusBadge>
             )}
           </div>
         );

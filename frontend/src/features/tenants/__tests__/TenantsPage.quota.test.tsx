@@ -85,35 +85,47 @@ async function renderTenantsPage() {
 }
 
 describe("TenantsPage — quota column (MLC-122)", () => {
-  it("клиент-нарушитель ≥90% получает danger-акцент", async () => {
-    const dangerTenant = makeTenant("t-danger", "Нарушитель", 10);
-
-    // 9 из 10 лицензий = 90% → danger
+  // MLC-188: danger-цвет (≥90%) НЕ означает «превышение» — ярлык ведётся по факту
+  // consumed vs limit. Ниже лимита → «Близко к лимиту»; ровно лимит → «Лимит достигнут»;
+  // строго больше → «Превышение лимита». Цвет (data-variant=danger) во всех трёх — один.
+  async function renderTenantWithConsumption(consumed: number, limit: number) {
+    const tenant = makeTenant("t-1", "Клиент", limit);
     const snapshot = makeSnapshotResponse(
-      Array.from({ length: 9 }, () => ({ tenantId: "t-danger", consumesLicense: true }))
+      Array.from({ length: consumed }, () => ({ tenantId: "t-1", consumesLicense: true }))
     );
-
     mockedApi.mockImplementation((path: string) => {
       if (typeof path === "string" && path.includes("snapshot")) {
         return Promise.resolve(snapshot);
       }
-      // auth/me — минимум для ProtectedRoute
       if (typeof path === "string" && path.includes("auth/me")) {
         return Promise.resolve({ userName: "admin", roles: ["Admin"], mustChangePassword: false });
       }
-      return Promise.resolve(makePagedResponse([dangerTenant]));
+      return Promise.resolve(makePagedResponse([tenant]));
     });
-
     await renderTenantsPage();
+    await screen.findByText("Клиент");
+  }
 
-    // Ждём появления строки клиента
-    await screen.findByText("Нарушитель");
+  // Ленивый import('../TenantsPage') + react-query + полная отрисовка делают тесты
+  // тяжёлыми; дефолтных 5 с не хватает под параллельной нагрузкой всего сьюта → 15 с.
+  it("9 из 10 (90%, ниже лимита) → danger-акцент + «Близко к лимиту» (не превышение)", async () => {
+    await renderTenantWithConsumption(9, 10);
+    expect(screen.queryByText("Превышение лимита")).toBeNull();
+    const badge = await screen.findByText("Близко к лимиту");
+    expect(badge.closest("[data-variant]")).toHaveAttribute("data-variant", "danger");
+  }, 15_000);
 
-    // Проверяем наличие badge с data-variant="danger"
-    const dangerBadge = await screen.findByText("Превышение лимита");
-    expect(dangerBadge.closest("[data-variant]")).toHaveAttribute("data-variant", "danger");
-    // Ленивый import('../TenantsPage') + react-query + полная отрисовка страницы делают
-    // этот тест тяжёлым; дефолтные 5 с не хватает под параллельной нагрузкой всего сьюта.
+  it("10 из 10 (ровно лимит) → danger-акцент + «Лимит достигнут» (не превышение)", async () => {
+    await renderTenantWithConsumption(10, 10);
+    expect(screen.queryByText("Превышение лимита")).toBeNull();
+    const badge = await screen.findByText("Лимит достигнут");
+    expect(badge.closest("[data-variant]")).toHaveAttribute("data-variant", "danger");
+  }, 15_000);
+
+  it("11 из 10 (сверх лимита) → danger-акцент + «Превышение лимита»", async () => {
+    await renderTenantWithConsumption(11, 10);
+    const badge = await screen.findByText("Превышение лимита");
+    expect(badge.closest("[data-variant]")).toHaveAttribute("data-variant", "danger");
   }, 15_000);
 
   it("безлимитный клиент (limit=0) — без акцента, показывает «—»", async () => {

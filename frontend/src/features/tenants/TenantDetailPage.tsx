@@ -145,7 +145,7 @@ export function TenantDetailPage() {
                 ) : (
                   (() => {
                     const consumed = consumedByTenant.get(tenant.id) ?? 0;
-                    const { percent, severity, badgeVariant } = quotaDisplay(
+                    const { percent, badgeVariant, label } = quotaDisplay(
                       consumed,
                       tenant.maxConcurrentLicenses
                     );
@@ -158,11 +158,9 @@ export function TenantDetailPage() {
                             percent,
                           })}
                         </p>
-                        {severity !== "ok" && (
+                        {label && (
                           <StatusBadge variant={badgeVariant}>
-                            {severity === "danger"
-                              ? t("common.quota.exceeded")
-                              : t("common.quota.nearLimit")}
+                            {t(`common.quota.${label}`)}
                           </StatusBadge>
                         )}
                       </div>
