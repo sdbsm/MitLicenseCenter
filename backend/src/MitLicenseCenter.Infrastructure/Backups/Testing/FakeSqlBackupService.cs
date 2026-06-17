@@ -16,6 +16,7 @@ internal sealed class FakeSqlBackupService : ISqlBackupService
     private readonly List<EstimateCall> _estimateCalls = [];
     private readonly List<DeleteCall> _deleteCalls = [];
     private readonly List<FilesExistCall> _filesExistCalls = [];
+    private readonly List<DiskFreeCall> _diskFreeCalls = [];
 
     public SqlBackupResult NextBackupResult { get; set; } = new(
         Succeeded: true,
@@ -34,6 +35,10 @@ internal sealed class FakeSqlBackupService : ISqlBackupService
         SafetyMarginBytes: 2048L * 1024 * 1024,
         Sufficient: true,
         Reason: BackupFailureReason.None);
+
+    // MLC-186a: управляемое свободное место диска для GetBackupDiskFreeBytesAsync. По умолчанию
+    // null = «сервис не смог / не настроено» (дашборд не поднимает алерт «мало места»).
+    public long? NextBackupDiskFreeBytes { get; set; }
 
     // Тест может задать «ворота», на которых BackupAsync повиснет до сигнала.
     public TaskCompletionSource? BackupGate { get; set; }
@@ -63,6 +68,11 @@ internal sealed class FakeSqlBackupService : ISqlBackupService
         get { lock (_gate) { return _filesExistCalls.ToList(); } }
     }
 
+    public IReadOnlyList<DiskFreeCall> DiskFreeCalls
+    {
+        get { lock (_gate) { return _diskFreeCalls.ToList(); } }
+    }
+
     public async Task<SqlBackupResult> BackupAsync(
         string server, string databaseName, string folderRoot, int safetyMarginMb, CancellationToken ct)
     {
@@ -88,6 +98,17 @@ internal sealed class FakeSqlBackupService : ISqlBackupService
         }
 
         return Task.FromResult(NextEstimate);
+    }
+
+    public Task<long?> GetBackupDiskFreeBytesAsync(
+        string server, string folderRoot, CancellationToken ct)
+    {
+        lock (_gate)
+        {
+            _diskFreeCalls.Add(new DiskFreeCall(server, folderRoot));
+        }
+
+        return Task.FromResult(NextBackupDiskFreeBytes);
     }
 
     public Task<SqlDeleteResult> DeleteBackupsOlderThanAsync(
@@ -133,4 +154,6 @@ internal sealed class FakeSqlBackupService : ISqlBackupService
     internal sealed record DeleteCall(string Server, string FolderPath, DateTime CutoffUtc);
 
     internal sealed record FilesExistCall(string Server, IReadOnlyList<string> Paths);
+
+    internal sealed record DiskFreeCall(string Server, string FolderRoot);
 }
