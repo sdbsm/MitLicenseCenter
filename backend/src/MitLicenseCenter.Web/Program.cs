@@ -375,53 +375,68 @@ if (!app.Environment.IsEnvironment("Test"))
         "*/5 * * * *");
     RecurringJob.RemoveIfExists("drift-check");
 
-    // Audit retention (PR 4.3): ежедневно в 03:00 UTC. CRON фиксирован — retention
-    // window настраивается через Settings.Audit.RetentionDays, cadence — нет
+    // MLC-191 (ADR-52): шесть суточных «ночных» housekeeping-джоб ниже планируются по
+    // МЕСТНОМУ поясу хоста (NightlyJobSchedule.LocalTimeZoneOptions → TimeZoneInfo.Local),
+    // а не по UTC (дефолт Hangfire). Указанные ниже времена (02:00 → 03:xx → 04:00) — это
+    // ВРЕМЯ ПО ЧАСАМ ХОСТА; их относительные смещения (сбор раньше ретеншенов; ретеншены
+    // разнесены, чтобы не пересекаться) сохранены, просто отсчёт идёт в местном поясе.
+    // Хранение/транспорт времени остаются UTC (ADR-23) — меняется лишь момент срабатывания.
+
+    // Audit retention (PR 4.3): ежедневно в 03:00 по часам хоста (ADR-52). CRON фиксирован —
+    // retention window настраивается через Settings.Audit.RetentionDays, cadence — нет
     // (operational noise zero, не tuneable оператором).
     RecurringJob.AddOrUpdate<IAuditRetentionJob>(
         "audit-retention",
         j => j.RunAsync(CancellationToken.None),
-        "0 3 * * *");
+        "0 3 * * *",
+        NightlyJobSchedule.LocalTimeZoneOptions);
 
-    // License usage retention (MLC-048): ежедневно в 03:30 UTC, смещён от audit-retention
-    // (03:00), чтобы ночные housekeeping-джобы не пересекались. Retention window —
-    // Settings.LicenseUsage.RetentionDays; cadence фиксирован.
+    // License usage retention (MLC-048): ежедневно в 03:30 по часам хоста (ADR-52), смещён от
+    // audit-retention (03:00), чтобы ночные housekeeping-джобы не пересекались. Retention
+    // window — Settings.LicenseUsage.RetentionDays; cadence фиксирован.
     RecurringJob.AddOrUpdate<ILicenseUsageRetentionJob>(
         "license-usage-retention",
         j => j.RunAsync(CancellationToken.None),
-        "30 3 * * *");
+        "30 3 * * *",
+        NightlyJobSchedule.LocalTimeZoneOptions);
 
-    // Backup retention (MLC-077, ADR-27): ежедневно в 03:15 UTC — смещён от 03:00
-    // audit-retention и 03:30 license-usage, чтобы ночные housekeeping-джобы не
+    // Backup retention (MLC-077, ADR-27): ежедневно в 03:15 по часам хоста (ADR-52) — смещён
+    // от 03:00 audit-retention и 03:30 license-usage, чтобы ночные housekeeping-джобы не
     // пересекались. TTL — Settings.Backup.TtlHours; cadence фиксирован.
     RecurringJob.AddOrUpdate<IBackupRetentionJob>(
         "backup-retention",
         j => j.RunAsync(CancellationToken.None),
-        "15 3 * * *");
+        "15 3 * * *",
+        NightlyJobSchedule.LocalTimeZoneOptions);
 
-    // Perf recording retention (MLC-169): ежедневно в 03:45 UTC — смещён от 03:00 audit,
-    // 03:15 backup и 03:30 license-usage, чтобы ночные housekeeping-джобы не пересекались.
-    // Срок хранения зашит константой в джобе (не настраивается оператором); cadence фиксирован.
+    // Perf recording retention (MLC-169): ежедневно в 03:45 по часам хоста (ADR-52) — смещён
+    // от 03:00 audit, 03:15 backup и 03:30 license-usage, чтобы ночные housekeeping-джобы не
+    // пересекались. Срок хранения зашит константой в джобе (не настраивается оператором);
+    // cadence фиксирован.
     RecurringJob.AddOrUpdate<IPerfRecordingRetentionJob>(
         "perf-recording-retention",
         j => j.RunAsync(CancellationToken.None),
-        "45 3 * * *");
+        "45 3 * * *",
+        NightlyJobSchedule.LocalTimeZoneOptions);
 
-    // Database size collection (MLC-185c): суточный сбор размеров баз в 02:00 UTC — до
-    // ночных ретеншенов (03:xx/04:00), чтобы свежий замер не подрезался ретеншеном того же
-    // прогона. Один замер по всем базам инстанса, фильтр по базам инфобаз; CRON фиксирован.
+    // Database size collection (MLC-185c): суточный сбор размеров баз в 02:00 по часам хоста
+    // (ADR-52) — до ночных ретеншенов (03:xx/04:00), чтобы свежий замер не подрезался
+    // ретеншеном того же прогона. Один замер по всем базам инстанса, фильтр по базам инфобаз;
+    // CRON фиксирован.
     RecurringJob.AddOrUpdate<IDatabaseSizeCollectionJob>(
         "database-size-collection",
         j => j.RunAsync(CancellationToken.None),
-        "0 2 * * *");
+        "0 2 * * *",
+        NightlyJobSchedule.LocalTimeZoneOptions);
 
-    // Database size retention (MLC-185c): ежедневно в 04:00 UTC — свободный слот после
-    // занятых 03:00/03:15/03:30/03:45, чтобы ночные housekeeping-джобы не пересекались.
-    // Retention window — Settings.DatabaseSize.RetentionDays; cadence фиксирован.
+    // Database size retention (MLC-185c): ежедневно в 04:00 по часам хоста (ADR-52) —
+    // свободный слот после занятых 03:00/03:15/03:30/03:45, чтобы ночные housekeeping-джобы
+    // не пересекались. Retention window — Settings.DatabaseSize.RetentionDays; cadence фиксирован.
     RecurringJob.AddOrUpdate<IDatabaseSizeRetentionJob>(
         "database-size-retention",
         j => j.RunAsync(CancellationToken.None),
-        "0 4 * * *");
+        "0 4 * * *",
+        NightlyJobSchedule.LocalTimeZoneOptions);
 } // end if (!app.Environment.IsEnvironment("Test"))
 
 // Fail-fast bootstrap. Миграции и сидинг выполняются СИНХРОННО до открытия приёма
