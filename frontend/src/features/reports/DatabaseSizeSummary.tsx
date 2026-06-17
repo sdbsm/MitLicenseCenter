@@ -13,6 +13,8 @@ import {
 } from "@/components/ui/table";
 import { formatBytes } from "@/lib/formatBytes";
 import { DatabaseSizeChart } from "./DatabaseSizeChart";
+import { SizeExportMenu } from "./export/SizeExportMenu";
+import type { SizeExportData } from "./export/sizeExport";
 import { ReportsEmptyState } from "./ReportsEmptyState";
 import type { DatabaseSizeSeriesResponse, DatabaseSizeTenantRow } from "./types";
 
@@ -34,10 +36,23 @@ export function DatabaseSizeSummary({ data, isLoading }: DatabaseSizeSummaryProp
   const { t } = useTranslation();
   const isEmpty = !data || data.points.length === 0;
 
+  // Разрез выгрузки — сводка по хосту: ряд роста + разбивка по клиентам.
+  const exportData: SizeExportData | undefined = data && {
+    scope: "all",
+    points: data.points,
+    fromUtc: data.fromUtc,
+    toUtc: data.toUtc,
+    tenants: data.tenants,
+    databases: [],
+  };
+
   return (
     <Card>
       <CardHeader className="gap-2">
-        <CardTitle>{t("reports.size.summary.title")}</CardTitle>
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle>{t("reports.size.summary.title")}</CardTitle>
+          <SizeExportMenu data={exportData} />
+        </div>
         {data && (
           <p className="text-muted-foreground text-sm">
             {t("reports.summary.effectiveRange", {
