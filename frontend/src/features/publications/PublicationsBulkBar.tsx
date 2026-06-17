@@ -6,6 +6,11 @@ interface PublicationsBulkBarProps {
   onPublish: () => void;
   onChangePlatform: () => void;
   onClear: () => void;
+  // MLC-181c — «Выбрать все N по фильтру»: дёргает /infobases/ids и наполняет тот же внешний
+  // выбор всеми пригодными для bulk строками по текущему фильтру (за пределами страницы).
+  onSelectAllFiltered: () => void;
+  // Идёт запрос /ids (кнопка disabled, пока грузим набор по фильтру).
+  isSelectingAllFiltered?: boolean;
 }
 
 // MLC-046: панель массовых действий. Видна, когда выбрана хотя бы одна публикация
@@ -15,6 +20,8 @@ export function PublicationsBulkBar({
   onPublish,
   onChangePlatform,
   onClear,
+  onSelectAllFiltered,
+  isSelectingAllFiltered,
 }: PublicationsBulkBarProps) {
   const { t } = useTranslation();
 
@@ -27,6 +34,16 @@ export function PublicationsBulkBar({
         </Button>
         <Button size="sm" variant="outline" onClick={onChangePlatform}>
           {t("publications.bulk.changePlatformAction")}
+        </Button>
+        {/* MLC-181c — выбор всего отфильтрованного набора (через 2+ страницы), а не только
+            видимой страницы. */}
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={onSelectAllFiltered}
+          disabled={isSelectingAllFiltered}
+        >
+          {t("publications.bulk.selectAllFiltered")}
         </Button>
         <Button size="sm" variant="ghost" onClick={onClear}>
           {t("publications.bulk.clear")}

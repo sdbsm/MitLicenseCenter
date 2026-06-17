@@ -31,6 +31,8 @@ interface BulkChangePlatformDialogProps {
   onOpenChange: (open: boolean) => void;
   publications: PublicationListItem[];
   onRunComplete: (states: BulkItemState[]) => void;
+  // MLC-181c — сводка активного фильтра при выборе через «Выбрать все по фильтру».
+  filterSummary?: string | null;
 }
 
 function label(p: PublicationListItem): string {
@@ -45,6 +47,7 @@ export function BulkChangePlatformDialog({
   onOpenChange,
   publications,
   onRunComplete,
+  filterSummary,
 }: BulkChangePlatformDialogProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -101,7 +104,15 @@ export function BulkChangePlatformDialog({
         </DialogHeader>
 
         {phase === "idle" ? (
-          <div className="grid gap-2">
+          <div className="grid gap-3">
+            {filterSummary && (
+              <div className="bg-muted/40 rounded-md border p-3 text-sm">
+                <p className="font-medium">
+                  {t("publications.bulk.filterSummaryLabel", { count: publications.length })}
+                </p>
+                <p className="text-muted-foreground mt-1">{filterSummary}</p>
+              </div>
+            )}
             <Label className="text-sm">{t("publications.changePlatform.versionLabel")}</Label>
             <Select value={version} onValueChange={setVersion}>
               <SelectTrigger>

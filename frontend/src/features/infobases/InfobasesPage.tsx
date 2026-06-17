@@ -44,7 +44,7 @@ import { InfobaseFormDialog } from "./InfobaseFormDialog";
 import { ReassignInfobaseDialog } from "./ReassignInfobaseDialog";
 import type { InfobaseListItem } from "./types";
 import type { InfobaseFormPrefill } from "./useInfobaseForm";
-import { INFOBASES_PAGE_SIZE, useInfobases } from "./useInfobases";
+import { fetchInfobaseBulkIds, INFOBASES_PAGE_SIZE, useInfobases } from "./useInfobases";
 import { MissingInfobasesBanner } from "./unassigned/MissingInfobasesBanner";
 import { MissingInfobasesDialog } from "./unassigned/MissingInfobasesDialog";
 import { UnassignedBanner } from "./unassigned/UnassignedBanner";
@@ -173,6 +173,11 @@ export function InfobasesPage() {
   const [selected, setSelected] = useState<Map<string, PublicationListItem>>(new Map());
   const [bulkPublishOpen, setBulkPublishOpen] = useState(false);
   const [bulkPlatformOpen, setBulkPlatformOpen] = useState(false);
+  // MLC-181c — идёт запрос /infobases/ids для «Выбрать все N по фильтру» (кнопка disabled).
+  const [selectingAllFiltered, setSelectingAllFiltered] = useState(false);
+  // Выбор наполнен через «Выбрать все по фильтру» (а не поэлементно/постранично) — тогда
+  // bulk-диалог показывает сводку активного фильтра, чтобы оператор видел, к чему применяет.
+  const [selectionFromFilter, setSelectionFromFilter] = useState(false);
 
   // Смена фильтра возвращает на первую страницу — иначе можно «застрять» на
   // несуществующей странице сильно меньшего отфильтрованного набора. Значение-«всё»
@@ -306,16 +311,20 @@ export function InfobasesPage() {
     }
   };
 
-  const toggleSelect = (item: InfobaseListItem, checked: boolean) =>
+  const toggleSelect = (item: InfobaseListItem, checked: boolean) => {
+    // Поэлементная правка делает выбор уже не «чисто по фильтру» — снимаем сводку фильтра.
+    setSelectionFromFilter(false);
     setSelected((prev) => {
       const next = new Map(prev);
       if (checked) next.set(item.publication.id, toPublicationListItem(item));
       else next.delete(item.publication.id);
       return next;
     });
+  };
 
-  // «Выбрать все» оперирует строками текущей страницы.
-  const toggleAll = (checked: boolean) =>
+  // «Выбрать все (страница)» оперирует строками текущей страницы.
+  const toggleAll = (checked: boolean) => {
+    setSelectionFromFilter(false);
     setSelected((prev) => {
       const next = new Map(prev);
       for (const item of items) {
@@ -324,8 +333,59 @@ export function InfobasesPage() {
       }
       return next;
     });
+  };
 
-  const clearSelection = () => setSelected(new Map());
+  const clearSelection = () => {
+    setSelectionFromFilter(false);
+    setSelected(new Map());
+  };
+
+  // MLC-181c — «Выбрать все N по фильтру»: дёргаем /infobases/ids по ТЕКУЩЕМУ фильтру и
+  // наполняем тот же внешний выбор всеми пригодными для bulk строками (через 2+ страницы).
+  // capped ⇒ набор сверх кэпа: ничего не выбираем, просим уточнить фильтр. Источник полей
+  // source/lastCheckStatus тут отсутствует (облегчённый контракт) — для них безопасный
+  // дефолт «Unknown»: confirm=true всё равно идёт на все элементы, а bulk-диалог показывает
+  // явный N и сводку фильтра.
+  const handleSelectAllFiltered = async () => {
+    setSelectingAllFiltered(true);
+    try {
+      const response = await fetchInfobaseBulkIds(
+        tenantIdParam,
+        publishStatusParam,
+        notInClusterFilter,
+        searchParam
+      );
+      if (response.capped) {
+        toast.error(t("publications.bulk.selectAllFilteredCapped", { count: response.total }));
+        return;
+      }
+      setSelected(() => {
+        const next = new Map<string, PublicationListItem>();
+        for (const row of response.items) {
+          next.set(row.publicationId, {
+            id: row.publicationId,
+            infobaseId: row.infobaseId,
+            infobaseName: row.infobaseName,
+            tenantId: "",
+            tenantName: "",
+            siteName: row.siteName,
+            virtualPath: row.virtualPath,
+            platformVersion: "",
+            source: "Unknown",
+            lastCheckStatus: "Unknown",
+            lastCheckAt: null,
+            lastCheckDetails: null,
+          });
+        }
+        return next;
+      });
+      setSelectionFromFilter(true);
+    } catch {
+      toast.error(t("errors.generic"));
+    } finally {
+      setSelectingAllFiltered(false);
+    }
+  };
 
   // После прогона снимаем успешные из выделения — упавшие/пропущенные остаются для повтора.
   const deselectSucceeded = (states: BulkItemState[]) =>
@@ -336,6 +396,43 @@ export function InfobasesPage() {
     });
 
   const selectedPublications = useMemo(() => Array.from(selected.values()), [selected]);
+
+  // MLC-181c — человекочитаемая сводка активного фильтра (клиент / статус / поиск) для
+  // bulk-диалога, когда выбор сделан через «Выбрать все по фильтру»: оператор видит, к чему
+  // применяет действие. null, когда выбор поэлементный/постраничный (сводка не показывается).
+  const filterSummary = useMemo(() => {
+    if (!selectionFromFilter) return null;
+    const parts: string[] = [];
+    if (tenantIdParam) {
+      parts.push(
+        t("infobases.bulk.filterSummary.tenant", {
+          name: tenantNameById.get(tenantIdParam) ?? tenantIdParam,
+        })
+      );
+    }
+    if (publishStatusParam) {
+      parts.push(
+        t("infobases.bulk.filterSummary.status", {
+          status: t(`infobases.filters.publishStatusOptions.${publishStatusParam}`),
+        })
+      );
+    }
+    if (notInClusterFilter) {
+      parts.push(t("infobases.bulk.filterSummary.notInCluster"));
+    }
+    if (searchParam) {
+      parts.push(t("infobases.bulk.filterSummary.search", { term: searchParam }));
+    }
+    return parts.length > 0 ? parts.join("; ") : t("infobases.bulk.filterSummary.allBases");
+  }, [
+    selectionFromFilter,
+    tenantIdParam,
+    publishStatusParam,
+    notInClusterFilter,
+    searchParam,
+    tenantNameById,
+    t,
+  ]);
 
   const allSelected = items.length > 0 && items.every((i) => selected.has(i.publication.id));
   const someSelected = items.some((i) => selected.has(i.publication.id));
@@ -483,6 +580,8 @@ export function InfobasesPage() {
               onPublish={() => setBulkPublishOpen(true)}
               onChangePlatform={() => setBulkPlatformOpen(true)}
               onClear={clearSelection}
+              onSelectAllFiltered={() => void handleSelectAllFiltered()}
+              isSelectingAllFiltered={selectingAllFiltered}
             />
           )}
 
@@ -680,12 +779,14 @@ export function InfobasesPage() {
             onOpenChange={setBulkPublishOpen}
             publications={selectedPublications}
             onRunComplete={deselectSucceeded}
+            filterSummary={filterSummary}
           />
           <BulkChangePlatformDialog
             open={bulkPlatformOpen}
             onOpenChange={setBulkPlatformOpen}
             publications={selectedPublications}
             onRunComplete={deselectSucceeded}
+            filterSummary={filterSummary}
           />
         </>
       )}

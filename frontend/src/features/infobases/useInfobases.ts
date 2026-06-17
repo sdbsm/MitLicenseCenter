@@ -4,10 +4,12 @@ import { useInvalidatingMutation } from "@/lib/useInvalidatingMutation";
 import { tenantsQueryKey } from "@/features/tenants/useTenants";
 import {
   clusterIdAvailabilitySchema,
+  infobaseBulkIdsResponseSchema,
   infobaseDetailSchema,
   infobaseListResponseSchema,
   type ClusterIdAvailability,
   type CreateInfobaseInput,
+  type InfobaseBulkIdsResponse,
   type InfobaseDetail,
   type UpdateInfobaseInput,
 } from "./types";
@@ -66,6 +68,37 @@ export function useInfobases(
       api(`/api/v1/infobases?${qs.toString()}`, { schema: infobaseListResponseSchema }),
     // Не моргаем скелетоном при смене страницы/фильтра — показываем предыдущие данные.
     placeholderData: (prev) => prev,
+  });
+}
+
+// MLC-181c — облегчённый id-набор для bulk «Выбрать все N по фильтру». Строит ТОТ ЖЕ
+// query, что и useInfobases (tenantId/publishStatus/notInCluster/search), БЕЗ page/pageSize,
+// и дёргает /api/v1/infobases/ids по требованию (кнопка в bulk-баре) — не поллинг, не useQuery.
+// BE по тому же фильтру отдаёт только пригодные для bulk строки (с публикацией); capped=true ⇒
+// набор сверх кэпа, выбор не наполняем.
+export function fetchInfobaseBulkIds(
+  tenantId?: string | null,
+  publishStatus?: string | null,
+  notInCluster = false,
+  search?: string
+): Promise<InfobaseBulkIdsResponse> {
+  const qs = new URLSearchParams();
+  if (tenantId) {
+    qs.set("tenantId", tenantId);
+  }
+  if (publishStatus) {
+    qs.set("publishStatus", publishStatus);
+  }
+  if (notInCluster) {
+    qs.set("notInCluster", "true");
+  }
+  const term = search?.trim() ?? "";
+  if (term) {
+    qs.set("search", term);
+  }
+  const query = qs.toString();
+  return api(`/api/v1/infobases/ids${query ? `?${query}` : ""}`, {
+    schema: infobaseBulkIdsResponseSchema,
   });
 }
 

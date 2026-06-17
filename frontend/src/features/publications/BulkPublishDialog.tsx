@@ -24,6 +24,9 @@ interface BulkPublishDialogProps {
   publications: PublicationListItem[];
   /** Снять успешно опубликованные из выделения (упавшие/пропущенные остаются для повтора). */
   onRunComplete: (states: BulkItemState[]) => void;
+  // MLC-181c — сводка активного фильтра, когда выбор сделан через «Выбрать все по фильтру»:
+  // оператор видит, к чему применяет массовое действие. null/undefined → не показывается.
+  filterSummary?: string | null;
 }
 
 function label(p: PublicationListItem): string {
@@ -39,6 +42,7 @@ export function BulkPublishDialog({
   onOpenChange,
   publications,
   onRunComplete,
+  filterSummary,
 }: BulkPublishDialogProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -92,6 +96,14 @@ export function BulkPublishDialog({
 
         {phase === "idle" ? (
           <div className="space-y-3">
+            {filterSummary && (
+              <div className="bg-muted/40 rounded-md border p-3 text-sm">
+                <p className="font-medium">
+                  {t("publications.bulk.filterSummaryLabel", { count: publications.length })}
+                </p>
+                <p className="text-muted-foreground mt-1">{filterSummary}</p>
+              </div>
+            )}
             {gated.length > 0 && (
               <div className="border-destructive/40 bg-destructive/5 space-y-2 rounded-md border p-3 text-sm">
                 <p className="font-medium">
