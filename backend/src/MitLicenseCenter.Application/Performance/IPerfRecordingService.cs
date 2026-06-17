@@ -6,7 +6,8 @@ namespace MitLicenseCenter.Application.Performance;
 // оператор не остановит или не сработает авто-стоп (лимит времени/числа сэмплов из настроек). На
 // рестарте процесса активная запись закрывается как Interrupted (best-effort, как частичный бакет
 // LicenseUsage). Реализация — PerfRecordingService (Infrastructure, singleton); фоновый драйвер —
-// PerfRecordingSamplingService. Старт/стоп НЕ аудируется в v1 (операционный инструмент, ADR-26).
+// PerfRecordingSamplingService. Операторские действия с записью (старт/стоп/удаление) аудируются
+// 700-серией (MLC-179); сами сэмплы — телеметрия, вне AuditLog.
 public interface IPerfRecordingService
 {
     // Стартует новую запись от имени startedBy (логин оператора). Если запись уже идёт —
