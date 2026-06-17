@@ -97,6 +97,10 @@ public sealed class AuditLogEnumMappingTests
     [InlineData(AuditActionType.RasServiceRegistered, 600)]
     [InlineData(AuditActionType.RasServiceUpdated, 601)]
     [InlineData(AuditActionType.RasServiceStarted, 602)]
+    // MLC-179 — 700-серия диагностических записей «Быстродействие» (frozen-int).
+    [InlineData(AuditActionType.PerfRecordingStarted, 700)]
+    [InlineData(AuditActionType.PerfRecordingStopped, 701)]
+    [InlineData(AuditActionType.PerfRecordingDeleted, 702)]
     public void AuditActionType_int_values_are_stable(AuditActionType action, int expected)
     {
         ((int)action).Should().Be(expected);

@@ -4,8 +4,10 @@ using Asp.Versioning.Builder;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using MitLicenseCenter.Application.Auditing;
 using MitLicenseCenter.Application.Clusters;
 using MitLicenseCenter.Application.Performance;
+using MitLicenseCenter.Domain.Audit;
 using MitLicenseCenter.Infrastructure.Identity;
 using MitLicenseCenter.Infrastructure.Persistence;
 using MitLicenseCenter.Infrastructure.Reporting;
@@ -156,6 +158,7 @@ public static class PerformanceEndpoints
     internal static async Task<Results<Created<RecordingSummary>, Conflict<ProblemDetails>, NotFound>> StartRecordingAsync(
         [FromServices] IPerfRecordingService recordingService,
         [FromServices] AppDbContext db,
+        [FromServices] IAuditLogger audit,
         HttpContext httpContext,
         CancellationToken ct)
     {
@@ -166,6 +169,11 @@ public static class PerformanceEndpoints
         {
             return TypedResults.Conflict(Problems.RecordingActive());
         }
+
+        // Аудит только при фактическом старте (host-уровень, tenantId=null).
+        await httpContext.AuditAsync(audit, AuditActionType.PerfRecordingStarted,
+            init => AuditDescriptions.PerfRecordingStarted(result.RecordingId, init),
+            tenantId: null, ct).ConfigureAwait(false);
 
         var summary = await LoadSummaryAsync(db, result.RecordingId, ct).ConfigureAwait(false);
         return summary is null
@@ -178,6 +186,8 @@ public static class PerformanceEndpoints
         Guid id,
         [FromServices] IPerfRecordingService recordingService,
         [FromServices] AppDbContext db,
+        [FromServices] IAuditLogger audit,
+        HttpContext httpContext,
         CancellationToken ct)
     {
         var outcome = await recordingService.StopAsync(id, ct).ConfigureAwait(false);
@@ -185,6 +195,11 @@ public static class PerformanceEndpoints
         {
             return TypedResults.NotFound();
         }
+
+        // Аудит только при фактической остановке (host-уровень, tenantId=null).
+        await httpContext.AuditAsync(audit, AuditActionType.PerfRecordingStopped,
+            init => AuditDescriptions.PerfRecordingStopped(id, init),
+            tenantId: null, ct).ConfigureAwait(false);
 
         var summary = await LoadSummaryAsync(db, id, ct).ConfigureAwait(false);
         return summary is null ? TypedResults.NotFound() : TypedResults.Ok(summary);
@@ -195,6 +210,8 @@ public static class PerformanceEndpoints
     internal static async Task<Results<NoContent, NotFound, Conflict<ProblemDetails>>> DeleteRecordingAsync(
         Guid id,
         [FromServices] AppDbContext db,
+        [FromServices] IAuditLogger audit,
+        HttpContext httpContext,
         CancellationToken ct)
     {
         var recording = await db.PerfRecordings
@@ -213,6 +230,12 @@ public static class PerformanceEndpoints
 
         db.PerfRecordings.Remove(recording);
         await db.SaveChangesAsync(ct).ConfigureAwait(false);
+
+        // Аудит после успешного удаления (host-уровень, tenantId=null).
+        await httpContext.AuditAsync(audit, AuditActionType.PerfRecordingDeleted,
+            init => AuditDescriptions.PerfRecordingDeleted(recording.Id, init),
+            tenantId: null, ct).ConfigureAwait(false);
+
         return TypedResults.NoContent();
     }
 

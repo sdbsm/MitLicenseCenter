@@ -65,4 +65,17 @@ public sealed class AuditDescriptionsTests
                 "Default Web Site/ib", "8.3.23.1865", "8.3.24.1234", "admin")
             .Should().Be("Платформа публикации «Default Web Site/ib» изменена с 8.3.23.1865 на 8.3.24.1234 администратором admin.");
     }
+
+    [Fact]
+    public void Perf_recording_descriptions_identify_recording_by_id_n_format()
+    {
+        // MLC-179 — запись идентифицируется Id формата :N (без дефисов), как SessionKilled.
+        var id = Guid.Parse("11111111-2222-3333-4444-555555555555");
+        AuditDescriptions.PerfRecordingStarted(id, "admin")
+            .Should().Be("Диагностическая запись быстродействия 11111111222233334444555555555555 запущена администратором admin.");
+        AuditDescriptions.PerfRecordingStopped(id, "admin")
+            .Should().Be("Диагностическая запись быстродействия 11111111222233334444555555555555 остановлена администратором admin.");
+        AuditDescriptions.PerfRecordingDeleted(id, "admin")
+            .Should().Be("Диагностическая запись быстродействия 11111111222233334444555555555555 удалена администратором admin.");
+    }
 }

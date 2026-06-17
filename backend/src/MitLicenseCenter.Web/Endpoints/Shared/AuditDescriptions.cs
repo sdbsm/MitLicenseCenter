@@ -142,4 +142,16 @@ internal static class AuditDescriptions
 
     public static string RasServiceStarted(string serviceName, string initiator) =>
         $"Служба RAS «{serviceName}» запущена администратором {initiator}.";
+
+    // ── Диагностические записи «Быстродействие» (MLC-179) ───────────────────────────
+    // Host-уровневые операции (запись с клиентом не связана). Запись идентифицируем по Id
+    // формата :N (без дефисов), как SessionKilled — по SessionId.
+    public static string PerfRecordingStarted(Guid id, string initiator) =>
+        $"Диагностическая запись быстродействия {id:N} запущена администратором {initiator}.";
+
+    public static string PerfRecordingStopped(Guid id, string initiator) =>
+        $"Диагностическая запись быстродействия {id:N} остановлена администратором {initiator}.";
+
+    public static string PerfRecordingDeleted(Guid id, string initiator) =>
+        $"Диагностическая запись быстродействия {id:N} удалена администратором {initiator}.";
 }
