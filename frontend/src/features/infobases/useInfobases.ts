@@ -25,13 +25,18 @@ const GUID_PATTERN =
 // notInCluster (MLC-150) — серверный фильтр «не найдена в кластере» (обратный дрейф):
 // true добавляет ?notInCluster=true; BE отдаёт clusterAvailable как признак доступности
 // снапшота RAS (при недоступном — пустой набор + clusterAvailable:false, а не ложный «0»).
+// search (MLC-181a) — подстрочный поиск по имени базы и имени БД на сервере (plain
+// Contains→LIKE); пустой/undefined не добавляется в query. Включён в queryKey, чтобы
+// кэш различал выборки.
 export function useInfobases(
   tenantId?: string | null,
   publishStatus?: string | null,
   notInCluster = false,
   page = 1,
-  pageSize = INFOBASES_PAGE_SIZE
+  pageSize = INFOBASES_PAGE_SIZE,
+  search?: string
 ) {
+  const term = search?.trim() ?? "";
   const qs = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
   if (tenantId) {
     qs.set("tenantId", tenantId);
@@ -42,6 +47,9 @@ export function useInfobases(
   if (notInCluster) {
     qs.set("notInCluster", "true");
   }
+  if (term) {
+    qs.set("search", term);
+  }
   return useQuery({
     queryKey: [
       ...infobasesQueryKey,
@@ -51,6 +59,7 @@ export function useInfobases(
         notInCluster,
         page,
         pageSize,
+        search: term,
       },
     ],
     queryFn: () =>
