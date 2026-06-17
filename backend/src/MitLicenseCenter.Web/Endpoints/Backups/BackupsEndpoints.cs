@@ -49,6 +49,7 @@ public static class BackupsEndpoints
         [FromQuery] int? pageSize,
         [FromQuery] string? search,
         [FromServices] AppDbContext db,
+        [FromServices] ISqlBackupService backupService,
         CancellationToken ct)
     {
         var searchTerm = search?.Trim();
@@ -88,20 +89,28 @@ public static class BackupsEndpoints
             .Select(b => new BackupSummary(
                 b.Id, b.InfobaseId, b.DatabaseServer, b.DatabaseName, b.Status, b.RequestedBy,
                 b.RequestedAtUtc, b.StartedAtUtc, b.CompletedAtUtc, b.FilePath, b.FileSizeBytes,
-                b.FailureReason, b.ErrorMessage))
+                b.FailureReason, b.ErrorMessage, FileAvailable: null))
             .ToListAsync(ct)
             .ConfigureAwait(false);
 
+        items = await ApplyFileAvailabilityAsync(backupService, items, ct).ConfigureAwait(false);
         return TypedResults.Ok(new BackupsPagedResponse(items, total, p, ps));
     }
 
     internal static async Task<Results<Ok<BackupSummary>, NotFound>> GetAsync(
         Guid id,
         [FromServices] AppDbContext db,
+        [FromServices] ISqlBackupService backupService,
         CancellationToken ct)
     {
         var summary = await LoadSummaryAsync(db, id, ct).ConfigureAwait(false);
-        return summary is null ? TypedResults.NotFound() : TypedResults.Ok(summary);
+        if (summary is null)
+        {
+            return TypedResults.NotFound();
+        }
+
+        var withAvailability = await ApplyFileAvailabilityAsync(backupService, [summary], ct).ConfigureAwait(false);
+        return TypedResults.Ok(withAvailability[0]);
     }
 
     // Постановка бэкапа в очередь (Viewer — операторская кнопка, ADR-27). Имя БД снимается
@@ -218,7 +227,47 @@ public static class BackupsEndpoints
             .Select(b => new BackupSummary(
                 b.Id, b.InfobaseId, b.DatabaseServer, b.DatabaseName, b.Status, b.RequestedBy,
                 b.RequestedAtUtc, b.StartedAtUtc, b.CompletedAtUtc, b.FilePath, b.FileSizeBytes,
-                b.FailureReason, b.ErrorMessage))
+                b.FailureReason, b.ErrorMessage, FileAvailable: null))
             .FirstOrDefaultAsync(ct)
             .ConfigureAwait(false);
+
+    // Живая сверка списка бэкапов с фактом на диске (MLC-178). Проверяем только Succeeded-строки
+    // с непустым FilePath (Queued/Running/Failed/без пути — нечего сверять, FileAvailable=null).
+    // Один батч FilesExistAsync на сервер (на практике сервер один — single-host MLC-088, но
+    // строки хранят снимок DatabaseServer, поэтому группируем на всякий случай). Путь есть в
+    // ответе словаря → его значение; пути нет (сервис не смог) → null = «не знаем». Viewer-read,
+    // аудит НЕ пишем.
+    private static async Task<List<BackupSummary>> ApplyFileAvailabilityAsync(
+        ISqlBackupService backupService, List<BackupSummary> items, CancellationToken ct)
+    {
+        var checkable = items
+            .Where(b => b.Status == BackupStatus.Succeeded && !string.IsNullOrEmpty(b.FilePath))
+            .ToList();
+        if (checkable.Count == 0)
+        {
+            return items;
+        }
+
+        var availabilityByPath = new Dictionary<string, bool>(StringComparer.Ordinal);
+        foreach (var group in checkable.GroupBy(b => b.DatabaseServer, StringComparer.Ordinal))
+        {
+            var paths = group
+                .Select(b => b.FilePath!)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+            var existing = await backupService.FilesExistAsync(group.Key, paths, ct).ConfigureAwait(false);
+            foreach (var pair in existing)
+            {
+                availabilityByPath[pair.Key] = pair.Value;
+            }
+        }
+
+        return items
+            .Select(b => b.Status == BackupStatus.Succeeded
+                    && !string.IsNullOrEmpty(b.FilePath)
+                    && availabilityByPath.TryGetValue(b.FilePath, out var available)
+                ? b with { FileAvailable = available }
+                : b)
+            .ToList();
+    }
 }

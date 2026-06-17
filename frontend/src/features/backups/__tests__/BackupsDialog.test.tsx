@@ -70,6 +70,7 @@ const succeeded: BackupSummary = {
   fileSizeBytes: 123_456_789,
   failureReason: "None",
   errorMessage: null,
+  fileAvailable: true,
 };
 
 const queued: BackupSummary = {
@@ -80,6 +81,7 @@ const queued: BackupSummary = {
   completedAtUtc: null,
   filePath: null,
   fileSizeBytes: null,
+  fileAvailable: null,
 };
 
 const failed: BackupSummary = {
@@ -136,6 +138,29 @@ describe("BackupsDialog", () => {
     expect(screen.getByText("Недостаточно свободного места на диске")).toBeInTheDocument();
     // Queued: завершение и размер ещё неизвестны → честное «—», не нули.
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);
+  });
+
+  it("Succeeded с fileAvailable=false → пометка «файл отсутствует» вместо размера (MLC-178)", async () => {
+    const missingFile: BackupSummary = { ...succeeded, fileAvailable: false };
+    setup([missingFile]);
+
+    expect(await screen.findByText("Готов")).toBeInTheDocument();
+    expect(screen.getByText("файл отсутствует")).toBeInTheDocument();
+    // Размер вытесненного файла не показываем.
+    expect(screen.queryByText("117.7 МБ")).not.toBeInTheDocument();
+  });
+
+  it("Succeeded с fileAvailable=true/null → размер без пометки (MLC-178)", async () => {
+    const unknown: BackupSummary = {
+      ...succeeded,
+      id: "55555555-5555-5555-5555-555555555555",
+      fileAvailable: null,
+    };
+    setup([succeeded, unknown]);
+
+    expect(await screen.findAllByText("Готов")).toHaveLength(2);
+    expect(screen.queryByText("файл отсутствует")).not.toBeInTheDocument();
+    expect(screen.getAllByText("117.7 МБ")).toHaveLength(2);
   });
 
   it("Admin видит кнопки удаления", async () => {

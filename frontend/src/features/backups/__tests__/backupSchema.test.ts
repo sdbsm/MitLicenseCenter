@@ -65,6 +65,26 @@ describe("backupSummarySchema", () => {
     expect(parsed.errorMessage).toContain("Свободно");
   });
 
+  it("принимает fileAvailable true/false и нормализует опущенный ключ в null (MLC-178)", () => {
+    const base = {
+      id: "77777777-7777-7777-7777-777777777777",
+      infobaseId: "22222222-2222-2222-2222-222222222222",
+      databaseServer: "(local)",
+      databaseName: "acme_bp",
+      status: "Succeeded",
+      requestedBy: "operator",
+      requestedAtUtc: "2026-06-10T08:00:00Z",
+      filePath: "D:\\Backups\\acme_bp\\acme_bp_20260610_080005.bak",
+      fileSizeBytes: 123,
+      failureReason: "None",
+    };
+
+    expect(backupSummarySchema.parse({ ...base, fileAvailable: true }).fileAvailable).toBe(true);
+    expect(backupSummarySchema.parse({ ...base, fileAvailable: false }).fileAvailable).toBe(false);
+    // Ключ опущен (сервер не проверял/не смог) → omittable нормализует в null.
+    expect(backupSummarySchema.parse(base).fileAvailable).toBeNull();
+  });
+
   it("незнакомый статус/причина будущего бэкенда НЕ роняют список (деградация, не отказ)", () => {
     const parsed = backupListSchema.parse([
       {

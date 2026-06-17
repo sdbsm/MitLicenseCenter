@@ -36,6 +36,7 @@ const summary: BackupSummary = {
   fileSizeBytes: null,
   failureReason: "None",
   errorMessage: null,
+  fileAvailable: null,
 };
 
 describe("useBackups", () => {

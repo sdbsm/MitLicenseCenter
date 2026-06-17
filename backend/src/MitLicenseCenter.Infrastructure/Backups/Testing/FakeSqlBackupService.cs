@@ -14,6 +14,7 @@ internal sealed class FakeSqlBackupService : ISqlBackupService
     private readonly object _gate = new();
     private readonly List<BackupCall> _backupCalls = [];
     private readonly List<DeleteCall> _deleteCalls = [];
+    private readonly List<FilesExistCall> _filesExistCalls = [];
 
     public SqlBackupResult NextBackupResult { get; set; } = new(
         Succeeded: true,
@@ -27,6 +28,11 @@ internal sealed class FakeSqlBackupService : ISqlBackupService
     // Тест может задать «ворота», на которых BackupAsync повиснет до сигнала.
     public TaskCompletionSource? BackupGate { get; set; }
 
+    // MLC-178: управляемый набор «существующих на диске» путей для FilesExistAsync. По
+    // умолчанию null = «сервис не смог» (вернёт пустой словарь = «не знаем»). Задав набор,
+    // тест получает словарь по запрошенным путям: путь в наборе → true, иначе → false.
+    public HashSet<string>? ExistingFilePaths { get; set; }
+
     public IReadOnlyList<BackupCall> BackupCalls
     {
         get { lock (_gate) { return _backupCalls.ToList(); } }
@@ -35,6 +41,11 @@ internal sealed class FakeSqlBackupService : ISqlBackupService
     public IReadOnlyList<DeleteCall> DeleteCalls
     {
         get { lock (_gate) { return _deleteCalls.ToList(); } }
+    }
+
+    public IReadOnlyList<FilesExistCall> FilesExistCalls
+    {
+        get { lock (_gate) { return _filesExistCalls.ToList(); } }
     }
 
     public async Task<SqlBackupResult> BackupAsync(
@@ -64,7 +75,34 @@ internal sealed class FakeSqlBackupService : ISqlBackupService
         return Task.FromResult(NextDeleteResult);
     }
 
+    public Task<IReadOnlyDictionary<string, bool>> FilesExistAsync(
+        string server, IReadOnlyCollection<string> paths, CancellationToken ct)
+    {
+        lock (_gate)
+        {
+            _filesExistCalls.Add(new FilesExistCall(server, paths.ToList()));
+        }
+
+        // Пустой запрос — реальный адаптер не ходит в SQL.
+        if (paths.Count == 0 || ExistingFilePaths is null)
+        {
+            // ExistingFilePaths == null имитирует «сервис не смог» → пустой словарь = «не знаем».
+            return Task.FromResult<IReadOnlyDictionary<string, bool>>(
+                new Dictionary<string, bool>(StringComparer.Ordinal));
+        }
+
+        var result = new Dictionary<string, bool>(StringComparer.Ordinal);
+        foreach (var path in paths)
+        {
+            result[path] = ExistingFilePaths.Contains(path);
+        }
+
+        return Task.FromResult<IReadOnlyDictionary<string, bool>>(result);
+    }
+
     internal sealed record BackupCall(string Server, string DatabaseName, string FolderRoot, int SafetyMarginMb);
 
     internal sealed record DeleteCall(string Server, string FolderPath, DateTime CutoffUtc);
+
+    internal sealed record FilesExistCall(string Server, IReadOnlyList<string> Paths);
 }

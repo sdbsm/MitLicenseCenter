@@ -20,6 +20,7 @@
       "Succeeded": "Готов",
       "Failed": "Ошибка"
     },
+    "fileMissing": "файл отсутствует",
     "failureReason": {
       "InsufficientSpace": "Недостаточно свободного места на диске",
       "EstimateUnavailable": "Не удалось оценить размер базы",

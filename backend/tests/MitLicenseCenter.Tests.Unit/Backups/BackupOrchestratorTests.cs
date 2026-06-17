@@ -222,6 +222,56 @@ public sealed class BackupOrchestratorTests
         entry.Description.Should().Contain("acme_db");
     }
 
+    [Fact]
+    public async Task Successful_backup_clears_path_of_previous_succeeded_row_of_same_pair()
+    {
+        // MLC-178 (узкая B): keep-latest вытеснил .bak предыдущей Succeeded-строки той же пары
+        // (server, db) — оркестратор обнуляет её FilePath/FileSizeBytes (история сохраняется:
+        // строка остаётся, статус/Id/таймстемпы не трогаются). Строки ДРУГОЙ базы и Failed —
+        // не трогаются.
+        using var fx = new Fixture();
+        var prior = Row("acme_db", BackupStatus.Succeeded, Start.AddHours(-1));
+        prior.FilePath = @"D:\Backups\acme_db\old.bak";
+        prior.FileSizeBytes = 4096;
+        prior.CompletedAtUtc = Start.AddHours(-1);
+        var otherDb = Row("globex_db", BackupStatus.Succeeded, Start.AddHours(-1));
+        otherDb.FilePath = @"D:\Backups\globex_db\other.bak";
+        otherDb.FileSizeBytes = 8192;
+        var failedSameDb = Row("acme_db", BackupStatus.Failed, Start.AddHours(-2));
+        failedSameDb.FailureReason = BackupFailureReason.BackupFailed;
+        await fx.SeedAsync(prior, otherDb, failedSameDb);
+
+        var request = await fx.RequestAsync("acme_db");
+        await fx.Orchestrator.PumpOnceAsync(CancellationToken.None);
+        await fx.WaitUntilAsync(
+            db => db.DatabaseBackups.AnyAsync(b => b.Id == request.BackupId && b.Status == BackupStatus.Succeeded),
+            "новый бэкап завершился успешно");
+
+        // Предыдущая Succeeded-строка той же базы: путь/размер обнулены, остальное сохранено.
+        var supersededRow = await fx.QueryAsync(db => db.DatabaseBackups.SingleAsync(b => b.Id == prior.Id));
+        supersededRow.FilePath.Should().BeNull();
+        supersededRow.FileSizeBytes.Should().BeNull();
+        supersededRow.Status.Should().Be(BackupStatus.Succeeded, "статус не меняется");
+        supersededRow.Id.Should().Be(prior.Id);
+        supersededRow.RequestedAtUtc.Should().Be(prior.RequestedAtUtc, "таймстемпы сохранены");
+        supersededRow.CompletedAtUtc.Should().Be(Start.AddHours(-1));
+
+        // Другая база — нетронута.
+        var otherRow = await fx.QueryAsync(db => db.DatabaseBackups.SingleAsync(b => b.Id == otherDb.Id));
+        otherRow.FilePath.Should().Be(@"D:\Backups\globex_db\other.bak");
+        otherRow.FileSizeBytes.Should().Be(8192);
+
+        // Failed-строка той же базы (без пути) — нетронута (статус/причина сохранены).
+        var failedRow = await fx.QueryAsync(db => db.DatabaseBackups.SingleAsync(b => b.Id == failedSameDb.Id));
+        failedRow.Status.Should().Be(BackupStatus.Failed);
+        failedRow.FailureReason.Should().Be(BackupFailureReason.BackupFailed);
+
+        // Новая строка несёт свежий файл.
+        var newRow = await fx.QueryAsync(db => db.DatabaseBackups.SingleAsync(b => b.Id == request.BackupId));
+        newRow.FilePath.Should().Be(fx.Backup.NextBackupResult.FilePath);
+        newRow.FileSizeBytes.Should().Be(fx.Backup.NextBackupResult.FileSizeBytes);
+    }
+
     [Theory]
     [InlineData(BackupFailureReason.InsufficientSpace)]
     [InlineData(BackupFailureReason.EstimateUnavailable)]
