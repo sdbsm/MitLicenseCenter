@@ -24,7 +24,10 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { useMe } from "@/features/auth/useAuth";
 import { BackupsDialog } from "@/features/backups/BackupsDialog";
 import { BulkChangePlatformDialog } from "@/features/publications/BulkChangePlatformDialog";
+import { BulkCheckDialog } from "@/features/publications/BulkCheckDialog";
+import { BulkDeleteInfobaseDialog } from "@/features/publications/BulkDeleteInfobaseDialog";
 import { BulkPublishDialog } from "@/features/publications/BulkPublishDialog";
+import { BulkUnpublishDialog } from "@/features/publications/BulkUnpublishDialog";
 import { ChangePlatformDialog } from "@/features/publications/ChangePlatformDialog";
 import { IisManagementCard } from "@/features/publications/iis/IisManagementCard";
 import { PublicationsBulkBar } from "@/features/publications/PublicationsBulkBar";
@@ -173,6 +176,10 @@ export function InfobasesPage() {
   const [selected, setSelected] = useState<Map<string, PublicationListItem>>(new Map());
   const [bulkPublishOpen, setBulkPublishOpen] = useState(false);
   const [bulkPlatformOpen, setBulkPlatformOpen] = useState(false);
+  // MLC-184b — bulk-действия из меню «Ещё» в баре (проверка / снятие с публикации / удаление баз).
+  const [bulkCheckOpen, setBulkCheckOpen] = useState(false);
+  const [bulkUnpublishOpen, setBulkUnpublishOpen] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   // MLC-181c — идёт запрос /infobases/ids для «Выбрать все N по фильтру» (кнопка disabled).
   const [selectingAllFiltered, setSelectingAllFiltered] = useState(false);
   // Выбор наполнен через «Выбрать все по фильтру» (а не поэлементно/постранично) — тогда
@@ -579,6 +586,9 @@ export function InfobasesPage() {
               count={selected.size}
               onPublish={() => setBulkPublishOpen(true)}
               onChangePlatform={() => setBulkPlatformOpen(true)}
+              onCheck={() => setBulkCheckOpen(true)}
+              onUnpublish={() => setBulkUnpublishOpen(true)}
+              onDeleteInfobase={() => setBulkDeleteOpen(true)}
               onClear={clearSelection}
               onSelectAllFiltered={() => void handleSelectAllFiltered()}
               isSelectingAllFiltered={selectingAllFiltered}
@@ -784,6 +794,27 @@ export function InfobasesPage() {
           <BulkChangePlatformDialog
             open={bulkPlatformOpen}
             onOpenChange={setBulkPlatformOpen}
+            publications={selectedPublications}
+            onRunComplete={deselectSucceeded}
+            filterSummary={filterSummary}
+          />
+          <BulkCheckDialog
+            open={bulkCheckOpen}
+            onOpenChange={setBulkCheckOpen}
+            publications={selectedPublications}
+            onRunComplete={deselectSucceeded}
+            filterSummary={filterSummary}
+          />
+          <BulkUnpublishDialog
+            open={bulkUnpublishOpen}
+            onOpenChange={setBulkUnpublishOpen}
+            publications={selectedPublications}
+            onRunComplete={deselectSucceeded}
+            filterSummary={filterSummary}
+          />
+          <BulkDeleteInfobaseDialog
+            open={bulkDeleteOpen}
+            onOpenChange={setBulkDeleteOpen}
             publications={selectedPublications}
             onRunComplete={deselectSucceeded}
             filterSummary={filterSummary}
