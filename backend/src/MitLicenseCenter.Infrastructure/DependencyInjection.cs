@@ -300,6 +300,12 @@ public static class DependencyInjection
         // License usage retention (MLC-048): scoped (DbContext), CRON фиксирован 03:30 daily.
         services.AddScoped<ILicenseUsageRetentionJob, LicenseUsageRetentionJob>();
 
+        // Database size collection + retention (MLC-185c): scoped (DbContext). Сбор — 02:00,
+        // ретеншен — 04:00 daily; CRON'ы фиксированы в Program.cs. Retention window —
+        // Settings.DatabaseSize.RetentionDays.
+        services.AddScoped<IDatabaseSizeCollectionJob, DatabaseSizeCollectionJob>();
+        services.AddScoped<IDatabaseSizeRetentionJob, DatabaseSizeRetentionJob>();
+
         // Perf recording retention (MLC-169): scoped (DbContext), CRON фиксирован 03:45 daily.
         // Срок хранения — константа в джобе (не Setting), окно оператором не настраивается.
         services.AddScoped<IPerfRecordingRetentionJob, PerfRecordingRetentionJob>();

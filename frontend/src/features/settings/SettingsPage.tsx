@@ -19,8 +19,8 @@ import { useSettings } from "./useSettings";
 // SQL-инстанс (Sql.Server, MLC-087): формы баз и discovery имён БД берут значение
 // отсюда, «дефолтом для форм» он больше не называется. Сайт IIS живёт в секции
 // «Публикации IIS» рядом с корневой папкой.
-// «Хранение данных» объединяет два окна ретенции — аудит и историю использования
-// лицензий для /reports.
+// «Хранение данных» объединяет окна ретенции — аудит, историю использования
+// лицензий для /reports и историю размеров баз (DatabaseSize, MLC-185).
 const SECTIONS: { titleKey: string; keys: string[] }[] = [
   {
     titleKey: "settings.sections.cluster",
@@ -51,7 +51,7 @@ const SECTIONS: { titleKey: string; keys: string[] }[] = [
   },
   {
     titleKey: "settings.sections.retention",
-    keys: ["Audit.RetentionDays", "LicenseUsage.RetentionDays"],
+    keys: ["Audit.RetentionDays", "LicenseUsage.RetentionDays", "DatabaseSize.RetentionDays"],
   },
   {
     titleKey: "settings.sections.backup",
@@ -83,6 +83,7 @@ const FIELD_META: Record<
   "Drift.IntervalMinutes": { type: "number", min: 1, max: 60 },
   "Audit.RetentionDays": { type: "number", min: 30, max: 3650 },
   "LicenseUsage.RetentionDays": { type: "number", min: 30, max: 3650 },
+  "DatabaseSize.RetentionDays": { type: "number", min: 30, max: 3650 },
   // Диапазоны зеркалят SettingDefinitions (MLC-076): TtlHours 1..8760, MaxParallel 1..8,
   // DiskSafetyMarginMb 0..1048576 — backend всё равно валидирует со своей стороны.
   "Backup.FolderPath": { type: "text", placeholder: "D:\\Backups" },

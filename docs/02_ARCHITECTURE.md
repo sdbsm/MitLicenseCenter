@@ -228,6 +228,8 @@ semver-компаратор `AppVersion`/`UpdateComparison` (Domain/Updates). П
 | `backup-retention` | `IBackupRetentionJob.RunAsync` | `15 3 * * *` | Ночное удаление устаревших файлов бэкапов (TTL — `Backup.TtlHours`) |
 | `license-usage-retention` | `ILicenseUsageRetentionJob.RunAsync` | `30 3 * * *` | Ночная очистка истории потребления лицензий (окно — `LicenseUsage.RetentionDays`) |
 | `perf-recording-retention` | `IPerfRecordingRetentionJob.RunAsync` | `45 3 * * *` | Ночная очистка записей «Быстродействия» (`PerfRecordings` + каскадные сэмплы); срок — константа в джобе (90 дней), оператором не настраивается |
+| `database-size-collection` | `IDatabaseSizeCollectionJob.RunAsync` | `0 2 * * *` | Суточный снимок размеров баз инфобаз (`sys.master_files`, data+log allocated) в историю `DatabaseSizeSnapshots`; охват — только базы инфобаз; аудит не пишет |
+| `database-size-retention` | `IDatabaseSizeRetentionJob.RunAsync` | `0 4 * * *` | Ночная очистка истории размеров баз (окно — `DatabaseSize.RetentionDays`) |
 
 Завершённым джобам выставляется ограниченный срок хранения в схеме `hangfire`. Дашборд
 Hangfire доступен на `/hangfire` только роли Admin.
