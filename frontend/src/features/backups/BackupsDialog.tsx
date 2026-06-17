@@ -160,10 +160,19 @@ export function BackupsDialog({ infobase, open, onOpenChange }: BackupsDialogPro
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
                         {b.status === "Succeeded" && b.fileAvailable === false ? (
-                          // Живая сверка с диском (MLC-178): файл вытеснен/удалён — размер
-                          // приглушаем и помечаем «файл отсутствует». Кнопки «Скачать» нет.
-                          <span className="text-muted-foreground" title={b.filePath ?? undefined}>
+                          // MLC-178/182: строка ссылается на файл, но на диске его нет
+                          // (удалён вручную/внешней чисткой) — заметный сигнал, не норма.
+                          <span className="text-destructive" title={b.filePath ?? undefined}>
                             {t("backups.fileMissing")}
+                          </span>
+                        ) : b.status === "Succeeded" && !b.filePath ? (
+                          // MLC-182: файл вытеснен keep-latest (хранится только последний) —
+                          // это норма, спокойная пометка вместо немого «—».
+                          <span
+                            className="text-muted-foreground"
+                            title={t("backups.fileSupersededHint")}
+                          >
+                            {t("backups.fileSuperseded")}
                           </span>
                         ) : b.filePath ? (
                           <span title={b.filePath}>{formatBackupSize(b.fileSizeBytes)}</span>
