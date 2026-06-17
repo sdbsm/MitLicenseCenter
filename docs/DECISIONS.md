@@ -326,7 +326,10 @@ JWT-bearer (кука проще для same-origin SPA), внешние IdP.
 метод `AddDataProtection`) вызывает только `.SetApplicationName("MitLicenseCenter")` и
 `.PersistKeysToFileSystem(...)` — **без** `ProtectKeysWithDpapi` / `ProtectKeysWithCertificate`.
 Защита key ring на диске — **NTFS ACL** (установщик рвёт наследование и даёт доступ только
-SYSTEM, Administrators и — в Windows-auth установке — служебной учётке).
+SYSTEM, Administrators и — в Windows-auth установке — служебной учётке). В среде `Test`
+(интеграционный `MlcWebApplicationFactory`) метод уводит key ring в `%TEMP%\MitLicenseCenter\
+test-keys` (всегда доступен тест-процессу) вместо `%ProgramData%` — тест не зависит от ACL
+боевого каталога (MLC-189; раньше валило 8 middleware-тестов в worktree/CI).
 
 **Последствия / компромисс.** Переносимость бэкапа поставлена выше шифрования ключей at-rest:
 бэкап-юнит «key ring + БД» восстанавливается на любом новом железе/учётке, что и делает

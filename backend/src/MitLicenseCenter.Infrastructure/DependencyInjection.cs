@@ -346,13 +346,22 @@ public static class DependencyInjection
 
     private static void AddDataProtection(IServiceCollection services, IHostEnvironment environment)
     {
-        var keyDirectory = environment.IsDevelopment()
-            ? Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "MitLicenseCenter", "keys")
-            : Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-                "MitLicenseCenter", "keys");
+        // MLC-189: интеграционный тест-хост (env "Test", MlcWebApplicationFactory) НЕ должен
+        // зависеть от записи в %ProgramData%\MitLicenseCenter\keys. Боевой key ring защищён
+        // NTFS ACL (установщик раздаёт доступ только сервис-аккаунту/админам — ADR-8); в
+        // worktree/CI у тест-процесса этих прав нет → `Directory.CreateDirectory`/запись ключа
+        // падали уже при подъёме хоста, валя 8 middleware-тестов (SecurityHeaders/LoginRateLimit).
+        // Уводим key ring в %TEMP% (всегда доступен тест-процессу): персистентность ключей
+        // middleware-тестам не важна. Так же, как Program.cs гейтит на "Test" Hangfire/сидеры.
+        var keyDirectory = environment.IsEnvironment("Test")
+            ? Path.Combine(Path.GetTempPath(), "MitLicenseCenter", "test-keys")
+            : environment.IsDevelopment()
+                ? Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "MitLicenseCenter", "keys")
+                : Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                    "MitLicenseCenter", "keys");
 
         Directory.CreateDirectory(keyDirectory);
 
