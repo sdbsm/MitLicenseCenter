@@ -57,6 +57,17 @@
       "rasDown": "Нет связи с кластером 1С (RAS)",
       "licenseFactUnavailable": "Данные о лицензиях недоступны"
     },
+    "trends": {
+      "licenseConsumption7d": {
+        "title": "Использование лицензий (7 дней)",
+        "peak": "Пик: {{consumed}} из {{limit}}"
+      },
+      "databaseSizeGrowth": {
+        "title": "Рост размера баз",
+        "weekDelta": "Δ за неделю: {{delta}}"
+      },
+      "empty": "Нет данных за период"
+    },
     "refresh": {
       "updated": "Обновлено",
       "error": "Не удалось загрузить данные дашборда."

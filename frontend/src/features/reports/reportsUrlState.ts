@@ -46,13 +46,15 @@ function parseDateOnly(date: string): { year: number; monthIndex: number; day: n
   return { year, monthIndex: month - 1, day };
 }
 
-// Начало дня для `from` — локальная полночь.
-function dateOnlyToIsoStart(date: string): string {
+// Начало дня для `from` — локальная полночь. Экспортируется для переиспользования
+// в дашборде (трендовые карточки «Обзора», MLC-186c) — те же локально-суточные
+// границы, что и у «Отчётов».
+export function dateOnlyToIsoStart(date: string): string {
   const { year, monthIndex, day } = parseDateOnly(date);
   return new Date(year, monthIndex, day, 0, 0, 0, 0).toISOString();
 }
 // Конец дня для `to` — последняя миллисекунда локальных суток.
-function dateOnlyToIsoEnd(date: string): string {
+export function dateOnlyToIsoEnd(date: string): string {
   const { year, monthIndex, day } = parseDateOnly(date);
   return new Date(year, monthIndex, day, 23, 59, 59, 999).toISOString();
 }

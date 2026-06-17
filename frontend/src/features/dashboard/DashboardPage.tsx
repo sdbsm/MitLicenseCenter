@@ -1,20 +1,57 @@
+import { type ReactNode, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
+import { Line, LineChart, ResponsiveContainer } from "recharts";
 import { RelativeTime } from "@/components/ui/RelativeTime";
 import { StatusBadge, type StatusBadgeVariant } from "@/components/ui/StatusBadge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { useDatabaseSize } from "@/features/reports/useDatabaseSize";
+import { useLicenseUsage } from "@/features/reports/useLicenseUsage";
 import { cn } from "@/lib/utils";
 import { AttentionWidget } from "./AttentionWidget";
+import { DatabaseSizeTrendCard } from "./DatabaseSizeTrendCard";
 import { HostHealthCard } from "./HostHealthCard";
+import { LicenseTrendCard } from "./LicenseTrendCard";
 import { TopTenantsChart, TopTenantsLegend } from "./TopTenantsChart";
+import { lastNDaysRange } from "./trendsRange";
 import type { DashboardRasHealth, DashboardSummaryResponse, TenantConsumptionRow } from "./types";
 import { useDashboardSummary } from "./useDashboardSummary";
+
+const SPARKLINE_COLOR = "#0ea5e9"; // sky-500 — тот же «инфо», что у пика лицензий
 
 export function DashboardPage() {
   const { t } = useTranslation();
   const { data, isLoading, isError, isFetching, refetch } = useDashboardSummary();
+
+  // MLC-186c — фиксированный 7-дневный диапазон трендов «Обзора». Считаем ОДИН раз
+  // (useMemo с пустыми зависимостями), иначе новый объект каждый рендер даст новый
+  // react-query-key и бесконечный рефетч. Один license/size-запрос на страницу —
+  // его данные делят трендовая карточка и KPI-спарклайн.
+  const trendsRange = useMemo(() => lastNDaysRange(7), []);
+  const licenseUsage = useLicenseUsage(trendsRange);
+  const databaseSize = useDatabaseSize(trendsRange);
+
+  const licenseBuckets = licenseUsage.data?.buckets;
+
+  // Мини-спарклайн под значением KPI «Использовано лицензий»: пик потребления за
+  // 7 дней без осей/сетки/тултипа. Нет данных → не рендерим (sparkline=undefined).
+  const licenseSparkline =
+    licenseBuckets && licenseBuckets.length > 0 ? (
+      <ResponsiveContainer width="100%" height={36}>
+        <LineChart data={licenseBuckets} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
+          <Line
+            type="monotone"
+            dataKey="consumedMax"
+            stroke={SPARKLINE_COLOR}
+            strokeWidth={1.5}
+            dot={false}
+            isAnimationActive={false}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    ) : undefined;
 
   return (
     <TooltipProvider delayDuration={150}>
@@ -58,12 +95,33 @@ export function DashboardPage() {
           </div>
         )}
 
-        <KpiGrid data={data} isLoading={isLoading} isFetching={isFetching} />
+        <KpiGrid
+          data={data}
+          isLoading={isLoading}
+          isFetching={isFetching}
+          licenseSparkline={licenseSparkline}
+        />
 
         {/* MLC-186b — единый виджет actionable-сигналов «Требует внимания» (квоты,
             дрейф кластера, диск бэкапов, RAS, факт лицензий). Summary передаём пропсом
             (DashboardPage уже грузит его) — виджет не дублирует запрос summary. */}
         <AttentionWidget summary={data} />
+
+        {/* MLC-186c — трендовые карточки «Обзора»: использование лицензий и рост
+            размера баз за 7 дней. Один license/size-запрос на страницу делится с
+            KPI-спарклайном (общий мемоизированный диапазон). */}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <LicenseTrendCard
+            buckets={licenseUsage.data?.buckets}
+            peakConsumed={licenseUsage.data?.peakConsumed}
+            peakLimit={licenseUsage.data?.peakLimit}
+            isLoading={licenseUsage.isLoading}
+          />
+          <DatabaseSizeTrendCard
+            points={databaseSize.data?.points}
+            isLoading={databaseSize.isLoading}
+          />
+        </div>
 
         {/* Строка состояния системы (MLC-085, аудит §3.4): RAS-статус + здоровье хоста. */}
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
@@ -81,11 +139,14 @@ interface KpiGridProps {
   data: DashboardSummaryResponse | undefined;
   isLoading: boolean;
   isFetching: boolean;
+  // MLC-186c — мини-спарклайн под значением KPI «Использовано лицензий» (undefined,
+  // пока ряд не накоплен).
+  licenseSparkline?: ReactNode;
 }
 
 // KPI-карточки кликабельны (MLC-085): каждая ведёт в раздел, отвечающий за её
 // число. «Свободно лицензий» — производная от «Использовано», обе ведут в /reports.
-function KpiGrid({ data, isLoading, isFetching }: KpiGridProps) {
+function KpiGrid({ data, isLoading, isFetching, licenseSparkline }: KpiGridProps) {
   const { t } = useTranslation();
 
   return (
@@ -111,6 +172,7 @@ function KpiGrid({ data, isLoading, isFetching }: KpiGridProps) {
         to="/sessions"
         isLoading={isLoading}
         isFetching={isFetching}
+        live
       />
       <KpiCard
         label={t("dashboard.kpi.consumed")}
@@ -118,6 +180,7 @@ function KpiGrid({ data, isLoading, isFetching }: KpiGridProps) {
         to="/reports"
         isLoading={isLoading}
         isFetching={isFetching}
+        sparkline={licenseSparkline}
       />
       <KpiCard
         label={t("dashboard.kpi.available")}
@@ -137,9 +200,22 @@ interface KpiCardProps {
   to: string;
   isLoading: boolean;
   isFetching: boolean;
+  // MLC-186c — мини-спарклайн под значением (общий license-ряд «Обзора»).
+  sparkline?: ReactNode;
+  // MLC-186c — «живой» индикатор: число опрашивается онлайн (активные сеансы — poll 5с).
+  live?: boolean;
 }
 
-function KpiCard({ label, value, secondary, to, isLoading, isFetching }: KpiCardProps) {
+function KpiCard({
+  label,
+  value,
+  secondary,
+  to,
+  isLoading,
+  isFetching,
+  sparkline,
+  live,
+}: KpiCardProps) {
   return (
     <Link
       to={to}
@@ -152,8 +228,15 @@ function KpiCard({ label, value, secondary, to, isLoading, isFetching }: KpiCard
         )}
       >
         <CardHeader className="px-4 pb-0">
-          <CardTitle className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+          <CardTitle className="text-muted-foreground flex items-center gap-1.5 text-xs font-medium tracking-wide uppercase">
             {label}
+            {live && (
+              <span
+                aria-hidden="true"
+                data-testid="kpi-live-dot"
+                className="inline-block size-2 shrink-0 animate-pulse rounded-full bg-emerald-500"
+              />
+            )}
           </CardTitle>
         </CardHeader>
         <CardContent className="px-4">
@@ -163,6 +246,11 @@ function KpiCard({ label, value, secondary, to, isLoading, isFetching }: KpiCard
             <div className="text-3xl font-semibold tabular-nums">{value}</div>
           )}
           {secondary && <p className="text-muted-foreground mt-1 text-xs">{secondary}</p>}
+          {sparkline && (
+            <div className="mt-2 h-9" data-testid="kpi-sparkline">
+              {sparkline}
+            </div>
+          )}
         </CardContent>
       </Card>
     </Link>
