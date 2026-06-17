@@ -38,6 +38,25 @@
         "limit": "Лимит: {{limit}}"
       }
     },
+    "alerts": {
+      "title": "Требует внимания",
+      "allClear": "Всё в порядке",
+      "quotaDanger_one": "{{count}} клиент превысил квоту лицензий",
+      "quotaDanger_few": "{{count}} клиента превысили квоту лицензий",
+      "quotaDanger_many": "{{count}} клиентов превысили квоту лицензий",
+      "quotaWarning_one": "{{count}} клиент близок к лимиту лицензий",
+      "quotaWarning_few": "{{count}} клиента близки к лимиту лицензий",
+      "quotaWarning_many": "{{count}} клиентов близки к лимиту лицензий",
+      "basesNotInCluster_one": "{{count}} база не найдена в кластере",
+      "basesNotInCluster_few": "{{count}} базы не найдены в кластере",
+      "basesNotInCluster_many": "{{count}} баз не найдено в кластере",
+      "unassignedBases_one": "{{count}} нераспределённая база в кластере",
+      "unassignedBases_few": "{{count}} нераспределённые базы в кластере",
+      "unassignedBases_many": "{{count}} нераспределённых баз в кластере",
+      "backupDiskLow": "Мало места на диске бэкапов",
+      "rasDown": "Нет связи с кластером 1С (RAS)",
+      "licenseFactUnavailable": "Данные о лицензиях недоступны"
+    },
     "refresh": {
       "updated": "Обновлено",
       "error": "Не удалось загрузить данные дашборда."
