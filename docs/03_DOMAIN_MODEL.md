@@ -458,6 +458,7 @@ Consuming`, сгруппированных по `TenantId` (`Pending`/`NotConsum
 | 106 | UserEnabled | |
 | 107 | UserRoleChanged | Смена роли Admin↔Viewer |
 | 108 | LoginFailed | Неудачная попытка входа (server-scope) |
+| 109 | UserDeleted | Жёсткое удаление учётки (MLC-180, server-scope; «Отключить» остаётся) |
 | 200 | SessionKilled | Завершение сеанса |
 | 201 | LimitChanged | Изменение лимита клиента |
 | 210 | PublicationDriftDetected | **Исторический слот** (drift-enforcement удалён) |

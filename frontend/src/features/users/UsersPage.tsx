@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TableCell } from "@/components/ui/table";
 import { ChangeRoleDialog } from "./ChangeRoleDialog";
+import { DeleteUserDialog } from "./DeleteUserDialog";
 import { DisableUserDialog } from "./DisableUserDialog";
 import { EnableUserDialog } from "./EnableUserDialog";
 import { GeneratedPasswordDialog } from "./GeneratedPasswordDialog";
@@ -41,6 +42,7 @@ export function UsersPage() {
   const [resetting, setResetting] = useState<User | null>(null);
   const [disabling, setDisabling] = useState<User | null>(null);
   const [enabling, setEnabling] = useState<User | null>(null);
+  const [deleting, setDeleting] = useState<User | null>(null);
   const [changingRole, setChangingRole] = useState<User | null>(null);
   const [generated, setGenerated] = useState<GeneratedPassword | null>(null);
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -61,6 +63,7 @@ export function UsersPage() {
         onChangeRole: setChangingRole,
         onDisable: setDisabling,
         onEnable: setEnabling,
+        onDelete: setDeleting,
       }),
     [t]
   );
@@ -173,6 +176,14 @@ export function UsersPage() {
         open={enabling !== null}
         onOpenChange={(open) => {
           if (!open) setEnabling(null);
+        }}
+      />
+      <DeleteUserDialog
+        key={deleting?.id ?? "delete-none"}
+        user={deleting}
+        open={deleting !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleting(null);
         }}
       />
       <ChangeRoleDialog

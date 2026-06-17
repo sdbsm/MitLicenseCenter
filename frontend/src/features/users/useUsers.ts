@@ -48,6 +48,14 @@ export function useEnableUser() {
   });
 }
 
+// MLC-180 — жёсткое удаление учётки (DELETE /api/v1/users/{id}). Ответ 204 (без тела).
+export function useDeleteUser() {
+  return useInvalidatingMutation({
+    mutationFn: (id: string) => api<null>(`/api/v1/users/${id}`, { method: "DELETE" }),
+    invalidate: usersQueryKey,
+  });
+}
+
 export function useChangeUserRole() {
   return useInvalidatingMutation({
     mutationFn: ({ id, role }: ChangeUserRoleInput) =>
