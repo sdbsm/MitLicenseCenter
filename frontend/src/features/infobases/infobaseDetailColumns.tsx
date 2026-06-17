@@ -22,6 +22,7 @@ import { RelativeTime } from "@/components/ui/RelativeTime";
 import { StatusBadge, type StatusBadgeVariant } from "@/components/ui/StatusBadge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { PublicationPublishStatus, PublicationSource } from "@/features/publications/types";
+import { SizeCell } from "./infobaseColumns";
 import { statusBadgeClass } from "./infobaseFormat";
 import type { InfobaseListItem } from "./types";
 
@@ -132,6 +133,21 @@ export function buildInfobaseDetailColumns(
         cellClassName: "text-muted-foreground font-mono text-xs",
       },
       cell: ({ row }) => row.original.publication.platformVersion,
+    },
+    {
+      id: "size",
+      header: t("infobases.fields.size"),
+      enableSorting: false,
+      meta: {
+        label: t("infobases.fields.size"),
+        headClassName: "w-24",
+        cellClassName: "text-muted-foreground",
+      },
+      cell: ({ row }) => (
+        <TooltipProvider delayDuration={150}>
+          <SizeCell item={row.original} t={t} />
+        </TooltipProvider>
+      ),
     },
     {
       id: "lastChecked",

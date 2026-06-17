@@ -210,6 +210,10 @@ queryKey: [...infobasesQueryKey, { tenantId, publishStatus, page, pageSize }]
 (`?tenantId=`), статуса публикации (`?publishStatus=`) и «не найдена в кластере»
 (`?notInCluster=true`, MLC-150) сохранены как есть (через `useSearchParams`, вне tanstack
 `columnFilters`) и размещены в слоте тулбара рядом с меню видимости колонок и density.
+Колонка «Размер» (MLC-185d) показывает текущий размер базы — сумму data+log из последнего
+снимка телеметрии (`currentDataBytes`/`currentLogBytes`, `omittable`; форматтер `formatBytes`
+КБ/МБ/ГБ, тултип с разбивкой); «—» пока снимка нет (ночная джоба не отработала / база была
+недоступна). Та же колонка — в таблице инфобаз на карточке клиента (`infobaseDetailColumns`).
 
 Фильтр «Только не найденные в кластере» (чекбокс, **только админ**) фильтруется **серверно**
 (`GET /infobases?notInCluster=true`): BE отбирает записи панели, чьего `ClusterInfobaseId`

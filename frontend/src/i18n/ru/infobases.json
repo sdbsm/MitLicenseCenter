@@ -41,7 +41,12 @@
       "status": "Статус базы",
       "publication": "Публикация",
       "platformVersion": "Версия платформы",
-      "lastChecked": "Проверено"
+      "lastChecked": "Проверено",
+      "size": "Размер"
+    },
+    "size": {
+      "breakdown": "данные {{data}} · журнал {{log}}",
+      "empty": "Размер ещё не измерен."
     },
     "source": {
       "webinst": "Источник: webinst — публикация создана панелью.",

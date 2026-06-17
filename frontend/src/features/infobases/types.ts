@@ -43,6 +43,12 @@ export const infobaseSchema = z.object({
 export const infobaseListItemSchema = infobaseSchema.extend({
   tenantName: z.string(),
   publication: publicationSchema,
+  // MLC-185d — текущий размер базы из последнего снимка телеметрии (allocated, байты).
+  // UI показывает сумму (data+log) форматтером КБ/МБ/ГБ. API опускает поля при null
+  // ([[api-omits-null-fields]]) — снимка ещё нет (джоба не отработала / база недоступна):
+  // omittable принимает отсутствие/null → нормализует в null → колонка показывает «—».
+  currentDataBytes: omittable(z.number()),
+  currentLogBytes: omittable(z.number()),
 });
 
 /**

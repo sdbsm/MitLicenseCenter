@@ -1,3 +1,4 @@
+import { formatBytes } from "@/lib/formatBytes";
 import type { StatusBadgeVariant } from "@/components/ui/StatusBadge";
 import type { BackupStatus } from "./types";
 
@@ -19,12 +20,8 @@ export function backupStatusVariant(status: BackupStatus): StatusBadgeVariant {
 }
 
 // Размер файла бэкапа → «—» при отсутствии (Queued/Running/Failed), иначе КБ/МБ/ГБ.
-// Сжатый .bak маленькой базы — сотни КБ, больших — десятки ГБ.
+// Сжатый .bak маленькой базы — сотни КБ, больших — десятки ГБ. Форматирование делегировано
+// общему formatBytes (MLC-185d) — единая конвенция КБ/МБ/ГБ; здесь только null→«—».
 export function formatBackupSize(bytes: number | null): string {
-  if (bytes === null) return "—";
-  const gb = bytes / 1024 ** 3;
-  if (gb >= 1) return `${gb.toFixed(1)} ГБ`;
-  const mb = bytes / 1024 ** 2;
-  if (mb >= 1) return `${mb.toFixed(1)} МБ`;
-  return `${Math.round(bytes / 1024)} КБ`;
+  return bytes === null ? "—" : formatBytes(bytes);
 }
