@@ -406,6 +406,22 @@ if (!app.Environment.IsEnvironment("Test"))
         "perf-recording-retention",
         j => j.RunAsync(CancellationToken.None),
         "45 3 * * *");
+
+    // Database size collection (MLC-185c): суточный сбор размеров баз в 02:00 UTC — до
+    // ночных ретеншенов (03:xx/04:00), чтобы свежий замер не подрезался ретеншеном того же
+    // прогона. Один замер по всем базам инстанса, фильтр по базам инфобаз; CRON фиксирован.
+    RecurringJob.AddOrUpdate<IDatabaseSizeCollectionJob>(
+        "database-size-collection",
+        j => j.RunAsync(CancellationToken.None),
+        "0 2 * * *");
+
+    // Database size retention (MLC-185c): ежедневно в 04:00 UTC — свободный слот после
+    // занятых 03:00/03:15/03:30/03:45, чтобы ночные housekeeping-джобы не пересекались.
+    // Retention window — Settings.DatabaseSize.RetentionDays; cadence фиксирован.
+    RecurringJob.AddOrUpdate<IDatabaseSizeRetentionJob>(
+        "database-size-retention",
+        j => j.RunAsync(CancellationToken.None),
+        "0 4 * * *");
 } // end if (!app.Environment.IsEnvironment("Test"))
 
 // Fail-fast bootstrap. Миграции и сидинг выполняются СИНХРОННО до открытия приёма
