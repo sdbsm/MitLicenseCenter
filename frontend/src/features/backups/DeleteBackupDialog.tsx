@@ -58,7 +58,7 @@ export function DeleteBackupDialog({ backup, open, onOpenChange }: DeleteBackupD
           <AlertDialogCancel disabled={remove.isPending}>{t("common.cancel")}</AlertDialogCancel>
           <AlertDialogAction
             disabled={remove.isPending}
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:ring-destructive/20"
+            variant="destructive"
             onClick={(e) => {
               e.preventDefault();
               void handleConfirm();

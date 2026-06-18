@@ -95,7 +95,7 @@ export function KillSessionDialog({ open, onOpenChange, session }: KillSessionDi
           </AlertDialogCancel>
           <AlertDialogAction
             disabled={!matched || kill.isPending}
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:ring-destructive/20"
+            variant="destructive"
             onClick={(e) => {
               e.preventDefault();
               void handleConfirm();
