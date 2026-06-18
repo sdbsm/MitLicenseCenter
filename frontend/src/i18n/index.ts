@@ -11,6 +11,7 @@ import auth from "./ru/auth.json";
 import backups from "./ru/backups.json";
 import common from "./ru/common.json";
 import dashboard from "./ru/dashboard.json";
+import design from "./ru/design.json";
 import discovery from "./ru/discovery.json";
 import errors from "./ru/errors.json";
 import infobases from "./ru/infobases.json";
@@ -34,6 +35,7 @@ export const ru = {
   ...table,
   ...auth,
   ...dashboard,
+  ...design,
   ...profile,
   ...tenants,
   ...users,

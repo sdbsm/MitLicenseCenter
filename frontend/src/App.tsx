@@ -25,7 +25,7 @@ export default function App() {
   }, []);
 
   return (
-    <ThemeProvider attribute="class" defaultTheme="system" enableSystem storageKey="mlc-theme">
+    <ThemeProvider attribute="class" defaultTheme="dark" enableSystem storageKey="mlc-theme">
       <QueryClientProvider client={queryClient}>
         <I18nextProvider i18n={i18n}>
           <RouterProvider router={router} />

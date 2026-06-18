@@ -46,6 +46,9 @@ const SettingsPage = lazy(() =>
 const UsersPage = lazy(() =>
   import("@/features/users/UsersPage").then((m) => ({ default: m.UsersPage }))
 );
+const DesignSystemPage = lazy(() =>
+  import("@/features/design/DesignSystemPage").then((m) => ({ default: m.DesignSystemPage }))
+);
 
 export const router = createBrowserRouter([
   {
@@ -71,6 +74,9 @@ export const router = createBrowserRouter([
       { path: "reports", element: <ReportsPage /> },
       { path: "performance", element: <PerformancePage /> },
       { path: "audit", element: <AuditPage /> },
+      // Эталонный экран дизайн-системы (MLC-195, Фаза 0): вне навигации, открывается
+      // по URL, виден обеим ролям (без requireAdmin).
+      { path: "design", element: <DesignSystemPage /> },
       {
         path: "settings",
         element: (

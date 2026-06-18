@@ -15,6 +15,7 @@ const TOP_LEVEL_KEYS = [
   "table",
   "auth",
   "dashboard",
+  "design",
   "profile",
   "tenants",
   "users",
