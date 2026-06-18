@@ -116,7 +116,10 @@ export function UsersPage() {
         renderSkeletonRow={() => (
           <>
             <TableCell>
-              <Skeleton className="h-4 w-40" />
+              <div className="flex items-center gap-2">
+                <Skeleton className="size-8 shrink-0 rounded-full" />
+                <Skeleton className="h-4 w-32" />
+              </div>
             </TableCell>
             <TableCell>
               <Skeleton className="h-4 w-24" />
