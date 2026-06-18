@@ -431,6 +431,11 @@ Sonner темизирован: `--normal-bg → var(--popover)`, `--normal-text 
 
 ### Быстродействие — `ProcessFamilyAttribution` и `RecordingHostChart`
 
+Экран — воронка: вердикт «почему тормозит» → светофор ресурсов → сегментированный
+переключатель слоёв (`Tabs`) Хост/1С/SQL с авто-фокусом по вердикту → запись по
+требованию. Слой «Хост» несёт атрибуцию семей процессов, «1С»/«SQL» — собственные
+live-разрезы (MLC-207).
+
 `ProcessFamilyAttribution`: горизонтальный stacked `BarChart` (семьи процессов в
 долях CPU и RAM). Цвет сегментов задаётся через `familyColor(familyKey)`.
 
