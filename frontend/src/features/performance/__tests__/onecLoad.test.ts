@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   availablePerformanceBand,
+  blockedSessions,
   classifySession,
   formatAvgCallMs,
   formatBytes,
@@ -82,6 +83,28 @@ describe("sortSessionsByLoad", () => {
     const input = [session({ sessionId: "x", cpuTimeCurrent: 1 })];
     sortSessionsByLoad(input);
     expect(input[0].sessionId).toBe("x");
+  });
+});
+
+describe("blockedSessions", () => {
+  it("оставляет только заблокированные (СУБД или управляемой), 0/null исключены", () => {
+    const rows = blockedSessions([
+      session({ sessionNumber: 1, blockedByDbms: 0, blockedByLs: 0 }),
+      session({ sessionNumber: 2, blockedByDbms: 7, blockedByLs: 0 }),
+      session({ sessionNumber: 3, blockedByDbms: 0, blockedByLs: 4 }),
+      session({ sessionNumber: 4, blockedByDbms: null, blockedByLs: null }),
+    ]);
+    expect(rows.map((r) => r.sessionNumber)).toEqual([2, 3]);
+  });
+
+  it("стабильная сортировка по номеру сеанса, null тонут вниз; не мутирует вход", () => {
+    const input = [
+      session({ sessionId: "a", sessionNumber: 9, blockedByDbms: 1 }),
+      session({ sessionId: "b", sessionNumber: null, blockedByLs: 1 }),
+      session({ sessionId: "c", sessionNumber: 3, blockedByDbms: 1 }),
+    ];
+    expect(blockedSessions(input).map((r) => r.sessionId)).toEqual(["c", "a", "b"]);
+    expect(input[0].sessionId).toBe("a");
   });
 });
 

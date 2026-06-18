@@ -5,6 +5,7 @@ import { RelativeTime } from "@/components/ui/RelativeTime";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AttributionWarningBanner } from "./AttributionWarningBanner";
+import { PerformanceBlockingBlock } from "./PerformanceBlockingBlock";
 import { PerformanceDrillDown } from "./PerformanceDrillDown";
 import { RecordingSection } from "./RecordingSection";
 import { SaturationGauges } from "./SaturationGauges";
@@ -114,6 +115,11 @@ export function PerformancePage() {
         measuring={measuring}
         paused={isPaused}
       />
+
+      {/* Единый блок «Блокировки» (MLC-210): сводит цепочки блокировок SQL и заблокированные сеансы
+          1С в одно место. Рендерится ВСЕГДА (как drill-down) — блокировки это сквозной сигнал
+          контеншена, не зависит от host-снимка; читает оба live-источника (общий кэш React Query). */}
+      <PerformanceBlockingBlock paused={isPaused} />
 
       {/* Запись по требованию (MLC-070/071) — единственный персистируемый источник: старт/стоп
           (Admin) + список расследований + просмотр (график host во времени + виновники за период). */}

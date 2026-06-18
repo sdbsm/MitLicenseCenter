@@ -35,6 +35,15 @@ export function classifySession(s: OneCSessionLoad, capturedAtUtc: string): Sess
   return "idle";
 }
 
+// Заблокированные сеансы 1С (контеншен): ждут освобождения СУБД-блокировки (`blockedByDbms`)
+// или управляемой блокировки (`blockedByLs`). Стабильная сортировка по номеру сеанса (null тонут)
+// — детерминированный порядок для единого блока «Блокировки» (MLC-210). Не мутирует вход.
+export function blockedSessions(sessions: readonly OneCSessionLoad[]): OneCSessionLoad[] {
+  return sessions
+    .filter((s) => (s.blockedByDbms ?? 0) !== 0 || (s.blockedByLs ?? 0) !== 0)
+    .sort((a, b) => (a.sessionNumber ?? Infinity) - (b.sessionNumber ?? Infinity));
+}
+
 export const SESSION_STATE_VARIANT: Record<SessionState, StatusBadgeVariant> = {
   blocked: "danger",
   long: "warning",
