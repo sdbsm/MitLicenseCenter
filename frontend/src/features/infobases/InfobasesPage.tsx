@@ -530,6 +530,11 @@ export function InfobasesPage() {
     pageCount: totalPages,
     // Стабильный id строки по инфобазе — выделение и data-state не «прыгают» при пагинации.
     getRowId: (row) => row.id,
+    // MLC-206 (§1.4): по умолчанию показываем целевой набор колонок
+    // (☐·База·Клиент·Статус·Публикация·Размер·⋯); «Версия платформы» и «Проверено» —
+    // второстепенные, скрыты по умолчанию и доступны через меню «Колонки» (как
+    // Создан/Обновлён у «Клиентов», MLC-200).
+    initialState: { columnVisibility: { platformVersion: false, lastChecked: false } },
   });
 
   return (
