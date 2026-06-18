@@ -12,6 +12,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { quotaDisplay } from "@/lib/quota";
@@ -59,6 +60,43 @@ export function buildTenantColumns(ctx: ColumnContext): ColumnDef<Tenant>[] {
       ),
     },
     {
+      // Слитая колонка «Лицензии» (MLC-200): consumed / limit + полоса заполнения +
+      // ярлык квоты. Тот же визуальный язык, что вид «Сеансы → По клиентам»
+      // (ByTenantTable, MLC-196a) — строго через lib/quota + StatusBadge.
+      id: "licenses",
+      header: t("tenants.fields.licenses"),
+      enableSorting: false,
+      enableHiding: true,
+      meta: { label: t("tenants.fields.licenses"), headClassName: "w-[28%]" },
+      cell: ({ row }) => {
+        const tenant = row.original;
+        if (isSnapshotLoading) return <Skeleton className="h-5 w-32" />;
+        if (tenant.maxConcurrentLicenses <= 0) {
+          return (
+            <span className="text-muted-foreground text-sm">{t("tenants.quota.unlimited")}</span>
+          );
+        }
+        const consumed = consumedByTenant.get(tenant.id) ?? 0;
+        const { percent, badgeVariant, label, progressClass } = quotaDisplay(
+          consumed,
+          tenant.maxConcurrentLicenses
+        );
+        return (
+          <div className="flex items-center gap-3">
+            <Progress value={Math.min(percent, 100)} className={progressClass} />
+            <span className="text-muted-foreground shrink-0 font-mono text-sm tabular-nums">
+              {t("tenants.quota.value", { consumed, limit: tenant.maxConcurrentLicenses, percent })}
+            </span>
+            {label && (
+              <StatusBadge variant={badgeVariant} className="shrink-0">
+                {t(`common.quota.${label}`)}
+              </StatusBadge>
+            )}
+          </div>
+        );
+      },
+    },
+    {
       id: "infobaseCount",
       accessorKey: "infobaseCount",
       header: t("tenants.fields.infobaseCount"),
@@ -76,49 +114,6 @@ export function buildTenantColumns(ctx: ColumnContext): ColumnDef<Tenant>[] {
           {NUMBER_FORMATTER.format(row.original.infobaseCount)}
         </Link>
       ),
-    },
-    {
-      id: "maxConcurrentLicenses",
-      accessorKey: "maxConcurrentLicenses",
-      header: t("tenants.fields.maxConcurrentLicenses"),
-      enableSorting: false,
-      meta: {
-        label: t("tenants.fields.maxConcurrentLicenses"),
-        headClassName: "text-right",
-        cellClassName: "text-right tabular-nums",
-      },
-      cell: ({ row }) => NUMBER_FORMATTER.format(row.original.maxConcurrentLicenses),
-    },
-    {
-      id: "quota",
-      header: t("tenants.quota.column"),
-      enableSorting: false,
-      enableHiding: true,
-      meta: { label: t("tenants.quota.column") },
-      cell: ({ row }) => {
-        const tenant = row.original;
-        if (isSnapshotLoading) return <Skeleton className="h-5 w-24" />;
-        if (tenant.maxConcurrentLicenses <= 0) {
-          return (
-            <span className="text-muted-foreground text-sm">{t("tenants.quota.unlimited")}</span>
-          );
-        }
-        const consumed = consumedByTenant.get(tenant.id) ?? 0;
-        const { percent, badgeVariant, label } = quotaDisplay(
-          consumed,
-          tenant.maxConcurrentLicenses
-        );
-        return (
-          <div className="flex items-center gap-2">
-            <span className="text-muted-foreground text-sm tabular-nums">
-              {t("tenants.quota.value", { consumed, limit: tenant.maxConcurrentLicenses, percent })}
-            </span>
-            {label && (
-              <StatusBadge variant={badgeVariant}>{t(`common.quota.${label}`)}</StatusBadge>
-            )}
-          </div>
-        );
-      },
     },
     {
       id: "status",

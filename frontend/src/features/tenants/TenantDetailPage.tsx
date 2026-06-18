@@ -1,13 +1,15 @@
 import { getCoreRowModel, useReactTable } from "@tanstack/react-table";
-import { ArrowLeftIcon, DatabaseIcon, PlusIcon } from "lucide-react";
+import { ArrowLeftIcon, ArrowRightIcon, DatabaseIcon, PlusIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useParams } from "react-router";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { DataTable, useTableDensity } from "@/components/ui/data-table";
 import { PaginationBar } from "@/components/PaginationBar";
+import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useMe } from "@/features/auth/useAuth";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -114,59 +116,16 @@ export function TenantDetailPage() {
       <div className="space-y-3">
         {backLink}
         <div className="flex items-start justify-between gap-4">
-          <div className="space-y-2">
-            <div className="flex items-center gap-3">
-              <h2 className="text-2xl font-semibold tracking-tight">
-                {tenant?.name ?? <Skeleton className="h-7 w-48" />}
-              </h2>
-              {tenant &&
-                (tenant.isActive ? (
-                  <StatusBadge variant="success">{t("tenants.status.active")}</StatusBadge>
-                ) : (
-                  <Badge variant="secondary">{t("tenants.status.inactive")}</Badge>
-                ))}
-            </div>
-            {tenant && (
-              <div className="space-y-1">
-                <p className="text-muted-foreground text-sm">
-                  {t("tenants.detail.licenseLimit", {
-                    count: NUMBER_FORMATTER.format(tenant.maxConcurrentLicenses),
-                  })}
-                </p>
-                {/* Live-потребление из снапшота (MLC-122 / R6 / UX-02). */}
-                {tenant.maxConcurrentLicenses <= 0 ? (
-                  <p className="text-muted-foreground text-sm">
-                    {t("tenants.detail.licenseConsumptionUnlimited")}
-                  </p>
-                ) : isSnapshotLoading ? (
-                  <Skeleton className="h-4 w-48" />
-                ) : (
-                  (() => {
-                    const consumed = consumedByTenant.get(tenant.id) ?? 0;
-                    const { percent, badgeVariant, label } = quotaDisplay(
-                      consumed,
-                      tenant.maxConcurrentLicenses
-                    );
-                    return (
-                      <div className="flex items-center gap-2">
-                        <p className="text-muted-foreground text-sm">
-                          {t("tenants.detail.licenseConsumption", {
-                            consumed,
-                            limit: tenant.maxConcurrentLicenses,
-                            percent,
-                          })}
-                        </p>
-                        {label && (
-                          <StatusBadge variant={badgeVariant}>
-                            {t(`common.quota.${label}`)}
-                          </StatusBadge>
-                        )}
-                      </div>
-                    );
-                  })()
-                )}
-              </div>
-            )}
+          <div className="flex items-center gap-3">
+            <h2 className="text-2xl font-semibold tracking-tight">
+              {tenant?.name ?? <Skeleton className="h-7 w-48" />}
+            </h2>
+            {tenant &&
+              (tenant.isActive ? (
+                <StatusBadge variant="success">{t("tenants.status.active")}</StatusBadge>
+              ) : (
+                <Badge variant="secondary">{t("tenants.status.inactive")}</Badge>
+              ))}
           </div>
           {isAdmin && tenant && (
             <Button onClick={handleOpenCreate}>
@@ -175,6 +134,16 @@ export function TenantDetailPage() {
             </Button>
           )}
         </div>
+
+        {/* Лицензионная панель (MLC-200): потребление vs лимит — полоса + бейдж,
+            явное «превышение на N» при consumed > limit, ссылка на живые сеансы клиента. */}
+        {tenant && (
+          <LicensePanel
+            tenant={tenant}
+            consumed={consumedByTenant.get(tenant.id) ?? 0}
+            isLoading={isSnapshotLoading}
+          />
+        )}
       </div>
 
       {isError && (
@@ -262,5 +231,83 @@ export function TenantDetailPage() {
         infobase={backupsFor}
       />
     </div>
+  );
+}
+
+interface LicensePanelProps {
+  tenant: { id: string; name: string; maxConcurrentLicenses: number };
+  consumed: number;
+  isLoading: boolean;
+}
+
+/**
+ * Лицензионная панель карточки клиента (MLC-200). Потребление vs лимит — полоса
+ * заполнения (lib/quota → progressClass) + `consumed / limit (percent%)` + StatusBadge.
+ * При consumed > limit показывает явный текст «превышение на N» (N = consumed − limit).
+ * Безлимит (maxConcurrentLicenses ≤ 0) — без полосы. Ссылка «Сеансы клиента →» ведёт
+ * на «Живые сеансы» с фильтром по имени клиента (паттерн goToLiveWithTenant, MLC-196a).
+ */
+function LicensePanel({ tenant, consumed, isLoading }: LicensePanelProps) {
+  const { t } = useTranslation();
+  const unlimited = tenant.maxConcurrentLicenses <= 0;
+  const { percent, badgeVariant, label, progressClass } = quotaDisplay(
+    consumed,
+    tenant.maxConcurrentLicenses
+  );
+  const over = consumed - tenant.maxConcurrentLicenses;
+
+  const sessionsLink = (
+    <Button variant="link" size="sm" asChild className="h-auto px-0">
+      <Link to={`/sessions?view=live&q=${encodeURIComponent(tenant.name)}`}>
+        {t("tenants.detail.clientSessions")}
+        <ArrowRightIcon className="size-4" />
+      </Link>
+    </Button>
+  );
+
+  return (
+    <Card>
+      <CardContent className="space-y-3">
+        <div className="flex items-start justify-between gap-4">
+          <p className="text-muted-foreground text-sm">
+            {t("tenants.detail.licenseLimit", {
+              count: NUMBER_FORMATTER.format(tenant.maxConcurrentLicenses),
+            })}
+          </p>
+          {sessionsLink}
+        </div>
+
+        {unlimited ? (
+          <p className="text-muted-foreground text-sm">
+            {t("tenants.detail.licenseConsumptionUnlimited")}
+          </p>
+        ) : isLoading ? (
+          <Skeleton className="h-4 w-full max-w-md" />
+        ) : (
+          <div className="space-y-2">
+            <div className="flex items-center gap-3">
+              <Progress value={Math.min(percent, 100)} className={`max-w-md ${progressClass}`} />
+              <span className="shrink-0 font-mono text-sm tabular-nums">
+                {t("tenants.detail.licenseConsumption", {
+                  consumed,
+                  limit: tenant.maxConcurrentLicenses,
+                  percent,
+                })}
+              </span>
+              {label && (
+                <StatusBadge variant={badgeVariant} className="shrink-0">
+                  {t(`common.quota.${label}`)}
+                </StatusBadge>
+              )}
+            </div>
+            {over > 0 && (
+              <p className="text-sm font-medium text-rose-500">
+                {t("tenants.detail.overBy", { count: over })}
+              </p>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
