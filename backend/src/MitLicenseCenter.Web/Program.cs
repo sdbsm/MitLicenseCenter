@@ -292,6 +292,7 @@ app.MapPerformanceEndpoints(versionSet);
 app.MapBackupsEndpoints(versionSet);
 app.MapDiscoveryEndpoints(versionSet);
 app.MapRasServiceEndpoints(versionSet);
+app.MapServerEndpoints(versionSet);
 
 // MLC-012 — Swagger UI (/api/docs) раскрывает всю карту API. В Development отдаётся
 // всегда (на нём держится ручная синхронизация TS-типов — ADR-10.1). В проде закрыт

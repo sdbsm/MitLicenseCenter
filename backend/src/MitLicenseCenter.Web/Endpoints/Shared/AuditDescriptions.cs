@@ -158,4 +158,16 @@ internal static class AuditDescriptions
 
     public static string PerfRecordingDeleted(Guid id, string initiator) =>
         $"Диагностическая запись быстродействия {id:N} удалена администратором {initiator}.";
+
+    // ── Управление сервером 1С (MLC-213, ADR-54/55) ─────────────────────────────────
+    // Server/host-scope (TenantId не пишется); секретов нет. Указываем имя службы ragent —
+    // для разбора «над каким именно сервером 1С выполнено действие». Образец RasServiceStarted.
+    public static string OneCServerStarted(string serviceName, string initiator) =>
+        $"Сервер 1С «{serviceName}» запущен администратором {initiator}.";
+
+    public static string OneCServerStopped(string serviceName, string initiator) =>
+        $"Сервер 1С «{serviceName}» остановлен администратором {initiator}.";
+
+    public static string OneCServerRestarted(string serviceName, string initiator) =>
+        $"Сервер 1С «{serviceName}» перезапущен администратором {initiator}.";
 }
