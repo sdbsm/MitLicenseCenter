@@ -94,6 +94,27 @@ export function collectBlockerIds(requests: readonly SqlActiveRequest[]): Set<nu
   return ids;
 }
 
+// Категория-смысл топ-ожидания SQL (MLC-209, Срез C): сопоставление сырого DMV-имени
+// `wait_type` доменному смыслу для оператора 1С. Многие типы имеют суффиксы
+// (`PAGEIOLATCH_SH/EX`, `LCK_M_IX`), поэтому сравниваем по префиксу к UPPERCASE-входу.
+// Возвращает ключ категории (для performance.sql.waits.meanings.<ключ>) или null —
+// нераспознанный тип показываем без расшифровки (только сырой `waitType`).
+export function waitCategory(waitType: string): string | null {
+  const w = waitType.trim().toUpperCase();
+  if (w.startsWith("PAGEIOLATCH")) return "diskRead";
+  if (w.startsWith("WRITELOG")) return "log";
+  if (w.startsWith("LCK_M_")) return "lock";
+  if (w.startsWith("PAGELATCH_")) return "pageContention";
+  if (w.startsWith("SOS_SCHEDULER_YIELD")) return "cpu";
+  if (w.startsWith("CXPACKET") || w.startsWith("CXCONSUMER")) return "parallelism";
+  if (w.startsWith("ASYNC_NETWORK_IO")) return "network";
+  if (w.startsWith("RESOURCE_SEMAPHORE")) return "memoryGrant";
+  if (w.startsWith("THREADPOOL")) return "threadpool";
+  if (w.startsWith("BACKUPIO") || w.startsWith("BACKUPBUFFER")) return "backup";
+  if (w.startsWith("WAITFOR")) return "waitfor";
+  return null;
+}
+
 // Целое с разрядными разбивками (обычный пробел, детерминированно — без locale-зависимого
 // разделителя, чтобы тесты были стабильны); null → «—». Отрицательный знак — типографский «−».
 export function formatInt(n: number | null): string {

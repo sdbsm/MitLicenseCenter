@@ -88,7 +88,7 @@ export function SqlLoadSection({ paused = false }: { paused?: boolean }) {
                 ) : (
                   <div className="grid gap-4 lg:grid-cols-2">
                     <SqlWaitsTable waits={snapshot.topWaits} />
-                    <SqlDatabaseIoTable io={snapshot.databaseIo} />
+                    <SqlDatabaseIoTable io={snapshot.databaseIo} attributionMap={attributionMap} />
                   </div>
                 )}
               </section>

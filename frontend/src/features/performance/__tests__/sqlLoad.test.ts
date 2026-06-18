@@ -7,6 +7,7 @@ import {
   formatInt,
   isBlocked,
   sortRequestsByCpu,
+  waitCategory,
 } from "../sqlLoad";
 import type { SqlActiveRequest, SqlDatabaseAttribution } from "../types";
 
@@ -111,6 +112,34 @@ describe("блокировки", () => {
       request({ sessionId: 20, blockingSessionId: null }),
     ]);
     expect([...ids]).toEqual([20]);
+  });
+});
+
+describe("waitCategory", () => {
+  it("сопоставляет известные типы по префиксу (с суффиксами) доменной категории", () => {
+    expect(waitCategory("PAGEIOLATCH_SH")).toBe("diskRead");
+    expect(waitCategory("WRITELOG")).toBe("log");
+    expect(waitCategory("LCK_M_IX")).toBe("lock");
+    expect(waitCategory("PAGELATCH_EX")).toBe("pageContention");
+    expect(waitCategory("SOS_SCHEDULER_YIELD")).toBe("cpu");
+    expect(waitCategory("CXPACKET")).toBe("parallelism");
+    expect(waitCategory("CXCONSUMER")).toBe("parallelism");
+    expect(waitCategory("ASYNC_NETWORK_IO")).toBe("network");
+    expect(waitCategory("RESOURCE_SEMAPHORE")).toBe("memoryGrant");
+    expect(waitCategory("THREADPOOL")).toBe("threadpool");
+    expect(waitCategory("BACKUPIO")).toBe("backup");
+    expect(waitCategory("BACKUPBUFFER")).toBe("backup");
+    expect(waitCategory("WAITFOR")).toBe("waitfor");
+  });
+
+  it("регистр входа не важен", () => {
+    expect(waitCategory("pageiolatch_sh")).toBe("diskRead");
+    expect(waitCategory("  lck_m_x  ")).toBe("lock");
+  });
+
+  it("нераспознанный тип → null", () => {
+    expect(waitCategory("SOMETHING_ELSE")).toBeNull();
+    expect(waitCategory("")).toBeNull();
   });
 });
 
