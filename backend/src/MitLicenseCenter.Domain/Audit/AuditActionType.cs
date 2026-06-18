@@ -122,4 +122,13 @@ public enum AuditActionType
     PerfRecordingStarted = 700,
     PerfRecordingStopped = 701,
     PerfRecordingDeleted = 702,
+
+    // Управление сервером 1С из веб-панели (MLC-212, ADR-55): новая 800-серия
+    // (frozen-int; 600=RAS, 700=Perf заняты). Started/Stopped/Restarted — верифицированный
+    // старт/стоп/рестарт службы узла. Server/host-scope (TenantId не пишется — операция с
+    // клиентом не связана). Значения ДОБАВЛЕНЫ в MLC-212 (только объявление); фактически
+    // пишутся эндпоинтами MLC-213+. 803+ — резерв под будущие server-действия.
+    OneCServerStarted = 800,
+    OneCServerStopped = 801,
+    OneCServerRestarted = 802,
 }

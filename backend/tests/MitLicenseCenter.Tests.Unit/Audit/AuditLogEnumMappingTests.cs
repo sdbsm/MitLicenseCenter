@@ -103,6 +103,11 @@ public sealed class AuditLogEnumMappingTests
     [InlineData(AuditActionType.PerfRecordingStarted, 700)]
     [InlineData(AuditActionType.PerfRecordingStopped, 701)]
     [InlineData(AuditActionType.PerfRecordingDeleted, 702)]
+    // MLC-212 (ADR-55) — 800-серия управления сервером 1С (frozen-int). Объявлены в
+    // MLC-212; пишутся эндпоинтами MLC-213+.
+    [InlineData(AuditActionType.OneCServerStarted, 800)]
+    [InlineData(AuditActionType.OneCServerStopped, 801)]
+    [InlineData(AuditActionType.OneCServerRestarted, 802)]
     public void AuditActionType_int_values_are_stable(AuditActionType action, int expected)
     {
         ((int)action).Should().Be(expected);
