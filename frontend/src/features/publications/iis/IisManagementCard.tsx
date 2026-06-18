@@ -241,10 +241,9 @@ export function IisManagementCard({ isAdmin }: IisManagementCardProps) {
               </Button>
             ) : (
               <Button
-                variant="outline"
+                variant="success"
                 size="sm"
                 disabled={busy}
-                className="border-transparent bg-emerald-600 text-white hover:bg-emerald-700"
                 onClick={() => void runStartIis()}
               >
                 <PlayIcon className="size-4" />
