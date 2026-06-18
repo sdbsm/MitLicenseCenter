@@ -16,6 +16,7 @@ using MitLicenseCenter.Application.Performance;
 using MitLicenseCenter.Application.Publishing;
 using MitLicenseCenter.Application.Ras;
 using MitLicenseCenter.Application.Reporting;
+using MitLicenseCenter.Application.Server;
 using MitLicenseCenter.Application.Sessions;
 using MitLicenseCenter.Application.Settings;
 using MitLicenseCenter.Application.Updates;
@@ -31,6 +32,7 @@ using MitLicenseCenter.Infrastructure.Persistence;
 using MitLicenseCenter.Infrastructure.Publishing;
 using MitLicenseCenter.Infrastructure.Ras;
 using MitLicenseCenter.Infrastructure.Reporting;
+using MitLicenseCenter.Infrastructure.Server;
 using MitLicenseCenter.Infrastructure.Settings;
 using MitLicenseCenter.Infrastructure.Updates;
 
@@ -178,6 +180,17 @@ public static class DependencyInjection
         services.AddSingleton<IServiceStateReader, ServiceControllerStateReader>();
         services.AddSingleton<IRasExePathResolver, RasExePathResolver>();
         services.AddSingleton<IRasServiceManager, ScRasServiceManager>();
+
+        // Универсальный надёжный контроллер службы Windows (MLC-212, ADR-55): команда
+        // (sc start/sc stop) + верификация фактического состояния опросом ServiceController
+        // до целевого с таймаутом; идемпотентность (sc 1056/1062 = успех). Singleton:
+        // контроллер без состояния (переиспользует IScProcessRunner/IServiceStateReader),
+        // gate держит словарь семафоров per-service-name на весь процесс. Дефолтные
+        // таймауты (PollInterval/VerificationTimeout 30с — ADR-55) задаются опциями;
+        // тесты подменяют их через ctor. Эндпоинты/FE — MLC-213+.
+        services.AddSingleton<IServiceOperationGate, ServiceOperationGate>();
+        services.AddSingleton(new WindowsServiceControllerOptions());
+        services.AddSingleton<IWindowsServiceController, WindowsServiceController>();
 
         // IIS publishing: реальный адаптер ServerManager + XDocument (PR 3.5).
         // Stub переехал в Publishing/Testing/ для unit-тестов, в production-DI
