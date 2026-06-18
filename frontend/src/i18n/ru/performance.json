@@ -43,7 +43,8 @@
       "ram": "Память",
       "ramDetail": "Свободно {{availableGb}} из {{totalGb}} ГБ · обмен {{pages}}/с",
       "disk": "Диск (латентность)",
-      "diskDetail": "Очередь диска: {{queue}}"
+      "diskDetail": "Очередь диска: {{queue}}",
+      "drilldownAria": "Открыть слой расследования для ресурса «{{resource}}»"
     },
     "attribution": {
       "title": "Кто потребляет",
