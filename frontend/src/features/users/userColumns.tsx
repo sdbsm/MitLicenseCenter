@@ -1,13 +1,16 @@
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import {
+  EyeIcon,
   KeyRoundIcon,
   MoreHorizontalIcon,
+  ShieldCheckIcon,
   ShieldOffIcon,
   Trash2Icon,
   UserCheckIcon,
   UserCogIcon,
 } from "lucide-react";
+import type { ComponentType } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { TFunction } from "i18next";
 import { DataTableColumnHeader } from "@/components/ui/data-table";
@@ -28,6 +31,37 @@ function ruStringSort(
   columnId: string
 ) {
   return String(a.getValue(columnId)).localeCompare(String(b.getValue(columnId)), "ru");
+}
+
+/**
+ * Вычисляет 1–2 инициала из строки `userName` (имени пользователя).
+ * Если имя содержит несколько слов (разделитель — пробел или точка),
+ * берутся первые буквы первых двух слов; иначе первые 1–2 символа строки.
+ * Результат всегда в верхнем регистре. Пустая строка → «».
+ */
+export function initialsOf(userName: string): string {
+  const parts = userName.split(/[\s.]+/).filter(Boolean);
+  if (parts.length === 0) return "";
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+  // Одно слово: первые 1–2 символа самого слова (не сырой строки — иначе
+  // ведущие пробелы/разделители просочились бы в инициалы).
+  return parts[0].slice(0, 2).toUpperCase();
+}
+
+// Аватар-монограмма (инициалы пользователя) рендерится инлайн в ячейке имени —
+// круглый монохром-кружок (`bg-muted`, дизайн-система Фазы 0), без @radix-ui/react-avatar
+// и без отдельного компонента (файл — билдер колонок, не компонент-модуль).
+
+/**
+ * Возвращает компонент иконки Lucide для основной роли из массива ролей пользователя.
+ * Admin → ShieldCheckIcon; Viewer → EyeIcon; иначе → null.
+ */
+export function roleIconFor(roles: string[]): ComponentType<{ className?: string }> | null {
+  if (roles.includes("Admin")) return ShieldCheckIcon;
+  if (roles.includes("Viewer")) return EyeIcon;
+  return null;
 }
 
 interface ColumnContext {
@@ -56,7 +90,17 @@ export function buildUserColumns(ctx: ColumnContext): ColumnDef<User>[] {
       ),
       sortingFn: ruStringSort,
       meta: { label: t("users.fields.userName"), cellClassName: "font-medium" },
-      cell: ({ row }) => row.original.userName,
+      cell: ({ row }) => (
+        <div className="flex items-center gap-2">
+          <span
+            aria-hidden="true"
+            className="bg-muted text-muted-foreground inline-flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-medium"
+          >
+            {initialsOf(row.original.userName)}
+          </span>
+          <span className="font-medium">{row.original.userName}</span>
+        </div>
+      ),
     },
     {
       id: "role",
@@ -67,10 +111,19 @@ export function buildUserColumns(ctx: ColumnContext): ColumnDef<User>[] {
       sortingFn: ruStringSort,
       // sortingFn on array: sort by joined string
       meta: { label: t("users.fields.role"), cellClassName: "text-muted-foreground" },
-      cell: ({ row }) =>
-        row.original.roles
-          .map((role) => t(`users.roles.${role}`, { defaultValue: role }))
-          .join(", ") || "—",
+      cell: ({ row }) => {
+        const roleText =
+          row.original.roles
+            .map((role) => t(`users.roles.${role}`, { defaultValue: role }))
+            .join(", ") || "—";
+        const RoleIcon = roleIconFor(row.original.roles);
+        return (
+          <div className="text-muted-foreground flex items-center gap-2">
+            {RoleIcon && <RoleIcon className="text-muted-foreground size-4 shrink-0" />}
+            <span>{roleText}</span>
+          </div>
+        );
+      },
     },
     {
       id: "status",
