@@ -52,9 +52,8 @@ export function IisSitesList({
                 {stopped ? (
                   <Button
                     size="sm"
-                    variant="outline"
+                    variant="success"
                     disabled={busy}
-                    className="border-transparent bg-emerald-600 text-white hover:bg-emerald-700"
                     onClick={() => onStart(site.siteName)}
                   >
                     <PlayIcon className="size-4" />

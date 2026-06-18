@@ -12,6 +12,14 @@ const buttonVariants = cva(
         default: "bg-primary text-primary-foreground hover:bg-primary/90",
         destructive:
           "bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:bg-destructive/60 dark:focus-visible:ring-destructive/40",
+        // Зелёное действие «запуск/старт» (старт IIS-сайта/пула/сервера) — пара к
+        // destructive для «стоп». Сплошной emerald-600 с белым текстом (контраст ~4.2:1,
+        // WCAG AA): семантический токен --status-success настроен на тинт бейджа/текста и
+        // как сплошная заливка под белым текстом контраст не держит. Зелёный живёт здесь, в
+        // слое UI-примитива (src/components/ui/** вне правила no-raw-status-badge), чтобы в
+        // экранах не было сырых bg-emerald-*. Канон — 06_UI_GUIDE.
+        success:
+          "bg-emerald-600 text-white hover:bg-emerald-700 focus-visible:ring-emerald-600/20 dark:focus-visible:ring-emerald-600/40",
         outline:
           "border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
         secondary:
