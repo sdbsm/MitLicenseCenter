@@ -68,7 +68,7 @@ frontend/src/
 | `discovery` | `DiscoveryField` — общий компонент автоподстановки |
 | `health` | версия панели в подвале сайдбара (анонимный `/api/v1/health`) |
 | `infobases` | `/infobases` — CRUD инфобаз и публикаций |
-| `performance` | `/performance` — метрики хоста, 1С, SQL |
+| `performance` | `/performance` — метрики хоста, 1С, SQL. Воронка: вердикт «почему тормозит» → светофор ресурсов (`SaturationGauges`) → **drill-down переключатель слоёв** Хост/1С/SQL (`PerformanceDrillDown`, контролируемые shadcn `Tabs`) → запись по требованию. Слой «Хост» = атрибуция семей процессов, «1С»/«SQL» = собственные live-источники (`OneCLoadSection`/`SqlLoadSection`). Авто-фокус (`useDrillDownFocus`) наводит на релевантный слой по вердикту (`culpritFamily`: OneC→1С, Mssql→SQL, иначе Хост), ручной выбор слоя «прибивает» его — авто-фокус больше не перебивает. Все три слоя `forceMount` (неактивные скрыты `hidden`) — их polling 1С/SQL не прерывается в фоне, переключение мгновенно (MLC-207) |
 | `profile` | форма смены пароля (в ForcePasswordChange и профиле) |
 | `publications` | мутации публикации/смены платформы/проверки IIS |
 | `reports` | building-blocks отчётов (графики/сводки/хуки/`reportsUrlState`/`reportsQueryKeys`/`types`/`export`), переиспользуются «Сеансами» (вид «Использование за период»), «Базами» (вкладка «Размер баз») и «Обзором» (тренды). **Своего маршрута и пункта меню НЕТ** — раздел «Отчёты» растворён (MLC-196c, ADR-53); эндпоинты `/reports/*` сохранены |

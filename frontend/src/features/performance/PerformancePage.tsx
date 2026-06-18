@@ -3,15 +3,13 @@ import { toast } from "sonner";
 import { LiveControls } from "@/components/LiveControls";
 import { RelativeTime } from "@/components/ui/RelativeTime";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AttributionWarningBanner } from "./AttributionWarningBanner";
-import { OneCLoadSection } from "./OneCLoadSection";
-import { ProcessFamilyAttribution } from "./ProcessFamilyAttribution";
+import { PerformanceDrillDown } from "./PerformanceDrillDown";
 import { RecordingSection } from "./RecordingSection";
 import { SaturationGauges } from "./SaturationGauges";
-import { SqlLoadSection } from "./SqlLoadSection";
 import { VerdictBanner } from "./VerdictBanner";
+import { useDrillDownFocus } from "./useDrillDownFocus";
 import { usePerformancePage } from "./usePerformancePage";
 
 /**
@@ -35,6 +33,8 @@ export function PerformancePage() {
     refreshNow,
     isRefreshing,
   } = usePerformancePage();
+
+  const { layer, setLayer } = useDrillDownFocus(derived?.verdict ?? null);
 
   return (
     <div className="space-y-6">
@@ -97,28 +97,20 @@ export function PerformancePage() {
           )}
 
           <SaturationGauges snapshot={snapshot} />
-
-          <Card>
-            <CardHeader>
-              <CardTitle>{t("performance.attribution.title")}</CardTitle>
-              <p className="text-muted-foreground text-sm">
-                {t("performance.attribution.subtitle")}
-              </p>
-            </CardHeader>
-            <CardContent>
-              <ProcessFamilyAttribution families={derived.families} measuring={measuring} />
-            </CardContent>
-          </Card>
         </>
       ) : null}
 
-      {/* Drill-down «кто грузит внутри 1С» — собственный live-источник (MLC-067), не зависит
-          от загрузки host-снимка: рендерится всегда, управляет своим состоянием сам. */}
-      <OneCLoadSection paused={isPaused} />
-
-      {/* Drill-down «1С грузит SQL?» — собственный live-источник (MLC-069), своя Zod-граница
-          и degraded по статусу DMV-пробы; рендерится всегда, независимо от host/1С-снимков. */}
-      <SqlLoadSection paused={isPaused} />
+      {/* Drill-down воронки (MLC-207): переключатель слоёв Хост/1С/SQL с авто-фокусом по вердикту.
+          Рендерится ВСЕГДА — 1С/SQL это независимые live-источники (MLC-067/069), не зависят от
+          загрузки host-снимка; families/measuring берутся из derived (при отсутствии — []/false).
+          forceMount внутри сохраняет фоновый polling неактивных слоёв. */}
+      <PerformanceDrillDown
+        layer={layer}
+        onLayerChange={setLayer}
+        families={derived?.families ?? []}
+        measuring={measuring}
+        paused={isPaused}
+      />
 
       {/* Запись по требованию (MLC-070/071) — единственный персистируемый источник: старт/стоп
           (Admin) + список расследований + просмотр (график host во времени + виновники за период). */}
