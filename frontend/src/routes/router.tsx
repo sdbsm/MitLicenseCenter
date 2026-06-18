@@ -37,6 +37,9 @@ const AuditPage = lazy(() =>
 const PerformancePage = lazy(() =>
   import("@/features/performance/PerformancePage").then((m) => ({ default: m.PerformancePage }))
 );
+const ServerPage = lazy(() =>
+  import("@/features/server/ServerPage").then((m) => ({ default: m.ServerPage }))
+);
 const SettingsPage = lazy(() =>
   import("@/features/settings/SettingsPage").then((m) => ({ default: m.SettingsPage }))
 );
@@ -69,6 +72,9 @@ export const router = createBrowserRouter([
       { path: "infobases", element: <InfobasesPage /> },
       { path: "sessions", element: <SessionsPage /> },
       { path: "performance", element: <PerformancePage /> },
+      // Раздел «Сервер» (MLC-214): Viewer наблюдает, Admin управляет сервером 1С —
+      // роль-гейт на уровне действий, не маршрута (как /performance, без requireAdmin).
+      { path: "server", element: <ServerPage /> },
       { path: "audit", element: <AuditPage /> },
       // Эталонный экран дизайн-системы (MLC-195, Фаза 0): вне навигации, открывается
       // по URL, виден обеим ролям (без requireAdmin).

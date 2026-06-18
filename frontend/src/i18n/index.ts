@@ -20,6 +20,7 @@ import performance from "./ru/performance.json";
 import profile from "./ru/profile.json";
 import publications from "./ru/publications.json";
 import reports from "./ru/reports.json";
+import server from "./ru/server.json";
 import sessions from "./ru/sessions.json";
 import settings from "./ru/settings.json";
 import table from "./ru/table.json";
@@ -43,6 +44,7 @@ export const ru = {
   ...backups,
   ...publications,
   ...reports,
+  ...server,
   ...performance,
   ...audit,
   ...sessions,

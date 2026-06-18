@@ -5,6 +5,7 @@ import {
   GaugeIcon,
   MonitorPlayIcon,
   ScrollTextIcon,
+  ServerIcon,
   SettingsIcon,
   UsersRoundIcon,
 } from "lucide-react";
@@ -24,8 +25,9 @@ import { useHealth } from "@/features/health/useHealth";
 import { NavLinkItem } from "./NavLinkItem";
 
 // Группировка MLC-084 (UX-аудит §3.5): Обзор вне групп, далее Мониторинг /
-// Управление / Система — итого 7 пунктов (MLC-196c: «Отчёты» растворены в
-// «Сеансы»/«Базы», ADR-53). Профиль живёт в топбаре, не здесь.
+// Управление / Система — итого 8 пунктов (MLC-214 добавил «Сервер» в «Мониторинг»;
+// MLC-196c: «Отчёты» растворены в «Сеансы»/«Базы», ADR-53). Профиль живёт в топбаре,
+// не здесь.
 export function Sidebar() {
   const { t } = useTranslation();
   const { data: me } = useMe();
@@ -59,6 +61,7 @@ export function Sidebar() {
             <SidebarMenu>
               <NavLinkItem to="/sessions" icon={MonitorPlayIcon} label={t("nav.sessions")} />
               <NavLinkItem to="/performance" icon={ActivityIcon} label={t("nav.performance")} />
+              <NavLinkItem to="/server" icon={ServerIcon} label={t("nav.server")} />
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
