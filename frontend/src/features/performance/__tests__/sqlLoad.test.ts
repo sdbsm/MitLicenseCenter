@@ -6,6 +6,7 @@ import {
   collectBlockerIds,
   formatInt,
   isBlocked,
+  lockChainRows,
   sortRequestsByCpu,
   waitCategory,
 } from "../sqlLoad";
@@ -112,6 +113,34 @@ describe("блокировки", () => {
       request({ sessionId: 20, blockingSessionId: null }),
     ]);
     expect([...ids]).toEqual([20]);
+  });
+});
+
+describe("lockChainRows", () => {
+  it("берёт только заблокированные; флаг blocks — для тех, кто и сам блокирует (середина цепочки)", () => {
+    // Цепочка A(10) ждёт B(20), B(20) ждёт C(30): B — заблокирован И блокирует.
+    const rows = lockChainRows([
+      request({ sessionId: 10, blockingSessionId: 20, elapsedMs: 100 }),
+      request({ sessionId: 20, blockingSessionId: 30, elapsedMs: 50 }),
+      request({ sessionId: 30, blockingSessionId: null, elapsedMs: 999 }),
+    ]);
+    expect(rows.map((r) => r.request.sessionId)).toEqual([10, 20]);
+    expect(rows.find((r) => r.request.sessionId === 20)?.blocks).toBe(true);
+    expect(rows.find((r) => r.request.sessionId === 10)?.blocks).toBe(false);
+  });
+
+  it("сортирует по длительности ожидания вниз, null тонут; не мутирует вход", () => {
+    const input = [
+      request({ sessionId: 1, blockingSessionId: 9, elapsedMs: 10 }),
+      request({ sessionId: 2, blockingSessionId: 9, elapsedMs: null }),
+      request({ sessionId: 3, blockingSessionId: 9, elapsedMs: 500 }),
+    ];
+    expect(lockChainRows(input).map((r) => r.request.sessionId)).toEqual([3, 1, 2]);
+    expect(input[0].sessionId).toBe(1);
+  });
+
+  it("нет заблокированных → пустой список", () => {
+    expect(lockChainRows([request({ blockingSessionId: null })])).toEqual([]);
   });
 });
 

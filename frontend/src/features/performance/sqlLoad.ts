@@ -94,6 +94,24 @@ export function collectBlockerIds(requests: readonly SqlActiveRequest[]): Set<nu
   return ids;
 }
 
+// Строка цепочки блокировок SQL для единого блока «Блокировки» (MLC-210): заблокированный
+// запрос (`isBlocked`) + флаг `blocks` — он же сам блокирует других (середина цепочки A→B→C).
+export interface SqlLockChainRow {
+  request: SqlActiveRequest;
+  blocks: boolean;
+}
+
+// Звенья цепочек блокировок: только заблокированные запросы (`isBlocked`), для каждого помечаем,
+// блокирует ли он сам кого-то (`collectBlockerIds`). Сортировка по длительности вниз (null тонут)
+// — дольше ждущие первыми. Чистая, без React; не мутирует вход.
+export function lockChainRows(requests: readonly SqlActiveRequest[]): SqlLockChainRow[] {
+  const blockerIds = collectBlockerIds(requests);
+  return requests
+    .filter(isBlocked)
+    .map((request) => ({ request, blocks: blockerIds.has(request.sessionId) }))
+    .sort((a, b) => (b.request.elapsedMs ?? -1) - (a.request.elapsedMs ?? -1));
+}
+
 // Категория-смысл топ-ожидания SQL (MLC-209, Срез C): сопоставление сырого DMV-имени
 // `wait_type` доменному смыслу для оператора 1С. Многие типы имеют суффиксы
 // (`PAGEIOLATCH_SH/EX`, `LCK_M_IX`), поэтому сравниваем по префиксу к UPPERCASE-входу.
