@@ -21,9 +21,9 @@
 [`PROJECT_BACKLOG_ARCHIVE.md`](PROJECT_BACKLOG_ARCHIVE.md) и git.
 
 **Редизайн UX/UI** (строгий монохром + тёмная тема по умолчанию, «Сеансы» = дом темы лицензий,
-«Отчёты» растворены → меню 8→7, «Быстродействие» = воронка расследования) **ЗАВЕРШЁН** (2026-06-18) —
-`MLC-195..210`, **ADR-53**; история в [`PROJECT_BACKLOG_ARCHIVE.md`](PROJECT_BACKLOG_ARCHIVE.md) и
-git, спека — локальный план-файл `.claude/plans/redesign-ux.md`.
+«Отчёты» растворены → меню 8→7, «Быстродействие» = воронка расследования) **выпущен в `v1.1.2`**
+(2026-06-18) — `MLC-195..210`, **ADR-53**; история в [`PROJECT_BACKLOG_ARCHIVE.md`](PROJECT_BACKLOG_ARCHIVE.md)
+и git, спека — локальный план-файл `.claude/plans/redesign-ux.md`.
 
 ---
 
