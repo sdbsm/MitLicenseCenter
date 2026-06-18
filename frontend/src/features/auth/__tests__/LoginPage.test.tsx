@@ -7,6 +7,7 @@ import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import "@/i18n";
 import { ApiError, ApiNetworkError } from "@/lib/api";
+import type * as UseHealthModule from "@/features/health/useHealth";
 import type * as UseAuthModule from "../useAuth";
 import { LoginPage } from "../LoginPage";
 
@@ -14,6 +15,7 @@ const mutateAsync = vi.fn();
 const navigate = vi.fn();
 const toastSuccess = vi.fn();
 const toastError = vi.fn();
+const healthData = vi.fn<() => { version?: string } | undefined>(() => undefined);
 
 vi.mock("sonner", () => ({
   toast: {
@@ -37,6 +39,13 @@ vi.mock("../useAuth", async (importOriginal) => {
   };
 });
 
+// Подвал-версия берётся из useHealth (анонимный /health) — мокаем, чтобы не дёргать
+// сеть и управлять наличием версии из теста.
+vi.mock("@/features/health/useHealth", async (importOriginal) => {
+  const actual = await importOriginal<typeof UseHealthModule>();
+  return { ...actual, useHealth: () => ({ data: healthData() }) };
+});
+
 function setup() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -56,6 +65,22 @@ describe("LoginPage", () => {
     navigate.mockReset();
     toastSuccess.mockReset();
     toastError.mockReset();
+    healthData.mockReset();
+    healthData.mockReturnValue(undefined);
+  });
+
+  it("рендерит версию панели в подвале из useHealth", async () => {
+    healthData.mockReturnValue({ version: "9.9.9" });
+    setup();
+
+    expect(await screen.findByText("Версия 9.9.9")).toBeInTheDocument();
+  });
+
+  it("без версии в health подвал не падает и строку не рендерит", () => {
+    healthData.mockReturnValue(undefined);
+    setup();
+
+    expect(screen.queryByText(/Версия/)).not.toBeInTheDocument();
   });
 
   it("валидный вход вызывает login и навигирует на /", async () => {
