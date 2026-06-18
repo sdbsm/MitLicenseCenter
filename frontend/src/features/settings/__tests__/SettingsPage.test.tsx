@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import "@/i18n";
@@ -28,6 +28,20 @@ function descriptor(key: string, value: string | null): SettingDescriptor {
     updatedBy: "System",
   };
 }
+
+// jsdom не реализует IntersectionObserver — scroll-spy навигации (MLC-202) его требует.
+// Достаточно безоперационной заглушки: тест проверяет разметку якорей, не подсветку.
+beforeAll(() => {
+  class IOStub {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+    takeRecords() {
+      return [];
+    }
+  }
+  vi.stubGlobal("IntersectionObserver", IOStub);
+});
 
 function setup() {
   const client = new QueryClient({
@@ -77,5 +91,53 @@ describe("SettingsPage — RAS-порт и пикер платформы (MLC-05
     expect(
       await screen.findByText(/rac\.exe.*8\.3\.23\.1865\\bin\\rac\.exe.*версия.*8\.3\.23\.1865/)
     ).toBeInTheDocument();
+  });
+});
+
+describe("SettingsPage — левая навигация по секциям-якорям (MLC-202)", () => {
+  beforeEach(() => {
+    mockedApi.mockReset();
+  });
+
+  // Минимально достаточный мок: список настроек + пустой discovery. Навигация
+  // рендерится из статического массива якорей, не зависит от состава дескрипторов.
+  function mockApi() {
+    mockedApi.mockImplementation((async (url: string) => {
+      if (url.startsWith("/api/v1/discovery/")) {
+        return { items: [], available: false, error: null };
+      }
+      return [
+        descriptor("OneC.RAS.Endpoint", "localhost:1545"),
+        descriptor("OneC.RAS.ExePath", "C:\\1cv8\\bin\\rac.exe"),
+        descriptor("OneC.DefaultPlatformVersion", "8.3.23.1865"),
+      ];
+    }) as unknown as typeof api);
+  }
+
+  // Восемь якорей в целевом порядке: подпись (settings.nav.*) → целевой #id.
+  const EXPECTED_ANCHORS: { label: string; href: string }[] = [
+    { label: "Подключение", href: "#settings-cluster" },
+    { label: "SQL", href: "#settings-sql" },
+    { label: "IIS", href: "#settings-iis" },
+    { label: "Опрос", href: "#settings-polling" },
+    { label: "Хранение", href: "#settings-retention" },
+    { label: "Бэкапы", href: "#settings-backup" },
+    { label: "Служба RAS", href: "#settings-ras" },
+    { label: "Обновления", href: "#settings-updates" },
+  ];
+
+  it("рендерит 8 пунктов навигации-якорей с правильными подписями и ссылками", async () => {
+    mockApi();
+    setup();
+
+    // Навигация параметров — отдельный landmark <nav aria-label="Параметры">.
+    const nav = await screen.findByRole("navigation", { name: "Параметры" });
+    const links = within(nav).getAllByRole("link");
+    expect(links).toHaveLength(EXPECTED_ANCHORS.length);
+
+    EXPECTED_ANCHORS.forEach((expected, i) => {
+      expect(links[i]).toHaveTextContent(expected.label);
+      expect(links[i]).toHaveAttribute("href", expected.href);
+    });
   });
 });

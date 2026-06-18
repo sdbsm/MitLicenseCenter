@@ -1,5 +1,6 @@
-import { Fragment } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { cn } from "@/lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SettingField } from "./SettingField";
@@ -21,8 +22,9 @@ import { useSettings } from "./useSettings";
 // «Публикации IIS» рядом с корневой папкой.
 // «Хранение данных» объединяет окна ретенции — аудит, историю использования
 // лицензий для /reports и историю размеров баз (DatabaseSize, MLC-185).
-const SECTIONS: { titleKey: string; keys: string[] }[] = [
+const SECTIONS: { id: string; titleKey: string; keys: string[] }[] = [
   {
+    id: "settings-cluster",
     titleKey: "settings.sections.cluster",
     keys: [
       "OneC.Cluster.AdminUser",
@@ -33,14 +35,17 @@ const SECTIONS: { titleKey: string; keys: string[] }[] = [
     ],
   },
   {
+    id: "settings-sql",
     titleKey: "settings.sections.sql",
     keys: ["Sql.Server"],
   },
   {
+    id: "settings-iis",
     titleKey: "settings.sections.iis",
     keys: ["IIS.DefaultVrdRoot", "IIS.DefaultSiteName"],
   },
   {
+    id: "settings-polling",
     titleKey: "settings.sections.polling",
     keys: [
       "Polling.HotIntervalSeconds",
@@ -52,10 +57,12 @@ const SECTIONS: { titleKey: string; keys: string[] }[] = [
     ],
   },
   {
+    id: "settings-retention",
     titleKey: "settings.sections.retention",
     keys: ["Audit.RetentionDays", "LicenseUsage.RetentionDays", "DatabaseSize.RetentionDays"],
   },
   {
+    id: "settings-backup",
     titleKey: "settings.sections.backup",
     keys: [
       "Backup.FolderPath",
@@ -64,6 +71,19 @@ const SECTIONS: { titleKey: string; keys: string[] }[] = [
       "Backup.DiskSafetyMarginMb",
     ],
   },
+];
+
+// Якоря левой навигации (MLC-202): шесть карточек-секций SECTIONS + два блока-компонента
+// (служба RAS / обновления), которые не входят в SECTIONS. Подписи короткие — settings.nav.*.
+const ANCHORS: { id: string; navKey: string }[] = [
+  { id: "settings-cluster", navKey: "settings.nav.cluster" },
+  { id: "settings-sql", navKey: "settings.nav.sql" },
+  { id: "settings-iis", navKey: "settings.nav.iis" },
+  { id: "settings-polling", navKey: "settings.nav.polling" },
+  { id: "settings-retention", navKey: "settings.nav.retention" },
+  { id: "settings-backup", navKey: "settings.nav.backup" },
+  { id: "settings-ras", navKey: "settings.nav.ras" },
+  { id: "settings-updates", navKey: "settings.nav.updates" },
 ];
 
 // Тип ввода + диапазон диктуем со страницы — backend всё равно валидирует
@@ -99,6 +119,49 @@ const FIELD_META: Record<
   "Backup.DiskSafetyMarginMb": { type: "number", min: 0, max: 1048576 },
 };
 
+// Scroll-spy: подсвечиваем якорь секции, ближайшей к верху области прокрутки.
+// IntersectionObserver с rootMargin, прижатым к верхней кромке вьюпорта (под топбаром
+// h-14), отдаёт «активной» секцию, пересекающую узкую полосу у верха. Активный
+// якорь — последний из видимых в этой полосе (или, если не пересекается ни один,
+// последний прокрученный выше). Подсветка нейтральная (монохром).
+function useScrollSpy(ids: string[]): string | null {
+  const [activeId, setActiveId] = useState<string | null>(ids[0] ?? null);
+
+  useEffect(() => {
+    const elements = ids
+      .map((id) => document.getElementById(id))
+      .filter((el): el is HTMLElement => el !== null);
+    if (elements.length === 0) {
+      return;
+    }
+
+    const visible = new Map<string, boolean>();
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          visible.set(entry.target.id, entry.isIntersecting);
+        }
+        // Первый по порядку якорь, который сейчас в полосе у верха.
+        const firstVisible = ids.find((id) => visible.get(id));
+        if (firstVisible) {
+          setActiveId(firstVisible);
+        }
+      },
+      // Полоса наблюдения: от ~64px под топбаром до низа минус 60%, чтобы активной
+      // становилась секция, доехавшая до верха области прокрутки.
+      { rootMargin: "-64px 0px -60% 0px", threshold: 0 }
+    );
+
+    for (const el of elements) {
+      observer.observe(el);
+    }
+    return () => observer.disconnect();
+  }, [ids]);
+
+  return activeId;
+}
+
 export function SettingsPage() {
   const { t } = useTranslation();
   const { data, isLoading, isError } = useSettings();
@@ -108,8 +171,11 @@ export function SettingsPage() {
     byKey.set(s.key, s);
   }
 
+  const anchorIds = useMemo(() => ANCHORS.map((a) => a.id), []);
+  const activeId = useScrollSpy(anchorIds);
+
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className="space-y-6">
       <div className="space-y-1">
         <h2 className="text-2xl font-semibold tracking-tight">{t("settings.title")}</h2>
         <p className="text-muted-foreground text-sm">{t("settings.subtitle")}</p>
@@ -121,64 +187,108 @@ export function SettingsPage() {
         </div>
       )}
 
-      {SECTIONS.map((section) => (
-        <Fragment key={section.titleKey}>
-          <Card>
-            <CardHeader>
-              <CardTitle>{t(section.titleKey)}</CardTitle>
-              <CardDescription>
-                {t(`${section.titleKey}.description`, { defaultValue: "" })}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-5">
-              {isLoading
-                ? section.keys.map((k) => <Skeleton key={k} className="h-16 w-full" />)
-                : section.keys.map((k) => {
-                    const setting = byKey.get(k);
-                    if (!setting) {
-                      return null;
-                    }
-                    // Спец-рендер: порт RAS и единый пикер платформы заменяют плоские
-                    // поля OneC.RAS.Endpoint / OneC.RAS.ExePath (последний ведёт ещё и
-                    // OneC.DefaultPlatformVersion — он в SECTIONS не перечислен).
-                    if (k === "OneC.RAS.Endpoint") {
-                      return <RasPortField key={k} setting={setting} />;
-                    }
-                    if (k === "OneC.RAS.ExePath") {
-                      return (
-                        <PlatformPicker
-                          key={k}
-                          racSetting={setting}
-                          versionSetting={byKey.get("OneC.DefaultPlatformVersion")}
-                        />
-                      );
-                    }
-                    // MLC-056: сервер БД — пикер локальных SQL-инстансов (ручной fallback).
-                    if (k === "Sql.Server") {
-                      return <DatabaseServerField key={k} setting={setting} />;
-                    }
-                    const meta = FIELD_META[k] ?? { type: "text" as const };
-                    return (
-                      <SettingField
-                        key={k}
-                        setting={setting}
-                        inputType={meta.type}
-                        min={meta.min}
-                        max={meta.max}
-                        placeholder={meta.placeholder}
-                      />
-                    );
-                  })}
-            </CardContent>
-          </Card>
-          {/* Блок состояния службы RAS (MLC-160, ADR-47) — сразу после секции
-            «Подключение к 1С/RAS». Admin-only + ленивая диагностика — внутри карточки. */}
-          {section.titleKey === "settings.sections.cluster" && <RasServiceCard />}
-        </Fragment>
-      ))}
+      <div className="flex flex-col gap-8 lg:flex-row lg:items-start">
+        {/* Левая навигация по секциям-якорям (MLC-202). На узких экранах скрыта —
+            контент остаётся полностью доступен прокруткой. */}
+        <nav
+          aria-label={t("settings.title")}
+          className="sticky top-4 hidden w-48 shrink-0 lg:block"
+        >
+          <ul className="space-y-1">
+            {ANCHORS.map((anchor) => {
+              const isActive = activeId === anchor.id;
+              return (
+                <li key={anchor.id}>
+                  <a
+                    href={`#${anchor.id}`}
+                    aria-current={isActive ? "true" : undefined}
+                    className={cn(
+                      "block rounded-md px-3 py-1.5 text-sm transition-colors",
+                      isActive
+                        ? "bg-muted text-foreground font-medium"
+                        : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                    )}
+                  >
+                    {t(anchor.navKey)}
+                  </a>
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
 
-      {/* MLC-176 (ADR-50): проверка обновлений панели через GitHub Releases. */}
-      <UpdateCheckCard />
+        {/* Правая колонка — узкая колонка существующих карточек-секций. */}
+        <div className="w-full max-w-3xl space-y-6">
+          {SECTIONS.map((section) => (
+            <Fragment key={section.id}>
+              <section id={section.id} className="scroll-mt-20">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>{t(section.titleKey)}</CardTitle>
+                    <CardDescription>
+                      {t(`${section.titleKey}.description`, { defaultValue: "" })}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="grid gap-5">
+                    {isLoading
+                      ? section.keys.map((k) => <Skeleton key={k} className="h-16 w-full" />)
+                      : section.keys.map((k) => {
+                          const setting = byKey.get(k);
+                          if (!setting) {
+                            return null;
+                          }
+                          // Спец-рендер: порт RAS и единый пикер платформы заменяют плоские
+                          // поля OneC.RAS.Endpoint / OneC.RAS.ExePath (последний ведёт ещё и
+                          // OneC.DefaultPlatformVersion — он в SECTIONS не перечислен).
+                          if (k === "OneC.RAS.Endpoint") {
+                            return <RasPortField key={k} setting={setting} />;
+                          }
+                          if (k === "OneC.RAS.ExePath") {
+                            return (
+                              <PlatformPicker
+                                key={k}
+                                racSetting={setting}
+                                versionSetting={byKey.get("OneC.DefaultPlatformVersion")}
+                              />
+                            );
+                          }
+                          // MLC-056: сервер БД — пикер локальных SQL-инстансов (ручной fallback).
+                          if (k === "Sql.Server") {
+                            return <DatabaseServerField key={k} setting={setting} />;
+                          }
+                          const meta = FIELD_META[k] ?? { type: "text" as const };
+                          return (
+                            <SettingField
+                              key={k}
+                              setting={setting}
+                              inputType={meta.type}
+                              min={meta.min}
+                              max={meta.max}
+                              placeholder={meta.placeholder}
+                            />
+                          );
+                        })}
+                  </CardContent>
+                </Card>
+              </section>
+            </Fragment>
+          ))}
+
+          {/* Две интерактивно-диагностические карточки идут после плоских секций-настроек
+            и образуют хвост навигации-якорей (MLC-202): служба RAS → обновления. Порядок
+            якорей в DOM совпадает с порядком в ANCHORS, иначе scroll-spy подсвечивал бы
+            пункты вразнобой. RasServiceCard/UpdateCheckCard не принимают id — оборачиваем
+            в <section> с якорем, сами компоненты не трогаем. */}
+          {/* Состояние службы RAS (MLC-160, ADR-47): Admin-only + ленивая диагностика внутри. */}
+          <section id="settings-ras" className="scroll-mt-20">
+            <RasServiceCard />
+          </section>
+          {/* MLC-176 (ADR-50): проверка обновлений панели через GitHub Releases. */}
+          <section id="settings-updates" className="scroll-mt-20">
+            <UpdateCheckCard />
+          </section>
+        </div>
+      </div>
     </div>
   );
 }
