@@ -4,6 +4,7 @@ import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ChangePasswordForm } from "@/features/profile/ChangePasswordForm";
+import { AuthCardShell } from "./AuthCardShell";
 import { ME_KEY, useLogout } from "./useAuth";
 
 /**
@@ -25,27 +26,25 @@ export function ForcePasswordChange() {
   };
 
   return (
-    <div className="bg-background flex min-h-svh items-center justify-center px-4">
-      <div className="border-border bg-card w-full max-w-md rounded-xl border p-8 shadow-sm">
-        <div className="mb-6 space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">{t("auth.forceChange.title")}</h1>
-          <p className="text-muted-foreground text-sm">{t("auth.forceChange.subtitle")}</p>
-        </div>
-
-        <ChangePasswordForm
-          showReset={false}
-          submitLabel={t("auth.forceChange.submit")}
-          onSuccess={() => {
-            void qc.invalidateQueries({ queryKey: ME_KEY });
-          }}
-        />
-
+    <AuthCardShell
+      title={t("auth.forceChange.title")}
+      subtitle={t("auth.forceChange.subtitle")}
+      widthClassName="max-w-md"
+      footer={
         <div className="mt-4 border-t pt-4 text-center">
           <Button variant="link" className="text-muted-foreground" onClick={onLogout}>
             {t("auth.signOut")}
           </Button>
         </div>
-      </div>
-    </div>
+      }
+    >
+      <ChangePasswordForm
+        showReset={false}
+        submitLabel={t("auth.forceChange.submit")}
+        onSuccess={() => {
+          void qc.invalidateQueries({ queryKey: ME_KEY });
+        }}
+      />
+    </AuthCardShell>
   );
 }

@@ -5,7 +5,11 @@ import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { z } from "zod";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { ApiError, ApiNetworkError } from "@/lib/api";
+import { AuthCardShell } from "./AuthCardShell";
 import { useLogin } from "./useAuth";
 
 const schema = z.object({
@@ -59,61 +63,39 @@ export function LoginPage() {
   });
 
   return (
-    <div className="bg-background flex min-h-svh items-center justify-center px-4">
-      <div className="border-border bg-card w-full max-w-sm rounded-xl border p-8 shadow-sm">
-        <div className="mb-6 space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">{t("auth.title")}</h1>
-          <p className="text-muted-foreground text-sm">{t("auth.subtitle")}</p>
+    <AuthCardShell title={t("auth.title")} subtitle={t("auth.subtitle")}>
+      <form onSubmit={onSubmit} className="space-y-4" noValidate>
+        <div className="space-y-1.5">
+          <Label htmlFor="userName">{t("auth.userName")}</Label>
+          <Input id="userName" autoComplete="username" autoFocus {...register("userName")} />
+          {errors.userName && (
+            <p className="text-status-danger text-xs">{t("auth.userNameRequired")}</p>
+          )}
         </div>
 
-        <form onSubmit={onSubmit} className="space-y-4" noValidate>
-          <div className="space-y-1.5">
-            <label htmlFor="userName" className="text-sm font-medium">
-              {t("auth.userName")}
-            </label>
-            <input
-              id="userName"
-              autoComplete="username"
-              autoFocus
-              {...register("userName")}
-              className="border-input bg-background focus-visible:ring-ring w-full rounded-md border px-3 py-2 text-sm shadow-xs outline-none focus-visible:ring-2"
-            />
-            {errors.userName && (
-              <p className="text-status-danger text-xs">{t("auth.userNameRequired")}</p>
-            )}
-          </div>
-
-          <div className="space-y-1.5">
-            <label htmlFor="password" className="text-sm font-medium">
-              {t("auth.password")}
-            </label>
-            <input
-              id="password"
-              type="password"
-              autoComplete="current-password"
-              {...register("password")}
-              className="border-input bg-background focus-visible:ring-ring w-full rounded-md border px-3 py-2 text-sm shadow-xs outline-none focus-visible:ring-2"
-            />
-            {errors.password && (
-              <p className="text-status-danger text-xs">{t("auth.passwordRequired")}</p>
-            )}
-          </div>
-
-          {submitError && (
-            <p role="alert" className="text-status-danger text-sm">
-              {submitError}
-            </p>
+        <div className="space-y-1.5">
+          <Label htmlFor="password">{t("auth.password")}</Label>
+          <Input
+            id="password"
+            type="password"
+            autoComplete="current-password"
+            {...register("password")}
+          />
+          {errors.password && (
+            <p className="text-status-danger text-xs">{t("auth.passwordRequired")}</p>
           )}
+        </div>
 
-          <button
-            type="submit"
-            disabled={isSubmitting || login.isPending}
-            className="bg-primary text-primary-foreground w-full rounded-md px-3 py-2 text-sm font-medium transition disabled:opacity-50"
-          >
-            {isSubmitting || login.isPending ? t("auth.signingIn") : t("auth.signIn")}
-          </button>
-        </form>
-      </div>
-    </div>
+        {submitError && (
+          <p role="alert" className="text-status-danger text-sm">
+            {submitError}
+          </p>
+        )}
+
+        <Button type="submit" className="w-full" disabled={isSubmitting || login.isPending}>
+          {isSubmitting || login.isPending ? t("auth.signingIn") : t("auth.signIn")}
+        </Button>
+      </form>
+    </AuthCardShell>
   );
 }
