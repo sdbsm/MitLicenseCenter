@@ -31,6 +31,11 @@ interface MetricGaugeProps {
   detail?: string;
   // Первый poll: дельта-метрика ещё не готова — рисуем «измеряю…», не ноль.
   measuring?: boolean;
+  // Когда задан — гейдж кликабелен (рендерится как <button>, наводит drill-down
+  // на релевантный слой). Не задан — прежний неинтерактивный <div> (совместимость).
+  onClick?: () => void;
+  // aria-подпись кнопки (локализованная) — обязательна вместе с onClick для доступности.
+  ariaLabel?: string;
 }
 
 /**
@@ -45,11 +50,13 @@ export function MetricGauge({
   saturation,
   detail,
   measuring = false,
+  onClick,
+  ariaLabel,
 }: MetricGaugeProps) {
   const { t } = useTranslation();
 
-  return (
-    <div className="space-y-2">
+  const body = (
+    <>
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-muted-foreground text-sm font-medium">{label}</span>
         {measuring ? (
@@ -67,6 +74,25 @@ export function MetricGauge({
         className={cn("h-2.5", !measuring && BAR_CLASS[saturation], measuring && "animate-pulse")}
       />
       <p className="text-muted-foreground min-h-4 text-xs">{measuring ? "" : detail}</p>
-    </div>
+    </>
   );
+
+  // С onClick — кликабельная кнопка (нативная клавиатура Enter/Space, не дублируем
+  // onKeyDown). Аффорданс нейтральный (палитра монохром): ховер `bg-muted`, фокус-кольцо
+  // `ring-ring`; отрицательная марджин-+-паддинг даёт область клика, не ломая grid.
+  // Цвет шкалы/значения по-прежнему от сатурации (светофор ADR-26) — кнопка его не трогает.
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={ariaLabel}
+        className="hover:bg-muted/40 focus-visible:ring-ring -m-2 block w-full space-y-2 rounded-md p-2 text-left outline-none focus-visible:ring-2"
+      >
+        {body}
+      </button>
+    );
+  }
+
+  return <div className="space-y-2">{body}</div>;
 }

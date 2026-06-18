@@ -15,6 +15,9 @@ import type { HostMetricsSnapshot } from "./types";
 
 interface SaturationGaugesProps {
   snapshot: HostMetricsSnapshot;
+  // Когда задан — гейджи кликабельны: клик по ресурсу наводит drill-down на слой
+  // (Срез B). Не задан — гейджи неинтерактивны (прежнее поведение).
+  onResourceClick?: (resource: "cpu" | "ram" | "disk") => void;
 }
 
 /**
@@ -22,12 +25,21 @@ interface SaturationGaugesProps {
  * зависят от дельты двух замеров → на первом poll'е (measuring) показывают
  * «измеряю…». RAM мгновенный (available/total) — рисуется всегда, даже на первом poll'е.
  */
-export function SaturationGauges({ snapshot }: SaturationGaugesProps) {
+export function SaturationGauges({ snapshot, onResourceClick }: SaturationGaugesProps) {
   const { t } = useTranslation();
   const { measuring, cpu, memory, disk } = snapshot;
 
   const ramUsed = ramUsedPercent(memory);
   const diskMs = Math.round(diskMaxLatencySec(disk) * 1000);
+
+  // aria-подпись кнопки-гейджа: «Открыть слой расследования для ресурса …» с
+  // локализованным именем ресурса (без хардкода в TSX). Только когда клик включён.
+  const drilldownAria = (resource: "cpu" | "ram" | "disk"): string | undefined =>
+    onResourceClick
+      ? t("performance.saturation.drilldownAria", {
+          resource: t(`performance.resources.${resource}`),
+        })
+      : undefined;
 
   const cpuLabel = (
     <TooltipProvider delayDuration={150}>
@@ -58,6 +70,8 @@ export function SaturationGauges({ snapshot }: SaturationGaugesProps) {
           saturation={cpuSaturation(cpu)}
           detail={t("performance.saturation.cpuDetail", { queue: round1(cpu.queueLength) })}
           measuring={measuring}
+          onClick={onResourceClick ? () => onResourceClick("cpu") : undefined}
+          ariaLabel={drilldownAria("cpu")}
         />
         <MetricGauge
           label={t("performance.saturation.ram")}
@@ -71,6 +85,8 @@ export function SaturationGauges({ snapshot }: SaturationGaugesProps) {
           })}
           // RAM-занятость мгновенна; paging — дельта, но занятость честно рисуется и на 1-м poll'е.
           measuring={false}
+          onClick={onResourceClick ? () => onResourceClick("ram") : undefined}
+          ariaLabel={drilldownAria("ram")}
         />
         <MetricGauge
           label={t("performance.saturation.disk")}
@@ -79,6 +95,8 @@ export function SaturationGauges({ snapshot }: SaturationGaugesProps) {
           saturation={diskSaturation(disk)}
           detail={t("performance.saturation.diskDetail", { queue: round1(disk.queueLength) })}
           measuring={measuring}
+          onClick={onResourceClick ? () => onResourceClick("disk") : undefined}
+          ariaLabel={drilldownAria("disk")}
         />
       </CardContent>
     </Card>

@@ -9,7 +9,7 @@ import { PerformanceDrillDown } from "./PerformanceDrillDown";
 import { RecordingSection } from "./RecordingSection";
 import { SaturationGauges } from "./SaturationGauges";
 import { VerdictBanner } from "./VerdictBanner";
-import { useDrillDownFocus } from "./useDrillDownFocus";
+import { layerForResource, useDrillDownFocus } from "./useDrillDownFocus";
 import { usePerformancePage } from "./usePerformancePage";
 
 /**
@@ -96,7 +96,10 @@ export function PerformancePage() {
             <AttributionWarningBanner processesInaccessible={snapshot.processesInaccessible} />
           )}
 
-          <SaturationGauges snapshot={snapshot} />
+          <SaturationGauges
+            snapshot={snapshot}
+            onResourceClick={(r) => setLayer(layerForResource(r, derived.families))}
+          />
         </>
       ) : null}
 
