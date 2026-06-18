@@ -481,7 +481,7 @@ Recharts не наследует CSS-переменные автоматичес
 | `/` (Дашборд) | Виджет «Требует внимания» — иконки/цвета строк по палитре severity (квоты danger/warning, дрейф, диск, RAS) |
 | `/tenants` (список) | Колонка «Лицензии»: `consumed / limit (percent%)` + `StatusBadge` при warning/danger |
 | `/tenants/:id` (карточка) | Строка рядом с лимитом: текущее потребление + `StatusBadge` |
-| `/reports` (отчёты) | Пиковое значение `ReportsStats` + `StatusBadge` при warning/danger |
+| «Сеансы» → «Использование за период» / «Базы» → «Размер баз» | Пиковое значение `ReportsStats` + `StatusBadge` при warning/danger |
 
 ### Источник потребления на клиента (FE live-оверлей)
 
