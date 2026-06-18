@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using FluentAssertions;
 using MitLicenseCenter.Infrastructure.Clusters;
@@ -31,6 +32,21 @@ public sealed class SystemProcessRacRunnerEncodingTests
         // русскоязычной Windows это CP866; в CI/иной локали — другая. Round-trip через
         // САМУ возвращённую кодировку обязан быть лосслесс для кириллицы маркера —
         // именно так runner декодит stdout/stderr (OemEncoding.GetString(bytes)).
+        //
+        // Env-guard (MLC-197): round-trip кириллицы физически возможен только на хосте,
+        // чья OEM-страница САМА Cyrillic-capable (русская Windows / стенд, где и работает
+        // rac.exe → OEM = CP866). На нерусском раннере (CI: англоязычная Windows, OEM =
+        // CP437/850) кириллица в OEM-страницу не кодируется (→ '?'), тест неприменим —
+        // пропускаем (идиома self-skip как у NightlyJobScheduleTests на UTC-хосте). Гард
+        // висит на OEM-странице ХОСТА, а НЕ на выводе ResolveOemEncoding: на CP866-хосте
+        // тест по-прежнему ловит регрессию, если ResolveOemEncoding вернёт не-кириллическую
+        // кодировку (тогда CodePage == 866, но encoding != CP866 → round-trip упадёт).
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        if (CultureInfo.CurrentCulture.TextInfo.OEMCodePage != 866)
+        {
+            return;
+        }
+
         var encoding = SystemProcessRacRunner.ResolveOemEncoding();
 
         var decoded = encoding.GetString(encoding.GetBytes(SessionNotFoundMarker));
