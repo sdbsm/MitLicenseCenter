@@ -4,9 +4,12 @@ import { LiveControls } from "@/components/LiveControls";
 import { PaginationBar } from "@/components/PaginationBar";
 import { RelativeTime } from "@/components/ui/RelativeTime";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { ByTenantTable } from "./ByTenantTable";
 import { KillSessionDialog } from "./KillSessionDialog";
 import { SessionsFiltersBar } from "./SessionsFiltersBar";
+import { SessionsLicenseBand } from "./SessionsLicenseBand";
 import { SessionsTable } from "./SessionsTable";
 import { SESSIONS_PAGE_SIZE, useSessionsPage } from "./useSessionsPage";
 
@@ -39,6 +42,13 @@ export function SessionsPage() {
     selectedSession,
     killOpen,
     handleKillOpenChange,
+    view,
+    setView,
+    byTenantRows,
+    tenantsLoading,
+    licenseBand,
+    summaryLoading,
+    goToLiveWithTenant,
   } = useSessionsPage();
 
   return (
@@ -89,7 +99,8 @@ export function SessionsPage() {
         )}
 
         {/* License-fact unavailable banner (ADR-48, MLC-166): факт rac --licenses не
-            получен → потребление может быть неактуальным, авто-завершение на паузе. */}
+            получен → потребление может быть неактуальным, авто-завершение на паузе.
+            Виден в обеих проекциях (MLC-196a). */}
         {snapshot && !snapshot.licenseFactAvailable && (
           <div
             role="status"
@@ -99,35 +110,65 @@ export function SessionsPage() {
           </div>
         )}
 
-        {/* Table — фильтры в тулбаре DataTable, рядом с видимостью колонок и density */}
-        <SessionsTable
-          table={table}
-          isLoading={isLoading}
-          isError={isError}
-          isAdmin={isAdmin}
-          density={density}
-          onToggleDensity={toggleDensity}
-          filters={
-            <SessionsFiltersBar
-              q={q}
-              infobaseId={infobaseId}
-              infobases={infobases}
-              appTypeOptions={appTypeOptions}
-              selectedAppIds={selectedAppIds}
-              consuming={consuming}
-              onChange={setFilter}
-            />
-          }
-        />
+        {/* Переключатель проекций (MLC-196a): «По клиентам» (дефолт) / «Живые сеансы».
+            Состояние вида — в URL (?view=), управляется useSessionsPage. */}
+        <Tabs value={view} onValueChange={(v) => setView(v as typeof view)} className="space-y-6">
+          <TabsList>
+            <TabsTrigger value="byTenant">{t("sessions.views.byTenant")}</TabsTrigger>
+            <TabsTrigger value="live">{t("sessions.views.live")}</TabsTrigger>
+          </TabsList>
 
-        {/* Pagination */}
-        <PaginationBar
-          page={page}
-          pageSize={SESSIONS_PAGE_SIZE}
-          total={totalFiltered}
-          onPageChange={setPage}
-          isFetching={false}
-        />
+          {/* Проекция «По клиентам» — агрегат потребления; клик по строке → «Живые сеансы». */}
+          <TabsContent value="byTenant" className="space-y-6">
+            <ByTenantTable
+              rows={byTenantRows}
+              isLoading={(isLoading || tenantsLoading) && byTenantRows.length === 0}
+              isError={isError}
+              onRowClick={(row) => goToLiveWithTenant(row.tenantName)}
+            />
+          </TabsContent>
+
+          {/* Проекция «Живые сеансы» — текущее поведение страницы + лицензионный банд. */}
+          <TabsContent value="live" className="space-y-6">
+            <SessionsLicenseBand
+              consumed={licenseBand.consumed}
+              limit={licenseBand.limit}
+              free={licenseBand.free}
+              active={licenseBand.active}
+              isLoading={summaryLoading && !snapshot}
+            />
+
+            {/* Table — фильтры в тулбаре DataTable, рядом с видимостью колонок и density */}
+            <SessionsTable
+              table={table}
+              isLoading={isLoading}
+              isError={isError}
+              isAdmin={isAdmin}
+              density={density}
+              onToggleDensity={toggleDensity}
+              filters={
+                <SessionsFiltersBar
+                  q={q}
+                  infobaseId={infobaseId}
+                  infobases={infobases}
+                  appTypeOptions={appTypeOptions}
+                  selectedAppIds={selectedAppIds}
+                  consuming={consuming}
+                  onChange={setFilter}
+                />
+              }
+            />
+
+            {/* Pagination */}
+            <PaginationBar
+              page={page}
+              pageSize={SESSIONS_PAGE_SIZE}
+              total={totalFiltered}
+              onPageChange={setPage}
+              isFetching={false}
+            />
+          </TabsContent>
+        </Tabs>
 
         <KillSessionDialog
           key={selectedSession?.sessionId ?? "new"}

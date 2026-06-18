@@ -13,6 +13,10 @@ import {
 import { useTableDensity } from "@/components/ui/data-table";
 import { useMe } from "@/features/auth/useAuth";
 import { useInfobases } from "@/features/infobases/useInfobases";
+import { useDashboardSummary } from "@/features/dashboard/useDashboardSummary";
+import { useAllTenants } from "@/features/tenants/useTenants";
+import { buildConsumedByTenant } from "@/features/tenants/useTenantConsumption";
+import { buildByTenantRows } from "./byTenantRows";
 import { buildSessionColumns } from "./sessionColumns";
 import { appTypeLabel, isInteractiveAppId, KNOWN_APP_IDS } from "./appTypes";
 import type { SessionSnapshotEntry } from "./types";
@@ -31,6 +35,17 @@ export interface SessionSort {
 }
 
 export const SESSIONS_PAGE_SIZE = 25;
+
+/**
+ * Проекции страницы «Сеансы» (MLC-196a, Фаза 1): дом темы лицензий с двумя видами.
+ * `byTenant` (дефолт) — агрегат «кто сколько потребляет»; `live` — текущий live-снимок.
+ */
+export type SessionsView = "byTenant" | "live";
+
+/** URL → активная проекция. Любое нераспознанное значение → дефолт `byTenant`. */
+export function parseView(params: URLSearchParams): SessionsView {
+  return params.get("view") === "live" ? "live" : "byTenant";
+}
 
 /**
  * URL → состояние фильтров. `appIds` — CSV; различаем «параметр отсутствует» (`null` →
@@ -117,6 +132,7 @@ export function useSessionsPage() {
     () => parseParams(searchParams),
     [searchParams]
   );
+  const view = useMemo(() => parseView(searchParams), [searchParams]);
 
   // MLC-156: пауза авто-обновления + ручной форс-обход. При паузе refetchInterval=false.
   const [isPaused, setIsPaused] = useState(false);
@@ -127,6 +143,28 @@ export function useSessionsPage() {
   const { data: infobasesData } = useInfobases();
   const { data: me } = useMe();
   const isAdmin = me?.roles.includes("Admin") ?? false;
+
+  // Проекция «По клиентам» (MLC-196a): клиентская склейка БЕЗ нового BE-эндпоинта —
+  // все клиенты (имя + лимит) из useAllTenants × потребление из того же снапшота сеансов,
+  // что уже грузит страница (buildConsumedByTenant — без второго параллельного запроса).
+  const { data: tenantsData, isLoading: tenantsLoading } = useAllTenants();
+  const byTenantRows = useMemo(() => {
+    const consumed = buildConsumedByTenant(data?.items ?? []);
+    return buildByTenantRows(tenantsData?.items ?? [], consumed);
+  }, [tenantsData, data]);
+
+  // Лицензионный банд проекции «Живые сеансы» (MLC-196a): host-уровень из /dashboard/summary
+  // (без нового контракта). Свободно = доступно по сводке (licensesAvailableTotal).
+  const { data: summary, isLoading: summaryLoading } = useDashboardSummary();
+  const licenseBand = useMemo(
+    () => ({
+      consumed: summary?.licensesConsumedTotal ?? 0,
+      limit: (summary?.licensesConsumedTotal ?? 0) + (summary?.licensesAvailableTotal ?? 0),
+      free: summary?.licensesAvailableTotal ?? 0,
+      active: summary?.sessionsActiveTotal ?? 0,
+    }),
+    [summary]
+  );
 
   // «Обновить сейчас» = живой форс-обход 1С: POST /sessions/refresh запускает cold-прогон
   // прямо сейчас и ждёт его завершения, затем перечитываем свежий снимок. Работает и на
@@ -257,8 +295,12 @@ export function useSessionsPage() {
     infobaseId?: string;
     appIds?: string[];
     consuming?: boolean;
+    view?: SessionsView;
   }) => {
     const params = new URLSearchParams();
+    // view сохраняется при перестройке URL (дефолт byTenant не пишем — чистый URL).
+    const newView = next.view !== undefined ? next.view : view;
+    if (newView !== "byTenant") params.set("view", newView);
     const newQ = next.q !== undefined ? next.q : q;
     const newInfobaseId = next.infobaseId !== undefined ? next.infobaseId : infobaseId;
     if (newQ) params.set("q", newQ);
@@ -279,8 +321,22 @@ export function useSessionsPage() {
     setPagination((p) => (p.pageIndex === 0 ? p : { ...p, pageIndex: 0 }));
   }, [sorting]);
 
+  // Переключатель проекций: меняет только view, остальные параметры сохраняет.
+  const setView = (next: SessionsView) => setFilter({ view: next });
+
+  // Клик по строке клиента (проекция «По клиентам») → «Живые сеансы» с фильтром по
+  // имени клиента (существующий фильтр q ищет подстроку по tenantName/userName).
+  const goToLiveWithTenant = (tenantName: string) => setFilter({ view: "live", q: tenantName });
+
   return {
     snapshot: data,
+    view,
+    setView,
+    byTenantRows,
+    tenantsLoading,
+    licenseBand,
+    summaryLoading,
+    goToLiveWithTenant,
     isLoading,
     isError,
     refetch,
