@@ -48,6 +48,7 @@ import { ReassignInfobaseDialog } from "./ReassignInfobaseDialog";
 import type { InfobaseListItem } from "./types";
 import type { InfobaseFormPrefill } from "./useInfobaseForm";
 import { fetchInfobaseBulkIds, INFOBASES_PAGE_SIZE, useInfobases } from "./useInfobases";
+import { InfobasesSizeTab } from "./InfobasesSizeTab";
 import { MissingInfobasesBanner } from "./unassigned/MissingInfobasesBanner";
 import { MissingInfobasesDialog } from "./unassigned/MissingInfobasesDialog";
 import { UnassignedBanner } from "./unassigned/UnassignedBanner";
@@ -58,6 +59,16 @@ import type { MissingInfobase, UnassignedInfobaseItem } from "./unassigned/types
 const PAGE_SIZE = INFOBASES_PAGE_SIZE;
 const ALL_TENANTS = "__all__";
 const ALL_STATUSES = "__all__";
+
+// MLC-196b: вкладки страницы «Базы». Активная вкладка контролируется URL (`?tab=`),
+// чтобы вкладка «Размер баз» (растворённая size-часть «Отчётов») шарилась ссылкой.
+// Дефолт `bases` ключ не пишет — чистый URL. Любое иное значение → дефолт `bases`.
+const TABS = ["bases", "iis", "size"] as const;
+type InfobasesTab = (typeof TABS)[number];
+const DEFAULT_TAB: InfobasesTab = "bases";
+function parseTab(value: string | null): InfobasesTab {
+  return TABS.includes(value as InfobasesTab) ? (value as InfobasesTab) : DEFAULT_TAB;
+}
 
 // Порядок опций фильтра «Статус публикации» (MLC-090). Ориентир ценности —
 // быстро найти «всё, что не Published»: проблемные статусы идут первыми.
@@ -112,6 +123,20 @@ export function InfobasesPage() {
   // MLC-181a — серверный текстовый поиск по имени базы / имени БД. Терм живёт в URL
   // (?search=) рядом с остальными фильтрами — отфильтрованный список шарится ссылкой.
   const searchParam = searchParams.get("search") ?? "";
+
+  // MLC-196b — активная вкладка контролируется URL (`?tab=`). Смена пишет ключ слиянием
+  // (дефолт `bases` ключ не пишет — чистый URL); прочие параметры фильтров сохраняются.
+  const activeTab = parseTab(searchParams.get("tab"));
+  const changeTab = (value: string) =>
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (value === DEFAULT_TAB) next.delete("tab");
+        else next.set("tab", value);
+        return next;
+      },
+      { replace: true }
+    );
 
   const [page, setPage] = useState(1);
 
@@ -522,10 +547,11 @@ export function InfobasesPage() {
         )}
       </div>
 
-      <Tabs defaultValue="bases">
+      <Tabs value={activeTab} onValueChange={changeTab}>
         <TabsList>
           <TabsTrigger value="bases">{t("infobases.tabs.bases")}</TabsTrigger>
           <TabsTrigger value="iis">{t("infobases.tabs.iis")}</TabsTrigger>
+          <TabsTrigger value="size">{t("infobases.tabs.size")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="bases" className="space-y-6">
@@ -696,6 +722,13 @@ export function InfobasesPage() {
 
         <TabsContent value="iis">
           <IisManagementCard isAdmin={isAdmin} />
+        </TabsContent>
+
+        {/* Вкладка «Размер баз» за период (MLC-196b): size-часть растворённых «Отчётов».
+            Самодостаточный компонент монтируется только когда вкладка активна (Radix
+            TabsContent) → отчётные хуки не стреляют на «Базы»/«IIS». */}
+        <TabsContent value="size">
+          <InfobasesSizeTab />
         </TabsContent>
       </Tabs>
 

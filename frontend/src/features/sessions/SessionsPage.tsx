@@ -11,6 +11,7 @@ import { KillSessionDialog } from "./KillSessionDialog";
 import { SessionsFiltersBar } from "./SessionsFiltersBar";
 import { SessionsLicenseBand } from "./SessionsLicenseBand";
 import { SessionsTable } from "./SessionsTable";
+import { SessionsUsageView } from "./SessionsUsageView";
 import { SESSIONS_PAGE_SIZE, useSessionsPage } from "./useSessionsPage";
 
 export function SessionsPage() {
@@ -116,6 +117,7 @@ export function SessionsPage() {
           <TabsList>
             <TabsTrigger value="byTenant">{t("sessions.views.byTenant")}</TabsTrigger>
             <TabsTrigger value="live">{t("sessions.views.live")}</TabsTrigger>
+            <TabsTrigger value="usage">{t("sessions.views.usage")}</TabsTrigger>
           </TabsList>
 
           {/* Проекция «По клиентам» — агрегат потребления; клик по строке → «Живые сеансы». */}
@@ -167,6 +169,13 @@ export function SessionsPage() {
               onPageChange={setPage}
               isFetching={false}
             />
+          </TabsContent>
+
+          {/* Вид «Использование лицензий» за период (MLC-196b): license-часть растворённых
+              «Отчётов». Самодостаточный компонент монтируется только когда вид активен
+              (Radix TabsContent) → отчётные хуки не стреляют в других видах. */}
+          <TabsContent value="usage" className="space-y-6">
+            <SessionsUsageView />
           </TabsContent>
         </Tabs>
 
