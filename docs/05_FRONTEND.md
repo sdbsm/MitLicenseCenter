@@ -71,7 +71,7 @@ frontend/src/
 | `performance` | `/performance` — метрики хоста, 1С, SQL |
 | `profile` | форма смены пароля (в ForcePasswordChange и профиле) |
 | `publications` | мутации публикации/смены платформы/проверки IIS |
-| `reports` | `/reports` — отчёты (вкладки: потребление лицензий · размер баз) |
+| `reports` | `/reports` — отчёты (вкладки: потребление лицензий · размер баз). **Переезд (MLC-196b):** содержимое продублировано по тематическим домам — license → вид «Использование за период» в «Сеансах», size → вкладка «Размер баз» в «Базах»; компоненты/хуки `reports` переиспользуются как есть. Старая страница `/reports` и пункт меню временно остаются (убираются в 196c) |
 | `sessions` | `/sessions` — live-снимок сеансов, kill |
 | `settings` | `/settings` (Admin) — параметры системы; `SettingsPage` раскладывает ключи каталога настроек по секциям (`SECTIONS`/`FIELD_META`), включая `Enforcement.TerminateMessage` (свободный текст в секции «Опрос 1С» — причина+контакты для тонкого клиента 1С при завершении сеанса по лимиту, MLC-190); блок состояния службы RAS (`RasServiceCard` + `RasServiceActionDialog`, `useRasService.ts`, ADR-47); карточка обновлений (`UpdateCheckCard`, фича `updates`, ADR-50) |
 | `tenants` | `/tenants` — CRUD клиентов |
@@ -234,14 +234,28 @@ tanstack row-selection), поэтому переживает листание с
 клиента на том же `DataTable` через `buildInfobaseDetailColumns` (`infobaseDetailColumns.tsx`,
 MLC-144c); прежний общий компонент `InfobaseRow` удалён (MLC-146).
 
+Страница несёт три вкладки (`Tabs`, **контролируемые URL `?tab=`**, MLC-196b): **«Базы»**
+(дефолт, ключ не пишется — чистый URL) · **«IIS»** (`IisManagementCard`) · **«Размер баз»**
+(`InfobasesSizeTab`). Смена вкладки пишет `?tab=` **слиянием** в существующие параметры
+(прочие фильтры `tenantId`/`publishStatus`/`search` сохраняются), поэтому вкладка шарится
+ссылкой. «Размер баз» — size-часть растворённых «Отчётов»: фильтр периода
+(`ReportsFiltersBar`), сводка `DatabaseSizeSummary` и drill-down по клиенту
+`DatabaseSizeDetail` (`useDatabaseSize`/`useDatabaseSizeByTenant`, эндпоинты
+`/reports/database-size[/:tenantId]` те же — переехало только FE-потребление). Период/клиент
+отчёта держатся в URL (`from`/`to`/`tenant`) и пишутся слиянием (`useReportFilters`);
+отчётный ключ `?tenant=` ≠ басовый фильтр `?tenantId=` (разные ключи). Компонент
+самодостаточен и рендерится внутри `TabsContent value="size"` — Radix монтирует его только
+когда вкладка активна, поэтому отчётные хуки не стреляют на «Базы»/«IIS».
+
 **Клиентская сортировка и пагинация live-снапшотов (UX-14/15, MLC-131).** Сеансы
 (`/sessions`) и список «не найденных в кластере» баз (`MissingInfobasesDialog`) приходят
 целым массивом — серверной пагинации нет. Сортировка и разбивка по страницам выполняются
 над уже полученным снапшотом без дополнительных запросов:
 
-- **Сеансы** (`/sessions`) — **дом темы лицензий с двумя проекциями** (MLC-196a, Фаза 1
-  редизайн-трека). `useSessionsPage` оркеструет обе; активная проекция — в URL (`?view=`,
-  дефолт `byTenant`, чистый URL не пишет ключ). Переключатель — `Tabs` (`@/components/ui/tabs`).
+- **Сеансы** (`/sessions`) — **дом темы лицензий с тремя видами** (MLC-196a/196b, Фаза 1
+  редизайн-трека). `useSessionsPage` оркеструет live-виды; активный вид — в URL (`?view=`,
+  дефолт `byTenant`, чистый URL не пишет ключ; `parseView` различает `byTenant`/`live`/`usage`,
+  неизвестное → дефолт). Переключатель — `Tabs` (`@/components/ui/tabs`).
   Шапка, баннер ошибки и баннер «license-fact unavailable» (`licenseFactAvailable === false`,
   ADR-48/MLC-166) — общие для обеих проекций.
 
@@ -257,6 +271,16 @@ MLC-144c); прежний общий компонент `InfobaseRow` удалё
     (`quotaDisplay`); статусный ярлык квоты — через `StatusBadge` (`common.quota.*`). **Клик
     по строке клиента** → переключает на «Живые сеансы» с фильтром по имени клиента
     (`view=live` + `q=<tenantName>`).
+  - **Вид «Использование за период»** (`view=usage`, MLC-196b) — license-часть растворённых
+    «Отчётов» (`SessionsUsageView`): фильтр периода (`ReportsFiltersBar`), сводка
+    `LicenseUsageSummary` (по всем клиентам) и drill-down по клиенту `ReportsDetail`
+    (`useLicenseUsage`/`useLicenseUsageByTenant`, эндпоинты `/reports/license-usage[/:tenantId]`
+    те же — переехало только FE-потребление). Период/клиент держатся в URL (`from`/`to`/`tenant`)
+    и пишутся **слиянием** (`useReportFilters` → `mergeReportFiltersIntoParams`): хост-ключ
+    `view=usage` и прочие параметры сохраняются (без полного replace URL, который сбросил бы
+    вид). Компонент самодостаточен и рендерится внутри `TabsContent value="usage"` — Radix
+    монтирует его только когда вид активен, поэтому отчётные хуки не стреляют на «По
+    клиентам»/«Живые сеансы».
   - **Проекция «Живые сеансы»** (`view=live`) — текущий live-снимок (поведение без изменений).
     Сверху — **лицензионный банд** (`SessionsLicenseBand`): тихая плотная строка KPI host-уровня
     «Использовано / лимит · Свободно · Активных» из `useDashboardSummary` (`/dashboard/summary`,

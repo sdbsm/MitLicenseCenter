@@ -35,6 +35,27 @@ export function filtersToUrl(
   return params;
 }
 
+// MLC-196b: запись периода/клиента отчёта СЛИЯНИЕМ в существующие URL-параметры.
+// «Отчёты» растворены по тематическим домам (license → «Сеансы», size → «Базы»);
+// встроенный отчёт делит URL с хост-страницей (`?view=` в «Сеансах», `?tab=` в «Базах»).
+// Поэтому НЕЛЬЗЯ делать полный replace URL (старый `filtersToUrl` затёр бы `view`/`tab`):
+// берём предыдущие params как есть, выставляем/чистим только отчётные ключи from/to/tenant,
+// чужие ключи сохраняются. Чистая функция (prev → next) ради юнит-теста и переиспользования
+// в обоих домах. Возвращает НОВЫЙ URLSearchParams (prev не мутируется).
+export function mergeReportFiltersIntoParams(
+  prev: URLSearchParams,
+  filters: ReportsFilters
+): URLSearchParams {
+  const next = new URLSearchParams(prev);
+  if (filters.from) next.set("from", filters.from);
+  else next.delete("from");
+  if (filters.to) next.set("to", filters.to);
+  else next.delete("to");
+  if (filters.tenantId) next.set("tenant", filters.tenantId);
+  else next.delete("tenant");
+  return next;
+}
+
 // `<input type="date">` хранит «YYYY-MM-DD»; backend ждёт ISO UTC с временем.
 // MLC-177: «1 день» = 00:00–24:00 в ЛОКАЛЬНОМ поясе браузера оператора, а не в UTC.
 // Строим инстант через нативный `new Date(year, monthIndex, day, …)` (локальная

@@ -3,6 +3,7 @@ import {
   buildBackendRange,
   filtersToUrl,
   formatBucketAxisLabel,
+  mergeReportFiltersIntoParams,
   monthToRange,
   parseFiltersFromUrl,
   parseReportKind,
@@ -57,6 +58,53 @@ describe("filtersToUrl", () => {
   it("writes report=size alongside the filters for the size report", () => {
     const filters: ReportsFilters = { from: "2026-06-01", to: null, tenantId: "abc" };
     expect(filtersToUrl(filters, "size").toString()).toBe("from=2026-06-01&tenant=abc&report=size");
+  });
+});
+
+// MLC-196b: «Отчёты» растворены в «Сеансы»/«Базы»; встроенный отчёт пишет период/клиента
+// СЛИЯНИЕМ в URL хост-страницы — её ключ (view=usage / tab=size) и прочие чужие параметры
+// обязаны сохраниться, иначе запись периода сбросит вид/вкладку на дефолт.
+describe("mergeReportFiltersIntoParams", () => {
+  it("sets from/to/tenant while preserving the host `view` key (Sessions)", () => {
+    const prev = new URLSearchParams("view=usage");
+    const next = mergeReportFiltersIntoParams(prev, {
+      from: "2026-06-01",
+      to: "2026-06-07",
+      tenantId: "abc",
+    });
+    expect(next.get("view")).toBe("usage");
+    expect(next.get("from")).toBe("2026-06-01");
+    expect(next.get("to")).toBe("2026-06-07");
+    expect(next.get("tenant")).toBe("abc");
+  });
+
+  it("preserves the host `tab` key (Infobases) when changing the client", () => {
+    const prev = new URLSearchParams("tab=size&from=2026-06-01");
+    const next = mergeReportFiltersIntoParams(prev, {
+      from: "2026-06-01",
+      to: null,
+      tenantId: "xyz",
+    });
+    expect(next.get("tab")).toBe("size");
+    expect(next.get("tenant")).toBe("xyz");
+  });
+
+  it("clears period/tenant keys when filters are reset, keeping foreign keys", () => {
+    const prev = new URLSearchParams("view=usage&from=2026-06-01&to=2026-06-07&tenant=abc");
+    const next = mergeReportFiltersIntoParams(prev, { from: null, to: null, tenantId: null });
+    expect(next.get("from")).toBeNull();
+    expect(next.get("to")).toBeNull();
+    expect(next.get("tenant")).toBeNull();
+    // Хост-ключ переживает сброс периода — вид не сбрасывается.
+    expect(next.get("view")).toBe("usage");
+  });
+
+  it("does not mutate the previous params (returns a fresh instance)", () => {
+    const prev = new URLSearchParams("view=usage");
+    mergeReportFiltersIntoParams(prev, { from: "2026-06-01", to: null, tenantId: null });
+    // prev остаётся нетронутым.
+    expect(prev.get("from")).toBeNull();
+    expect(prev.toString()).toBe("view=usage");
   });
 });
 

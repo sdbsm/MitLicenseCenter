@@ -37,14 +37,19 @@ export interface SessionSort {
 export const SESSIONS_PAGE_SIZE = 25;
 
 /**
- * Проекции страницы «Сеансы» (MLC-196a, Фаза 1): дом темы лицензий с двумя видами.
- * `byTenant` (дефолт) — агрегат «кто сколько потребляет»; `live` — текущий live-снимок.
+ * Проекции страницы «Сеансы» (MLC-196a, Фаза 1): дом темы лицензий.
+ * `byTenant` (дефолт) — агрегат «кто сколько потребляет»; `live` — текущий live-снимок;
+ * `usage` — «Использование лицензий» за период (license-часть растворённых «Отчётов»,
+ * MLC-196b).
  */
-export type SessionsView = "byTenant" | "live";
+export type SessionsView = "byTenant" | "live" | "usage";
 
-/** URL → активная проекция. Любое нераспознанное значение → дефолт `byTenant`. */
+/** URL → активная проекция. Различаем три значения; любое иное → дефолт `byTenant`. */
 export function parseView(params: URLSearchParams): SessionsView {
-  return params.get("view") === "live" ? "live" : "byTenant";
+  const raw = params.get("view");
+  if (raw === "live") return "live";
+  if (raw === "usage") return "usage";
+  return "byTenant";
 }
 
 /**
