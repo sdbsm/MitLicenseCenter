@@ -73,6 +73,14 @@ describe("DeleteTenantDialog", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
+  it("кнопка «Удалить» — деструктивный вариант (MLC-205: цвет через variant, не сырой className)", () => {
+    setup();
+    expect(screen.getByRole("button", { name: "Удалить" })).toHaveAttribute(
+      "data-variant",
+      "destructive"
+    );
+  });
+
   it("409 TENANT_HAS_INFOBASES → локализованный toast, диалог не закрывается", async () => {
     mockedApi.mockRejectedValueOnce(
       new ApiError(409, "conflict", { code: "TENANT_HAS_INFOBASES" })

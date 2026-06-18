@@ -56,7 +56,7 @@ export function DisableUserDialog({ user, open, onOpenChange }: DisableUserDialo
           <AlertDialogCancel disabled={disable.isPending}>{t("common.cancel")}</AlertDialogCancel>
           <AlertDialogAction
             disabled={disable.isPending}
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:ring-destructive/20"
+            variant="destructive"
             onClick={(e) => {
               e.preventDefault();
               void handleConfirm();

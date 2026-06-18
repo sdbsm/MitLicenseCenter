@@ -77,7 +77,7 @@ export function UnpublishPublicationDialog({
           </AlertDialogCancel>
           <AlertDialogAction
             disabled={unpublish.isPending}
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:ring-destructive/20"
+            variant="destructive"
             onClick={(e) => {
               e.preventDefault();
               void handleConfirm();
