@@ -140,7 +140,8 @@ interface KpiGridProps {
 }
 
 // KPI-карточки кликабельны (MLC-085): каждая ведёт в раздел, отвечающий за её
-// число. «Свободно лицензий» — производная от «Использовано», обе ведут в /reports.
+// число. «Свободно лицензий» — производная от «Использовано», обе ведут в вид
+// «Использование за период» дома «Сеансы» (MLC-196c: «Отчёты» растворены, ADR-53).
 function KpiGrid({ data, isLoading, isFetching, licenseSparkline }: KpiGridProps) {
   const { t } = useTranslation();
 
@@ -172,7 +173,7 @@ function KpiGrid({ data, isLoading, isFetching, licenseSparkline }: KpiGridProps
       <KpiCard
         label={t("dashboard.kpi.consumed")}
         value={data?.licensesConsumedTotal}
-        to="/reports"
+        to="/sessions?view=usage"
         isLoading={isLoading}
         isFetching={isFetching}
         sparkline={licenseSparkline}
@@ -180,7 +181,7 @@ function KpiGrid({ data, isLoading, isFetching, licenseSparkline }: KpiGridProps
       <KpiCard
         label={t("dashboard.kpi.available")}
         value={data?.licensesAvailableTotal}
-        to="/reports"
+        to="/sessions?view=usage"
         isLoading={isLoading}
         isFetching={isFetching}
       />

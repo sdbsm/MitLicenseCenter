@@ -16,7 +16,8 @@ import { useAllTenants } from "@/features/tenants/useTenants";
  * отчётные хуки (`useLicenseUsage`/`useLicenseUsageByTenant`) не стреляют на «По
  * клиентам»/«Живые сеансы». Период/клиент держатся в URL (`from`/`to`/`tenant`); запись —
  * слиянием (`useReportFilters`), хост-ключ `view=usage` сохраняется. Эндпоинты те же
- * (`/reports/license-usage[/:tenantId]`). Образец вёрстки — вкладка license `ReportsPage`.
+ * (`/reports/license-usage[/:tenantId]`). Образец вёрстки — прежняя вкладка license
+ * страницы `/reports` (удалена в MLC-196c).
  */
 export function SessionsUsageView() {
   const { t } = useTranslation();

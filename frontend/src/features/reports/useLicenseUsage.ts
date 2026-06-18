@@ -6,7 +6,7 @@ import {
   type ReportsRange,
 } from "./types";
 // reportsQueryKey живёт в reportsQueryKeys.ts, чтобы useTenants мог импортировать
-// только константу без циклической зависимости через useReportsPage (MLC-122).
+// только константу без циклической зависимости через потребителей отчётов (MLC-122).
 import { reportsQueryKey } from "./reportsQueryKeys";
 export { reportsQueryKey } from "./reportsQueryKeys";
 

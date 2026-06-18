@@ -17,7 +17,7 @@ import { useAllTenants } from "@/features/tenants/useTenants";
  * Период/клиент держатся в URL (`from`/`to`/`tenant`); запись — слиянием
  * (`useReportFilters`), хост-ключ `tab=size` сохраняется. Отчётный `?tenant=` ≠ басовый
  * `?tenantId=` (разные ключи). Эндпоинты те же (`/reports/database-size[/:tenantId]`).
- * Образец вёрстки — вкладка size `ReportsPage`.
+ * Образец вёрстки — прежняя вкладка size страницы `/reports` (удалена в MLC-196c).
  */
 export function InfobasesSizeTab() {
   const { t } = useTranslation();

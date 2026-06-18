@@ -122,8 +122,8 @@ describe("DashboardPage (MLC-085: обзор с переходами)", () => {
     expectHref("Клиенты", "/tenants");
     expectHref("Инфобазы", "/infobases");
     expectHref("Активные сеансы", "/sessions");
-    expectHref("Использовано лицензий", "/reports");
-    expectHref("Свободно лицензий", "/reports");
+    expectHref("Использовано лицензий", "/sessions?view=usage");
+    expectHref("Свободно лицензий", "/sessions?view=usage");
   });
 
   it("здоровье хоста — ссылка на /performance с тремя гейджами", async () => {
