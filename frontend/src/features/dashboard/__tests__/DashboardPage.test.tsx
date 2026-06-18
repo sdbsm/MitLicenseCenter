@@ -70,15 +70,6 @@ const emptyLicenseUsage = {
   maxSpanDays: 31,
 };
 
-const emptyDatabaseSize = {
-  points: [],
-  tenants: [],
-  fromUtc: "2026-06-10T00:00:00Z",
-  toUtc: "2026-06-17T00:00:00Z",
-  clamped: false,
-  maxSpanDays: 31,
-};
-
 // MLC-186d — «Обзор» теперь грузит последние записи аудита (RecentActivityCard).
 // Пустая страница держит ленту в empty-state и не трогает существующие проверки.
 const emptyAudit = { items: [], total: 0, page: 1, pageSize: 25 };
@@ -89,7 +80,6 @@ function resolveUrl(url: string, summaryResponse: unknown): unknown {
   if (url.includes("/performance/host")) return host;
   if (url.includes("/dashboard/alerts")) return alerts;
   if (url.includes("/reports/license-usage")) return emptyLicenseUsage;
-  if (url.includes("/reports/database-size")) return emptyDatabaseSize;
   if (url.includes("/audit")) return emptyAudit;
   return summaryResponse;
 }
@@ -113,7 +103,7 @@ describe("DashboardPage (MLC-085: обзор с переходами)", () => {
 
   it("KPI-карточки — ссылки в свои разделы", async () => {
     renderPage();
-    await waitFor(() => expect(screen.getByText("Топ клиентов по нагрузке")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Свежая активность")).toBeInTheDocument());
 
     const expectHref = (label: string, href: string) => {
       const link = screen.getByText(label).closest("a");
@@ -151,13 +141,6 @@ describe("DashboardPage (MLC-085: обзор с переходами)", () => {
     expect(screen.queryByText("0 %")).not.toBeInTheDocument();
   });
 
-  it("имя клиента в топе — ссылка на паспорт клиента", async () => {
-    renderPage();
-    await waitFor(() => expect(screen.getByText("Ромашка")).toBeInTheDocument());
-
-    expect(screen.getByText("Ромашка").closest("a")).toHaveAttribute("href", "/tenants/t-1");
-  });
-
   it("UX-17: при !healthy RAS-карточка показывает видимую подсказку + ссылку в «Параметры»", async () => {
     mockedApi.mockImplementation((url: string) =>
       Promise.resolve(
@@ -190,7 +173,7 @@ describe("DashboardPage (MLC-085: обзор с переходами)", () => {
 
   it("при healthy подсказки нет", async () => {
     renderPage();
-    await waitFor(() => expect(screen.getByText("Топ клиентов по нагрузке")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Свежая активность")).toBeInTheDocument());
     expect(
       screen.queryByText("Нет связи с кластером 1С. Проверьте адрес RAS в разделе «Параметры».")
     ).not.toBeInTheDocument();
@@ -226,7 +209,7 @@ describe("DashboardPage (MLC-085: обзор с переходами)", () => {
   // MLC-186c — «живой» индикатор на KPI «Активные сеансы» (число опрашивается онлайн).
   it("KPI «Активные сеансы» показывает live-индикатор", async () => {
     renderPage();
-    await waitFor(() => expect(screen.getByText("Топ клиентов по нагрузке")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Свежая активность")).toBeInTheDocument());
 
     const sessionsCard = screen.getByText("Активные сеансы").closest("a");
     expect(sessionsCard?.querySelector('[data-testid="kpi-live-dot"]')).toBeInTheDocument();
@@ -280,7 +263,7 @@ describe("DashboardPage (MLC-085: обзор с переходами)", () => {
 
   it("KPI «Использовано лицензий» без buckets — спарклайна нет", async () => {
     renderPage();
-    await waitFor(() => expect(screen.getByText("Топ клиентов по нагрузке")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Свежая активность")).toBeInTheDocument());
     expect(
       screen
         .getByText("Использовано лицензий")
