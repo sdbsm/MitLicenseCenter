@@ -34,9 +34,6 @@ const SessionsPage = lazy(() =>
 const AuditPage = lazy(() =>
   import("@/features/audit/AuditPage").then((m) => ({ default: m.AuditPage }))
 );
-const ReportsPage = lazy(() =>
-  import("@/features/reports/ReportsPage").then((m) => ({ default: m.ReportsPage }))
-);
 const PerformancePage = lazy(() =>
   import("@/features/performance/PerformancePage").then((m) => ({ default: m.PerformancePage }))
 );
@@ -71,7 +68,6 @@ export const router = createBrowserRouter([
       { path: "tenants/:id", element: <TenantDetailPage /> },
       { path: "infobases", element: <InfobasesPage /> },
       { path: "sessions", element: <SessionsPage /> },
-      { path: "reports", element: <ReportsPage /> },
       { path: "performance", element: <PerformancePage /> },
       { path: "audit", element: <AuditPage /> },
       // Эталонный экран дизайн-системы (MLC-195, Фаза 0): вне навигации, открывается
