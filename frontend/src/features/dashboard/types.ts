@@ -39,6 +39,10 @@ export const dashboardSummarySchema = z.object({
   // ADR-48 (MLC-166): false ⇒ факт rac --licenses недоступен → баннер у потребления.
   // non-nullable bool на бэкенде; .default страхует parity при отсутствии ключа.
   licenseFactAvailable: z.boolean().default(false),
+  // MLC-198 — поле БОЛЬШЕ НЕ рендерится на FE: блок «Топ-клиенты по нагрузке» убран с
+  // «Обзора» (дублировал «Сеансы → По клиентам», MLC-196a). Контракт /dashboard/summary
+  // не меняем (BE не трогаем, parity цела) — поле остаётся в схеме толерантным; кандидат
+  // на BE-чистку отдельной задачей.
   topTenantsByConsumption: z.array(tenantConsumptionRowSchema),
   ras: dashboardRasHealthSchema,
 });

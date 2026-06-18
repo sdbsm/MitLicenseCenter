@@ -28,7 +28,7 @@ export function HostHealthCard({ isFetching }: { isFetching?: boolean }) {
   return (
     <Link
       to="/performance"
-      className="focus-visible:ring-ring block rounded-xl focus-visible:ring-2 focus-visible:outline-none lg:col-span-3"
+      className="focus-visible:ring-ring block rounded-xl focus-visible:ring-2 focus-visible:outline-none"
     >
       <Card
         className={cn(

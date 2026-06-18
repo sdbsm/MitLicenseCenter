@@ -28,16 +28,6 @@
       "title": "Здоровье хоста",
       "error": "Не удалось получить метрики хоста."
     },
-    "topTenants": {
-      "title": "Топ клиентов по нагрузке",
-      "empty": "Нет данных по активным сеансам.",
-      "consumedOf": "{{consumed}} / {{limit}}",
-      "chart": {
-        "consumed": "Использовано",
-        "axisLicenses": "лицензий",
-        "limit": "Лимит: {{limit}}"
-      }
-    },
     "alerts": {
       "title": "Требует внимания",
       "allClear": "Всё в порядке",
@@ -64,10 +54,6 @@
       "licenseConsumption7d": {
         "title": "Использование лицензий (7 дней)",
         "peak": "Пик: {{consumed}} из {{limit}}"
-      },
-      "databaseSizeGrowth": {
-        "title": "Рост размера баз",
-        "weekDelta": "Δ за неделю: {{delta}}"
       },
       "empty": "Нет данных за период"
     },

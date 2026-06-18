@@ -478,7 +478,7 @@ Recharts не наследует CSS-переменные автоматичес
 
 | Экран | Что показывает |
 |---|---|
-| `/` (Дашборд) | Прогресс-бар топ-клиентов, цвет по `severityToProgressClass`; виджет «Требует внимания» — иконки/цвета строк по той же палитре severity (квоты danger/warning, дрейф, диск, RAS) |
+| `/` (Дашборд) | Виджет «Требует внимания» — иконки/цвета строк по палитре severity (квоты danger/warning, дрейф, диск, RAS) |
 | `/tenants` (список) | Колонка «Лицензии»: `consumed / limit (percent%)` + `StatusBadge` при warning/danger |
 | `/tenants/:id` (карточка) | Строка рядом с лимитом: текущее потребление + `StatusBadge` |
 | `/reports` (отчёты) | Пиковое значение `ReportsStats` + `StatusBadge` при warning/danger |
