@@ -8,6 +8,7 @@
     },
     "fields": {
       "name": "Название",
+      "licenses": "Лицензии",
       "infobaseCount": "Базы",
       "maxConcurrentLicenses": "Лимит лицензий",
       "status": "Статус",
@@ -27,15 +28,18 @@
       "back": "К списку клиентов",
       "notFound": "Клиент не найден.",
       "licenseLimit": "Лимит одновременных лицензий: {{count}}",
-      "licenseConsumption": "Сейчас использует: {{consumed}} / {{limit}} ({{percent}}%)",
+      "licenseConsumption": "{{consumed}} / {{limit}} ({{percent}}%)",
       "licenseConsumptionUnlimited": "Лимит не задан",
+      "overBy_one": "Превышение на {{count}} лицензию",
+      "overBy_few": "Превышение на {{count}} лицензии",
+      "overBy_many": "Превышение на {{count}} лицензий",
+      "clientSessions": "Сеансы клиента →",
       "empty": {
         "title": "У клиента нет инфобаз",
         "hint": "Добавьте первую инфобазу этого клиента — публикация в IIS настраивается в той же форме."
       }
     },
     "quota": {
-      "column": "Лицензии",
       "unlimited": "—",
       "value": "{{consumed}} / {{limit}} ({{percent}}%)"
     },
