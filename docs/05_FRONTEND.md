@@ -560,6 +560,7 @@ Discovery-запросы кешируются 5 минут (`staleTime`), что
   /reports        — ReportsPage
   /performance    — PerformancePage
   /audit          — AuditPage
+  /design         — DesignSystemPage (эталон дизайн-системы; вне навигации, обе роли)
   /settings       — ProtectedRoute (requireAdmin) → SettingsPage
   /users          — ProtectedRoute (requireAdmin) → UsersPage
   /*              — Navigate to /
