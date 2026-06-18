@@ -192,6 +192,19 @@ public static class DependencyInjection
         services.AddSingleton(new WindowsServiceControllerOptions());
         services.AddSingleton<IWindowsServiceController, WindowsServiceController>();
 
+        // Read-агрегатор статуса служб узла + управление сервером 1С (MLC-213, ADR-54/55):
+        // обнаружение служб ragent через реестр (IServiceRegistryReader, один проход без
+        // спавнов — как RAS) + состояние (IServiceStateReader); статус службы SQL —
+        // sqlservr discovery + имя инстанса (ISqlInstanceDiscovery), never-throws; провайдер
+        // композирует обнаружение ragent + IRasServiceManager + статус SQL +
+        // IIisLifecycleService, каждый источник деградирует независимо (Available/Error).
+        // Только наблюдение для RAS/SQL/IIS; мутации сервера 1С — через IWindowsServiceController
+        // (выше). Все singleton (без состояния, читают реестр/ServiceController/адаптеры).
+        // Эндпоинты — ServerEndpoints; FE — MLC-214.
+        services.AddSingleton<IOneCServerDiscovery, OneCServerDiscovery>();
+        services.AddSingleton<ISqlServiceStatusReader, SqlServiceStatusReader>();
+        services.AddSingleton<IServerStatusProvider, ServerStatusProvider>();
+
         // IIS publishing: реальный адаптер ServerManager + XDocument (PR 3.5).
         // Stub переехал в Publishing/Testing/ для unit-тестов, в production-DI
         // не регистрируется — реальный OneCIisPublishingService требует Windows.

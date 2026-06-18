@@ -82,6 +82,13 @@ public static class ProblemCodes
     // неготовое окружение (нет ras.exe выбранной платформы / не задан порт-версия /
     // служба не найдена) либо ненулевой код sc.exe. Фронт по коду показывает текст из detail.
     public const string RasServiceOperationFailed = "RAS_SERVICE_OPERATION_FAILED";
+
+    // MLC-213 (ADR-54/55) — мутация сервера 1С (start/stop/restart) не достигла целевого
+    // состояния (жёсткий сбой sc / служба не найдена / истёк таймаут верификации). Фронт по
+    // коду показывает текст из detail. ServerConfirmRequired — серверный Confirm-гейт на
+    // разрушительные stop/restart (защита от случайного клика помимо токена в UI).
+    public const string ServerOperationFailed = "SERVER_OPERATION_FAILED";
+    public const string ServerConfirmRequired = "SERVER_CONFIRM_REQUIRED";
 }
 
 public static class Problems
@@ -337,6 +344,23 @@ public static class Problems
     // журнале сервера по correlationId.
     public static ProblemDetails RasServiceOperationFailed(string detail, string? correlationId = null) =>
         Conflict(ProblemCodes.RasServiceOperationFailed, "Операция со службой RAS не удалась", detail, correlationId);
+
+    // MLC-213 (ADR-54/55) — мутация сервера 1С не удалась. detail приходит из доменного
+    // WindowsServiceOperationException уже санитизированным русским текстом (жёсткий сбой sc /
+    // служба не найдена / истёк таймаут верификации). Секретов в detail нет. Технические
+    // подробности — в журнале сервера по correlationId.
+    public static ProblemDetails ServerOperationFailed(string detail, string? correlationId = null) =>
+        Conflict(ProblemCodes.ServerOperationFailed, "Операция с сервером 1С не удалась", detail, correlationId);
+
+    // MLC-213 — разрушительная операция над сервером 1С (остановка/перезапуск) требует
+    // явного подтверждения оператора (Confirm=true). Защита от случайного клика помимо
+    // токена-подтверждения в UI (образец IisConfirmRequired).
+    public static ProblemDetails ServerConfirmRequired() =>
+        Conflict(
+            ProblemCodes.ServerConfirmRequired,
+            "Требуется подтверждение",
+            "Эта операция остановит или перезапустит сервер 1С и временно прервёт работу всех баз узла. "
+                + "Подтвердите, чтобы продолжить.");
 
     // MLC-002 — kill не выполнен: кластер 1С (RAS) недоступен или вернул ошибку.
     // 502 (upstream-сбой). Запись в аудит при этом НЕ делается.
