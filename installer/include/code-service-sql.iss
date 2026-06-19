@@ -17,55 +17,6 @@ end;
 
 { ===== Параметры для [Run] (sc/netsh) ===== }
 
-{ REL-03 (ADR-40): выводит имя ЛОКАЛЬНОЙ SQL-службы из выбранного инстанса для
-  производной SCM-зависимости. Возвращает '' (пусто), если инстанс не распознан как
-  однозначно локальный — тогда зависимость НЕ ставится (полагаемся на recovery-политику).
-  Правила (консервативные — НЕ угадываем):
-    .  / localhost / (local) / .\           -> MSSQLSERVER        (дефолтный локальный)
-    .\NAME / localhost\NAME / (local)\NAME   -> MSSQL$NAME          (именованный локальный)
-    SERVER\NAME / SERVER / host,port / …     -> ''                 (возможно удалённый — пропуск)
-  Жёсткий depend= MSSQLSERVER НЕ используем: он неверен для именованных инстансов и для
-  удалённого SQL (там локальной службы нет, и служба не стартовала бы). }
-function DeriveLocalSqlServiceName(const instance: string): string;
-var
-  s, hostPart, namePart: string;
-  bs: Integer;
-begin
-  Result := '';
-  s := Trim(instance);
-  if s = '' then
-    Exit;
-  { Запятая = host,port — это сетевой адрес, локальным не считаем. }
-  if Pos(',', s) > 0 then
-    Exit;
-
-  bs := Pos('\', s);
-  if bs = 0 then
-  begin
-    { Без '\' — либо локальный дефолтный маркер, либо голое имя хоста (возможно удалённое). }
-    if (CompareText(s, '.') = 0) or (CompareText(s, 'localhost') = 0) or
-       (CompareText(s, '(local)') = 0) then
-      Result := 'MSSQLSERVER';
-    { Голое 'SERVER' (имя машины) — не угадываем локальность, пропускаем. }
-    Exit;
-  end;
-
-  hostPart := Copy(s, 1, bs - 1);
-  namePart := Copy(s, bs + 1, Length(s) - bs);
-
-  { Хост-часть должна быть однозначно локальной. }
-  if not ((CompareText(hostPart, '.') = 0) or (CompareText(hostPart, 'localhost') = 0) or
-          (CompareText(hostPart, '(local)') = 0)) then
-    Exit; { SERVER\NAME — возможно удалённый, пропускаем. }
-
-  if namePart = '' then
-    Result := 'MSSQLSERVER'  { форма '.\' — дефолтный инстанс }
-  else if CompareText(namePart, 'MSSQLSERVER') = 0 then
-    Result := 'MSSQLSERVER'  { .\MSSQLSERVER == дефолтный }
-  else
-    Result := 'MSSQL$' + namePart;  { .\SQLEXPRESS -> MSSQL$SQLEXPRESS }
-end;
-
 { Общий хвост sc create/config (ADR-49): obj= <учётка службы> [password= …]. password= только
   для обычной именованной Windows-учётки с паролем (ServiceAccountUsesPassword). Для виртуальной
   учётки «NT SERVICE\MitLicenseCenter» и для gMSA пароль НЕ передаётся (им управляет Windows; SCM
@@ -129,34 +80,29 @@ begin
   end;
 end;
 
-{ REL-03 (ADR-40): производная SCM-зависимость от ЛОКАЛЬНОЙ SQL-службы — best-effort,
-  дополнение к recovery-политике. Имя выводится из инстанса (DeriveLocalSqlServiceName);
-  если инстанс не распознан как однозначно локальный (удалённый SQL / неоднозначный
-  SERVER\NAME) — зависимость НЕ ставится (пусто), полагаемся на recovery. Применяется
-  отдельным sc config depend= (не сворачиваем в create/config выше, чтобы пустой случай
-  не трогал службу). Best-effort: rc<>0 -> предупреждение + Log, без Abort. }
-procedure ConfigureSqlDependency;
+{ MLC-227 (пересмотр ADR-40): производная SCM-зависимость службы от локальной SQL-службы ОТОЗВАНА.
+  Жёсткий depend= имел побочный эффект — ручная остановка SQL каскадно гасила панель, а Windows не
+  поднимает зависимые службы при обратном старте SQL → панель оставалась выключенной (запускать её
+  вручную никто не будет). БД панели лежит на том же SQL, и панель переподключается сама
+  (EF EnableRetryOnFailure, см. OPERATIONS «SQL недоступен в рантайме»). Устойчивость к медленному
+  старту SQL после перезагрузки полностью на recovery-политике (ConfigureServiceRecovery / sc failure
+  — основной механизм ADR-40, покрывает любое размещение SQL). Здесь — АКТИВНО снимаем уже выставленную
+  зависимость и на чистой установке (заведомо без неё — no-op), и на апгрейде (лечит стенды, поставленные
+  до 1.1.4 с depend= MSSQLSERVER). '/' в depend= означает «нет зависимостей». Best-effort: rc<>0 -> Log +
+  предупреждение, без Abort. }
+procedure ClearServiceDependencies;
 var
-  svc: string;
   rc: Integer;
 begin
-  svc := DeriveLocalSqlServiceName(SqlInstance);
-  if svc = '' then
-  begin
-    Log('SQL-зависимость не задаётся: инстанс «' + SqlInstance + '» не распознан как локальный ' +
-        '(удалённый или неоднозначный) — устойчивость обеспечивает recovery-политика.');
-    Exit;
-  end;
-
-  Log('Задаю зависимость службы {#MyServiceName} от локальной SQL-службы «' + svc + '».');
   if (not Exec(ExpandConstant('{sys}\sc.exe'),
-               'config {#MyServiceName} depend= ' + svc,
+               'config {#MyServiceName} depend= /',
                '', SW_HIDE, ewWaitUntilTerminated, rc)) or (rc <> 0) then
   begin
-    Log('sc config depend= ' + svc + ' завершился с кодом ' + IntToStr(rc));
-    MsgBox('Не удалось задать зависимость службы «{#MyServiceName}» от SQL-службы «' + svc + '» (код ' + IntToStr(rc) + ').' + #13#10 +
-           'Установка продолжится — служба работоспособна; при медленном старте SQL после ' +
-           'перезагрузки её перезапустит политика восстановления. Подробности — в логе установки.',
+    Log('sc config depend= / ({#MyServiceName}) завершился с кодом ' + IntToStr(rc));
+    MsgBox('Не удалось снять зависимость службы «{#MyServiceName}» от SQL (код ' + IntToStr(rc) + ').' + #13#10 +
+           'Установка продолжится. Если служба ранее зависела от SQL, снимите зависимость вручную: ' +
+           'sc config {#MyServiceName} depend= / — иначе ручная остановка SQL может останавливать панель. ' +
+           'Подробности — в логе установки.',
            mbError, MB_OK);
   end;
 end;
@@ -382,14 +328,14 @@ end;
 
 { ===== Устойчивость + firewall + старт службы (MLC-107/170) ===== }
 
-{ Завершающий шаг ssPostInstall (ADR-49): recovery-политика + SQL-зависимость + открытие
+{ Завершающий шаг ssPostInstall (ADR-49): recovery-политика + снятие SQL-зависимости + открытие
   firewall-порта + sc start ПОСЛЕДНИМ. К моменту вызова логин учётки уже создан (ProvisionSqlLogin),
   учётка в Администраторах (best-effort) и ACL гранты применены — fail-fast bootstrap (ADR-18)
   коннектится к SQL уже как учётка службы, мигрирует и сидит admin.
   Контракт ошибок:
     - sc failure (recovery-политика, REL-03/ADR-40): rc<>0 -> предупреждение (без Abort);
-    - sc config depend= (локальная SQL-зависимость): rc<>0 -> предупреждение (без Abort);
-      удалённый/неоднозначный инстанс — пропуск;
+    - sc config depend= / (снятие SQL-зависимости, ClearServiceDependencies): rc<>0 -> предупреждение (без Abort);
+      recovery-политика — основной механизм устойчивости, покрывает все размещения SQL;
     - netsh add: rc<>0 -> предупреждение (порт мог не открыться);
     - sc start: rc<>0 (кроме 1056) -> предупреждение со ссылкой на Журнал событий (fail-fast
       bootstrap, ADR-18), без Abort — служба уже создана; rc=1056 (ALREADY_RUNNING) = успех (MLC-116). }
@@ -399,10 +345,10 @@ var
   startWarn: string;
 begin
   { --- Устойчивость (REL-03, ADR-40): и на чистой установке, и на апгрейде ---
-    Recovery-политика — основной механизм; локальная SQL-зависимость — best-effort
-    дополнение. Обе процедуры best-effort (предупреждение без Abort). }
+    Recovery-политика — основной механизм. Снятие SQL-зависимости (ClearServiceDependencies) —
+    лечит стенды с depend=, установленные до 1.1.4. Обе процедуры best-effort (предупреждение без Abort). }
   ConfigureServiceRecovery;
-  ConfigureSqlDependency;
+  ClearServiceDependencies;
 
   { --- Firewall: входящий TCP на выбранный порт --- }
   if (not Exec(ExpandConstant('{sys}\netsh.exe'), GetFirewallAddParams,
