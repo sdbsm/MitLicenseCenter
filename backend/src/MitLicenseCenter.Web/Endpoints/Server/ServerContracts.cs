@@ -51,3 +51,20 @@ public sealed record OneCServerStopRequest(
 // Ответ мутации: имя службы + итоговое верифицированное состояние службы
 // ("Running"/"Stopped" — WindowsServiceStatus).
 public sealed record ServerOperationResponse(string ServiceName, string FinalStatus);
+
+// Свежесть резервных копий баз — вкладка «Обслуживание» (MLC-216, ADR-54). status строкой
+// ("Ok"/"PermissionDenied"/"Unavailable" — MaintenanceProbeStatus): деградация (нет прав на
+// msdb.dbo.backupset / SQL недоступен) — статусом, а не 500; в degraded-ветке databases пуст.
+public sealed record BackupFreshnessResponse(
+    string Status,
+    IReadOnlyList<DatabaseBackupFreshnessDto> Databases);
+
+// Свежесть последнего бэкапа одной базы. lastFull/lastDiff/lastLog — время завершения
+// последнего бэкапа типа (UTC, ISO-8601), null опускается (гоча api-omits-null-fields).
+// isStale — вычисленный флаг «устарел» (нет FULL или последний FULL старше ~26ч, BackupFreshnessPolicy).
+public sealed record DatabaseBackupFreshnessDto(
+    string DatabaseName,
+    DateTime? LastFullUtc,
+    DateTime? LastDiffUtc,
+    DateTime? LastLogUtc,
+    bool IsStale);

@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ApiError, readConflictBody } from "@/lib/api";
 import { useMe } from "@/features/auth/useAuth";
 import { IisManagementCard } from "./iis/IisManagementCard";
+import { MaintenanceTab } from "./MaintenanceTab";
 import { OneCServerActionDialog } from "./OneCServerActionDialog";
 import { ServerHealthBadge } from "./ServerHealthBadge";
 import {
@@ -22,10 +23,11 @@ import {
 } from "./useServerStatus";
 
 /**
- * Раздел «Сервер» (MLC-214/215, ADR-54/55): сводный статус служб стека узла плюс
- * детальное управление IIS. Две вкладки: «Службы» (по умолчанию) и «IIS» (дом IIS —
- * «Сервер», ADR-54: пулы/сайты/iisreset переехали сюда из «Баз»). Контент IIS
- * монтируется только при активации вкладки — запросы `/iis/*` стреляют лениво.
+ * Раздел «Сервер» (MLC-214/215/216, ADR-54/55): сводный статус служб стека узла,
+ * детальное управление IIS и обслуживание. Три вкладки: «Службы» (по умолчанию), «IIS»
+ * (дом IIS — «Сервер», ADR-54: пулы/сайты/iisreset переехали сюда из «Баз») и
+ * «Обслуживание» (свежесть бэкапов SQL, только чтение, MLC-216). Контент «IIS» и
+ * «Обслуживание» монтируется только при активации вкладки — их запросы стреляют лениво.
  * Viewer наблюдает; Admin управляет сервером 1С и IIS (RAS/SQL — только наблюдение).
  */
 export function ServerPage() {
@@ -44,6 +46,7 @@ export function ServerPage() {
         <TabsList>
           <TabsTrigger value="services">{t("server.tabs.services")}</TabsTrigger>
           <TabsTrigger value="iis">{t("server.tabs.iis")}</TabsTrigger>
+          <TabsTrigger value="maintenance">{t("server.tabs.maintenance")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="services">
@@ -54,6 +57,12 @@ export function ServerPage() {
             запросы /iis/* не стреляют, пока оператор не открыл «IIS». */}
         <TabsContent value="iis">
           <IisManagementCard isAdmin={isAdmin} />
+        </TabsContent>
+
+        {/* Вкладка «Обслуживание» (MLC-216): свежесть бэкапов SQL, только чтение.
+            Монтируется лениво — запрос /server/maintenance/backups стреляет при открытии. */}
+        <TabsContent value="maintenance">
+          <MaintenanceTab />
         </TabsContent>
       </Tabs>
     </div>

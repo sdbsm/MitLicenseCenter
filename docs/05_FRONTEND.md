@@ -513,6 +513,7 @@ Runtime-валидация через `api(..., { schema })` включена н
 | Фича | Схема | Хук |
 |---|---|---|
 | `server/iis` | `iisServerStatusSchema`, `iisAppPoolsResponseSchema`, `iisSitesResponseSchema` (translation-ключи остались `publications.iis.*` — историческое размещение, MLC-215) | `useIisServerStatus`, `useIisAppPools`, `useIisSites` |
+| `server` (статус + обслуживание) | `serverStatusSchema`, `serverOperationSchema`, `backupFreshnessSchema` (свежесть бэкапов SQL, вкладка «Обслуживание», MLC-216) | `useServerStatus`, `useOneCServerOperation`, `useMaintenanceBackups` |
 | `discovery` | `clusterInfobasesResponseSchema`, `databasesResponseSchema`, `iisSitesDiscoveryResponseSchema`, `racPathsResponseSchema`, `platformVersionsResponseSchema`, `sqlInstancesResponseSchema` | все хуки `useDiscovery.ts` |
 | `publications` | `publicationStatusResponseSchema` | `useCheckStatus`, `usePublish`, `useUnpublish`, `useChangePlatform` |
 | `infobases` | `clusterIdAvailabilitySchema`, `infobaseDetailSchema` | `useClusterIdAvailability`, `useCreateInfobase`, `useUpdateInfobase`, `useReassignInfobase` |
@@ -633,7 +634,7 @@ Discovery-запросы кешируются 5 минут (`staleTime`), что
   /infobases      — InfobasesPage
   /sessions       — SessionsPage
   /performance    — PerformancePage
-  /server         — ServerPage (Viewer наблюдает; управление сервером 1С — Admin, гейт на действиях, не на маршруте)
+  /server         — ServerPage; три вкладки «Службы»/«IIS»/«Обслуживание» (свежесть бэкапов SQL, read-only, MLC-216), «IIS»/«Обслуживание» монтируются лениво. Viewer наблюдает; управление сервером 1С — Admin, гейт на действиях, не на маршруте
   /audit          — AuditPage
   /design         — DesignSystemPage (эталон дизайн-системы; вне навигации, обе роли)
   /settings       — ProtectedRoute (requireAdmin) → SettingsPage
@@ -787,7 +788,7 @@ publications.*    — публикации: fields.*, errors.*, statuses.*
 sessions.*        — сеансы
 reports.*         — отчёты
 performance.*     — быстродействие
-server.*          — раздел «Сервер»: health.*, onec.*, summary.*, dialog.*, toasts.*, dashboard.*
+server.*          — раздел «Сервер»: tabs.*, health.*, onec.*, summary.*, dialog.*, toasts.*, dashboard.*, maintenance.* (вкладка «Обслуживание», MLC-216)
 audit.*           — аудит
 users.*           — пользователи, users.roles.Admin / users.roles.Viewer
 settings.*        — параметры

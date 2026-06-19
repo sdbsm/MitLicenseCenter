@@ -12,6 +12,7 @@ using MitLicenseCenter.Application.Clusters;
 using MitLicenseCenter.Application.Discovery;
 using MitLicenseCenter.Application.Identity;
 using MitLicenseCenter.Application.Jobs;
+using MitLicenseCenter.Application.Maintenance;
 using MitLicenseCenter.Application.Performance;
 using MitLicenseCenter.Application.Publishing;
 using MitLicenseCenter.Application.Ras;
@@ -27,6 +28,7 @@ using MitLicenseCenter.Infrastructure.Diagnostics;
 using MitLicenseCenter.Infrastructure.Discovery;
 using MitLicenseCenter.Infrastructure.Identity;
 using MitLicenseCenter.Infrastructure.Jobs;
+using MitLicenseCenter.Infrastructure.Maintenance;
 using MitLicenseCenter.Infrastructure.Performance;
 using MitLicenseCenter.Infrastructure.Persistence;
 using MitLicenseCenter.Infrastructure.Publishing;
@@ -258,6 +260,15 @@ public static class DependencyInjection
         // ConnectionStrings:Default. В тестах — FakeDatabaseSizeProbe (реальный адаптер
         // ходит в SQL, integration-only).
         services.AddSingleton<IDatabaseSizeProbe, DatabaseSizeProbe>();
+
+        // Проба обслуживания SQL раздела «Сервер» → вкладка «Обслуживание» (MLC-216, ADR-54):
+        // live-read свежести резервных копий баз из msdb.dbo.backupset (БЕЗ собственных
+        // таблиц/миграций/джоб). Чистый ADO.NET (как DatabaseSizeProbe/SqlBackupAdapter) — НЕ
+        // Windows-only, без #pragma CA1416. Stateless → singleton; сервер из настройки
+        // Sql.Server, остальное наследует из ConnectionStrings:Default. Never-throws: нет прав
+        // на backupset → PermissionDenied, нет SQL → Unavailable. В тестах — ручной фейк
+        // (реальный адаптер ходит в SQL). MLC-217 дорастит ЭТУ же пробу планами обслуживания.
+        services.AddSingleton<IMaintenanceProbe, SqlMaintenanceProbe>();
 
         // Оркестратор очереди бэкапов (MLC-077, ADR-27). Singleton — держит in-memory набор
         // выполняющихся пар server+db (замок-на-базу) и wake-сигнал насоса между запросами;

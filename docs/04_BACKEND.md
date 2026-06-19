@@ -367,9 +367,10 @@ MLC-212, пишется эндпоинтами `POST /api/v1/server/onec/*` (§3
 
 ### 3.8 Агрегатор статусов служб узла + управление сервером 1С (ADR-54/55, MLC-213)
 
-Группа `/api/v1/server` (`ServerEndpoints`) даёт сводный статус стека узла и управление
-**только сервером 1С** (служба `ragent`). Single-host (ADR-28); анти-коррупционная граница
-(ADR-20): всё через `IServerStatusProvider` / `IWindowsServiceController`, без прямого
+Группа `/api/v1/server` (`ServerEndpoints`) даёт сводный статус стека узла, управление
+**только сервером 1С** (служба `ragent`) и обслуживание (свежесть бэкапов SQL, read-only,
+MLC-216). Single-host (ADR-28); анти-коррупционная граница (ADR-20): всё через
+`IServerStatusProvider` / `IWindowsServiceController` / `IMaintenanceProbe`, без прямого
 `sc.exe`/реестра/`Process`/`ServerManager` в Web.
 
 - **`GET /server/status` (Viewer)** — сводный снимок через `IServerStatusProvider`
@@ -402,6 +403,24 @@ MLC-212, пишется эндпоинтами `POST /api/v1/server/onec/*` (§3
   `WindowsServiceOperationException` → `409 SERVER_OPERATION_FAILED` (санитизированный текст +
   `correlationId`). При успехе — аудит **800-серии** (`OneCServerStarted`/`Stopped`/`Restarted`),
   server-scope `TenantId=null`, имя службы в описании (секретов нет).
+
+- **`GET /server/maintenance/backups` (Viewer)** — свежесть резервных копий баз для вкладки
+  **«Обслуживание»** (MLC-216): **live-read** `msdb.dbo.backupset` через `IMaintenanceProbe`
+  (`SqlMaintenanceProbe`, Infrastructure, чистый ADO.NET) — **БЕЗ собственных таблиц/миграций/
+  Hangfire-джоб**. По каждой пользовательской базе (`sys.databases`, `database_id > 4`) — время
+  завершения последнего бэкапа каждого типа (`full`/`diff`/`log`, `backupset.type` `D`/`I`/`L`)
+  и вычисленный флаг **`isStale`** («устарел»). Порог свежести — **фиксированная константа
+  ~26 часов для full** (`BackupFreshnessPolicy.FullFreshnessThreshold` = сутки + 2ч запас на
+  длительность задания/сдвиг расписания; отдельной настройки не заводим, ADR-54): база «устарела»,
+  если нет ни одного `full`-бэкапа **либо** последний `full` старше порога. Источник —
+  тот же `msdb.dbo.backupset` (вокруг `backup_finish_date`/`compressed_backup_size`), что читает
+  `SqlBackupAdapter`; фича on-demand бэкапа (`COPY_ONLY`, ADR-27) этим **не затрагивается**.
+  Права — `HAS_PERMS_BY_NAME('msdb.dbo.backupset','OBJECT','SELECT')`: **never-throws** — нет
+  прав → статус `PermissionDenied`, SQL недоступен / строка не настроена → `Unavailable` (в обоих
+  случаях список баз пуст), эндпоинт **не 500-ит**. Строка подключения/инстанс — как соседние
+  пробы (`SettingKey.SqlServer`, наследование `Trusted_Connection`/`Encrypt` из `Default`,
+  `master`); таймауты Connect 15s / Command 30s (как `DatabaseSizeProbe`). Проба расширяема:
+  планы обслуживания (`sysmaintplan_*` + SQL Agent) дорастят её в MLC-217.
 
 Управление **RAS и IIS здесь не дублируется** (остаётся в `/ras-service/*` и `/api/v1/iis/*`);
 **SQL — без управления** (ADR-54, только наблюдение).

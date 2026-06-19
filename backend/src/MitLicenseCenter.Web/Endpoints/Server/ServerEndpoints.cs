@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using MitLicenseCenter.Application.Auditing;
+using MitLicenseCenter.Application.Maintenance;
 using MitLicenseCenter.Application.Server;
 using MitLicenseCenter.Domain.Audit;
 using MitLicenseCenter.Infrastructure.Identity;
@@ -16,10 +17,11 @@ namespace MitLicenseCenter.Web.Endpoints;
 // Анти-коррупционная граница (ADR-20): всё через IServerStatusProvider /
 // IWindowsServiceController, без прямого sc.exe/реестра/Process в Web. Single-host (ADR-28).
 //
-//   GET  /server/status            — сводный статус стека (Viewer); деградация флагами.
-//   POST /server/onec/start        — запуск службы сервера 1С (Admin).
-//   POST /server/onec/stop         — остановка (Admin, Confirm-гейт).
-//   POST /server/onec/restart      — перезапуск (Admin, Confirm-гейт).
+//   GET  /server/status                 — сводный статус стека (Viewer); деградация флагами.
+//   GET  /server/maintenance/backups    — свежесть бэкапов баз (Viewer); деградация статусом.
+//   POST /server/onec/start             — запуск службы сервера 1С (Admin).
+//   POST /server/onec/stop              — остановка (Admin, Confirm-гейт).
+//   POST /server/onec/restart           — перезапуск (Admin, Confirm-гейт).
 public static partial class ServerEndpoints
 {
     public static void MapServerEndpoints(this IEndpointRouteBuilder endpoints, ApiVersionSet versionSet)
@@ -31,6 +33,7 @@ public static partial class ServerEndpoints
             .WithTags("Server");
 
         group.MapGet("/status", GetStatusAsync).RequireAuthorization(Roles.Viewer);
+        group.MapGet("/maintenance/backups", GetBackupFreshnessAsync).RequireAuthorization(Roles.Viewer);
 
         group.MapPost("/onec/start", StartOneCServerAsync).RequireAuthorization(Roles.Admin);
         group.MapPost("/onec/stop", StopOneCServerAsync).RequireAuthorization(Roles.Admin);
@@ -46,6 +49,17 @@ public static partial class ServerEndpoints
         CancellationToken ct)
     {
         var snapshot = await provider.GetStatusAsync(ct).ConfigureAwait(false);
+        return TypedResults.Ok(ToResponse(snapshot));
+    }
+
+    // Вкладка «Обслуживание» (MLC-216): свежесть резервных копий баз (live-read backupset).
+    // ВСЕГДА Ok: проба never-throws, деградация (нет прав на msdb.dbo.backupset / SQL недоступен)
+    // отражена статусом снимка (PermissionDenied/Unavailable), эндпоинт не 500-ит.
+    internal static async Task<Ok<BackupFreshnessResponse>> GetBackupFreshnessAsync(
+        [FromServices] IMaintenanceProbe probe,
+        CancellationToken ct)
+    {
+        var snapshot = await probe.GetBackupFreshnessAsync(ct).ConfigureAwait(false);
         return TypedResults.Ok(ToResponse(snapshot));
     }
 
@@ -164,6 +178,14 @@ public static partial class ServerEndpoints
             Sql: new SqlStatusDto(s.Sql.Instance, s.Sql.ServiceName, s.Sql.Running, s.Sql.Available, s.Sql.Error),
             Iis: new IisStatusDto(s.Iis.State, s.Iis.Available, s.Iis.Error),
             Overall: s.Overall.ToString());
+
+    private static BackupFreshnessResponse ToResponse(BackupFreshnessSnapshot s) =>
+        new(
+            Status: s.Status.ToString(),
+            Databases: s.Databases
+                .Select(d => new DatabaseBackupFreshnessDto(
+                    d.DatabaseName, d.LastFullUtc, d.LastDiffUtc, d.LastLogUtc, d.IsStale))
+                .ToList());
 }
 
 public static partial class ServerEndpoints
