@@ -57,14 +57,14 @@ frontend/src/
   test/setup.ts           — jsdom-заглушки (ResizeObserver, matchMedia, …)
 ```
 
-### 16 фич (`features/`)
+### 17 фич (`features/`)
 
 | Фича | Страница / роль |
 |---|---|
 | `audit` | `/audit` — журнал операций |
 | `auth` | `/login`, `ProtectedRoute`, `ForcePasswordChange`. Экраны входа и форс-смены пароля собраны на единых shadcn-примитивах (`Label`/`Input`/`Button`) и используют общий контейнер `AuthCardShell` (центрирование, карточка дизайн-системы, подвал с версией панели из `useHealth` — анонимный `/api/v1/health`, при недоступности строка не рендерится) |
 | `backups` | диалог бэкапов на карточке инфобазы |
-| `dashboard` | `/` — живой «Обзор»: виджет «Требует внимания», KPI-карточки (кликабельны; спарклайн лицензий + live-точка сеансов), тренд использования лицензий 7д, здоровье RAS+хоста (на всю ширину), лента свежей активности |
+| `dashboard` | `/` — живой «Обзор»: виджет «Требует внимания», KPI-карточки (кликабельны; спарклайн лицензий + live-точка сеансов), тренд использования лицензий 7д, строка состояния системы (здоровье RAS + хоста + сервера 1С, `ServerHealthCard` — светофор `overall`, ссылка на `/server`), лента свежей активности |
 | `discovery` | `DiscoveryField` — общий компонент автоподстановки |
 | `health` | версия панели в подвале сайдбара (анонимный `/api/v1/health`) |
 | `infobases` | `/infobases` — CRUD инфобаз и публикаций |
@@ -72,6 +72,7 @@ frontend/src/
 | `profile` | форма смены пароля (в ForcePasswordChange и профиле) |
 | `publications` | мутации публикации/смены платформы/проверки IIS |
 | `reports` | building-blocks отчётов (графики/сводки/хуки/`reportsUrlState`/`reportsQueryKeys`/`types`/`export`), переиспользуются «Сеансами» (вид «Использование за период»), «Базами» (вкладка «Размер баз») и «Обзором» (тренды). **Своего маршрута и пункта меню НЕТ** — раздел «Отчёты» растворён (MLC-196c, ADR-53); эндпоинты `/reports/*` сохранены |
+| `server` | `/server` — раздел «Сервер» (MLC-214, ADR-54/55). Viewer наблюдает, Admin управляет сервером 1С. Сейчас одна вкладка «Службы» (контент рендерится напрямую, без таб-бара; обёртку под «IIS»/«Обслуживание» введут MLC-215/216): общий индикатор здоровья узла (`ServerHealthBadge` — светофор `overall`: Healthy→success/Degraded→warning/Down→danger/Unknown→neutral), список серверов 1С (имя/версия/`StatusBadge`; Admin: «Запустить» прямой кнопкой, «Остановить»/«Перезапустить» через `OneCServerActionDialog` с `confirm:true`, ADR-55 «да/нет» + предупреждение о простое баз), сводки RAS/SQL/IIS только наблюдением (`available:false` → плашка ошибки, не падение). Zod-граница `/api/v1/server/*` (`useServerStatus.ts`) — nullable-поля через `omittable()`; `overall`/`state` — `z.string()` (forward-compat). Тот же `serverStatusQueryKey` делит плашку «Обзора» (`ServerHealthCard`) — один запрос на оба места |
 | `sessions` | `/sessions` — live-снимок сеансов, kill |
 | `settings` | `/settings` (Admin) — параметры системы; `SettingsPage` раскладывает ключи каталога настроек по секциям (`SECTIONS`/`FIELD_META`), включая `Enforcement.TerminateMessage` (свободный текст в секции «Опрос 1С» — причина+контакты для тонкого клиента 1С при завершении сеанса по лимиту, MLC-190); блок состояния службы RAS (`RasServiceCard` + `RasServiceActionDialog`, `useRasService.ts`, ADR-47); карточка обновлений (`UpdateCheckCard`, фича `updates`, ADR-50). Слева — sticky-навигация по секциям-якорям (8 якорей: подключение/SQL/IIS/опрос/хранение/бэкапы/служба RAS/обновления; подписи `settings.nav.*`), активный пункт подсвечивается scroll-spy (`IntersectionObserver`, монохром); на узких экранах навигация скрыта, контент доступен прокруткой (MLC-202) |
 | `tenants` | `/tenants` — CRUD клиентов |
@@ -631,6 +632,7 @@ Discovery-запросы кешируются 5 минут (`staleTime`), что
   /infobases      — InfobasesPage
   /sessions       — SessionsPage
   /performance    — PerformancePage
+  /server         — ServerPage (Viewer наблюдает; управление сервером 1С — Admin, гейт на действиях, не на маршруте)
   /audit          — AuditPage
   /design         — DesignSystemPage (эталон дизайн-системы; вне навигации, обе роли)
   /settings       — ProtectedRoute (requireAdmin) → SettingsPage
@@ -784,6 +786,7 @@ publications.*    — публикации: fields.*, errors.*, statuses.*
 sessions.*        — сеансы
 reports.*         — отчёты
 performance.*     — быстродействие
+server.*          — раздел «Сервер»: health.*, onec.*, summary.*, dialog.*, toasts.*, dashboard.*
 audit.*           — аудит
 users.*           — пользователи, users.roles.Admin / users.roles.Viewer
 settings.*        — параметры

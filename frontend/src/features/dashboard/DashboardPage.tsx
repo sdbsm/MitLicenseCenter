@@ -13,6 +13,7 @@ import { AttentionWidget } from "./AttentionWidget";
 import { HostHealthCard } from "./HostHealthCard";
 import { LicenseTrendCard } from "./LicenseTrendCard";
 import { RecentActivityCard } from "./RecentActivityCard";
+import { ServerHealthCard } from "@/features/server/ServerHealthCard";
 import { lastNDaysRange } from "./trendsRange";
 import type { DashboardRasHealth, DashboardSummaryResponse } from "./types";
 import { useDashboardSummary } from "./useDashboardSummary";
@@ -104,12 +105,12 @@ export function DashboardPage() {
           isLoading={licenseUsage.isLoading}
         />
 
-        {/* Строка состояния системы (MLC-085, аудит §3.4): RAS-статус + здоровье хоста —
-            две равные карты на всю ширину (MLC-198: была 4-колоночная сетка с пустой
-            правой половиной). */}
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {/* Строка состояния системы (MLC-085, аудит §3.4): RAS-статус + здоровье хоста +
+            состояние сервера (MLC-214) — три равные карты на всю ширину. */}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
           <RasHealthCard data={data} isLoading={isLoading} isFetching={isFetching} />
           <HostHealthCard isFetching={isFetching} />
+          <ServerHealthCard isFetching={isFetching} />
         </div>
 
         {/* MLC-198 — лента свежей активности на всю ширину (соседний блок «топ-клиенты»

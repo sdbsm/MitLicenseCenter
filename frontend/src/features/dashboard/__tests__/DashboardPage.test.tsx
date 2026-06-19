@@ -74,10 +74,21 @@ const emptyLicenseUsage = {
 // Пустая страница держит ленту в empty-state и не трогает существующие проверки.
 const emptyAudit = { items: [], total: 0, page: 1, pageSize: 25 };
 
+// MLC-214 — «Обзор» теперь грузит сводный статус узла (ServerHealthCard).
+// Нейтральная заглушка (всё в норме): не трогает существующие проверки страницы.
+const serverStatus = {
+  oneCServers: [],
+  ras: { state: "Ok", running: true, available: true },
+  sql: { running: true, available: true },
+  iis: { state: "Started", available: true },
+  overall: "Healthy",
+};
+
 // Маршрутизация мок-ответов по URL: host/alerts/reports/audit → свои заглушки,
 // остальное → summary. Переиспользуется во всех тестах (включая RAS-сбойные сценарии).
 function resolveUrl(url: string, summaryResponse: unknown): unknown {
   if (url.includes("/performance/host")) return host;
+  if (url.includes("/server/status")) return serverStatus;
   if (url.includes("/dashboard/alerts")) return alerts;
   if (url.includes("/reports/license-usage")) return emptyLicenseUsage;
   if (url.includes("/audit")) return emptyAudit;

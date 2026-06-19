@@ -23,6 +23,7 @@ const TOP_LEVEL_KEYS = [
   "backups",
   "publications",
   "reports",
+  "server",
   "performance",
   "audit",
   "sessions",
