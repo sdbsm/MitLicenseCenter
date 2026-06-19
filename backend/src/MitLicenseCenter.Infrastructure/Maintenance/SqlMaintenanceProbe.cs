@@ -15,6 +15,9 @@ namespace MitLicenseCenter.Infrastructure.Maintenance;
 //
 // Запрос вокруг backup_finish_date — тот же источник, что TryReadBackupSizeAsync в
 // SqlBackupAdapter (msdb.dbo.backupset); фича on-demand бэкапа (COPY_ONLY) этим НЕ затрагивается.
+// Ручные COPY_ONLY-бэкапы (is_copy_only = 1, ADR-27) ИСКЛЮЧЕНЫ из сигнала свежести — вкладка
+// следит за ШТАТНЫМ бэкап-режимом; иначе разовый ручной бэкап панели маскировал бы провал
+// ночного плана (база казалась бы «свежей»).
 // type в backupset: 'D' = full, 'I' = differential, 'L' = log (прочие — copy-only/file и т.п.,
 // здесь не классифицируем). database_name backupset фильтруем по существующим пользовательским
 // базам (sys.databases, database_id > 4) — история мог содержать удалённые/системные базы.
@@ -148,6 +151,7 @@ FROM sys.databases d
 JOIN msdb.dbo.backupset bs ON bs.database_name = d.name
 WHERE d.database_id > 4
   AND bs.type IN ('D', 'I', 'L')
+  AND bs.is_copy_only = 0
 GROUP BY d.name;";
 
         await using var command = connection.CreateCommand();
