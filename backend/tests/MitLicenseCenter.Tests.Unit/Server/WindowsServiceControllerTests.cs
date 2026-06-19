@@ -18,12 +18,24 @@ public sealed class WindowsServiceControllerTests
 {
     private const string Svc = "MyService";
 
-    // Опции с малыми интервалами: реальный TimeProvider.System, но задержки/бюджет —
-    // миллисекунды, поэтому даже timeout-тест завершается мгновенно.
-    private static readonly WindowsServiceControllerOptions FastOptions = new()
+    // Success / verification / идемпотентность / restart:
+    // VerificationTimeout огромный — дедлайн НИКОГДА ложно не истекает под нагрузкой.
+    // PollInterval=Zero — опросы прокручиваются мгновенно (Task.Delay(Zero) = yield).
+    // FakeState переключается по числу чтений, поэтому тест завершится успехом сразу,
+    // не зависая от настенных часов и параллельной нагрузки сборщика.
+    private static readonly WindowsServiceControllerOptions ReliableOptions = new()
     {
-        PollInterval = TimeSpan.FromMilliseconds(1),
-        VerificationTimeout = TimeSpan.FromMilliseconds(50),
+        PollInterval = TimeSpan.Zero,
+        VerificationTimeout = TimeSpan.FromSeconds(30),
+    };
+
+    // Timeout-тесты (служба никогда не достигает цели):
+    // VerificationTimeout крошечный — дедлайн детерминированно истекает почти мгновенно.
+    // Нагрузка лишь ускоряет истечение — направление корректное, флак невозможен.
+    private static readonly WindowsServiceControllerOptions TimeoutOptions = new()
+    {
+        PollInterval = TimeSpan.Zero,
+        VerificationTimeout = TimeSpan.FromMilliseconds(1),
     };
 
     // ── Верификация ─────────────────────────────────────────────────────────────────────
@@ -62,7 +74,8 @@ public sealed class WindowsServiceControllerTests
         var sc = new FakeScRunner();
         var state = new FakeState(initialRunning: false); // никогда не Running
 
-        var act = () => NewController(sc, state).StartAsync(Svc, CancellationToken.None);
+        // TimeoutOptions: бюджет 1мс — дедлайн детерминированно истекает почти мгновенно.
+        var act = () => NewController(sc, state, TimeoutOptions).StartAsync(Svc, CancellationToken.None);
 
         await act.Should().ThrowAsync<WindowsServiceOperationException>();
     }
@@ -73,7 +86,8 @@ public sealed class WindowsServiceControllerTests
         var sc = new FakeScRunner();
         var state = new FakeState(initialRunning: true); // никогда не Stopped
 
-        var act = () => NewController(sc, state).StopAsync(Svc, CancellationToken.None);
+        // TimeoutOptions: бюджет 1мс — дедлайн детерминированно истекает почти мгновенно.
+        var act = () => NewController(sc, state, TimeoutOptions).StopAsync(Svc, CancellationToken.None);
 
         await act.Should().ThrowAsync<WindowsServiceOperationException>();
     }
@@ -147,13 +161,18 @@ public sealed class WindowsServiceControllerTests
 
     // ── helpers ─────────────────────────────────────────────────────────────────────────
 
-    private static WindowsServiceController NewController(FakeScRunner sc, FakeState state) =>
+    // Без явного аргумента options — ReliableOptions (success/verification/restart/идемпотентность).
+    // Для timeout-тестов передавать TimeoutOptions явно.
+    private static WindowsServiceController NewController(
+        FakeScRunner sc,
+        FakeState state,
+        WindowsServiceControllerOptions? options = null) =>
         new(
             sc,
             state,
             new ServiceOperationGate(),
             TimeProvider.System,
-            FastOptions,
+            options ?? ReliableOptions,
             NullLogger<WindowsServiceController>.Instance);
 
     // Фейк sc.exe: возвращает заданный ExitCode на любую команду, фиксирует «<sub> <name>».
