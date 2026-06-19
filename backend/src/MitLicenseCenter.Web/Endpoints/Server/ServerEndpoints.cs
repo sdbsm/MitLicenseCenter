@@ -19,6 +19,7 @@ namespace MitLicenseCenter.Web.Endpoints;
 //
 //   GET  /server/status                 — сводный статус стека (Viewer); деградация флагами.
 //   GET  /server/maintenance/backups    — свежесть бэкапов баз (Viewer); деградация статусом.
+//   GET  /server/maintenance/plans      — планы обслуживания SQL (Viewer); деградация статусом.
 //   POST /server/onec/start             — запуск службы сервера 1С (Admin).
 //   POST /server/onec/stop              — остановка (Admin, Confirm-гейт).
 //   POST /server/onec/restart           — перезапуск (Admin, Confirm-гейт).
@@ -34,6 +35,7 @@ public static partial class ServerEndpoints
 
         group.MapGet("/status", GetStatusAsync).RequireAuthorization(Roles.Viewer);
         group.MapGet("/maintenance/backups", GetBackupFreshnessAsync).RequireAuthorization(Roles.Viewer);
+        group.MapGet("/maintenance/plans", GetMaintenancePlansAsync).RequireAuthorization(Roles.Viewer);
 
         group.MapPost("/onec/start", StartOneCServerAsync).RequireAuthorization(Roles.Admin);
         group.MapPost("/onec/stop", StopOneCServerAsync).RequireAuthorization(Roles.Admin);
@@ -60,6 +62,18 @@ public static partial class ServerEndpoints
         CancellationToken ct)
     {
         var snapshot = await probe.GetBackupFreshnessAsync(ct).ConfigureAwait(false);
+        return TypedResults.Ok(ToResponse(snapshot));
+    }
+
+    // Вкладка «Обслуживание» (MLC-217): планы обслуживания SQL (live-read sysmaintplan_* +
+    // история заданий SQL Agent). ВСЕГДА Ok: проба never-throws, деградация (нет прав / SQL
+    // Agent недоступен на Express / SQL недоступен) отражена статусом снимка
+    // (PermissionDenied/AgentUnavailable/Unavailable), эндпоинт не 500-ит.
+    internal static async Task<Ok<MaintenancePlansResponse>> GetMaintenancePlansAsync(
+        [FromServices] IMaintenanceProbe probe,
+        CancellationToken ct)
+    {
+        var snapshot = await probe.GetMaintenancePlansAsync(ct).ConfigureAwait(false);
         return TypedResults.Ok(ToResponse(snapshot));
     }
 
@@ -185,6 +199,25 @@ public static partial class ServerEndpoints
             Databases: s.Databases
                 .Select(d => new DatabaseBackupFreshnessDto(
                     d.DatabaseName, d.LastFullUtc, d.LastDiffUtc, d.LastLogUtc, d.IsStale))
+                .ToList());
+
+    private static MaintenancePlansResponse ToResponse(MaintenancePlansSnapshot s) =>
+        new(
+            Status: s.Status.ToString(),
+            Plans: s.Plans
+                .Select(p => new MaintenancePlanDto(
+                    p.Name,
+                    p.Subplans
+                        .Select(sp => new MaintenanceSubplanDto(
+                            sp.Name,
+                            sp.HasSchedule,
+                            sp.Outcome.ToString(),
+                            sp.LastRunUtc,
+                            sp.DurationSeconds,
+                            sp.Tasks
+                                .Select(t => new MaintenanceTaskDetailDto(t.Detail, t.Succeeded))
+                                .ToList()))
+                        .ToList()))
                 .ToList());
 }
 

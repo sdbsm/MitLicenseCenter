@@ -55,6 +55,29 @@ function renderPage() {
 // «Обслуживание», MLC-216), /server → сводный статус (вкладка «Службы»), /iis/* → пустые
 // discovery-ответы (вкладка «IIS», MLC-215).
 function routeApi(url: string) {
+  if (url.startsWith("/api/v1/server/maintenance/plans")) {
+    return Promise.resolve({
+      status: "Ok",
+      plans: [
+        {
+          name: "Ночное обслуживание",
+          subplans: [
+            {
+              name: "Полный бэкап",
+              hasSchedule: true,
+              outcome: "Failed",
+              lastRunUtc: "2026-06-19T01:00:00Z",
+              durationSeconds: 42,
+              tasks: [
+                { detail: "Проверка целостности", succeeded: true },
+                { detail: "Резервное копирование", succeeded: false },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+  }
   if (url.startsWith("/api/v1/server/maintenance/backups")) {
     return Promise.resolve({
       status: "Ok",
@@ -182,5 +205,26 @@ describe("ServerPage (MLC-214/215)", () => {
     expect(screen.getByText("acme_bp")).toBeInTheDocument();
     const badge = screen.getByText("Устарел");
     expect(badge).toHaveAttribute("data-variant", "danger");
+  });
+
+  // MLC-217: блок планов обслуживания под таблицей бэкапов — под-планы с итогом прогона,
+  // пометкой «по расписанию», развёрткой по задачам (что упало).
+  it("вкладка «Обслуживание» рендерит блок планов с под-планом, итогом и развёрткой задач", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("В норме");
+    await user.click(screen.getByRole("tab", { name: "Обслуживание" }));
+
+    expect(await screen.findByText("Планы обслуживания")).toBeInTheDocument();
+    expect(screen.getByText("Ночное обслуживание")).toBeInTheDocument();
+    expect(screen.getByText("Полный бэкап")).toBeInTheDocument();
+    expect(screen.getByText("По расписанию")).toBeInTheDocument();
+    // Итог прогона — упал.
+    const outcome = screen.getByText("Ошибка");
+    expect(outcome).toHaveAttribute("data-variant", "danger");
+    // Развёртка по задачам: что именно упало.
+    await user.click(screen.getByText("Полный бэкап"));
+    expect(await screen.findByText("Резервное копирование")).toBeInTheDocument();
+    expect(screen.getByText("Проверка целостности")).toBeInTheDocument();
   });
 });

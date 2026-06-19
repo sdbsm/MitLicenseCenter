@@ -55,6 +55,43 @@ public sealed class SqlMaintenanceProbeTests
         snapshot.Databases.Should().BeEmpty();
     }
 
+    // ── планы обслуживания (MLC-217) — degraded-ветки без SQL ────────────────────────────
+
+    [Fact]
+    public async Task Plans_unavailable_when_sql_server_setting_missing()
+    {
+        var probe = NewProbe(connectionString: @"Server=x;Database=master;", sqlServer: null);
+
+        var snapshot = await probe.GetMaintenancePlansAsync(CancellationToken.None);
+
+        snapshot.Status.Should().Be(MaintenancePlansStatus.Unavailable);
+        snapshot.Plans.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Plans_unavailable_when_connection_string_missing()
+    {
+        var probe = NewProbe(connectionString: null, sqlServer: "localhost");
+
+        var snapshot = await probe.GetMaintenancePlansAsync(CancellationToken.None);
+
+        snapshot.Status.Should().Be(MaintenancePlansStatus.Unavailable);
+        snapshot.Plans.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Plans_unavailable_when_sql_unreachable()
+    {
+        var probe = NewProbe(
+            connectionString: "Server=255.255.255.255;Database=master;Connect Timeout=1;",
+            sqlServer: "255.255.255.255");
+
+        var snapshot = await probe.GetMaintenancePlansAsync(CancellationToken.None);
+
+        snapshot.Status.Should().Be(MaintenancePlansStatus.Unavailable);
+        snapshot.Plans.Should().BeEmpty();
+    }
+
     private static SqlMaintenanceProbe NewProbe(string? connectionString, string? sqlServer)
     {
         var settings = new Dictionary<string, string?>();
