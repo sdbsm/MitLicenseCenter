@@ -2,6 +2,7 @@ using FluentAssertions;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging.Abstractions;
+using MitLicenseCenter.Application.Clusters;
 using MitLicenseCenter.Application.Maintenance;
 using MitLicenseCenter.Application.Server;
 using MitLicenseCenter.Domain.Audit;
@@ -304,6 +305,44 @@ public sealed class ServerEndpointsTests
 
         result.Value!.Status.Should().Be("AgentUnavailable");
         result.Value.Plans.Should().BeEmpty();
+    }
+
+    // ── рабочие процессы 1С (rphost) (MLC-219) ───────────────────────────────────────────
+
+    [Fact]
+    public async Task OneCProcesses_maps_process_loads_to_contract()
+    {
+        var cluster = Substitute.For<IClusterClient>();
+        var process = new OneCProcessLoad(
+            Process: Guid.Parse("487281d5-aaaa-bbbb-cccc-ddddeeeeffff"),
+            Pid: 15876,
+            AvailablePerformance: 416,
+            AvgCallTime: 1.124,
+            MemorySize: 1682404);
+        cluster.ListProcessesAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<OneCProcessLoad>>([process]));
+
+        var result = await ServerEndpoints.GetOneCProcessesAsync(cluster, CancellationToken.None);
+
+        var p = result.Value!.Processes.Should().ContainSingle().Subject;
+        p.Process.Should().Be(Guid.Parse("487281d5-aaaa-bbbb-cccc-ddddeeeeffff"));
+        p.Pid.Should().Be(15876);
+        p.AvailablePerformance.Should().Be(416);
+        p.AvgCallTime.Should().Be(1.124);
+        p.MemorySize.Should().Be(1682404);
+    }
+
+    [Fact]
+    public async Task OneCProcesses_degrades_to_empty_when_rac_unavailable()
+    {
+        // rac не настроен/недоступен → адаптер отдаёт пустой список (never-throws), эндпоинт не 500-ит.
+        var cluster = Substitute.For<IClusterClient>();
+        cluster.ListProcessesAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<OneCProcessLoad>>([]));
+
+        var result = await ServerEndpoints.GetOneCProcessesAsync(cluster, CancellationToken.None);
+
+        result.Value!.Processes.Should().BeEmpty();
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────────────────

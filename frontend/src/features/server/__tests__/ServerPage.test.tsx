@@ -99,6 +99,19 @@ function routeApi(url: string) {
       targetServices: ["ragent-running"],
     });
   }
+  if (url.startsWith("/api/v1/server/onec/processes")) {
+    return Promise.resolve({
+      processes: [
+        {
+          process: "487281d5-aaaa-bbbb-cccc-ddddeeeeffff",
+          pid: 15876,
+          availablePerformance: 416,
+          avgCallTime: 1.124,
+          memorySize: 1682404,
+        },
+      ],
+    });
+  }
   if (url.startsWith("/api/v1/iis/server")) {
     return Promise.resolve({ state: "Started", available: true, error: null });
   }
@@ -193,6 +206,30 @@ describe("ServerPage (MLC-214/215)", () => {
     // Дожидаемся загрузки формы (тумблер), затем убеждаемся, что кнопки сохранения нет.
     await screen.findByLabelText("Авто-рестарт включён");
     expect(screen.queryByRole("button", { name: "Сохранить" })).not.toBeInTheDocument();
+  });
+
+  // MLC-219: блок «Рабочие процессы 1С» (rphost) на вкладке «Службы» — список процессов
+  // кластера с PID, производительностью, ср. вызовом и памятью. Только чтение (рестарт не
+  // реализован). Отсутствующие perf-поля — «—». Пустой список → подсказка.
+  it("вкладка «Службы»: блок рабочих процессов 1С с PID процесса", async () => {
+    renderPage();
+    expect(await screen.findByText("Рабочие процессы 1С")).toBeInTheDocument();
+    expect(await screen.findByText("15876")).toBeInTheDocument();
+    expect(screen.getByText("416")).toBeInTheDocument();
+  });
+
+  it("блок рабочих процессов: пустой список → подсказка", async () => {
+    const original = mockedApi.getMockImplementation();
+    mockedApi.mockImplementation((url: string) => {
+      if (url.startsWith("/api/v1/server/onec/processes")) {
+        return Promise.resolve({ processes: [] });
+      }
+      return original!(url);
+    });
+    renderPage();
+    expect(
+      await screen.findByText("Рабочих процессов нет — сервер 1С не запущен или RAS недоступен.")
+    ).toBeInTheDocument();
   });
 
   // MLC-215: дом IIS = «Сервер». Вкладка «Службы» активна по умолчанию, «IIS» —
