@@ -181,7 +181,8 @@ public sealed class OneCLoadParsingTests
         p.Process.Should().Be(Guid.Parse("487281d5-aaaa-bbbb-cccc-ddddeeeeffff"));
         p.Pid.Should().Be(15876);
         p.AvailablePerformance.Should().Be(416, "ключ rac с опечаткой `available-perfomance`");
-        p.MemorySize.Should().Be(1682404);
+        // memory-size 1С отдаёт в КИЛОБАЙТАХ → парсер нормализует в байты ×1024 (MLC-226).
+        p.MemorySize.Should().Be(1682404L * 1024);
         p.AvgCallTime.Should().Be(1.124);
     }
 
