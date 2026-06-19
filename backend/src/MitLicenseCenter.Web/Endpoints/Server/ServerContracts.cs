@@ -112,3 +112,22 @@ public sealed record AutoRestartScheduleResponse(
 public sealed record AutoRestartScheduleRequest(
     bool Enabled,
     string Time);
+
+// Рабочие процессы 1С (rphost) — блок во вкладке «Службы» (MLC-219, ADR-54). Снимок
+// `rac process list` через тот же live-pull, что и «Быстродействие». Пустой список =
+// rac не настроен/недоступен (best-effort, never-throws — эндпоинт не 500-ит).
+public sealed record OneCProcessesResponse(
+    IReadOnlyList<OneCProcessDto> Processes);
+
+// Один рабочий процесс кластера. process — UUID рабочего процесса (rphost); pid —
+// ОС-идентификатор; availablePerformance — APDEX-подобный индикатор (↓ = деградация,
+// при capacity 1000); avgCallTime — средняя длительность вызова в секундах (дробная);
+// memorySize — размер занятой памяти в байтах. Nullable-поля опускаются при null
+// (гоча api-omits-null-fields) — парсер «never throws», на иных версиях платформы их
+// может не быть.
+public sealed record OneCProcessDto(
+    Guid Process,
+    int? Pid,
+    int? AvailablePerformance,
+    double? AvgCallTime,
+    long? MemorySize);

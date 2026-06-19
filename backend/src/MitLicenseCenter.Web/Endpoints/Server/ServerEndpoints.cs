@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using MitLicenseCenter.Application.Auditing;
+using MitLicenseCenter.Application.Clusters;
 using MitLicenseCenter.Application.Maintenance;
 using MitLicenseCenter.Application.Server;
 using MitLicenseCenter.Application.Settings;
@@ -41,6 +42,10 @@ public static partial class ServerEndpoints
         group.MapGet("/status", GetStatusAsync).RequireAuthorization(Roles.Viewer);
         group.MapGet("/maintenance/backups", GetBackupFreshnessAsync).RequireAuthorization(Roles.Viewer);
         group.MapGet("/maintenance/plans", GetMaintenancePlansAsync).RequireAuthorization(Roles.Viewer);
+
+        // Рабочие процессы 1С (rphost) — список во вкладке «Службы» (MLC-219). Viewer;
+        // деградация пустым списком (rac недоступен/не настроен), эндпоинт не 500-ит.
+        group.MapGet("/onec/processes", GetOneCProcessesAsync).RequireAuthorization(Roles.Viewer);
 
         group.MapPost("/onec/start", StartOneCServerAsync).RequireAuthorization(Roles.Admin);
         group.MapPost("/onec/stop", StopOneCServerAsync).RequireAuthorization(Roles.Admin);
@@ -84,6 +89,22 @@ public static partial class ServerEndpoints
     {
         var snapshot = await probe.GetMaintenancePlansAsync(ct).ConfigureAwait(false);
         return TypedResults.Ok(ToResponse(snapshot));
+    }
+
+    // Вкладка «Службы» (MLC-219): рабочие процессы 1С (`rphost`) — список через `rac process
+    // list` (тот же live-pull, что и «Быстродействие»). ВСЕГДА Ok: адаптер never-throws на сбое
+    // (rac не настроен/недоступен → пустой список), эндпоинт не 500-ит. Рестарт процесса НЕ
+    // реализован (исследовательская часть, разведка не подтвердила безопасный механизм через
+    // rac — у rac нет «restart process»; OS-kill по Pid требует проверки на живом кластере).
+    internal static async Task<Ok<OneCProcessesResponse>> GetOneCProcessesAsync(
+        [FromServices] IClusterClient cluster,
+        CancellationToken ct)
+    {
+        var processes = await cluster.ListProcessesAsync(ct).ConfigureAwait(false);
+        var dtos = processes
+            .Select(p => new OneCProcessDto(p.Process, p.Pid, p.AvailablePerformance, p.AvgCallTime, p.MemorySize))
+            .ToList();
+        return TypedResults.Ok(new OneCProcessesResponse(dtos));
     }
 
     // ── Мутации (только сервер 1С) ──────────────────────────────────────────────────────
