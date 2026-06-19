@@ -72,7 +72,7 @@ frontend/src/
 | `profile` | форма смены пароля (в ForcePasswordChange и профиле) |
 | `publications` | мутации публикации/смены платформы/проверки IIS |
 | `reports` | building-blocks отчётов (графики/сводки/хуки/`reportsUrlState`/`reportsQueryKeys`/`types`/`export`), переиспользуются «Сеансами» (вид «Использование за период»), «Базами» (вкладка «Размер баз») и «Обзором» (тренды). **Своего маршрута и пункта меню НЕТ** — раздел «Отчёты» растворён (MLC-196c, ADR-53); эндпоинты `/reports/*` сохранены |
-| `server` | `/server` — раздел «Сервер» (MLC-214, ADR-54/55). Viewer наблюдает, Admin управляет сервером 1С. Сейчас одна вкладка «Службы» (контент рендерится напрямую, без таб-бара; обёртку под «IIS»/«Обслуживание» введут MLC-215/216): общий индикатор здоровья узла (`ServerHealthBadge` — светофор `overall`: Healthy→success/Degraded→warning/Down→danger/Unknown→neutral), список серверов 1С (имя/версия/`StatusBadge`; Admin: «Запустить» прямой кнопкой, «Остановить»/«Перезапустить» через `OneCServerActionDialog` с `confirm:true`, ADR-55 «да/нет» + предупреждение о простое баз), сводки RAS/SQL/IIS только наблюдением (`available:false` → плашка ошибки, не падение). Zod-граница `/api/v1/server/*` (`useServerStatus.ts`) — nullable-поля через `omittable()`; `overall`/`state` — `z.string()` (forward-compat). Тот же `serverStatusQueryKey` делит плашку «Обзора» (`ServerHealthCard`) — один запрос на оба места |
+| `server` | `/server` — раздел «Сервер» (MLC-214/215, ADR-54/55). Viewer наблюдает, Admin управляет сервером 1С и IIS. Экран с табами (`Tabs`, дефолт «Службы»). **Вкладка «Службы»**: общий индикатор здоровья узла (`ServerHealthBadge` — светофор `overall`: Healthy→success/Degraded→warning/Down→danger/Unknown→neutral), список серверов 1С (имя/версия/`StatusBadge`; Admin: «Запустить» прямой кнопкой, «Остановить»/«Перезапустить» через `OneCServerActionDialog` с `confirm:true`, ADR-55 «да/нет» + предупреждение о простое баз), сводки RAS/SQL/IIS только наблюдением (`available:false` → плашка ошибки, не падение); загрузка статуса (`useServerStatus`) живёт в этой вкладке. **Вкладка «IIS»**: детальное управление IIS (`IisManagementCard`, дом IIS = «Сервер», ADR-54) — пулы/сайты/`iisreset`, переехало сюда из «Баз» (MLC-215); карточка живёт в `features/server/iis/`, монтируется при активации вкладки (запросы `/iis/*` стреляют лениво). Zod-граница `/api/v1/server/*` (`useServerStatus.ts`) — nullable-поля через `omittable()`; `overall`/`state` — `z.string()` (forward-compat). Тот же `serverStatusQueryKey` делит плашку «Обзора» (`ServerHealthCard`) — один запрос на оба места |
 | `sessions` | `/sessions` — live-снимок сеансов, kill |
 | `settings` | `/settings` (Admin) — параметры системы; `SettingsPage` раскладывает ключи каталога настроек по секциям (`SECTIONS`/`FIELD_META`), включая `Enforcement.TerminateMessage` (свободный текст в секции «Опрос 1С» — причина+контакты для тонкого клиента 1С при завершении сеанса по лимиту, MLC-190); блок состояния службы RAS (`RasServiceCard` + `RasServiceActionDialog`, `useRasService.ts`, ADR-47); карточка обновлений (`UpdateCheckCard`, фича `updates`, ADR-50). Слева — sticky-навигация по секциям-якорям (8 якорей: подключение/SQL/IIS/опрос/хранение/бэкапы/служба RAS/обновления; подписи `settings.nav.*`), активный пункт подсвечивается scroll-spy (`IntersectionObserver`, монохром); на узких экранах навигация скрыта, контент доступен прокруткой (MLC-202) |
 | `tenants` | `/tenants` — CRUD клиентов |
@@ -238,18 +238,19 @@ MLC-144c); прежний общий компонент `InfobaseRow` удалё
 платформы» и «Проверено» скрыты по умолчанию** (`initialState.columnVisibility`) и доступны
 через меню «Колонки» — как Создан/Обновлён у «Клиентов» (MLC-200).
 
-Страница несёт три вкладки (`Tabs`, **контролируемые URL `?tab=`**, MLC-196b): **«Базы»**
-(дефолт, ключ не пишется — чистый URL) · **«IIS»** (`IisManagementCard`) · **«Размер баз»**
-(`InfobasesSizeTab`). Смена вкладки пишет `?tab=` **слиянием** в существующие параметры
-(прочие фильтры `tenantId`/`publishStatus`/`search` сохраняются), поэтому вкладка шарится
-ссылкой. «Размер баз» — size-часть растворённых «Отчётов»: фильтр периода
-(`ReportsFiltersBar`), сводка `DatabaseSizeSummary` и drill-down по клиенту
+Страница несёт две вкладки (`Tabs`, **контролируемые URL `?tab=`**, MLC-196b): **«Базы»**
+(дефолт, ключ не пишется — чистый URL) · **«Размер баз»** (`InfobasesSizeTab`). Управление IIS
+вкладкой здесь больше нет — детальное управление IIS переехало в раздел «Сервер» (MLC-215,
+ADR-54). Смена вкладки пишет `?tab=` **слиянием** в существующие параметры (прочие фильтры
+`tenantId`/`publishStatus`/`search` сохраняются), поэтому вкладка шарится ссылкой; устаревший
+`?tab=iis` нормализуется в дефолт «Базы». «Размер баз» — size-часть растворённых «Отчётов»:
+фильтр периода (`ReportsFiltersBar`), сводка `DatabaseSizeSummary` и drill-down по клиенту
 `DatabaseSizeDetail` (`useDatabaseSize`/`useDatabaseSizeByTenant`, эндпоинты
 `/reports/database-size[/:tenantId]` те же — переехало только FE-потребление). Период/клиент
 отчёта держатся в URL (`from`/`to`/`tenant`) и пишутся слиянием (`useReportFilters`);
 отчётный ключ `?tenant=` ≠ басовый фильтр `?tenantId=` (разные ключи). Компонент
 самодостаточен и рендерится внутри `TabsContent value="size"` — Radix монтирует его только
-когда вкладка активна, поэтому отчётные хуки не стреляют на «Базы»/«IIS».
+когда вкладка активна, поэтому отчётные хуки не стреляют на вкладке «Базы».
 
 **Клиентская сортировка и пагинация live-снапшотов (UX-14/15, MLC-131).** Сеансы
 (`/sessions`) и список «не найденных в кластере» баз (`MissingInfobasesDialog`) приходят
@@ -511,7 +512,7 @@ Runtime-валидация через `api(..., { schema })` включена н
 
 | Фича | Схема | Хук |
 |---|---|---|
-| `publications/iis` | `iisServerStatusSchema`, `iisAppPoolsResponseSchema`, `iisSitesResponseSchema` | `useIisServerStatus`, `useIisAppPools`, `useIisSites` |
+| `server/iis` | `iisServerStatusSchema`, `iisAppPoolsResponseSchema`, `iisSitesResponseSchema` (translation-ключи остались `publications.iis.*` — историческое размещение, MLC-215) | `useIisServerStatus`, `useIisAppPools`, `useIisSites` |
 | `discovery` | `clusterInfobasesResponseSchema`, `databasesResponseSchema`, `iisSitesDiscoveryResponseSchema`, `racPathsResponseSchema`, `platformVersionsResponseSchema`, `sqlInstancesResponseSchema` | все хуки `useDiscovery.ts` |
 | `publications` | `publicationStatusResponseSchema` | `useCheckStatus`, `usePublish`, `useUnpublish`, `useChangePlatform` |
 | `infobases` | `clusterIdAvailabilitySchema`, `infobaseDetailSchema` | `useClusterIdAvailability`, `useCreateInfobase`, `useUpdateInfobase`, `useReassignInfobase` |

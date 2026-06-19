@@ -5,8 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge, type StatusBadgeVariant } from "@/components/ui/StatusBadge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ApiError, readConflictBody } from "@/lib/api";
 import { useMe } from "@/features/auth/useAuth";
+import { IisManagementCard } from "./iis/IisManagementCard";
 import { OneCServerActionDialog } from "./OneCServerActionDialog";
 import { ServerHealthBadge } from "./ServerHealthBadge";
 import {
@@ -20,14 +22,16 @@ import {
 } from "./useServerStatus";
 
 /**
- * Раздел «Сервер» (MLC-214, ADR-54/55): сводный статус служб стека узла.
- * Сейчас одна вкладка — «Службы»; контент рендерится напрямую без таб-бара
- * (Tabs-обёртку под «IIS»/«Обслуживание» введут MLC-215/216). Viewer наблюдает;
- * Admin управляет ТОЛЬКО сервером 1С (RAS/SQL/IIS — только наблюдение).
+ * Раздел «Сервер» (MLC-214/215, ADR-54/55): сводный статус служб стека узла плюс
+ * детальное управление IIS. Две вкладки: «Службы» (по умолчанию) и «IIS» (дом IIS —
+ * «Сервер», ADR-54: пулы/сайты/iisreset переехали сюда из «Баз»). Контент IIS
+ * монтируется только при активации вкладки — запросы `/iis/*` стреляют лениво.
+ * Viewer наблюдает; Admin управляет сервером 1С и IIS (RAS/SQL — только наблюдение).
  */
 export function ServerPage() {
   const { t } = useTranslation();
-  const { data, isLoading, isError } = useServerStatus();
+  const { data: me } = useMe();
+  const isAdmin = me?.roles?.includes("Admin") ?? false;
 
   return (
     <div className="space-y-6">
@@ -36,6 +40,34 @@ export function ServerPage() {
         <p className="text-muted-foreground text-sm">{t("server.subtitle")}</p>
       </div>
 
+      <Tabs defaultValue="services">
+        <TabsList>
+          <TabsTrigger value="services">{t("server.tabs.services")}</TabsTrigger>
+          <TabsTrigger value="iis">{t("server.tabs.iis")}</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="services">
+          <ServicesTab />
+        </TabsContent>
+
+        {/* IIS-карточка монтируется при активации вкладки (Radix TabsContent) →
+            запросы /iis/* не стреляют, пока оператор не открыл «IIS». */}
+        <TabsContent value="iis">
+          <IisManagementCard isAdmin={isAdmin} />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+// Вкладка «Службы»: загрузка сводного статуса узла (светофор + 1С + сводки RAS/SQL/IIS).
+// Загрузку/ошибку статуса держим здесь — вкладка «IIS» статус не требует.
+function ServicesTab() {
+  const { t } = useTranslation();
+  const { data, isLoading, isError } = useServerStatus();
+
+  return (
+    <div className="space-y-6">
       {isError && (
         <div className="border-destructive/40 bg-destructive/5 rounded-md border p-4 text-sm">
           <p className="font-medium">{t("server.loadFailed")}</p>
@@ -50,12 +82,12 @@ export function ServerPage() {
         </div>
       )}
 
-      {data && <ServicesTab status={data} />}
+      {data && <ServicesContent status={data} />}
     </div>
   );
 }
 
-function ServicesTab({ status }: { status: ServerStatus }) {
+function ServicesContent({ status }: { status: ServerStatus }) {
   const { t } = useTranslation();
 
   return (

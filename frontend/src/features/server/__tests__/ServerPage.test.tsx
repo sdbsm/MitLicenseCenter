@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import "@/i18n";
@@ -38,7 +39,9 @@ const healthyStatus: ServerStatus = {
 };
 
 function renderPage() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
@@ -48,11 +51,23 @@ function renderPage() {
   );
 }
 
-describe("ServerPage (MLC-214)", () => {
+// Маршрутизация мока по URL: /server → сводный статус (вкладка «Службы»),
+// /iis/* → пустые discovery-ответы (вкладка «IIS», MLC-215).
+function routeApi(url: string) {
+  if (url.startsWith("/api/v1/iis/server")) {
+    return Promise.resolve({ state: "Started", available: true, error: null });
+  }
+  if (url.startsWith("/api/v1/iis/")) {
+    return Promise.resolve({ items: [], available: true, error: null });
+  }
+  return Promise.resolve(healthyStatus);
+}
+
+describe("ServerPage (MLC-214/215)", () => {
   beforeEach(() => {
     meMock.mockReturnValue({ data: { roles: ["Admin"] } });
     mockedApi.mockReset();
-    mockedApi.mockResolvedValue(healthyStatus);
+    mockedApi.mockImplementation((url: string) => routeApi(url));
   });
 
   it("светофор показывает общее состояние по overall", async () => {
@@ -115,5 +130,23 @@ describe("ServerPage (MLC-214)", () => {
     mockedApi.mockResolvedValue({ ...healthyStatus, oneCServers: [] } satisfies ServerStatus);
     renderPage();
     expect(await screen.findByText("Сервер 1С не обнаружен.")).toBeInTheDocument();
+  });
+
+  // MLC-215: дом IIS = «Сервер». Вкладка «Службы» активна по умолчанию, «IIS» —
+  // монтирует карточку управления IIS только при активации.
+  it("вкладка «Службы» активна по умолчанию (рендерит светофор и список 1С)", async () => {
+    renderPage();
+    expect(await screen.findByText("В норме")).toBeInTheDocument();
+    expect(screen.getByText("ragent-running")).toBeInTheDocument();
+    // Карточка IIS не смонтирована, пока вкладка «IIS» не активирована.
+    expect(screen.queryByText("Управление IIS")).not.toBeInTheDocument();
+  });
+
+  it("вкладка «IIS» при активации рендерит карточку управления IIS", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("В норме");
+    await user.click(screen.getByRole("tab", { name: "IIS" }));
+    expect(await screen.findByText("Управление IIS")).toBeInTheDocument();
   });
 });

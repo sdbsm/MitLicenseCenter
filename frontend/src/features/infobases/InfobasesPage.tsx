@@ -29,7 +29,6 @@ import { BulkDeleteInfobaseDialog } from "@/features/publications/BulkDeleteInfo
 import { BulkPublishDialog } from "@/features/publications/BulkPublishDialog";
 import { BulkUnpublishDialog } from "@/features/publications/BulkUnpublishDialog";
 import { ChangePlatformDialog } from "@/features/publications/ChangePlatformDialog";
-import { IisManagementCard } from "@/features/publications/iis/IisManagementCard";
 import { PublicationsBulkBar } from "@/features/publications/PublicationsBulkBar";
 import { PublishPublicationDialog } from "@/features/publications/PublishPublicationDialog";
 import { UnpublishPublicationDialog } from "@/features/publications/UnpublishPublicationDialog";
@@ -62,8 +61,9 @@ const ALL_STATUSES = "__all__";
 
 // MLC-196b: вкладки страницы «Базы». Активная вкладка контролируется URL (`?tab=`),
 // чтобы вкладка «Размер баз» (растворённая size-часть «Отчётов») шарилась ссылкой.
-// Дефолт `bases` ключ не пишет — чистый URL. Любое иное значение → дефолт `bases`.
-const TABS = ["bases", "iis", "size"] as const;
+// Дефолт `bases` ключ не пишет — чистый URL. Любое иное значение (включая устаревший
+// `?tab=iis` — IIS переехал в «Сервер», MLC-215) → дефолт `bases`.
+const TABS = ["bases", "size"] as const;
 type InfobasesTab = (typeof TABS)[number];
 const DEFAULT_TAB: InfobasesTab = "bases";
 function parseTab(value: string | null): InfobasesTab {
@@ -81,8 +81,8 @@ const PUBLISH_STATUS_FILTERS: PublicationPublishStatus[] = [
 
 /**
  * Единая страница «Базы» (MLC-081): таблица инфобаз, обогащённая публикационными
- * колонками и операциями (бывшая страница «Публикации» влита сюда), плюс вкладка
- * «IIS» с управлением пулами/сайтами/iisreset (MLC-047). Grouped-режим «По клиенту»
+ * колонками и операциями (бывшая страница «Публикации» влита сюда). Детальное управление
+ * IIS (пулы/сайты/iisreset) переехало в раздел «Сервер» (MLC-215, ADR-54). Grouped-режим «По клиенту»
  * снят (MLC-085, аудит §3.2): сгруппированный взгляд — паспорт клиента /tenants/:id,
  * здесь — flat-список с фильтром по клиенту (?tenantId= — ссылки извне).
  *
@@ -555,7 +555,6 @@ export function InfobasesPage() {
       <Tabs value={activeTab} onValueChange={changeTab}>
         <TabsList>
           <TabsTrigger value="bases">{t("infobases.tabs.bases")}</TabsTrigger>
-          <TabsTrigger value="iis">{t("infobases.tabs.iis")}</TabsTrigger>
           <TabsTrigger value="size">{t("infobases.tabs.size")}</TabsTrigger>
         </TabsList>
 
@@ -725,13 +724,9 @@ export function InfobasesPage() {
           />
         </TabsContent>
 
-        <TabsContent value="iis">
-          <IisManagementCard isAdmin={isAdmin} />
-        </TabsContent>
-
         {/* Вкладка «Размер баз» за период (MLC-196b): size-часть растворённых «Отчётов».
             Самодостаточный компонент монтируется только когда вкладка активна (Radix
-            TabsContent) → отчётные хуки не стреляют на «Базы»/«IIS». */}
+            TabsContent) → отчётные хуки не стреляют на вкладке «Базы». */}
         <TabsContent value="size">
           <InfobasesSizeTab />
         </TabsContent>
