@@ -88,6 +88,8 @@ const serverStatus = {
 // остальное → summary. Переиспользуется во всех тестах (включая RAS-сбойные сценарии).
 function resolveUrl(url: string, summaryResponse: unknown): unknown {
   if (url.includes("/performance/host")) return host;
+  if (url.includes("/server/maintenance/backups")) return { status: "Ok", databases: [] };
+  if (url.includes("/server/maintenance/plans")) return { status: "Ok", plans: [] };
   if (url.includes("/server/status")) return serverStatus;
   if (url.includes("/dashboard/alerts")) return alerts;
   if (url.includes("/reports/license-usage")) return emptyLicenseUsage;

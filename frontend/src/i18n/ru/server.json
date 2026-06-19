@@ -68,7 +68,12 @@
     "dashboard": {
       "title": "Состояние сервера",
       "error": "Не удалось получить состояние",
-      "onecRunning": "Серверов 1С запущено: {{running}} из {{total}}"
+      "onecRunning": "Серверов 1С запущено: {{running}} из {{total}}",
+      "maintenance": {
+        "planFailed": "План обслуживания упал",
+        "backupStale": "Резервная копия устарела",
+        "both": "Бэкап устарел, план обслуживания упал"
+      }
     },
     "maintenance": {
       "title": "Свежесть резервных копий",
@@ -84,6 +89,27 @@
         "lastDiff": "Разностный",
         "lastLog": "Журнал",
         "freshness": "Свежесть"
+      },
+      "plans": {
+        "title": "Планы обслуживания",
+        "loadFailed": "Не удалось загрузить планы обслуживания.",
+        "empty": "Планы обслуживания не настроены.",
+        "agentUnavailable": "SQL Agent недоступен (Express-редакция или служба остановлена) — история планов не получена.",
+        "permissionDenied": "Нет прав на чтение истории планов обслуживания (msdb.dbo.sysmaintplan_plans).",
+        "unavailable": "SQL Server недоступен — планы обслуживания не получены.",
+        "scheduled": "По расписанию",
+        "onDemand": "По запросу",
+        "lastRun": "Последний прогон: {{value}}",
+        "duration": "Длительность: {{value}}",
+        "taskOk": "Успех",
+        "taskFailed": "Ошибка",
+        "outcome": {
+          "Succeeded": "Успешно",
+          "Failed": "Ошибка",
+          "Overdue": "Просрочен",
+          "NeverRun": "Не запускался",
+          "Unknown": "Нет данных"
+        }
       }
     }
   }

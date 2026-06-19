@@ -421,8 +421,33 @@ MLC-216). Single-host (ADR-28); анти-коррупционная границ
   прав → статус `PermissionDenied`, SQL недоступен / строка не настроена → `Unavailable` (в обоих
   случаях список баз пуст), эндпоинт **не 500-ит**. Строка подключения/инстанс — как соседние
   пробы (`SettingKey.SqlServer`, наследование `Trusted_Connection`/`Encrypt` из `Default`,
-  `master`); таймауты Connect 15s / Command 30s (как `DatabaseSizeProbe`). Проба расширяема:
-  планы обслуживания (`sysmaintplan_*` + SQL Agent) дорастят её в MLC-217.
+  `master`); таймауты Connect 15s / Command 30s (как `DatabaseSizeProbe`).
+
+- **`GET /server/maintenance/plans` (Viewer)** — планы обслуживания SQL для вкладки
+  **«Обслуживание»** (MLC-217): **live-read** `msdb.dbo.sysmaintplan_*` + история заданий
+  SQL Agent через **ту же** пробу `IMaintenanceProbe` (`SqlMaintenanceProbe`, новый метод
+  `GetMaintenancePlansAsync`) — **БЕЗ собственных таблиц/миграций/Hangfire-джоб**. Источники
+  `msdb`: `sysmaintplan_plans`/`sysmaintplan_subplans` (планы и под-планы; под-план привязан к
+  заданию SQL Agent по `job_id`); `sysmaintplan_log` — последний прогон под-плана (время +
+  итог `succeeded`, длительность = `end_time − start_time`); `sysmaintplan_logdetail` —
+  **детализация по шагам** последнего прогона (что именно делалось/упало: проверка целостности /
+  бэкап / реиндекс); `sysjobschedules`/`sysschedules` — есть ли у задания **включённое
+  расписание**. Время лога — локаль SQL-хоста → UTC (как backupset).
+  - **Различение «по расписанию» vs «по запросу»:** под-план «по расписанию» = у его задания
+    есть включённое расписание (`sysschedules.enabled = 1`); под-план без такого — **ручной**
+    (владелец держит ручные под-планы «перестроение индекса»/«month»). Классификация итога
+    прогона — **чистая `SubplanRunPolicy`** (тестируется без SQL): `Succeeded` / `Failed` /
+    `Overdue` / `NeverRun` / `Unknown`. **«Просрочен» (`Overdue`) считается ТОЛЬКО для под-плана
+    С расписанием** (нет истории при расписании → `Overdue`; успех, но последний прогон старше
+    порога ~26ч `SubplanRunPolicy.ScheduledOverdueThreshold` → `Overdue`); ручной под-план без
+    прогонов → `NeverRun` (норма, не алерт). Сигнал «требует внимания» (`IsAlerting`) — только
+    `Failed`/`Overdue`.
+  - **Never-throws + деградация статусом** (`MaintenancePlansStatus`, строкой на проводе):
+    нет прав на `msdb.dbo.sysmaintplan_plans` (`HAS_PERMS_BY_NAME`) → `PermissionDenied`;
+    **SQL Agent отсутствует/остановлен** (Express-редакция) или нет доступа к
+    `msdb.dbo.sysjobhistory` → **`AgentUnavailable`** (честный «агент недоступен», не ошибка);
+    SQL недоступен / строка не настроена → `Unavailable`; в degraded-ветках `plans` пуст,
+    эндпоинт **не 500-ит**. Строка подключения/инстанс/таймауты — как у пробы свежести бэкапов.
 
 Управление **RAS и IIS здесь не дублируется** (остаётся в `/ras-service/*` и `/api/v1/iis/*`);
 **SQL — без управления** (ADR-54, только наблюдение).

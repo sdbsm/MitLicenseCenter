@@ -246,13 +246,86 @@ public sealed class ServerEndpointsTests
         result.Value.Databases.Should().BeEmpty();
     }
 
+    // ── обслуживание: планы обслуживания (MLC-217) ───────────────────────────────────────
+
+    [Fact]
+    public async Task MaintenancePlans_returns_contract_with_subplans_and_tasks()
+    {
+        var probe = new FakeMaintenanceProbe(plans: new MaintenancePlansSnapshot(
+            MaintenancePlansStatus.Ok,
+            [
+                new MaintenancePlan("Ночное обслуживание",
+                [
+                    new MaintenanceSubplan(
+                        "Полный бэкап", HasSchedule: true, MaintenanceRunOutcome.Failed,
+                        LastRunUtc: new DateTime(2026, 6, 19, 1, 0, 0, DateTimeKind.Utc),
+                        DurationSeconds: 42.5,
+                        Tasks:
+                        [
+                            new MaintenanceTaskDetail("Проверка целостности", Succeeded: true),
+                            new MaintenanceTaskDetail("Резервное копирование", Succeeded: false),
+                        ]),
+                    new MaintenanceSubplan(
+                        "Перестроение индекса", HasSchedule: false, MaintenanceRunOutcome.NeverRun,
+                        LastRunUtc: null, DurationSeconds: null, Tasks: []),
+                ]),
+            ]));
+
+        var result = await ServerEndpoints.GetMaintenancePlansAsync(probe, CancellationToken.None);
+
+        result.Value!.Status.Should().Be("Ok");
+        var plan = result.Value.Plans.Should().ContainSingle().Subject;
+        plan.Name.Should().Be("Ночное обслуживание");
+        plan.Subplans.Should().HaveCount(2);
+
+        var failed = plan.Subplans[0];
+        failed.HasSchedule.Should().BeTrue();
+        failed.Outcome.Should().Be("Failed");
+        failed.DurationSeconds.Should().Be(42.5);
+        failed.Tasks.Should().HaveCount(2);
+        failed.Tasks[1].Detail.Should().Be("Резервное копирование");
+        failed.Tasks[1].Succeeded.Should().BeFalse();
+
+        var manual = plan.Subplans[1];
+        manual.HasSchedule.Should().BeFalse();
+        manual.Outcome.Should().Be("NeverRun");
+        manual.LastRunUtc.Should().BeNull();
+        manual.Tasks.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task MaintenancePlans_degrades_to_agent_unavailable_without_500()
+    {
+        // SQL Agent отсутствует (Express) → AgentUnavailable, plans пуст, не 500.
+        var probe = new FakeMaintenanceProbe(
+            plans: new MaintenancePlansSnapshot(MaintenancePlansStatus.AgentUnavailable, []));
+
+        var result = await ServerEndpoints.GetMaintenancePlansAsync(probe, CancellationToken.None);
+
+        result.Value!.Status.Should().Be("AgentUnavailable");
+        result.Value.Plans.Should().BeEmpty();
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────────────────────
 
     // Ручной фейк IMaintenanceProbe (без NSubstitute) — единообразно с пробами Infrastructure.
-    private sealed class FakeMaintenanceProbe(BackupFreshnessSnapshot snapshot) : IMaintenanceProbe
+    private sealed class FakeMaintenanceProbe : IMaintenanceProbe
     {
+        private readonly BackupFreshnessSnapshot _backups;
+        private readonly MaintenancePlansSnapshot _plans;
+
+        public FakeMaintenanceProbe(
+            BackupFreshnessSnapshot? backups = null, MaintenancePlansSnapshot? plans = null)
+        {
+            _backups = backups ?? new BackupFreshnessSnapshot(MaintenanceProbeStatus.Ok, []);
+            _plans = plans ?? new MaintenancePlansSnapshot(MaintenancePlansStatus.Ok, []);
+        }
+
         public Task<BackupFreshnessSnapshot> GetBackupFreshnessAsync(CancellationToken ct) =>
-            Task.FromResult(snapshot);
+            Task.FromResult(_backups);
+
+        public Task<MaintenancePlansSnapshot> GetMaintenancePlansAsync(CancellationToken ct) =>
+            Task.FromResult(_plans);
     }
 
     private static ServerStatusSnapshot Snapshot(bool running) =>

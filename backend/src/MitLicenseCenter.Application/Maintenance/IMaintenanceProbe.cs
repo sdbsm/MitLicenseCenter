@@ -14,4 +14,11 @@ public interface IMaintenanceProbe
     // строки подключения → Status=Unavailable; в обоих случаях Databases пуст. Отмена
     // (OperationCanceledException) пробрасывается.
     Task<BackupFreshnessSnapshot> GetBackupFreshnessAsync(CancellationToken ct);
+
+    // Снимок планов обслуживания (MLC-217, live-read msdb.dbo.sysmaintplan_* + история заданий
+    // SQL Agent). «Never throws»: нет прав на историю планов → Status=PermissionDenied; SQL Agent
+    // отсутствует/остановлен (Express) или нет прав на историю заданий → Status=AgentUnavailable;
+    // нет SQL / нет строки подключения → Status=Unavailable; в degraded-ветках Plans пуст.
+    // Отмена (OperationCanceledException) пробрасывается.
+    Task<MaintenancePlansSnapshot> GetMaintenancePlansAsync(CancellationToken ct);
 }

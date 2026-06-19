@@ -68,3 +68,31 @@ public sealed record DatabaseBackupFreshnessDto(
     DateTime? LastDiffUtc,
     DateTime? LastLogUtc,
     bool IsStale);
+
+// Планы обслуживания SQL — вкладка «Обслуживание» (MLC-217, ADR-54). status строкой
+// ("Ok"/"AgentUnavailable"/"PermissionDenied"/"Unavailable" — MaintenancePlansStatus):
+// деградация (нет прав на историю планов / SQL Agent недоступен / SQL недоступен) — статусом,
+// а не 500; в degraded-ветке plans пуст.
+public sealed record MaintenancePlansResponse(
+    string Status,
+    IReadOnlyList<MaintenancePlanDto> Plans);
+
+// План обслуживания с под-планами.
+public sealed record MaintenancePlanDto(
+    string Name,
+    IReadOnlyList<MaintenanceSubplanDto> Subplans);
+
+// Под-план: имя, флаг «по расписанию», итог последнего прогона строкой
+// ("Succeeded"/"Failed"/"Overdue"/"NeverRun"/"Unknown" — MaintenanceRunOutcome),
+// время последнего прогона (UTC, ISO-8601) и длительность в секундах (null опускаются),
+// детализация по шагам последнего прогона.
+public sealed record MaintenanceSubplanDto(
+    string Name,
+    bool HasSchedule,
+    string Outcome,
+    DateTime? LastRunUtc,
+    double? DurationSeconds,
+    IReadOnlyList<MaintenanceTaskDetailDto> Tasks);
+
+// Один шаг последнего прогона под-плана: описание (что делалось) + успех.
+public sealed record MaintenanceTaskDetailDto(string Detail, bool Succeeded);
