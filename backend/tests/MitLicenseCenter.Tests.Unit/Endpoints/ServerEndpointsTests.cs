@@ -345,7 +345,126 @@ public sealed class ServerEndpointsTests
         result.Value!.Processes.Should().BeEmpty();
     }
 
+    // ── рестарт rphost (MLC-220, ADR-56) ─────────────────────────────────────────────────
+
+    [Fact]
+    public async Task RestartProcess_without_confirm_returns_409_confirm_required()
+    {
+        var restart = new FakeProcessRestartService(
+            new OneCProcessRestartResult(OneCProcessRestartOutcome.Restarted, 15876));
+        var audit = new TestHelpers.CapturingAuditLogger();
+
+        var result = await ServerEndpoints.RestartOneCProcessAsync(
+            new OneCProcessRestartRequest(15876, Confirm: false),
+            restart, audit, TestHelpers.NewHttpContext("admin"), CancellationToken.None);
+
+        var conflict = result.Result.Should().BeOfType<Conflict<ProblemDetails>>().Subject;
+        conflict.Value!.Extensions["code"].Should().Be(ProblemCodes.ProcessConfirmRequired);
+        restart.Calls.Should().BeEmpty();
+        audit.Entries.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task RestartProcess_non_positive_pid_returns_validation_problem()
+    {
+        var restart = new FakeProcessRestartService(
+            new OneCProcessRestartResult(OneCProcessRestartOutcome.Restarted, 0));
+
+        var result = await ServerEndpoints.RestartOneCProcessAsync(
+            new OneCProcessRestartRequest(0, Confirm: true),
+            restart, new TestHelpers.CapturingAuditLogger(),
+            TestHelpers.NewHttpContext("admin"), CancellationToken.None);
+
+        result.Result.Should().BeOfType<ValidationProblem>();
+        restart.Calls.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task RestartProcess_success_writes_805_audit_with_pid_and_null_tenant()
+    {
+        var restart = new FakeProcessRestartService(
+            new OneCProcessRestartResult(OneCProcessRestartOutcome.Restarted, 15876));
+        var audit = new TestHelpers.CapturingAuditLogger();
+
+        var result = await ServerEndpoints.RestartOneCProcessAsync(
+            new OneCProcessRestartRequest(15876, Confirm: true),
+            restart, audit, TestHelpers.NewHttpContext("admin"), CancellationToken.None);
+
+        var ok = result.Result.Should().BeOfType<Ok<OneCProcessRestartResponse>>().Subject;
+        ok.Value!.Pid.Should().Be(15876);
+        ok.Value.Outcome.Should().Be("Restarted");
+        restart.Calls.Should().ContainSingle().Which.Should().Be(15876);
+        var entry = audit.Entries.Should().ContainSingle().Subject;
+        entry.Action.Should().Be(AuditActionType.OneCProcessRestarted);
+        entry.TenantId.Should().BeNull();
+        entry.Description.Should().Contain("15876");
+    }
+
+    [Fact]
+    public async Task RestartProcess_pid_not_in_cluster_returns_404_without_audit()
+    {
+        var restart = new FakeProcessRestartService(
+            new OneCProcessRestartResult(OneCProcessRestartOutcome.NotInCluster, 15876));
+        var audit = new TestHelpers.CapturingAuditLogger();
+
+        var result = await ServerEndpoints.RestartOneCProcessAsync(
+            new OneCProcessRestartRequest(15876, Confirm: true),
+            restart, audit, TestHelpers.NewHttpContext("admin"), CancellationToken.None);
+
+        result.Result.Should().BeOfType<NotFound>();
+        audit.Entries.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task RestartProcess_pid_reused_maps_to_409_without_audit()
+    {
+        var restart = new FakeProcessRestartService(
+            new OneCProcessRestartResult(OneCProcessRestartOutcome.PidReused, 15876));
+        var audit = new TestHelpers.CapturingAuditLogger();
+
+        var result = await ServerEndpoints.RestartOneCProcessAsync(
+            new OneCProcessRestartRequest(15876, Confirm: true),
+            restart, audit, TestHelpers.NewHttpContext("admin"), CancellationToken.None);
+
+        var conflict = result.Result.Should().BeOfType<Conflict<ProblemDetails>>().Subject;
+        conflict.Value!.Extensions["code"].Should().Be(ProblemCodes.ProcessRestartFailed);
+        audit.Entries.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task RestartProcess_verification_timeout_maps_to_409_without_audit()
+    {
+        var restart = new FakeProcessRestartService(
+            new OneCProcessRestartResult(OneCProcessRestartOutcome.VerificationTimedOut, 15876));
+        var audit = new TestHelpers.CapturingAuditLogger();
+
+        var result = await ServerEndpoints.RestartOneCProcessAsync(
+            new OneCProcessRestartRequest(15876, Confirm: true),
+            restart, audit, TestHelpers.NewHttpContext("admin"), CancellationToken.None);
+
+        var conflict = result.Result.Should().BeOfType<Conflict<ProblemDetails>>().Subject;
+        conflict.Value!.Extensions["code"].Should().Be(ProblemCodes.ProcessRestartFailed);
+        audit.Entries.Should().BeEmpty();
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────────────────────
+
+    // Ручной фейк IOneCProcessRestartService: фиксированный исход + запись вызовов Pid.
+    private sealed class FakeProcessRestartService : IOneCProcessRestartService
+    {
+        private readonly OneCProcessRestartResult _result;
+
+        public FakeProcessRestartService(OneCProcessRestartResult result) => _result = result;
+
+        public List<int> Calls { get; } = [];
+
+        public Task<OneCProcessRestartResult> RestartAsync(int pid, CancellationToken ct)
+        {
+            Calls.Add(pid);
+            return Task.FromResult(_result);
+        }
+    }
+
 
     // Ручной фейк IMaintenanceProbe (без NSubstitute) — единообразно с пробами Infrastructure.
     private sealed class FakeMaintenanceProbe : IMaintenanceProbe

@@ -68,6 +68,7 @@ const ALL_ACTION_TYPES: Record<AuditActionType, true> = {
   OneCServerRestarted: true,
   OneCServerAutoRestarted: true,
   OneCServerAutoRestartScheduleChanged: true,
+  OneCProcessRestarted: true,
 };
 
 const unionMembers = Object.keys(ALL_ACTION_TYPES).sort();

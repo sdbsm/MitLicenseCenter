@@ -2,12 +2,14 @@ import { useQuery } from "@tanstack/react-query";
 import { z } from "zod";
 import { api } from "@/lib/api";
 import { omittable } from "@/lib/apiSchema";
+import { useInvalidatingMutation } from "@/lib/useInvalidatingMutation";
 
 /**
- * Zod-схема и хук блока «Рабочие процессы 1С» вкладки «Службы» раздела «Сервер»
- * (MLC-219, ADR-54) поверх BE-контракта `GET /api/v1/server/onec/processes`. Live-снимок
- * рабочих процессов (`rphost`) через `rac process list` — список (рестарт не реализован,
- * исследовательская часть отложена). Только чтение (Viewer).
+ * Zod-схемы и хуки блока «Рабочие процессы 1С» вкладки «Службы» раздела «Сервер»
+ * (MLC-219/220, ADR-54/56) поверх BE-контракта `/api/v1/server/onec/processes`. Live-снимок
+ * рабочих процессов (`rphost`) через `rac process list` (Viewer) + мягкий рестарт по Pid
+ * (`POST .../restart`, Admin + confirm, MLC-220): у `rac` нет «restart process» → рестарт =
+ * завершение ОС-процесса rphost по Pid, кластер 1С авто-поднимает новый.
  *
  * Backend опускает null-поля (JsonIgnoreCondition.WhenWritingNull, гоча api-omits-null-fields):
  * pid / availablePerformance / avgCallTime / memorySize приходят либо со значением, либо ключ
@@ -45,5 +47,28 @@ export function useOneCProcesses() {
     queryKey: oneCProcessesQueryKey,
     queryFn: () => api("/api/v1/server/onec/processes", { schema: oneCProcessesSchema }),
     staleTime: STALE_TIME,
+  });
+}
+
+// Ответ рестарта rphost: завершённый Pid + исход строкой ("Restarted" — успех/идемпотентность;
+// guard/таймаут приходят 404/409 и в этот успешный путь не попадают).
+export const oneCProcessRestartSchema = z.object({
+  pid: z.number(),
+  outcome: z.string(),
+});
+
+export type OneCProcessRestartResult = z.infer<typeof oneCProcessRestartSchema>;
+
+// Рестарт рабочего процесса 1С по Pid (Admin + confirm, MLC-220). На успехе инвалидируем
+// список процессов — таблица перезапрашивает снимок (старый Pid исчезнет, появится новый).
+export function useRestartOneCProcess() {
+  return useInvalidatingMutation({
+    mutationFn: (pid: number) =>
+      api("/api/v1/server/onec/processes/restart", {
+        method: "POST",
+        body: { pid, confirm: true },
+        schema: oneCProcessRestartSchema,
+      }),
+    invalidate: () => [oneCProcessesQueryKey],
   });
 }

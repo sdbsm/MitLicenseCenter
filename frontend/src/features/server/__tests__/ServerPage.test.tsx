@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -98,6 +98,9 @@ function routeApi(url: string) {
       time: "04:00",
       targetServices: ["ragent-running"],
     });
+  }
+  if (url.startsWith("/api/v1/server/onec/processes/restart")) {
+    return Promise.resolve({ pid: 15876, outcome: "Restarted" });
   }
   if (url.startsWith("/api/v1/server/onec/processes")) {
     return Promise.resolve({
@@ -216,6 +219,47 @@ describe("ServerPage (MLC-214/215)", () => {
     expect(await screen.findByText("Рабочие процессы 1С")).toBeInTheDocument();
     expect(await screen.findByText("15876")).toBeInTheDocument();
     expect(screen.getByText("416")).toBeInTheDocument();
+  });
+
+  // MLC-220: Admin видит кнопку «Перезапустить» в строке rphost; клик открывает confirm-диалог
+  // с предупреждением о разрыве сеансов. Confirm шлёт POST .../restart с confirm:true.
+  // Имя «Перезапустить» есть и у кнопки сервера 1С — поэтому строку rphost ищем по PID.
+  it("Admin: рестарт rphost — кнопка открывает диалог, подтверждение шлёт POST restart", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Рабочие процессы 1С");
+
+    // Строка процесса rphost — по ячейке с PID 15876.
+    const pidCell = await screen.findByText("15876");
+    const row = pidCell.closest("tr")!;
+    await user.click(within(row).getByRole("button", { name: "Перезапустить" }));
+
+    const dialog = await screen.findByRole("alertdialog");
+    expect(within(dialog).getByText("Перезапустить рабочий процесс 1С?")).toBeInTheDocument();
+    expect(
+      within(dialog).getByText("Перезапуск разорвёт активные сеансы на этом процессе.")
+    ).toBeInTheDocument();
+
+    mockedApi.mockClear();
+    await user.click(within(dialog).getByRole("button", { name: "Перезапустить" }));
+
+    await waitFor(() =>
+      expect(mockedApi).toHaveBeenCalledWith(
+        "/api/v1/server/onec/processes/restart",
+        expect.objectContaining({
+          method: "POST",
+          body: { pid: 15876, confirm: true },
+        })
+      )
+    );
+  });
+
+  it("Viewer не видит кнопку рестарта rphost (нет колонки действий процессов)", async () => {
+    meMock.mockReturnValue({ data: { roles: ["Viewer"] } });
+    renderPage();
+    const pidCell = await screen.findByText("15876");
+    const row = pidCell.closest("tr")!;
+    expect(within(row).queryByRole("button", { name: "Перезапустить" })).not.toBeInTheDocument();
   });
 
   it("блок рабочих процессов: пустой список → подсказка", async () => {

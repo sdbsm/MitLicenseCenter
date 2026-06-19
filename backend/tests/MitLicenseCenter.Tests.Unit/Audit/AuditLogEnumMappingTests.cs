@@ -112,6 +112,9 @@ public sealed class AuditLogEnumMappingTests
     // расписания оператором (804). Frozen-int rule: новые числа после 802, не переиспускаются.
     [InlineData(AuditActionType.OneCServerAutoRestarted, 803)]
     [InlineData(AuditActionType.OneCServerAutoRestartScheduleChanged, 804)]
+    // MLC-220 (ADR-56) — рестарт рабочего процесса 1С (rphost) по Pid. Frozen-int: новое число
+    // после 804, не переиспользуется.
+    [InlineData(AuditActionType.OneCProcessRestarted, 805)]
     public void AuditActionType_int_values_are_stable(AuditActionType action, int expected)
     {
         ((int)action).Should().Be(expected);

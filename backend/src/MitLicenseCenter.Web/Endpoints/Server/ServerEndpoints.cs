@@ -47,6 +47,12 @@ public static partial class ServerEndpoints
         // деградация пустым списком (rac недоступен/не настроен), эндпоинт не 500-ит.
         group.MapGet("/onec/processes", GetOneCProcessesAsync).RequireAuthorization(Roles.Viewer);
 
+        // Рестарт рабочего процесса 1С (rphost) по Pid (MLC-220, ADR-56). Admin + Confirm-гейт:
+        // завершение ОС-процесса rphost (whitelist по rac process list + guard по имени), кластер
+        // авто-поднимает новый. Pid не в whitelist → 404; Pid переиспользован / не исчез за
+        // таймаут → 409; не-confirm → 409 PROCESS_CONFIRM_REQUIRED.
+        group.MapPost("/onec/processes/restart", RestartOneCProcessAsync).RequireAuthorization(Roles.Admin);
+
         group.MapPost("/onec/start", StartOneCServerAsync).RequireAuthorization(Roles.Admin);
         group.MapPost("/onec/stop", StopOneCServerAsync).RequireAuthorization(Roles.Admin);
         group.MapPost("/onec/restart", RestartOneCServerAsync).RequireAuthorization(Roles.Admin);
@@ -105,6 +111,67 @@ public static partial class ServerEndpoints
             .Select(p => new OneCProcessDto(p.Process, p.Pid, p.AvailablePerformance, p.AvgCallTime, p.MemorySize))
             .ToList();
         return TypedResults.Ok(new OneCProcessesResponse(dtos));
+    }
+
+    // Рестарт рабочего процесса 1С (rphost) по Pid (MLC-220, ADR-56). Admin + Confirm-гейт:
+    // у rac нет «restart process», поэтому рестарт = завершение ОС-процесса rphost по Pid с
+    // авто-подъёмом кластером. Сервис страхует операцию (whitelist по rac process list →
+    // guard по имени процесса → kill → верификация исчезновения Pid с таймаутом). Маппинг
+    // исхода: NotInCluster → 404; PidReused/VerificationTimedOut → 409; Restarted → 200 + аудит.
+    internal static async Task<Results<Ok<OneCProcessRestartResponse>, NotFound, ValidationProblem, Conflict<ProblemDetails>>> RestartOneCProcessAsync(
+        [FromBody] OneCProcessRestartRequest request,
+        [FromServices] IOneCProcessRestartService restart,
+        [FromServices] IAuditLogger audit,
+        HttpContext httpContext,
+        CancellationToken ct)
+    {
+        // Серверный Confirm-гейт (защита от случайного клика помимо токена в UI).
+        if (!request.Confirm)
+        {
+            return TypedResults.Conflict(Problems.ProcessConfirmRequired());
+        }
+
+        // Pid должен быть положительным (ОС-идентификатор процесса). Невалидный → 400.
+        if (request.Pid <= 0)
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>(StringComparer.Ordinal)
+            {
+                ["Pid"] = ["Ожидается положительный Pid рабочего процесса 1С."],
+            });
+        }
+
+        var correlationId = httpContext.TraceIdentifier;
+        var result = await restart.RestartAsync(request.Pid, ct).ConfigureAwait(false);
+
+        switch (result.Outcome)
+        {
+            case OneCProcessRestartOutcome.NotInCluster:
+                // Pid не в текущем rac process list (whitelist не пройден) — нельзя
+                // завершать произвольный ОС-процесс. Аудит не пишется.
+                return TypedResults.NotFound();
+
+            case OneCProcessRestartOutcome.PidReused:
+                return TypedResults.Conflict(Problems.ProcessRestartFailed(
+                    "Процесс с этим Pid больше не является рабочим процессом 1С (Pid переиспользован системой). "
+                        + "Обновите список и повторите.",
+                    correlationId));
+
+            case OneCProcessRestartOutcome.VerificationTimedOut:
+                return TypedResults.Conflict(Problems.ProcessRestartFailed(
+                    "Рабочий процесс 1С не был заменён кластером за отведённое время. "
+                        + "Проверьте состояние сервера 1С и повторите при необходимости.",
+                    correlationId));
+
+            case OneCProcessRestartOutcome.Restarted:
+            default:
+                await httpContext.AuditAsync(
+                    audit,
+                    AuditActionType.OneCProcessRestarted,
+                    init => AuditDescriptions.OneCProcessRestarted(result.Pid, init),
+                    tenantId: null,
+                    ct).ConfigureAwait(false);
+                return TypedResults.Ok(new OneCProcessRestartResponse(result.Pid, result.Outcome.ToString()));
+        }
     }
 
     // ── Мутации (только сервер 1С) ──────────────────────────────────────────────────────
