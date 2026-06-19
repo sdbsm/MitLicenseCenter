@@ -2,6 +2,7 @@ using FluentAssertions;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging.Abstractions;
+using MitLicenseCenter.Application.Maintenance;
 using MitLicenseCenter.Application.Server;
 using MitLicenseCenter.Domain.Audit;
 using MitLicenseCenter.Web.Endpoints;
@@ -195,7 +196,64 @@ public sealed class ServerEndpointsTests
         audit.Entries.Should().BeEmpty();
     }
 
+    // ── обслуживание: свежесть бэкапов (MLC-216) ─────────────────────────────────────────
+
+    [Fact]
+    public async Task BackupFreshness_returns_contract_with_stale_flag()
+    {
+        var probe = new FakeMaintenanceProbe(new BackupFreshnessSnapshot(
+            MaintenanceProbeStatus.Ok,
+            [
+                new DatabaseBackupFreshness("acme_bp",
+                    LastFullUtc: new DateTime(2026, 6, 19, 1, 0, 0, DateTimeKind.Utc),
+                    LastDiffUtc: null, LastLogUtc: null, IsStale: false),
+                new DatabaseBackupFreshness("stale_bp",
+                    LastFullUtc: null, LastDiffUtc: null, LastLogUtc: null, IsStale: true),
+            ]));
+
+        var result = await ServerEndpoints.GetBackupFreshnessAsync(probe, CancellationToken.None);
+
+        result.Value!.Status.Should().Be("Ok");
+        result.Value.Databases.Should().HaveCount(2);
+        result.Value.Databases[0].DatabaseName.Should().Be("acme_bp");
+        result.Value.Databases[0].IsStale.Should().BeFalse();
+        result.Value.Databases[1].IsStale.Should().BeTrue();
+        result.Value.Databases[1].LastFullUtc.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task BackupFreshness_degrades_to_permission_denied_without_500()
+    {
+        // Нет прав на msdb.dbo.backupset → PermissionDenied, databases пуст, не 500.
+        var probe = new FakeMaintenanceProbe(
+            new BackupFreshnessSnapshot(MaintenanceProbeStatus.PermissionDenied, []));
+
+        var result = await ServerEndpoints.GetBackupFreshnessAsync(probe, CancellationToken.None);
+
+        result.Value!.Status.Should().Be("PermissionDenied");
+        result.Value.Databases.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task BackupFreshness_degrades_to_unavailable_without_500()
+    {
+        var probe = new FakeMaintenanceProbe(
+            new BackupFreshnessSnapshot(MaintenanceProbeStatus.Unavailable, []));
+
+        var result = await ServerEndpoints.GetBackupFreshnessAsync(probe, CancellationToken.None);
+
+        result.Value!.Status.Should().Be("Unavailable");
+        result.Value.Databases.Should().BeEmpty();
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────────────────────
+
+    // Ручной фейк IMaintenanceProbe (без NSubstitute) — единообразно с пробами Infrastructure.
+    private sealed class FakeMaintenanceProbe(BackupFreshnessSnapshot snapshot) : IMaintenanceProbe
+    {
+        public Task<BackupFreshnessSnapshot> GetBackupFreshnessAsync(CancellationToken ct) =>
+            Task.FromResult(snapshot);
+    }
 
     private static ServerStatusSnapshot Snapshot(bool running) =>
         new(

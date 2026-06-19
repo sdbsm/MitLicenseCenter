@@ -51,9 +51,24 @@ function renderPage() {
   );
 }
 
-// Маршрутизация мока по URL: /server → сводный статус (вкладка «Службы»),
-// /iis/* → пустые discovery-ответы (вкладка «IIS», MLC-215).
+// Маршрутизация мока по URL: /server/maintenance/backups → свежесть бэкапов (вкладка
+// «Обслуживание», MLC-216), /server → сводный статус (вкладка «Службы»), /iis/* → пустые
+// discovery-ответы (вкладка «IIS», MLC-215).
 function routeApi(url: string) {
+  if (url.startsWith("/api/v1/server/maintenance/backups")) {
+    return Promise.resolve({
+      status: "Ok",
+      databases: [
+        {
+          databaseName: "acme_bp",
+          lastFullUtc: "2026-06-19T01:00:00Z",
+          lastDiffUtc: null,
+          lastLogUtc: null,
+          isStale: true,
+        },
+      ],
+    });
+  }
   if (url.startsWith("/api/v1/iis/server")) {
     return Promise.resolve({ state: "Started", available: true, error: null });
   }
@@ -148,5 +163,24 @@ describe("ServerPage (MLC-214/215)", () => {
     await screen.findByText("В норме");
     await user.click(screen.getByRole("tab", { name: "IIS" }));
     expect(await screen.findByText("Управление IIS")).toBeInTheDocument();
+  });
+
+  // MLC-216: вкладка «Обслуживание» — свежесть бэкапов SQL (только чтение). Монтируется
+  // лениво (таблица бэкапов не в DOM, пока вкладка не активирована), метка «устарел» — бейдж.
+  it("вкладка «Обслуживание» не смонтирована по умолчанию", async () => {
+    renderPage();
+    await screen.findByText("В норме");
+    expect(screen.queryByText("Свежесть резервных копий")).not.toBeInTheDocument();
+  });
+
+  it("вкладка «Обслуживание» при активации рендерит таблицу свежести бэкапов с бейджем «Устарел»", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("В норме");
+    await user.click(screen.getByRole("tab", { name: "Обслуживание" }));
+    expect(await screen.findByText("Свежесть резервных копий")).toBeInTheDocument();
+    expect(screen.getByText("acme_bp")).toBeInTheDocument();
+    const badge = screen.getByText("Устарел");
+    expect(badge).toHaveAttribute("data-variant", "danger");
   });
 });
