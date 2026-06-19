@@ -22,7 +22,7 @@ Live-приборная панель реального времени (pull-by-
 | Хост | WMI perfmon-счётчики + `System.Diagnostics.Process` | `backend/src/MitLicenseCenter.Infrastructure/Performance/OneCHostMetricsProbe.cs` |
 | 1С | `rac.exe session list` / `process list` через RAS | `backend/src/MitLicenseCenter.Infrastructure/Clusters/RacExecutableRasClusterClient.cs` |
 | SQL | DMV (`dm_exec_requests/sessions/sql_text`, `dm_os_wait_stats`, `dm_io_virtual_file_stats`) | `backend/src/MitLicenseCenter.Infrastructure/Performance/SqlPerformanceProbe.cs` |
-| Атрибуция база→клиент | `AppDbContext.Infobases ⨝ Tenants` | endpoints + `SqlPerformanceView.cs` |
+| Атрибуция база→клиент | `AppDbContext.Infobases ⨝ Tenants` | `backend/src/MitLicenseCenter.Application/Performance/SqlPerformanceView.cs` (+ endpoint) |
 
 Endpoints: `backend/src/MitLicenseCenter.Web/Endpoints/Performance/PerformanceEndpoints.cs`
 (`/api/v1/performance/host|onec-sessions|sql|recordings`).
@@ -32,7 +32,8 @@ FE: `frontend/src/features/performance/` (~62 файла; контейнер `Pe
 
 ## «Запись по требованию» (зачаток расследования — стадия времени)
 
-- Сервис `PerfRecordingService.cs` + фоновый `PerfRecordingSamplingService.cs` (~15 c/сэмпл).
+- Сервис `PerfRecordingService.cs` + фоновый `PerfRecordingSamplingService.cs` (~15 c/сэмпл),
+  оба в `backend/src/MitLicenseCenter.Infrastructure/Performance/`.
 - Хранение: таблицы `dbo.PerfRecordings` / `dbo.PerfRecordingSamples`
   (`backend/src/MitLicenseCenter.Infrastructure/Reporting/PerfRecording*.cs`,
   миграция `..._MLC070PerfRecordings.cs`). Плоские метрики хоста + JSON топ-виновников 1С/SQL.
