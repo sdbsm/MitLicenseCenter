@@ -125,6 +125,23 @@ F:\dev\MitLicense Center\
 
 Завершается ненулевым кодом при любой ошибке. **Это штатный гейт** — см. §5 (CI).
 
+#### Гоча: NuGet-аудит на шаге 1 валит restore (advisory → ошибка)
+
+В отличие от CI, где аудиты уязвимостей информационные (§5, `continue-on-error`), при локальном
+`dotnet restore` NuGet-аудит включён, а `TreatWarningsAsErrors` (`backend/Directory.Build.props`)
+повышает advisory до **ошибки** `NU1903` — restore падает **до** сборки. Это происходит и на чистом
+коде: база advisory обновляется онлайн, поэтому свежий restore может покраснеть без единой правки
+(локальный HTTP-кэш NuGet маскирует это — `dotnet nuget locals http-cache --clear` воспроизводит).
+
+**Принятые подавления (`NuGetAuditSuppress` в `backend/Directory.Build.props`):** advisory для
+**тест-онли** транзитивных зависимостей, не входящих в поставляемый продукт, подавляются точечно с
+комментарием-обоснованием — это аналог «информационных аудитов» CI. Сейчас подавлен один:
+`GHSA-2m69-gcr7-jv3q` (`SQLitePCLRaw.lib.e_sqlite3` 2.1.11, high) — тянется в
+`MitLicenseCenter.Tests.Unit` через `Microsoft.EntityFrameworkCore.Sqlite` (SQLite — тест-харнес
+concurrency-тестов; продукт работает на SQL Server). Ретайр — при бампе EF Core до версии, тянущей
+патч-версию `SQLitePCLRaw` (см. Dependabot, §6). Advisory **продуктовых** (не тест-онли) пакетов
+подавлять нельзя — их чинят бампом.
+
 ### `dev.ps1` — локальный dev-сервер
 
 ```powershell
