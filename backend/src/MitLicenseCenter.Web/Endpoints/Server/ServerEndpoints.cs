@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text.RegularExpressions;
 using Asp.Versioning;
 using Asp.Versioning.Builder;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -6,8 +8,11 @@ using Microsoft.Extensions.Logging;
 using MitLicenseCenter.Application.Auditing;
 using MitLicenseCenter.Application.Maintenance;
 using MitLicenseCenter.Application.Server;
+using MitLicenseCenter.Application.Settings;
 using MitLicenseCenter.Domain.Audit;
+using MitLicenseCenter.Domain.Settings;
 using MitLicenseCenter.Infrastructure.Identity;
+using MitLicenseCenter.Web.Hangfire;
 
 namespace MitLicenseCenter.Web.Endpoints;
 
@@ -40,6 +45,10 @@ public static partial class ServerEndpoints
         group.MapPost("/onec/start", StartOneCServerAsync).RequireAuthorization(Roles.Admin);
         group.MapPost("/onec/stop", StopOneCServerAsync).RequireAuthorization(Roles.Admin);
         group.MapPost("/onec/restart", RestartOneCServerAsync).RequireAuthorization(Roles.Admin);
+
+        // Расписание авто-рестартов сервера 1С (MLC-218): чтение — Viewer, изменение — Admin.
+        group.MapGet("/auto-restart", GetAutoRestartScheduleAsync).RequireAuthorization(Roles.Viewer);
+        group.MapPut("/auto-restart", SetAutoRestartScheduleAsync).RequireAuthorization(Roles.Admin);
     }
 
     // ── Статус (read-only) ──────────────────────────────────────────────────────────────
@@ -181,6 +190,105 @@ public static partial class ServerEndpoints
         return TypedResults.Ok(new ServerOperationResponse(result.ServiceName, result.FinalStatus.ToString()));
     }
 
+    // ── Расписание авто-рестартов (MLC-218) ─────────────────────────────────────────────
+
+    private const string DefaultAutoRestartTime = "04:00";
+
+    // GET /server/auto-restart (Viewer): текущее расписание + время последнего прогона +
+    // целевые службы (запущенные ragent из снимка статуса). Never-throws на стороне статуса
+    // (провайдер деградирует флагами); настройки читаются из store. Дефолты — если ключи ещё
+    // не засеяны (enabled=false, time=04:00).
+    internal static async Task<Ok<AutoRestartScheduleResponse>> GetAutoRestartScheduleAsync(
+        [FromServices] ISettingsStore store,
+        [FromServices] IServerStatusProvider provider,
+        CancellationToken ct)
+    {
+        var enabled = await store.GetIntAsync(SettingKey.OneCAutoRestartEnabled, ct).ConfigureAwait(false) == 1;
+        var time = await store.GetAsync(SettingKey.OneCAutoRestartTime, ct).ConfigureAwait(false);
+        var lastRunRaw = await store.GetAsync(SettingKey.OneCAutoRestartLastRunUtc, ct).ConfigureAwait(false);
+
+        var snapshot = await provider.GetStatusAsync(ct).ConfigureAwait(false);
+        var targets = snapshot.OneCServers
+            .Where(s => s.Running)
+            .Select(s => s.ServiceName)
+            .ToList();
+
+        return TypedResults.Ok(new AutoRestartScheduleResponse(
+            Enabled: enabled,
+            Time: string.IsNullOrWhiteSpace(time) ? DefaultAutoRestartTime : time,
+            LastRunUtc: ParseLastRun(lastRunRaw),
+            TargetServices: targets));
+    }
+
+    // PUT /server/auto-restart (Admin): валидация HH:mm → запись enabled+time → перерегистрация
+    // джобы (Apply: вкл → AddOrUpdate с дневным cron в местном поясе, выкл → RemoveIfExists) →
+    // аудит изменения настройки (код 804). Невалидное время → ValidationProblem (мутация не идёт).
+    internal static async Task<Results<Ok<AutoRestartScheduleResponse>, ValidationProblem>> SetAutoRestartScheduleAsync(
+        [FromBody] AutoRestartScheduleRequest request,
+        [FromServices] ISettingsStore store,
+        [FromServices] IServerStatusProvider provider,
+        [FromServices] IAuditLogger audit,
+        HttpContext httpContext,
+        CancellationToken ct)
+    {
+        var time = (request.Time ?? string.Empty).Trim();
+        if (!AutoRestartTimeRegex().IsMatch(time))
+        {
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>(StringComparer.Ordinal)
+            {
+                ["Time"] = ["Ожидается время в формате ЧЧ:мм (00:00–23:59)."],
+            });
+        }
+
+        // Нормализуем к HH:mm с ведущими нулями (cron-билдер допускает "4:0", но хранить и
+        // показывать удобнее канонично).
+        var canonical = $"{int.Parse(time.Split(':')[0], CultureInfo.InvariantCulture):00}:{int.Parse(time.Split(':')[1], CultureInfo.InvariantCulture):00}";
+
+        var initiator = httpContext.ResolveInitiator();
+        await store.SetAsync(SettingKey.OneCAutoRestartEnabled, request.Enabled ? "1" : "0", isSecret: false, initiator, ct).ConfigureAwait(false);
+        await store.SetAsync(SettingKey.OneCAutoRestartTime, canonical, isSecret: false, initiator, ct).ConfigureAwait(false);
+
+        // Перерегистрация джобы по новой настройке (включено → дневной cron из времени в
+        // местном поясе; выключено → снять задание). НЕ тик-каждые-5-минут.
+        OneCAutoRestartScheduler.Apply(request.Enabled, canonical);
+
+        await httpContext.AuditAsync(
+            audit,
+            AuditActionType.OneCServerAutoRestartScheduleChanged,
+            init => AuditDescriptions.OneCServerAutoRestartScheduleChanged(request.Enabled, canonical, init),
+            tenantId: null,
+            ct).ConfigureAwait(false);
+
+        // Возвращаем актуализированное состояние (как GET) — FE сразу показывает сохранённое.
+        var lastRunRaw = await store.GetAsync(SettingKey.OneCAutoRestartLastRunUtc, ct).ConfigureAwait(false);
+        var snapshot = await provider.GetStatusAsync(ct).ConfigureAwait(false);
+        var targets = snapshot.OneCServers.Where(s => s.Running).Select(s => s.ServiceName).ToList();
+
+        return TypedResults.Ok(new AutoRestartScheduleResponse(
+            Enabled: request.Enabled,
+            Time: canonical,
+            LastRunUtc: ParseLastRun(lastRunRaw),
+            TargetServices: targets));
+    }
+
+    // Парсинг отметки «прошлого прогона»: хранится инвариантным round-trip "O" (UTC). Мусор/
+    // отсутствие → null (поле опускается на проводе). Возвращаем именно UTC DateTime.
+    private static DateTime? ParseLastRun(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return null;
+        }
+
+        return DateTime.TryParse(
+            raw,
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.RoundtripKind,
+            out var parsed)
+            ? parsed.ToUniversalTime()
+            : null;
+    }
+
     // ── Маппинг snapshot → DTO ──────────────────────────────────────────────────────────
 
     private static ServerStatusResponse ToResponse(ServerStatusSnapshot s) =>
@@ -227,4 +335,9 @@ public static partial class ServerEndpoints
         Level = LogLevel.Warning,
         Message = "Сервер 1С: операция над «{ServiceName}» не удалась (correlationId={CorrelationId}).")]
     private static partial void LogServerOpFailed(ILogger logger, string serviceName, string correlationId, Exception ex);
+
+    // MLC-218 — время авто-рестарта HH:mm (00:00–23:59). Час 00–23, минута 00–59; ведущий
+    // ноль часа опционален (допускаем "4:00"), эндпоинт канонизирует к двум разрядам.
+    [GeneratedRegex(@"^([01]?\d|2[0-3]):[0-5]\d$", RegexOptions.CultureInvariant)]
+    private static partial Regex AutoRestartTimeRegex();
 }

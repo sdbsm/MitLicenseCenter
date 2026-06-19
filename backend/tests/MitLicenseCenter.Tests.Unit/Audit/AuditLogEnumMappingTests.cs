@@ -108,6 +108,10 @@ public sealed class AuditLogEnumMappingTests
     [InlineData(AuditActionType.OneCServerStarted, 800)]
     [InlineData(AuditActionType.OneCServerStopped, 801)]
     [InlineData(AuditActionType.OneCServerRestarted, 802)]
+    // MLC-218 (ADR-55) — авто-рестарт сервера 1С: срабатывание джобы (803) + изменение
+    // расписания оператором (804). Frozen-int rule: новые числа после 802, не переиспускаются.
+    [InlineData(AuditActionType.OneCServerAutoRestarted, 803)]
+    [InlineData(AuditActionType.OneCServerAutoRestartScheduleChanged, 804)]
     public void AuditActionType_int_values_are_stable(AuditActionType action, int expected)
     {
         ((int)action).Should().Be(expected);

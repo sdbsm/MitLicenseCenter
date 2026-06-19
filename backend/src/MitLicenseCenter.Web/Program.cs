@@ -13,6 +13,8 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.OpenApi.Models;
 using MitLicenseCenter.Application;
 using MitLicenseCenter.Application.Jobs;
+using MitLicenseCenter.Application.Settings;
+using MitLicenseCenter.Domain.Settings;
 using MitLicenseCenter.Infrastructure;
 using MitLicenseCenter.Infrastructure.Identity;
 using MitLicenseCenter.Infrastructure.Persistence;
@@ -438,6 +440,20 @@ if (!app.Environment.IsEnvironment("Test"))
         j => j.RunAsync(CancellationToken.None),
         "0 4 * * *",
         NightlyJobSchedule.LocalTimeZoneOptions);
+
+    // Авто-рестарт сервера 1С (MLC-218, ADR-55): в отличие от ночных джоб выше, у этой
+    // cron НЕ фиксирован — он строится из настройки OneC.AutoRestart.Time, а сама джоба
+    // регистрируется только когда расписание включено (OneC.AutoRestart.Enabled=1).
+    // На старте применяем текущее состояние настройки (включено → AddOrUpdate с дневным
+    // cron в местном поясе; выключено → RemoveIfExists). При изменении настройки эндпоинт
+    // /server/auto-restart перерегистрирует её через тот же OneCAutoRestartScheduler.Apply.
+    using (var scope = app.Services.CreateScope())
+    {
+        var store = scope.ServiceProvider.GetRequiredService<ISettingsStore>();
+        var enabled = await store.GetIntAsync(SettingKey.OneCAutoRestartEnabled).ConfigureAwait(false) == 1;
+        var time = await store.GetAsync(SettingKey.OneCAutoRestartTime).ConfigureAwait(false);
+        OneCAutoRestartScheduler.Apply(enabled, time);
+    }
 } // end if (!app.Environment.IsEnvironment("Test"))
 
 // Fail-fast bootstrap. Миграции и сидинг выполняются СИНХРОННО до открытия приёма

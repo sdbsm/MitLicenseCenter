@@ -96,3 +96,19 @@ public sealed record MaintenanceSubplanDto(
 
 // Один шаг последнего прогона под-плана: описание (что делалось) + успех.
 public sealed record MaintenanceTaskDetailDto(string Detail, bool Succeeded);
+
+// Расписание авто-рестартов сервера 1С — карточка «Расписание авто-рестартов» во вкладке
+// «Службы» (MLC-218, ADR-55). enabled — включён ли ночной авто-рестарт; time — время
+// суток HH:mm по часам хоста; lastRunUtc — время последнего прогона джобы (UTC, ISO-8601,
+// null опускается — ещё не запускалась); targetServices — текущие ЗАПУЩЕННЫЕ службы ragent
+// (что именно рестартнётся; пусто = сервер 1С не запущен/не найден).
+public sealed record AutoRestartScheduleResponse(
+    bool Enabled,
+    string Time,
+    DateTime? LastRunUtc,
+    IReadOnlyList<string> TargetServices);
+
+// Запрос изменения расписания (Admin): вкл/выкл + время HH:mm (валидируется на BE).
+public sealed record AutoRestartScheduleRequest(
+    bool Enabled,
+    string Time);

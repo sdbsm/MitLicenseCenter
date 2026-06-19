@@ -8,6 +8,7 @@ import { StatusBadge, type StatusBadgeVariant } from "@/components/ui/StatusBadg
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ApiError, readConflictBody } from "@/lib/api";
 import { useMe } from "@/features/auth/useAuth";
+import { AutoRestartCard } from "./AutoRestartCard";
 import { IisManagementCard } from "./iis/IisManagementCard";
 import { MaintenanceTab } from "./MaintenanceTab";
 import { OneCServerActionDialog } from "./OneCServerActionDialog";
@@ -108,6 +109,9 @@ function ServicesContent({ status }: { status: ServerStatus }) {
       </div>
 
       <OneCServersSection servers={status.oneCServers} />
+
+      {/* Расписание авто-рестартов сервера 1С (MLC-218): под списком служб 1С. */}
+      <AutoRestartCard />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <RasSummaryCard ras={status.ras} />

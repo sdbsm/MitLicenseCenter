@@ -63,6 +63,11 @@ const ALL_ACTION_TYPES: Record<AuditActionType, true> = {
   PerfRecordingStarted: true,
   PerfRecordingStopped: true,
   PerfRecordingDeleted: true,
+  OneCServerStarted: true,
+  OneCServerStopped: true,
+  OneCServerRestarted: true,
+  OneCServerAutoRestarted: true,
+  OneCServerAutoRestartScheduleChanged: true,
 };
 
 const unionMembers = Object.keys(ALL_ACTION_TYPES).sort();

@@ -73,7 +73,12 @@
       "RasServiceStarted": "Служба RAS запущена",
       "PerfRecordingStarted": "Запись быстродействия запущена",
       "PerfRecordingStopped": "Запись быстродействия остановлена",
-      "PerfRecordingDeleted": "Запись быстродействия удалена"
+      "PerfRecordingDeleted": "Запись быстродействия удалена",
+      "OneCServerStarted": "Сервер 1С запущен",
+      "OneCServerStopped": "Сервер 1С остановлен",
+      "OneCServerRestarted": "Сервер 1С перезапущен",
+      "OneCServerAutoRestarted": "Сервер 1С перезапущен по расписанию",
+      "OneCServerAutoRestartScheduleChanged": "Расписание авто-рестарта сервера 1С изменено"
     },
     "empty": {
       "title": "Записей нет",

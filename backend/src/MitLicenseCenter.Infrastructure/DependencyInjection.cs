@@ -351,6 +351,12 @@ public static class DependencyInjection
         // фиксирован 03:15 daily; TTL настраивается через Settings.Backup.TtlHours.
         services.AddScoped<IBackupRetentionJob, BackupRetentionJob>();
 
+        // Авто-рестарт сервера 1С (MLC-218, ADR-55): scoped (ISettingsStore=DbContext +
+        // IAuditLogger). CRON — НЕ фиксирован: строится из OneC.AutoRestart.Time, регистрация/
+        // снятие из Program.cs (старт) и эндпоинта /server/auto-restart. Тело рестартит
+        // запущенные ragent через IWindowsServiceController (singleton, выше).
+        services.AddScoped<IOneCAutoRestartJob, OneCAutoRestartJob>();
+
         // Hot-tier polling: BackgroundService для sub-minute hot-poll (Hangfire
         // CRON minimum = 1 мин, а нам нужно 3–5s). См. ADR-6.1.
         services.AddSingleton<HotTierPollingService>();
