@@ -17,7 +17,7 @@
 | `Status` | enum int | `Collecting` → `Analyzing` → `Completed`; плюс `Interrupted` (рестарт), `Failed` |
 | `StartedAtUtc` / `StoppedAtUtc` | datetime | окно сбора |
 | `StartedBy` | string | оператор (Admin) |
-| `TenantId` / `InfobaseId` | Guid? | опц. фильтр расследования на конкретного арендатора/инфобазу |
+| `TenantId` / `InfobaseId` | Guid? | опц. фильтр на арендатора/инфобазу. ⚠ Сам по себе НЕ изолирует сбор: `logcfg` глобален, поэтому при заданном `InfobaseId` в `CollectionConfig` обязан попасть фильтр `p:processName` (иначе пишется ТЖ всех арендаторов) |
 | `StopReason` | enum int | `Manual` / `TimeLimit` / `DiskLimit` / `Error` |
 
 ## `CollectionConfig` — снимок того, что включали (аудит/воспроизводимость)
@@ -27,8 +27,9 @@
 | `InvestigationId` | FK |
 | `LogcfgLocation` | каталог сбора ТЖ |
 | `Events` | список включённых событий (`TLOCK,TTIMEOUT,…`) |
-| `DurationFilterMs` | порог по длительности |
-| `Format` | `json` (см. `40_TECHLOG.md`) |
+| `DurationThresholdMicros` | порог по длительности, в **микросекундах** (logcfg `Dur` — мкс, см. `40_TECHLOG.md`) |
+| `ProcessNameFilter` | значение `p:processName` (имя ИБ) — **обязательно**, если у `Investigation` задан `InfobaseId` |
+| `Format` | целевой `json` (`⚠ verify` на стенде 8.5, см. `40_TECHLOG.md`) |
 | `HistoryHours` | лимит ротации |
 
 Зачем: после расследования видно, **что именно** собирали; и можно безопасно снять ровно то,
