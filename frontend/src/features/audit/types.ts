@@ -64,7 +64,12 @@ export type AuditActionType =
   | "RasServiceStarted"
   | "PerfRecordingStarted"
   | "PerfRecordingStopped"
-  | "PerfRecordingDeleted";
+  | "PerfRecordingDeleted"
+  | "OneCServerStarted"
+  | "OneCServerStopped"
+  | "OneCServerRestarted"
+  | "OneCServerAutoRestarted"
+  | "OneCServerAutoRestartScheduleChanged";
 
 // Активно пишущиеся действия для фильтра. Исключены legacy/frozen
 // (drift/reconcile-цикл и circuit-breaker — новые строки с ними не пишутся);
@@ -117,6 +122,11 @@ export const AUDIT_ACTION_TYPES: readonly AuditActionType[] = [
   "PerfRecordingStarted",
   "PerfRecordingStopped",
   "PerfRecordingDeleted",
+  "OneCServerStarted",
+  "OneCServerStopped",
+  "OneCServerRestarted",
+  "OneCServerAutoRestarted",
+  "OneCServerAutoRestartScheduleChanged",
 ] as const;
 
 export type AuditReason = "LimitExceeded" | "ManualByAdmin";
