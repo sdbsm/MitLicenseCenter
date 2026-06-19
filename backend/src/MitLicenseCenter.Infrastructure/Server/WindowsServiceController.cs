@@ -83,7 +83,7 @@ internal sealed partial class WindowsServiceController : IWindowsServiceControll
     // sc start + опрос до IsRunning=true. Код 1056 (ALREADY_RUNNING) — идемпотентный успех.
     private async Task StartCoreAsync(string serviceName, CancellationToken ct)
     {
-        var result = await _sc.RunAsync($"start {serviceName}", ct).ConfigureAwait(false);
+        var result = await _sc.RunAsync($"start \"{serviceName}\"", ct).ConfigureAwait(false);
         if (result.ExitCode is not (ScSuccess or ScErrorServiceAlreadyRunning))
         {
             throw new WindowsServiceOperationException(
@@ -96,7 +96,7 @@ internal sealed partial class WindowsServiceController : IWindowsServiceControll
     // sc stop + опрос до IsRunning=false. Код 1062 (NOT_ACTIVE) — идемпотентный успех.
     private async Task StopCoreAsync(string serviceName, CancellationToken ct)
     {
-        var result = await _sc.RunAsync($"stop {serviceName}", ct).ConfigureAwait(false);
+        var result = await _sc.RunAsync($"stop \"{serviceName}\"", ct).ConfigureAwait(false);
         if (result.ExitCode is not (ScSuccess or ScErrorServiceNotActive))
         {
             throw new WindowsServiceOperationException(
