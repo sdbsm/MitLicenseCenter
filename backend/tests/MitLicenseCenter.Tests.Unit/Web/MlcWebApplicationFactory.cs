@@ -44,6 +44,17 @@ public sealed class MlcWebApplicationFactory : WebApplicationFactory<MitLicenseC
         // В "Test" env: Swagger выключен (как в Production), HSTS/redirect выключен — нам ОК.
         builder.UseEnvironment("Test");
 
+        // Captive-dependency guard (MLC-222): в "Test" env DI-валидация scope по умолчанию
+        // ВЫКЛЮЧЕНА (в отличие от Development), из-за чего singleton-потребляющий-scoped
+        // (ServerStatusProvider ← Scoped IIisLifecycleService) проскочил гейт, но валил
+        // реальный старт dev.ps1. Включаем ValidateScopes+ValidateOnBuild — теперь любой
+        // эндпоинт-тест, поднимающий хост, ловит такие графы на build.
+        builder.UseDefaultServiceProvider(options =>
+        {
+            options.ValidateScopes = true;
+            options.ValidateOnBuild = true;
+        });
+
         builder.ConfigureAppConfiguration(config =>
         {
             // Переопределяем connection strings в конце — они имеют наивысший приоритет.

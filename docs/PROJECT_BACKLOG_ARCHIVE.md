@@ -28,7 +28,7 @@
   `git show <commit>:docs/PROJECT_BACKLOG_ARCHIVE.md` — файл целиком на любую дату
   (последняя несжатая версия — родитель коммита сжатия от 2026-06-13).
 
-## Индекс закрытых задач (MLC-001..221)
+## Индекс закрытых задач (MLC-001..222)
 
 Формат: `MLC-NNN` — суть — Done (дата) · `код-коммит`.
 
@@ -363,3 +363,4 @@
 - `MLC-219` — Список рабочих процессов 1С (rphost): `GET /server/onec/processes` (Viewer, переиспользует `rac process list`) — Done (2026-06-19) · PR #410
 - `MLC-220` — Рестарт rphost: OS-kill по `Pid` из whitelist `rac process list` + guard по имени процесса + верификация исчезновения с таймаутом, Admin+confirm, аудит 805, ADR-56 — Done (2026-06-19) · PR #411
 - `MLC-221` — Подавление `NU1903` (GHSA-2m69-gcr7-jv3q, test-only `SQLitePCLRaw`) + бамп версии `1.1.3` — Done (2026-06-19)
+- `MLC-222` — Хотфикс: `IServerStatusProvider` Singleton→Scoped (captive dependency — потреблял Scoped `IIisLifecycleService`, валил старт в Development по DI ValidateScopes; в проде был latent captive). + guard: тест-фабрика включает `ValidateScopes`/`ValidateOnBuild` (окружение «Test» это не делало — оттого баг проскочил гейт). Версия осталась `1.1.3` (фикс до публикации релиза) — Done (2026-06-19)

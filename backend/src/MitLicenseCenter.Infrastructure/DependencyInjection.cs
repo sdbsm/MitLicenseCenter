@@ -212,11 +212,14 @@ public static class DependencyInjection
         // композирует обнаружение ragent + IRasServiceManager + статус SQL +
         // IIisLifecycleService, каждый источник деградирует независимо (Available/Error).
         // Только наблюдение для RAS/SQL/IIS; мутации сервера 1С — через IWindowsServiceController
-        // (выше). Все singleton (без состояния, читают реестр/ServiceController/адаптеры).
-        // Эндпоинты — ServerEndpoints; FE — MLC-214.
+        // (выше). Источники-ридеры — singleton (без состояния, читают реестр/ServiceController).
+        // Сам ПРОВАЙДЕР — Scoped (MLC-222): он композирует Scoped `IIisLifecycleService` (ниже),
+        // а singleton НЕ может потреблять scoped — DI ValidateScopes валит старт в Development
+        // (captive dependency). Потребляется только per-request эндпоинтами ServerEndpoints, так
+        // что Scoped корректен. Эндпоинты — ServerEndpoints; FE — MLC-214.
         services.AddSingleton<IOneCServerDiscovery, OneCServerDiscovery>();
         services.AddSingleton<ISqlServiceStatusReader, SqlServiceStatusReader>();
-        services.AddSingleton<IServerStatusProvider, ServerStatusProvider>();
+        services.AddScoped<IServerStatusProvider, ServerStatusProvider>();
 
         // IIS publishing: реальный адаптер ServerManager + XDocument (PR 3.5).
         // Stub переехал в Publishing/Testing/ для unit-тестов, в production-DI
