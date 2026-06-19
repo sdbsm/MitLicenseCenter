@@ -174,6 +174,21 @@ public sealed class WindowsServiceControllerTests
         sc.Calls.Should().ContainInOrder("stop \"MyService\"", "start \"MyService\"");
     }
 
+    // Регресс MLC-225: переходное StopPending (IsRunning=false И IsStopped=false) НЕ считается
+    // остановкой. Иначе в рестарте `sc start` уходил бы в ещё останавливающуюся службу и не
+    // действовал (симптом: «служба останавливается, но не запускается»). Стоп на вечном pending
+    // обязан истечь по таймауту, а не ложно «успешно остановиться».
+    [Fact]
+    public async Task Stop_does_not_treat_pending_as_stopped()
+    {
+        var sc = new FakeScRunner();
+        var state = new FakeState(initialRunning: true).Pending(); // всегда StopPending, никогда Stopped
+
+        var act = () => NewController(sc, state, TimeoutOptions).StopAsync(Svc, CancellationToken.None);
+
+        await act.Should().ThrowAsync<WindowsServiceOperationException>();
+    }
+
     // ── helpers ─────────────────────────────────────────────────────────────────────────
 
     // Без явного аргумента options — ReliableOptions (success/verification/restart/идемпотентность).
@@ -216,6 +231,7 @@ public sealed class WindowsServiceControllerTests
         private bool _current;
         private readonly Queue<(int AfterReads, bool Target)> _transitions = new();
         private int _readsSinceTransition;
+        private bool _pending;
 
         public FakeState()
         {
@@ -233,6 +249,14 @@ public sealed class WindowsServiceControllerTests
         public FakeState StoppedAfterReads(int reads) => Schedule(reads, false);
 
         public FakeState ThenRunningAfterReads(int reads) => Schedule(reads, true);
+
+        // Зафиксировать переходное состояние StopPending (IsRunning=false И IsStopped=false) —
+        // регресс MLC-225: «пендинг ≠ остановлена».
+        public FakeState Pending()
+        {
+            _pending = true;
+            return this;
+        }
 
         private FakeState Schedule(int reads, bool target)
         {
@@ -262,7 +286,11 @@ public sealed class WindowsServiceControllerTests
                 }
             }
 
-            return new ServiceState(_current, serviceName);
+            // _pending → переходное StopPending: ни Running, ни Stopped (оба false).
+            // Иначе бинарно: IsStopped = !IsRunning (фейк без отдельного StartPending).
+            return _pending
+                ? new ServiceState(false, false, serviceName)
+                : new ServiceState(_current, !_current, serviceName);
         }
     }
 }

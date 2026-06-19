@@ -115,7 +115,7 @@ public sealed class SqlServiceStatusReaderTests
 
         public FakeState SetRunning(string name, bool running)
         {
-            _byName[name] = new ServiceState(running, name);
+            _byName[name] = new ServiceState(running, !running, name);
             return this;
         }
 

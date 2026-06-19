@@ -334,7 +334,7 @@ public sealed class ScRasServiceManagerTests
 
         public FakeState SetRunning(string name, bool running)
         {
-            _byName[name] = new ServiceState(running, name);
+            _byName[name] = new ServiceState(running, !running, name);
             return this;
         }
 
