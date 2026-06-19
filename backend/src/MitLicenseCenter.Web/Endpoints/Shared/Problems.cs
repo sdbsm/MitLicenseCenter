@@ -89,6 +89,14 @@ public static class ProblemCodes
     // разрушительные stop/restart (защита от случайного клика помимо токена в UI).
     public const string ServerOperationFailed = "SERVER_OPERATION_FAILED";
     public const string ServerConfirmRequired = "SERVER_CONFIRM_REQUIRED";
+
+    // MLC-220 (ADR-56) — рестарт рабочего процесса 1С (rphost) по Pid не выполнен.
+    // ProcessConfirmRequired — серверный Confirm-гейт (разрушительно: рвёт активные сеансы
+    // на процессе). ProcessRestartFailed — guard/верификация не пройдены: Pid переиспользован
+    // ОС (не rphost) либо процесс не исчез из rac process list за таймаут. Фронт по коду
+    // показывает текст из detail.
+    public const string ProcessConfirmRequired = "PROCESS_CONFIRM_REQUIRED";
+    public const string ProcessRestartFailed = "PROCESS_RESTART_FAILED";
 }
 
 public static class Problems
@@ -361,6 +369,21 @@ public static class Problems
             "Требуется подтверждение",
             "Эта операция остановит или перезапустит сервер 1С и временно прервёт работу всех баз узла. "
                 + "Подтвердите, чтобы продолжить.");
+
+    // MLC-220 (ADR-56) — рестарт rphost требует подтверждения (разрушительно: рвёт активные
+    // сеансы на этом рабочем процессе). Защита от случайного клика помимо токена в UI.
+    public static ProblemDetails ProcessConfirmRequired() =>
+        Conflict(
+            ProblemCodes.ProcessConfirmRequired,
+            "Требуется подтверждение",
+            "Перезапуск рабочего процесса 1С разорвёт активные сеансы на этом процессе. "
+                + "Подтвердите, чтобы продолжить.");
+
+    // MLC-220 (ADR-56) — рестарт rphost не выполнен: guard/верификация не пройдены. detail —
+    // санитизированный русский текст (Pid переиспользован ОС / процесс не исчез за таймаут).
+    // Секретов нет. Технические подробности — в журнале сервера по correlationId.
+    public static ProblemDetails ProcessRestartFailed(string detail, string? correlationId = null) =>
+        Conflict(ProblemCodes.ProcessRestartFailed, "Перезапуск рабочего процесса 1С не удался", detail, correlationId);
 
     // MLC-002 — kill не выполнен: кластер 1С (RAS) недоступен или вернул ошибку.
     // 502 (upstream-сбой). Запись в аудит при этом НЕ делается.

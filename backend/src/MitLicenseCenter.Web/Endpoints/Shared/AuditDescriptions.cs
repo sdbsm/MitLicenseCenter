@@ -179,4 +179,11 @@ internal static class AuditDescriptions
         enabled
             ? $"Авто-рестарт сервера 1С включён на {time} (по часам хоста) администратором {initiator}."
             : $"Авто-рестарт сервера 1С выключен администратором {initiator}.";
+
+    // ── Рестарт рабочего процесса 1С (MLC-220, ADR-56) ──────────────────────────────
+    // Server/host-scope (TenantId не пишется); секретов нет. Несём завершённый Pid — для
+    // разбора «какой именно rphost перезапущен». Завершение ОС-процесса rphost по Pid,
+    // кластер 1С авто-поднимает новый процесс (с другим Pid).
+    public static string OneCProcessRestarted(int pid, string initiator) =>
+        $"Рабочий процесс 1С rphost (Pid {pid}) перезапущен администратором {initiator}.";
 }

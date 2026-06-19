@@ -137,7 +137,12 @@ public enum AuditActionType
     // ragent); AutoRestartScheduleChanged — Admin изменил параметры расписания через
     // PUT /server/auto-restart (вкл/выкл + время). Server/host-scope (TenantId не пишется).
     // 803/804 — следующие свободные в 800-серии (frozen-int: новые числа, не переиспользуются).
-    // 805+ — резерв под будущие server-действия.
     OneCServerAutoRestarted = 803,
     OneCServerAutoRestartScheduleChanged = 804,
+
+    // Рестарт рабочего процесса 1С (rphost) оператором (MLC-220, ADR-56). У rac нет команды
+    // «restart process» → рестарт = завершение ОС-процесса rphost по Pid (whitelist по
+    // rac process list + guard по имени), кластер 1С авто-поднимает новый. Описание несёт
+    // завершённый Pid (без секретов). Server/host-scope (TenantId не пишется). 806+ — резерв.
+    OneCProcessRestarted = 805,
 }

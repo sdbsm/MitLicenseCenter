@@ -78,7 +78,8 @@
       "OneCServerStopped": "Сервер 1С остановлен",
       "OneCServerRestarted": "Сервер 1С перезапущен",
       "OneCServerAutoRestarted": "Сервер 1С перезапущен по расписанию",
-      "OneCServerAutoRestartScheduleChanged": "Расписание авто-рестарта сервера 1С изменено"
+      "OneCServerAutoRestartScheduleChanged": "Расписание авто-рестарта сервера 1С изменено",
+      "OneCProcessRestarted": "Рабочий процесс 1С перезапущен"
     },
     "empty": {
       "title": "Записей нет",

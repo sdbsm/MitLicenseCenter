@@ -131,3 +131,15 @@ public sealed record OneCProcessDto(
     int? AvailablePerformance,
     double? AvgCallTime,
     long? MemorySize);
+
+// Запрос рестарта рабочего процесса 1С (rphost) по Pid (MLC-220, ADR-56). У rac нет команды
+// «restart process» → рестарт = завершение ОС-процесса rphost по Pid (whitelist по rac
+// process list + guard по имени), кластер 1С авто-поднимает новый. Confirm — серверный
+// Confirm-гейт (разрушительно: рвёт активные сеансы на этом процессе).
+public sealed record OneCProcessRestartRequest(
+    int Pid,
+    bool Confirm = false);
+
+// Ответ рестарта rphost: завершённый Pid + исход строкой ("Restarted" — успех/
+// идемпотентность; для guard/таймаута эндпоинт отдаёт 404/409, в Ok не приходят).
+public sealed record OneCProcessRestartResponse(int Pid, string Outcome);

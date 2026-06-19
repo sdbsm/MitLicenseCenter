@@ -194,6 +194,17 @@ public static class DependencyInjection
         services.AddSingleton(new WindowsServiceControllerOptions());
         services.AddSingleton<IWindowsServiceController, WindowsServiceController>();
 
+        // Рестарт рабочего процесса 1С (rphost) по Pid (MLC-220, ADR-56). У rac нет команды
+        // «restart process» → рестарт = завершение ОС-процесса rphost (ILocalProcessTerminator,
+        // тонкая граница над System.Diagnostics.Process — ADR-20), кластер авто-поднимает новый.
+        // Сервис: whitelist по rac process list (IClusterClient) → guard по имени процесса →
+        // kill → верификация исчезновения Pid опросом rac с таймаутом (TimeProvider). Terminator —
+        // singleton без состояния; сам сервис Scoped (зависит от scoped IClusterClient). Дефолтные
+        // таймауты (30с) задаются опциями; тесты подменяют через ctor. Эндпоинт — ServerEndpoints; FE — MLC-220.
+        services.AddSingleton<ILocalProcessTerminator, LocalProcessTerminator>();
+        services.AddSingleton(new OneCProcessRestartOptions());
+        services.AddScoped<IOneCProcessRestartService, OneCProcessRestartService>();
+
         // Read-агрегатор статуса служб узла + управление сервером 1С (MLC-213, ADR-54/55):
         // обнаружение служб ragent через реестр (IServiceRegistryReader, один проход без
         // спавнов — как RAS) + состояние (IServiceStateReader); статус службы SQL —
