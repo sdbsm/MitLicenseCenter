@@ -5,7 +5,6 @@
     "searchPlaceholder": "Поиск по названию или имени БД…",
     "tabs": {
       "bases": "Базы",
-      "iis": "IIS",
       "size": "Размер баз"
     },
     "actions": {
