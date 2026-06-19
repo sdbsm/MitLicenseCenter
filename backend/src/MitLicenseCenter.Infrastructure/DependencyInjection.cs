@@ -188,8 +188,9 @@ public static class DependencyInjection
         // до целевого с таймаутом; идемпотентность (sc 1056/1062 = успех). Singleton:
         // контроллер без состояния (переиспользует IScProcessRunner/IServiceStateReader),
         // gate держит словарь семафоров per-service-name на весь процесс. Дефолтные
-        // таймауты (PollInterval/VerificationTimeout 30с — ADR-55) задаются опциями;
-        // тесты подменяют их через ctor. Эндпоинты/FE — MLC-213+.
+        // таймауты задаются опциями (тесты подменяют через ctor): VerificationTimeout 300с
+        // (MLC-224 — холодный старт/стоп кластера 1С идёт минутами; полл возвращается сразу
+        // при достижении состояния, потолок бьёт лишь по детекту реального отказа). Эндпоинты/FE — MLC-213+.
         services.AddSingleton<IServiceOperationGate, ServiceOperationGate>();
         services.AddSingleton(new WindowsServiceControllerOptions());
         services.AddSingleton<IWindowsServiceController, WindowsServiceController>();

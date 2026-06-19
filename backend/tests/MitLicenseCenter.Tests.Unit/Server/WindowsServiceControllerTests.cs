@@ -51,7 +51,22 @@ public sealed class WindowsServiceControllerTests
 
         result.ServiceName.Should().Be(Svc);
         result.FinalStatus.Should().Be(WindowsServiceStatus.Running);
-        sc.Calls.Should().ContainSingle().Which.Should().Be("start MyService");
+        sc.Calls.Should().ContainSingle().Which.Should().Be("start \"MyService\"");
+    }
+
+    // Регресс MLC-223: имя службы 1С содержит пробелы/двоеточие/скобки
+    // (`1C:Enterprise 8.5 Server Agent (x86-64)`). Без кавычек sc.exe видит мусорную
+    // командную строку → 1639 ERROR_INVALID_COMMAND_LINE. Имя ОБЯЗАНО квотироваться.
+    [Fact]
+    public async Task Stop_quotes_service_name_with_spaces()
+    {
+        const string oneCName = "1C:Enterprise 8.5 Server Agent (x86-64)";
+        var sc = new FakeScRunner();
+        var state = new FakeState(initialRunning: true).StoppedAfterReads(2);
+
+        await NewController(sc, state).StopAsync(oneCName, CancellationToken.None);
+
+        sc.Calls.Should().ContainSingle().Which.Should().Be($"stop \"{oneCName}\"");
     }
 
     [Fact]
@@ -63,7 +78,7 @@ public sealed class WindowsServiceControllerTests
         var result = await NewController(sc, state).StopAsync(Svc, CancellationToken.None);
 
         result.FinalStatus.Should().Be(WindowsServiceStatus.Stopped);
-        sc.Calls.Should().ContainSingle().Which.Should().Be("stop MyService");
+        sc.Calls.Should().ContainSingle().Which.Should().Be("stop \"MyService\"");
     }
 
     // ── Таймаут ─────────────────────────────────────────────────────────────────────────
@@ -156,7 +171,7 @@ public sealed class WindowsServiceControllerTests
         var result = await NewController(sc, state).RestartAsync(Svc, CancellationToken.None);
 
         result.FinalStatus.Should().Be(WindowsServiceStatus.Running);
-        sc.Calls.Should().ContainInOrder("stop MyService", "start MyService");
+        sc.Calls.Should().ContainInOrder("stop \"MyService\"", "start \"MyService\"");
     }
 
     // ── helpers ─────────────────────────────────────────────────────────────────────────
@@ -175,7 +190,10 @@ public sealed class WindowsServiceControllerTests
             options ?? ReliableOptions,
             NullLogger<WindowsServiceController>.Instance);
 
-    // Фейк sc.exe: возвращает заданный ExitCode на любую команду, фиксирует «<sub> <name>».
+    // Фейк sc.exe: возвращает заданный ExitCode на любую команду, фиксирует ПОЛНУЮ строку
+    // аргументов как есть (важно для регресса MLC-223: имя службы 1С с пробелами обязано
+    // приходить в кавычках — `stop "1C:Enterprise 8.5 Server Agent (x86-64)"`; разбор по
+    // пробелу мангал бы такие имена и прятал баг).
     private sealed class FakeScRunner : IScProcessRunner
     {
         public List<string> Calls { get; } = new();
@@ -183,10 +201,7 @@ public sealed class WindowsServiceControllerTests
 
         public Task<ScResult> RunAsync(string arguments, CancellationToken ct)
         {
-            var tokens = arguments.Split(' ', 3, StringSplitOptions.RemoveEmptyEntries);
-            var sub = tokens.Length > 0 ? tokens[0] : "";
-            var name = tokens.Length > 1 ? tokens[1] : "";
-            Calls.Add($"{sub} {name}");
+            Calls.Add(arguments);
             return Task.FromResult(new ScResult(ExitCode, "", ""));
         }
     }
