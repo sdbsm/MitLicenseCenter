@@ -31,8 +31,20 @@
     строку не добавляем, чтобы health показывал чистый «0.1.0-beta», а не «…+<sha>».
   -->
   <PropertyGroup>
-    <Version>1.1.2</Version>
+    <Version>1.1.3</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
+
+  <!--
+    NU1903 (MLC-221): транзитивный SQLitePCLRaw.lib.e_sqlite3 2.1.11 (GHSA-2m69-gcr7-jv3q,
+    high severity) приходит ТОЛЬКО в тест-проекты через Microsoft.EntityFrameworkCore.Sqlite
+    (SQLite — тест-харнес для concurrency/seed-тестов; продукт работает на SQL Server, в
+    поставку пакет не входит). Подавляем advisory, чтобы гейт build.ps1 (TreatWarningsAsErrors)
+    был зелёным на свежем restore. Ретайр — при бампе EF Core 10.0.9+ (Dependabot), тянущем
+    патч-версию SQLitePCLRaw.
+  -->
+  <ItemGroup>
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-2m69-gcr7-jv3q" />
+  </ItemGroup>
 
 </Project>
