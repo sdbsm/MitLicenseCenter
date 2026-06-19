@@ -11,5 +11,9 @@ internal interface IServiceStateReader
     ServiceState? ReadState(string serviceName);
 }
 
-// Снимок состояния службы: running + DisplayName (best-effort).
-internal readonly record struct ServiceState(bool IsRunning, string? DisplayName);
+// Снимок состояния службы: IsRunning (Status==Running) + IsStopped (Status==Stopped) +
+// DisplayName (best-effort). ВАЖНО (MLC-225): IsRunning и IsStopped — НЕ инверсии друг друга:
+// переходные состояния StartPending/StopPending дают оба false. Различать их обязательно для
+// рестарта — фазу остановки нельзя считать завершённой на StopPending (иначе `sc start` уйдёт
+// в ещё останавливающуюся службу и не подействует).
+internal readonly record struct ServiceState(bool IsRunning, bool IsStopped, string? DisplayName);

@@ -362,7 +362,9 @@ internal sealed partial class RacExecutableRasClusterClient : IClusterClient
 
     // Маппинг `rac process list` → OneCProcessLoad (MLC-066). Required: process (UUID рабочего
     // процесса). `available-perfomance` — ключ rac с опечаткой (сохраняем как есть). `avg-call-time`
-    // дробный → инвариантный парс (научная нотация). memory-size большой → long.
+    // дробный → инвариантный парс (научная нотация). memory-size 1С отдаёт в КИЛОБАЙТАХ —
+    // нормализуем в байты (×1024L), чтобы поле было в байтах, как ждёт FE formatBytes (MLC-226;
+    // проверено: rphost под нагрузкой ~1.6 ГБ = 1682404 КБ; иначе показывало бы «1 МБ» вместо ~990).
     internal static IReadOnlyList<OneCProcessLoad> ParseProcessLoads(string stdout)
     {
         var records = RacOutputParser.Parse(stdout);
@@ -380,7 +382,7 @@ internal sealed partial class RacExecutableRasClusterClient : IClusterClient
                 Pid: ParseIntOrNull(rec.GetValueOrDefault("pid")),
                 AvailablePerformance: ParseIntOrNull(rec.GetValueOrDefault("available-perfomance")),
                 AvgCallTime: ParseDoubleOrNull(rec.GetValueOrDefault("avg-call-time")),
-                MemorySize: ParseLongOrNull(rec.GetValueOrDefault("memory-size"))));
+                MemorySize: ParseLongOrNull(rec.GetValueOrDefault("memory-size")) * 1024L));
         }
 
         return result;

@@ -26,9 +26,14 @@ internal sealed class ServiceControllerStateReader : IServiceStateReader
             using var controller = new ServiceController(serviceName);
             // Обращение к Status/DisplayName бросает InvalidOperationException, если
             // службы с таким именем нет (исчезла между чтением реестра и проверкой).
-            var isRunning = controller.Status == ServiceControllerStatus.Running;
+            // Свежий контроллер на каждый вызов → Status читается «вживую» (без Refresh).
+            // IsRunning/IsStopped различают переходные StartPending/StopPending (оба false) —
+            // критично для верификации рестарта (MLC-225).
+            var status = controller.Status;
+            var isRunning = status == ServiceControllerStatus.Running;
+            var isStopped = status == ServiceControllerStatus.Stopped;
             var displayName = controller.DisplayName;
-            return new ServiceState(isRunning, string.IsNullOrWhiteSpace(displayName) ? null : displayName);
+            return new ServiceState(isRunning, isStopped, string.IsNullOrWhiteSpace(displayName) ? null : displayName);
         }
         catch (InvalidOperationException)
         {

@@ -123,7 +123,12 @@ internal sealed partial class WindowsServiceController : IWindowsServiceControll
                     $"Служба «{serviceName}» не найдена на этом узле.");
             }
 
-            if (state.Value.IsRunning == targetRunning)
+            // Целевое состояние достигнуто? Старт ждёт IsRunning, стоп — IsStopped (НЕ
+            // «!IsRunning»: StopPending — служба ещё останавливается, не остановлена; иначе
+            // рестарт пошлёт `sc start` в останавливающуюся службу, и старт не подействует —
+            // баг MLC-225). Переходные состояния (Start/StopPending) → продолжаем опрос.
+            var reached = targetRunning ? state.Value.IsRunning : state.Value.IsStopped;
+            if (reached)
             {
                 return;
             }
