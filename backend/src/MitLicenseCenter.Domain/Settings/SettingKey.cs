@@ -97,4 +97,13 @@ public static class SettingKey
     public const string UpdatesRepository = "Updates.Repository";
     public const string UpdatesCheckIntervalHours = "Updates.CheckIntervalHours";
     public const string UpdatesEnabled = "Updates.Enabled";
+
+    // Расписание авто-рестартов сервера 1С (MLC-218, ADR-55): ночной профилактический
+    // рестарт всех запущенных служб ragent. Enabled — рубильник (0/1, читается GetInt);
+    // Time — время суток HH:mm по часам хоста (cron строится из него, местный пояс ADR-52);
+    // LastRunUtc — отметка последнего фактического прогона джобы (UTC, ISO-8601),
+    // обновляется самой джобой (не оператором; в каталоге сидится пустым).
+    public const string OneCAutoRestartEnabled = "OneC.AutoRestart.Enabled";
+    public const string OneCAutoRestartTime = "OneC.AutoRestart.Time";
+    public const string OneCAutoRestartLastRunUtc = "OneC.AutoRestart.LastRunUtc";
 }

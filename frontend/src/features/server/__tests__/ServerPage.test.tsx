@@ -92,6 +92,13 @@ function routeApi(url: string) {
       ],
     });
   }
+  if (url.startsWith("/api/v1/server/auto-restart")) {
+    return Promise.resolve({
+      enabled: false,
+      time: "04:00",
+      targetServices: ["ragent-running"],
+    });
+  }
   if (url.startsWith("/api/v1/iis/server")) {
     return Promise.resolve({ state: "Started", available: true, error: null });
   }
@@ -170,6 +177,24 @@ describe("ServerPage (MLC-214/215)", () => {
     expect(await screen.findByText("Сервер 1С не обнаружен.")).toBeInTheDocument();
   });
 
+  // MLC-218: карточка «Расписание авто-рестартов» на вкладке «Службы». Admin видит кнопку
+  // сохранения и редактируемые поля; Viewer — только состояние без кнопки.
+  it("вкладка «Службы»: карточка авто-рестартов с кнопкой сохранения для Admin", async () => {
+    renderPage();
+    expect(await screen.findByText("Расписание авто-рестартов")).toBeInTheDocument();
+    // Ждём именно форму (тумблер) — заголовок карточки виден и в loading-состоянии.
+    expect(await screen.findByLabelText("Авто-рестарт включён")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Сохранить" })).toBeInTheDocument();
+  });
+
+  it("Viewer не видит кнопку сохранения авто-рестартов", async () => {
+    meMock.mockReturnValue({ data: { roles: ["Viewer"] } });
+    renderPage();
+    // Дожидаемся загрузки формы (тумблер), затем убеждаемся, что кнопки сохранения нет.
+    await screen.findByLabelText("Авто-рестарт включён");
+    expect(screen.queryByRole("button", { name: "Сохранить" })).not.toBeInTheDocument();
+  });
+
   // MLC-215: дом IIS = «Сервер». Вкладка «Службы» активна по умолчанию, «IIS» —
   // монтирует карточку управления IIS только при активации.
   it("вкладка «Службы» активна по умолчанию (рендерит светофор и список 1С)", async () => {
@@ -219,9 +244,11 @@ describe("ServerPage (MLC-214/215)", () => {
     expect(screen.getByText("Ночное обслуживание")).toBeInTheDocument();
     expect(screen.getByText("Полный бэкап")).toBeInTheDocument();
     expect(screen.getByText("По расписанию")).toBeInTheDocument();
-    // Итог прогона — упал.
-    const outcome = screen.getByText("Ошибка");
-    expect(outcome).toHaveAttribute("data-variant", "danger");
+    // Итог прогона — упал. «Ошибка» рендерится и как бейдж итога под-плана, и как метка
+    // упавшего шага внутри <details> (jsdom держит контент свёрнутого <details> в DOM) —
+    // поэтому матчим все и проверяем, что хотя бы один бейдж — danger (итог прогона).
+    const failedBadges = screen.getAllByText("Ошибка");
+    expect(failedBadges.some((b) => b.getAttribute("data-variant") === "danger")).toBe(true);
     // Развёртка по задачам: что именно упало.
     await user.click(screen.getByText("Полный бэкап"));
     expect(await screen.findByText("Резервное копирование")).toBeInTheDocument();

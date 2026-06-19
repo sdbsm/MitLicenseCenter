@@ -281,6 +281,38 @@ public static class SettingDefinitions
                 DefaultValue: "1",
                 Min: 0,
                 Max: 1),
+
+            // MLC-218 (ADR-55): расписание авто-рестартов сервера 1С. Управляется
+            // преимущественно карточкой «Расписание авто-рестартов» (эндпоинты
+            // /server/auto-restart), в каталоге — для сидинга дефолтов и общего whitelist.
+            // 0/1 рубильник (как Updates.Enabled): 0 → джоба снята с расписания.
+            [SettingKey.OneCAutoRestartEnabled] = new(
+                SettingKey.OneCAutoRestartEnabled,
+                IsSecret: false,
+                Description: "Включить ночной авто-рестарт сервера 1С по расписанию (1 — включён, 0 — выключен).",
+                Kind: SettingValueKind.Number,
+                DefaultValue: "0",
+                Min: 0,
+                Max: 1),
+
+            // Время суток HH:mm по часам хоста; формат проверяет эндпоинт /server/auto-restart
+            // (каталог хранит как Text — generic-PUT строгий HH:mm не валидирует, что приемлемо:
+            // штатный путь правки — карточка расписания).
+            [SettingKey.OneCAutoRestartTime] = new(
+                SettingKey.OneCAutoRestartTime,
+                IsSecret: false,
+                Description: "Время ночного авто-рестарта сервера 1С в формате ЧЧ:мм по часам хоста (например, 04:00).",
+                Kind: SettingValueKind.Text,
+                DefaultValue: "04:00"),
+
+            // Отметка последнего фактического прогона джобы авто-рестарта (UTC, ISO-8601).
+            // Обновляется самой джобой; оператор не задаёт (сидится пустым). В каталоге —
+            // чтобы snapshot/store знали ключ и он не получал 404 при записи джобой.
+            [SettingKey.OneCAutoRestartLastRunUtc] = new(
+                SettingKey.OneCAutoRestartLastRunUtc,
+                IsSecret: false,
+                Description: "Время последнего прогона авто-рестарта сервера 1С (UTC, заполняется системой).",
+                Kind: SettingValueKind.Text),
         };
 
     // Клампит числовую настройку к её whitelist-диапазону (Min/Max из каталога):

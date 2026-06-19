@@ -134,7 +134,7 @@ internal sealed partial class SqlMaintenanceProbe
     // отражает прогоны именно под-плана (одно задание может нести несколько под-планов). run_status
     // sysjobhistory не разбираем (план = под-планы лога). Время лога — UTC уже? Нет: start_time/
     // end_time в sysmaintplan_log — datetime в локале SQL-хоста, конвертируем в UTC (single-host).
-    private async Task<IReadOnlyList<SubplanRow>> ReadSubplansAsync(SqlConnection connection, CancellationToken ct)
+    private static async Task<IReadOnlyList<SubplanRow>> ReadSubplansAsync(SqlConnection connection, CancellationToken ct)
     {
         // last_run = последняя запись лога под-плана; has_schedule = у задания есть включённое
         // расписание (sysjobschedules → sysschedules.enabled=1). OUTER APPLY к последнему логу,

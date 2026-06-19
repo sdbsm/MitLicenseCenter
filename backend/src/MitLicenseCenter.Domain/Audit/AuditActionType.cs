@@ -131,4 +131,13 @@ public enum AuditActionType
     OneCServerStarted = 800,
     OneCServerStopped = 801,
     OneCServerRestarted = 802,
+
+    // Расписание авто-рестартов сервера 1С (MLC-218, ADR-55). AutoRestarted — срабатывание
+    // ночной Hangfire-джобы (initiator "system", описание перечисляет рестартнутые службы
+    // ragent); AutoRestartScheduleChanged — Admin изменил параметры расписания через
+    // PUT /server/auto-restart (вкл/выкл + время). Server/host-scope (TenantId не пишется).
+    // 803/804 — следующие свободные в 800-серии (frozen-int: новые числа, не переиспользуются).
+    // 805+ — резерв под будущие server-действия.
+    OneCServerAutoRestarted = 803,
+    OneCServerAutoRestartScheduleChanged = 804,
 }

@@ -170,4 +170,13 @@ internal static class AuditDescriptions
 
     public static string OneCServerRestarted(string serviceName, string initiator) =>
         $"Сервер 1С «{serviceName}» перезапущен администратором {initiator}.";
+
+    // ── Расписание авто-рестартов сервера 1С (MLC-218, ADR-55) ──────────────────────
+    // Server/host-scope. Срабатывание самой джобы (OneCServerAutoRestarted = 803) пишет
+    // не Web, а Infrastructure-джоба (initiator "system") — формулировка живёт рядом с её
+    // кодом. Здесь — только изменение расписания оператором (вкл/выкл + время).
+    public static string OneCServerAutoRestartScheduleChanged(bool enabled, string time, string initiator) =>
+        enabled
+            ? $"Авто-рестарт сервера 1С включён на {time} (по часам хоста) администратором {initiator}."
+            : $"Авто-рестарт сервера 1С выключен администратором {initiator}.";
 }
