@@ -82,9 +82,11 @@ builder.Services
         options.Cookie.Name = "mlc.auth";
         options.Cookie.HttpOnly = true;
         options.Cookie.SameSite = SameSiteMode.Strict;
-        options.Cookie.SecurePolicy = builder.Environment.IsDevelopment()
-            ? CookieSecurePolicy.SameAsRequest
-            : CookieSecurePolicy.Always;
+        // ADR-59 — секьюрность куки следует за транспортом (см. TransportSecurity): по умолчанию
+        // SameAsRequest, чтобы штатный http-LAN-деплой пускал из сети; Always — только при
+        // EnforceHttps=true или явном RequireSecureCookie=true (TLS-реверс-прокси).
+        options.Cookie.SecurePolicy = TransportSecurity.AuthCookieSecurePolicy(
+            builder.Environment.IsDevelopment(), builder.Configuration);
         options.ExpireTimeSpan = TimeSpan.FromHours(8);
         options.SlidingExpiration = true;
 
