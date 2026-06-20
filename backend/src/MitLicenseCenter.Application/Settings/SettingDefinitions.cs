@@ -217,6 +217,27 @@ public static class SettingDefinitions
                 Min: 10,
                 Max: 100000),
 
+            // MLC-230 (ADR-58): сбор ТЖ режима «Расследование». Корневой каталог сбора — под
+            // контролем панели (туда платформа пишет ТЖ под аккаунтом агента; ACL — этап C/MLC-231).
+            // Дефолт под %PROGRAMDATA% (раскрывается сервисом) — не в Program Files, чтобы права
+            // настраивались независимо от conf. История — короткая по политике безопасности
+            // (60_SAFETY: короткое окно критичнее, фильтр длительности объём не страхует).
+            [SettingKey.TechLogCollectionRoot] = new(
+                SettingKey.TechLogCollectionRoot,
+                IsSecret: false,
+                Description: "Корневой каталог сбора технологического журнала 1С (режим «Расследование»). Под контролем панели; платформа пишет сюда ТЖ. По умолчанию — папка панели в %PROGRAMDATA%.",
+                Kind: SettingValueKind.Path,
+                DefaultValue: @"%PROGRAMDATA%\MitLicenseCenter\techlog"),
+
+            [SettingKey.TechLogHistoryHours] = new(
+                SettingKey.TechLogHistoryHours,
+                IsSecret: false,
+                Description: "Сколько часов хранить собранный технологический журнал (атрибут history в logcfg). Короткий срок ограничивает объём на диске; старые часы платформа удаляет сама.",
+                Kind: SettingValueKind.Number,
+                DefaultValue: "2",
+                Min: 1,
+                Max: 24),
+
             // ADR-27: дефолт не сидируем — папка бэкапов зависит от инсталляции
             // (локальный диск SQL-хоста), оператор обязан задать явно через «Параметры»
             // до первого бэкапа (паттерн OneC.RAS.ExePath).

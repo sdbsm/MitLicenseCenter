@@ -115,6 +115,11 @@ public sealed class AuditLogEnumMappingTests
     // MLC-220 (ADR-56) — рестарт рабочего процесса 1С (rphost) по Pid. Frozen-int: новое число
     // после 804, не переиспользуется.
     [InlineData(AuditActionType.OneCProcessRestarted, 805)]
+    // MLC-230 (ADR-57/58) — сбор технологического журнала: запуск (806), снятие (807), принудительное
+    // восстановление сторожем (808). Frozen-int: новые числа после 805, не переиспользуются.
+    [InlineData(AuditActionType.TechLogCollectionStarted, 806)]
+    [InlineData(AuditActionType.TechLogCollectionStopped, 807)]
+    [InlineData(AuditActionType.TechLogConfigForceRestored, 808)]
     public void AuditActionType_int_values_are_stable(AuditActionType action, int expected)
     {
         ((int)action).Should().Be(expected);

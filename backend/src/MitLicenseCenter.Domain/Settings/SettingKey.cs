@@ -98,6 +98,14 @@ public static class SettingKey
     public const string UpdatesCheckIntervalHours = "Updates.CheckIntervalHours";
     public const string UpdatesEnabled = "Updates.Enabled";
 
+    // Сбор технологического журнала режима «Расследование» (MLC-230, ADR-57/58). CollectionRoot —
+    // корневой каталог под контролем панели, куда платформа пишет ТЖ (атрибут location в logcfg);
+    // дефолт под %PROGRAMDATA%. HistoryHours — сколько часов хранить ТЖ (атрибут history); короткий
+    // дефолт по политике безопасности (60_SAFETY: короткое окно критичнее обычного, фильтр длительности
+    // объём не страхует). Лимит диска и окно авто-стопа — настройки MLC-231 (здесь не объявляются).
+    public const string TechLogCollectionRoot = "TechLog.CollectionRoot";
+    public const string TechLogHistoryHours = "TechLog.HistoryHours";
+
     // Расписание авто-рестартов сервера 1С (MLC-218, ADR-55): ночной профилактический
     // рестарт всех запущенных служб ragent. Enabled — рубильник (0/1, читается GetInt);
     // Time — время суток HH:mm по часам хоста (cron строится из него, местный пояс ADR-52);
