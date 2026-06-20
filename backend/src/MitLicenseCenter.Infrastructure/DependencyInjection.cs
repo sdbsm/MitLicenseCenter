@@ -274,6 +274,9 @@ public static class DependencyInjection
         // места (DiskLimit). Single-active по БД и сторож места перед стартом — в InstallAsync
         // (60_SAFETY №3/№4/№5).
         services.AddSingleton<ILogcfgBuilder, LogcfgBuilder>();
+        // Парсер NDJSON-ТЖ (MLC-232, ядро этапа B) — stateless singleton, чистый C# без ФС, как
+        // LogcfgBuilder. Поверх него встанут анализаторы блокировок/долгих запросов/исключений.
+        services.AddSingleton<ITechLogParser, TechLogParser>();
         services.AddSingleton<ILogcfgStore, LogcfgStore>();
         services.AddSingleton<ITechLogCollectionService, TechLogCollectionService>();
         services.AddSingleton<TechLogWatchdogService>();
