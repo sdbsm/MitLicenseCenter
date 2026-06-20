@@ -45,7 +45,7 @@ internal sealed class LogcfgBuilder : ILogcfgBuilder
                 new XAttribute("value", infobaseProcessName)));
         }
 
-        // Целевой набор событий по сценарию + теги-обогатители. БЕЗ фильтра длительности и без
+        // Целевой набор событий по сценарию. БЕЗ фильтра длительности и без
         // <property name="all"/> — «целевой, не полный» сбор (60_SAFETY №1).
         foreach (var ev in EventsFor(scenario))
         {
@@ -54,12 +54,31 @@ internal sealed class LogcfgBuilder : ILogcfgBuilder
                 new XAttribute("value", ev))));
         }
 
-        foreach (var tag in TagsFor(scenario))
+        // Теги-обогатители (<plansql>/<dump>) — это глобальные директивы УРОВНЯ <config>, рядом с
+        // <log>, а НЕ внутри него (шаблоны infostart 2020498/1431026; <dump>/<plansql>/<dbmslocks> —
+        // config-level сборщики). Раньше они ошибочно клались внутрь <log> (MLC-245): план/дампы могли
+        // не собираться. Порядок детей <config>: <dump> (если нужен) → <log> → <plansql> (если нужен).
+        var config = new XElement(ns + "config");
+
+        // Дамп аварий (сценарий Exceptions). Пишем в подкаталог каталога сбора → объём дампов учитывает
+        // сторож размера каталога (MLC-231). ⚠ Тип/объём дампа (type) — за стенд-приёмкой: full-dump
+        // может быть тяжёлым на проде (40_TECHLOG §6 «целевой, не полный»).
+        if (NeedsDump(scenario))
         {
-            log.Add(new XElement(ns + tag));
+            config.Add(new XElement(
+                ns + "dump",
+                new XAttribute("location", collectionLocation.TrimEnd('\\', '/') + @"\dumps"),
+                new XAttribute("create", "true"),
+                new XAttribute("type", "3")));
         }
 
-        var config = new XElement(ns + "config", log);
+        config.Add(log);
+
+        // План запросов (сценарий SlowQueries): config-level директива, по умолчанию НЕ собирается.
+        if (NeedsPlanSql(scenario))
+        {
+            config.Add(new XElement(ns + "plansql"));
+        }
 
         var doc = new XDocument(
             new XDeclaration("1.0", "UTF-8", null),
@@ -86,14 +105,12 @@ internal sealed class LogcfgBuilder : ILogcfgBuilder
         _ => throw new ArgumentOutOfRangeException(nameof(scenario), scenario, "Неизвестный сценарий сбора ТЖ."),
     };
 
-    // Теги-обогатители logcfg под сценарий (не <event>): планы запросов и дампы по умолчанию НЕ
-    // собираются — включаются явно (40_TECHLOG §6).
-    private static string[] TagsFor(TechLogScenario scenario) => scenario switch
-    {
-        TechLogScenario.SlowQueries => new[] { "plansql" },
-        TechLogScenario.Exceptions => new[] { "dump" },
-        _ => Array.Empty<string>(),
-    };
+    // План запросов <plansql/> (config-level) — только для долгих запросов; по умолчанию НЕ собирается
+    // (40_TECHLOG §6).
+    private static bool NeedsPlanSql(TechLogScenario scenario) => scenario == TechLogScenario.SlowQueries;
+
+    // Дамп аварий <dump/> (config-level) — только для исключений/падений (40_TECHLOG §6).
+    private static bool NeedsDump(TechLogScenario scenario) => scenario == TechLogScenario.Exceptions;
 
     private static string Serialize(XDocument doc)
     {
