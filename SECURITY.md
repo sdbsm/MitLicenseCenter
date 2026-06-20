@@ -46,9 +46,12 @@ SQL Server, и управляют именно этим узлом.
 - **`HttpOnly = true`** — кука недоступна из JavaScript (защита от кражи через XSS).
 - **`SameSite = Strict`** — кука не отправляется в кросс-сайтовых запросах (основа защиты
   от CSRF, §4).
-- **`SecurePolicy`:** в Production — `Always` (кука только по HTTPS); в Development —
-  `SameAsRequest`. Secure-политика прода **не зависит** от флага `Security:EnforceHttps` —
-  она включена всегда.
+- **`SecurePolicy`:** следует за транспортом (ADR-59, `TransportSecurity.AuthCookieSecurePolicy`).
+  `Always` (кука только по HTTPS) — когда приложение само терминирует TLS (`Security:EnforceHttps=true`)
+  либо оператор за TLS-реверс-прокси задал `Security:RequireSecureCookie=true`; иначе (штатный
+  http-LAN и Development) — `SameAsRequest`. Жёсткий `Always` в проде поверх http-деплоя ломал вход
+  из локальной сети (кука `Secure` выбрасывается браузером на не-localhost http — баг MLC-240); на
+  http без TLS флаг `Secure` защиты всё равно не даёт.
 - **Срок жизни:** `ExpireTimeSpan = 8 часов`, `SlidingExpiration = true` — скользящее окно
   продлевается при активности.
 - Для SPA редиректы заменены статус-кодами: невход → `401`, нет прав → `403`
@@ -361,7 +364,9 @@ Per-IP fixed window на `POST /api/v1/auth/login`: 10 запросов / 1 ми
    может сузить правило вручную (`remoteip=localsubnet`). *Принят.*
 
 5. **Plaintext HTTP по умолчанию.** TLS включается только опционально (§7). *Смягчение:*
-   флаг `Security:EnforceHttps` / обратный прокси; cookie `Secure=Always` в проде. *Принят:*
+   флаг `Security:EnforceHttps` / обратный прокси; cookie `Secure` — при HTTPS-деплое
+   (`EnforceHttps` или `RequireSecureCookie`, ADR-59). На http-деплое кука без `Secure`
+   (иначе вход из LAN невозможен, MLC-240); `Secure` поверх http защиты не даёт. *Принят:*
    разворачивание во внутренней сети, TLS — на усмотрение оператора.
 
 6. **Key ring в открытом виде на диске** (ADR-8, §5). *Обоснование:* переносимость
