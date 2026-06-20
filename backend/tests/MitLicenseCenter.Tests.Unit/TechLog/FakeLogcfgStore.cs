@@ -1,4 +1,5 @@
 using MitLicenseCenter.Application.TechLog;
+using MitLicenseCenter.Infrastructure.TechLog;
 
 namespace MitLicenseCenter.Tests.Unit.TechLog;
 
@@ -13,6 +14,11 @@ internal sealed class FakeLogcfgStore : ILogcfgStore
     public string? Current { get; set; }   // фактический logcfg.xml (null = файла нет)
     public string? Backup { get; private set; }
     private bool _backupTaken;
+
+    // Симуляция диска (60_SAFETY №3): свободное место (null = «том не определить») и размер каталога
+    // сбора — тесты выставляют, чтобы проверить сторож места без реальной ФС.
+    public long? FreeSpaceBytes { get; set; } = long.MaxValue;
+    public long DirectorySizeBytes { get; set; }
 
     public int WriteCalls { get; private set; }
     public int RestoreCalls { get; private set; }
@@ -37,7 +43,10 @@ internal sealed class FakeLogcfgStore : ILogcfgStore
 
     public void WriteLogcfg(string content)
     {
-        if (Current is not null && !_backupTaken)
+        // Закалка MLC-231 (60_SAFETY №6): уже-НАШ конфиг (по маркеру) НЕ бэкапим как «исходный» —
+        // иначе резервная копия перезапишется нашим файлом. Зеркаль LogcfgStore.WriteLogcfg.
+        var currentIsOurs = Current is not null && Current.Contains(LogcfgBuilder.Marker, StringComparison.Ordinal);
+        if (Current is not null && !_backupTaken && !currentIsOurs)
         {
             Backup = Current;
             _backupTaken = true;
@@ -63,4 +72,8 @@ internal sealed class FakeLogcfgStore : ILogcfgStore
     }
 
     public bool HasBackup() => _backupTaken;
+
+    public long? GetAvailableFreeSpaceBytes(string directory) => FreeSpaceBytes;
+
+    public long GetDirectorySizeBytes(string directory) => DirectorySizeBytes;
 }

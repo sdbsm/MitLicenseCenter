@@ -263,14 +263,16 @@ public static class DependencyInjection
         services.AddSingleton<PerfRecordingSamplingService>();
         services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<PerfRecordingSamplingService>());
 
-        // Сбор технологического журнала режима «Расследование» (MLC-230, ADR-57/58). Генератор
+        // Сбор технологического журнала режима «Расследование» (MLC-230/231, ADR-57/58). Генератор
         // logcfg (ILogcfgBuilder) и store (ILogcfgStore) — stateless singleton'ы (чистый XML / ФС
         // за интерфейсом). Сервис жизненного цикла (ITechLogCollectionService) — singleton: держит
         // активное дело между операциями и сериализует их через SemaphoreSlim (паттерн
-        // PerfRecordingService); БД и scoped IAuditLogger берёт через IServiceScopeFactory. Сторож
-        // на старте (TechLogWatchdogService) — hosted BackgroundService: сверяет фактический
-        // logcfg.xml с ожидаемым и снимает «забытый» конфиг (60_SAFETY №5). Окно/авто-стоп/лимит
-        // диска/orphan-recovery — MLC-231.
+        // PerfRecordingService); БД и scoped IAuditLogger берёт через IServiceScopeFactory. Драйвер
+        // безопасного сбора (TechLogWatchdogService) — hosted BackgroundService: на старте
+        // orphan-recovery (Active→Interrupted) → стартовая сверка файла (снимает «забытый» конфиг),
+        // затем периодический сторож активного дела — авто-стоп по окну времени (TimeLimit) и лимиту
+        // места (DiskLimit). Single-active по БД и сторож места перед стартом — в InstallAsync
+        // (60_SAFETY №3/№4/№5).
         services.AddSingleton<ILogcfgBuilder, LogcfgBuilder>();
         services.AddSingleton<ILogcfgStore, LogcfgStore>();
         services.AddSingleton<ITechLogCollectionService, TechLogCollectionService>();

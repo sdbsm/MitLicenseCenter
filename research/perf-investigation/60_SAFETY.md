@@ -94,15 +94,22 @@
 
 ## Чек-лист перед стартом сбора (для реализации этапа A)
 
-Статус: **MLC-230** закрыл управление `logcfg` (генератор/store/lifecycle/сторож на старте); пункты
-объёма/окна/места — **MLC-231**.
+Статус: **MLC-230** закрыл управление `logcfg` (генератор/store/lifecycle/сторож на старте);
+**MLC-231** закрыл безопасный сбор (окно/диск/single-active по БД/orphan-recovery). Этап A завершён.
 
-- [ ] свободного места ≥ порога; *(MLC-231)*
-- [x] нет другого активного сбора; *(MLC-230: in-memory single-active в `TechLogCollectionService`;
-  полноценная проверка БД — MLC-231)*
+- [x] свободного места ≥ порога; *(MLC-231: сторож места `InstallAsync` — меньше `TechLog.MinFreeDiskMb`
+  → структурный отказ `InsufficientDiskSpace`, конфиг не пишется)*
+- [x] нет другого активного сбора; *(MLC-231: single-active по БД в `InstallAsync` — есть `Status==Active`
+  дело → `AlreadyActive`, ещё до записи конфига; поверх in-memory стейта MLC-230)*
 - [x] события ограничены сценарием (`TechLogScenario`); **фильтр длительности в `logcfg` НЕ ставится**
   (не работает для JSON-ТЖ 8.5, MLC-229) — порог длительности применяет парсер на разборе;
-- [ ] заданы окно (авто-снятие) и лимит места (авто-стоп); *(MLC-231)*
+- [x] заданы окно (авто-снятие) и лимит места (авто-стоп); *(MLC-231: `MonitorActiveAsync` —
+  `TechLog.MaxDurationMinutes` → `TimeLimit`, `TechLog.DiskLimitMb` → `DiskLimit`; драйвер
+  `TechLogWatchdogService` тикает коротким интервалом)*
 - [x] исходный `logcfg.xml` сохранён для восстановления (бэкап в `LogcfgStore`, восстановление при
-  снятии и сторожем на старте);
-- [x] запись аудита о постановке (`TechLogCollectionStarted`/`Stopped`/`ConfigForceRestored`, 806–808).
+  снятии и сторожем на старте; MLC-231 закалил бэкап — уже-наш конфиг по маркеру не бэкапится как
+  «исходный»);
+- [x] orphan-recovery на старте (`Active`→`Interrupted`, зеркаль `PerfRecording`) **до** сверки файла —
+  осиротевший после рестарта сбор и помечается прерванным, и его `logcfg` снимается; *(MLC-231)*
+- [x] запись аудита о постановке (`TechLogCollectionStarted`/`Stopped`/`ConfigForceRestored`, 806–808;
+  авто-стоп переиспользует `TechLogCollectionStopped` 807 с причиной).

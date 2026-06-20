@@ -106,6 +106,15 @@ public static class SettingKey
     public const string TechLogCollectionRoot = "TechLog.CollectionRoot";
     public const string TechLogHistoryHours = "TechLog.HistoryHours";
 
+    // Безопасный сбор ТЖ (MLC-231, 60_SAFETY №3/№4). MaxDurationMinutes — окно сбора: по истечении
+    // панель сама снимает logcfg (авто-стоп TimeLimit), даже если оператор забыл. DiskLimitMb — потолок
+    // размера каталога сбора: при достижении — авто-стоп DiskLimit (полный ТЖ забивает диск за минуты,
+    // MLC-229; фильтр длительности объём не страхует — лимит места критичен). MinFreeDiskMb — порог
+    // свободного места на диске каталога перед стартом: меньше — сбор не запускается.
+    public const string TechLogMaxDurationMinutes = "TechLog.MaxDurationMinutes";
+    public const string TechLogDiskLimitMb = "TechLog.DiskLimitMb";
+    public const string TechLogMinFreeDiskMb = "TechLog.MinFreeDiskMb";
+
     // Расписание авто-рестартов сервера 1С (MLC-218, ADR-55): ночной профилактический
     // рестарт всех запущенных служб ragent. Enabled — рубильник (0/1, читается GetInt);
     // Time — время суток HH:mm по часам хоста (cron строится из него, местный пояс ADR-52);

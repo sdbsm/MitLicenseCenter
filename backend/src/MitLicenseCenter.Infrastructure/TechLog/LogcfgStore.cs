@@ -72,7 +72,11 @@ internal sealed class LogcfgStore : ILogcfgStore
 
         // Бэкап исходного — один раз, перед первой нашей записью. Если файла не было — бэкап не
         // создаётся (RestoreOriginal в этом случае удалит наш файл).
-        if (File.Exists(path) && !File.Exists(path + BackupSuffix))
+        // Закалка MLC-231 (60_SAFETY №6, передаточная гоча MLC-230): НЕ бэкапить как «исходный»
+        // уже-НАШ конфиг (по маркеру) — иначе резервная копия исходного перезапишется нашим файлом,
+        // и при снятии восстановится наш конфиг вместо реального исходного. Single-active по БД
+        // почти закрывает этот край, но маркер-guard в store надёжнее.
+        if (File.Exists(path) && !File.Exists(path + BackupSuffix) && !IsOurs(path))
         {
             File.Copy(path, path + BackupSuffix);
         }
@@ -101,6 +105,75 @@ internal sealed class LogcfgStore : ILogcfgStore
     {
         var path = ResolveLogcfgPath();
         return path is not null && File.Exists(path + BackupSuffix);
+    }
+
+    public long? GetAvailableFreeSpaceBytes(string directory)
+    {
+        // Свободное место на томе каталога сбора (60_SAFETY №3). Каталог может ещё не существовать —
+        // берём корень тома по пути. Любая ошибка (несуществующий том, недоступность) → null =
+        // «проверить не удалось», старт не блокируем (отказ — только при ЗАВЕДОМОЙ нехватке).
+        try
+        {
+            var root = Path.GetPathRoot(Path.GetFullPath(directory));
+            if (string.IsNullOrEmpty(root))
+            {
+                return null;
+            }
+
+            var drive = new DriveInfo(root);
+            return drive.IsReady ? drive.AvailableFreeSpace : null;
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            return null;
+        }
+    }
+
+    public long GetDirectorySizeBytes(string directory)
+    {
+        // Суммарный размер всех файлов каталога сбора (60_SAFETY №3). Каталога ещё нет/ошибка чтения
+        // → 0 (сбор ещё ничего не записал — не повод для авто-стопа). Перечисляем рекурсивно;
+        // отдельные недоступные файлы пропускаем, общий счёт не роняем.
+        try
+        {
+            if (!Directory.Exists(directory))
+            {
+                return 0;
+            }
+
+            long total = 0;
+            foreach (var file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
+            {
+                try
+                {
+                    total += new FileInfo(file).Length;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+                {
+                    // Файл исчез/недоступен между перечислением и чтением — пропускаем.
+                }
+            }
+
+            return total;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            return 0;
+        }
+    }
+
+    // Наш ли logcfg по пути (по маркеру LogcfgBuilder.Marker). Never-throws: ошибка чтения → false
+    // (трактуем как «не наш», т.е. бэкап делаем — безопаснее лишний бэкап, чем потеря исходного).
+    private static bool IsOurs(string path)
+    {
+        try
+        {
+            return File.ReadAllText(path).Contains(LogcfgBuilder.Marker, StringComparison.Ordinal);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            return false;
+        }
     }
 
     private string RequirePath() =>

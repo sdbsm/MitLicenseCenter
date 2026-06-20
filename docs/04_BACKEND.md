@@ -820,7 +820,7 @@ Cold-цикл сеансов с MLC-154 — не Hangfire-джоб, а `ColdTier
 | `RasHealthProbingService` | Независимый 30-секундный ping-loop: публикует `IRasHealthReader`-снимок для дашборда. |
 | `PerfRecordingSamplingService` | Тикает по таймеру при активной записи быстродействия, вызывает `PerfRecordingService.SampleOnceAsync`. |
 | `BackupPumpService` | Оркестратор очереди on-demand бэкапов; тикает по wake-сигналу или таймауту. |
-| `TechLogWatchdogService` | Сторож сбора ТЖ: на старте сверяет фактический `logcfg.xml` с ожидаемым и снимает «забытый» конфиг панели без активного дела. |
+| `TechLogWatchdogService` | Драйвер безопасного сбора ТЖ: на старте orphan-recovery (`Active`→`Interrupted`) → сверка `logcfg.xml` (снимает «забытый» конфиг без активного дела), затем периодический сторож активного дела — авто-стоп по окну времени и лимиту места. |
 
 Подробности поведения горячего цикла и enforcement — в `docs/02_ARCHITECTURE.md`.
 
@@ -835,9 +835,10 @@ Cold-цикл сеансов с MLC-154 — не Hangfire-джоб, а `ColdTier
 ### Сервисы управления технологическим журналом (трек 1.2)
 
 К существующему live-режиму «Наблюдение» добавляется режим «Расследование» (ADR-57): сбор
-технологического журнала 1С под управлением панели. Реализован слой **управления `logcfg.xml`**
-(генератор + store + сервис жизненного цикла + сторож на старте); **безопасный сбор** (окно/лимит
-места/авто-стоп), **NDJSON-парсер** и **агрегаты** под объект «Дело» — последующие задачи трека.
+технологического журнала 1С под управлением панели. Реализованы слой **управления `logcfg.xml`**
+(генератор + store + сервис жизненного цикла + сторож на старте) и **безопасный сбор** (окно/лимит
+места/авто-стоп, single-active по БД, orphan-recovery); **NDJSON-парсер** и **агрегаты** под объект
+«Дело» — последующие задачи трека.
 
 - **`ILogcfgBuilder`** (Application) / `LogcfgBuilder` (Infrastructure) — чистый генератор целевого
   `logcfg.xml` по (сценарий, имя ИБ?, каталог сбора, history). Конфиг строго целевой (ADR-58):
@@ -861,21 +862,34 @@ Cold-цикл сеансов с MLC-154 — не Hangfire-джоб, а `ColdTier
 - **`ITechLogCollectionService`** (Application) / `TechLogCollectionService` (Infrastructure, singleton)
   — жизненный цикл «дела сбора» (зеркаль `PerfRecordingService`: один `SemaphoreSlim`,
   `IServiceScopeFactory` для scoped `AppDbContext`/`IAuditLogger`, `TimeProvider`). `InstallAsync`:
-  проба прав → генерация конфига → бэкап исходного → запись → дело `TechLogCollection` (`Active`) →
-  аудит. `RemoveAsync`: восстановление исходного `logcfg` → дело `Stopped` (с причиной) → аудит.
-  Идемпотентно: повторная установка не переписывает конфиг, снятие хранит снимок установленного.
+  **single-active по БД** (есть `Status==Active` дело → `AlreadyActive`, ещё до записи конфига —
+  переживает потерю in-memory стейта при рестарте) → проба прав → **сторож свободного места** (меньше
+  `TechLog.MinFreeDiskMb` → структурный отказ `InsufficientDiskSpace`, конфиг не пишется) → генерация
+  конфига → бэкап исходного → запись → дело `TechLogCollection` (`Active`) → аудит. `RemoveAsync`:
+  восстановление исходного `logcfg` → дело `Stopped` (с причиной) → аудит. `MonitorActiveAsync`
+  (периодический сторож активного дела): по окну времени (`TechLog.MaxDurationMinutes` → авто-стоп
+  `TimeLimit`) и размеру каталога сбора (`TechLog.DiskLimitMb` → авто-стоп `DiskLimit`). Измерение
+  свободного места и размера каталога — за seam'ом `ILogcfgStore` (детерминированные тесты).
+  `RecoverInterruptedAsync`: на старте все `Active` → `Interrupted` (зеркаль `PerfRecording`). Идемпотентно:
+  повторная установка не переписывает конфиг, снятие хранит снимок установленного.
 - **`TechLogWatchdogService`** (hosted `BackgroundService`, зеркаль `PerfRecordingSamplingService`) —
-  **сторож на старте**: сверяет фактический `logcfg.xml` в `conf` с ожидаемым. Если в `conf` лежит наш
-  конфиг (по маркеру), но активного дела (`Status==Active`) в БД нет (краш ОС оставил «забытый»
-  конфиг) — принудительно восстанавливает исходный и пишет аудит. Полный orphan-recovery
-  (`Active`→`Interrupted`) и периодическая петля авто-стопа — следующая задача трека.
+  **драйвер безопасного сбора**. На старте — orphan-recovery (`RecoverInterruptedAsync`,
+  `Active`→`Interrupted`), **затем** стартовая сверка файла (`ReconcileOnStartupAsync`): если в `conf`
+  лежит наш конфиг (по маркеру), но активного дела в БД нет (краш ОС оставил «забытый» конфиг) —
+  принудительно восстанавливает исходный и пишет аудит. **Порядок критичен:** сначала перевести
+  осиротевшее дело в `Interrupted`, потом снять «забытый» `logcfg` — так после рестарта сбор и помечается
+  прерванным, и его конфиг снимается. Затем — петля с коротким фиксированным интервалом, на каждом тике
+  `MonitorActiveAsync` (авто-стоп по окну/лимиту места), no-op при отсутствии активного дела.
 
 Сущность `TechLogCollection` (Domain) — прокси «активного дела» (мигрирует в полноценную сущность
 расследования позже); телеметрия в `dbo.TechLogCollections`, enum'ы `TechLogCollectionStatus`/
-`TechLogCollectionStopReason` хранятся `int`'ом (`HasConversion<int>`, frozen-int как у `PerfRecording*`).
-Настройки: `TechLog.CollectionRoot` (каталог сбора, дефолт под `%PROGRAMDATA%`), `TechLog.HistoryHours`
-(короткий дефолт по политике безопасности). Аудит — `TechLogCollectionStarted/Stopped/ConfigForceRestored`
-(host-scope, новые int-значения 806–808 — enum аудита заморожен).
+`TechLogCollectionStopReason` (`Manual`/`TimeLimit`/`DiskLimit`) хранятся `int`'ом (`HasConversion<int>`,
+frozen-int как у `PerfRecording*`). Настройки: `TechLog.CollectionRoot` (каталог сбора, дефолт под
+`%PROGRAMDATA%`), `TechLog.HistoryHours` (короткий дефолт по политике безопасности),
+`TechLog.MaxDurationMinutes` (окно авто-снятия), `TechLog.DiskLimitMb` (потолок размера каталога),
+`TechLog.MinFreeDiskMb` (порог свободного места перед стартом). Аудит —
+`TechLogCollectionStarted/Stopped/ConfigForceRestored` (host-scope, новые int-значения 806–808 — enum
+аудита заморожен); авто-стоп переиспользует `TechLogCollectionStopped` (807) с причиной в описании.
 
 Формат ТЖ, события, шаблоны `logcfg.xml` и грабли парсера — база знаний
 [`../research/perf-investigation/40_TECHLOG.md`](../research/perf-investigation/40_TECHLOG.md);
