@@ -106,18 +106,44 @@ public sealed class LogcfgBuilderTests
     }
 
     [Fact]
-    public void Build_slow_queries_includes_plansql_tag()
+    public void Build_slow_queries_includes_plansql_tag_at_config_level()
     {
         // Планы запросов по умолчанию НЕ собираются — нужен явный тег <plansql/> (40_TECHLOG §6).
-        BuildDoc(TechLogScenario.SlowQueries)
-            .Descendants().Any(e => e.Name.LocalName == "plansql").Should().BeTrue();
+        // MLC-245: <plansql/> — config-level директива (ребёнок <config>, рядом с <log>), НЕ внутри
+        // <log> (шаблоны infostart 2020498/1431026) — иначе план может не собираться.
+        var plansql = BuildDoc(TechLogScenario.SlowQueries)
+            .Descendants().SingleOrDefault(e => e.Name.LocalName == "plansql");
+
+        plansql.Should().NotBeNull();
+        plansql!.Parent!.Name.LocalName.Should().Be("config", "<plansql/> обязан быть на уровне <config>");
     }
 
     [Fact]
-    public void Build_exceptions_includes_dump_tag()
+    public void Build_exceptions_includes_dump_tag_at_config_level_with_attributes()
     {
-        BuildDoc(TechLogScenario.Exceptions)
-            .Descendants().Any(e => e.Name.LocalName == "dump").Should().BeTrue();
+        // MLC-245: <dump/> — config-level директива с валидными атрибутами (location/create/type),
+        // а не пустой тег внутри <log> (шаблоны infostart 2020498/1431026, 40_TECHLOG §6).
+        var dump = BuildDoc(TechLogScenario.Exceptions)
+            .Descendants().SingleOrDefault(e => e.Name.LocalName == "dump");
+
+        dump.Should().NotBeNull();
+        dump!.Parent!.Name.LocalName.Should().Be("config", "<dump/> обязан быть на уровне <config>");
+        dump.Attribute("location")!.Value.Should().Contain("dumps", "дампы пишем в подкаталог каталога сбора");
+        dump.Attribute("create")!.Value.Should().Be("true");
+        dump.Attribute("type").Should().NotBeNull("у <dump/> должен быть тип дампа");
+    }
+
+    [Fact]
+    public void Build_never_nests_enricher_tags_inside_log()
+    {
+        // Регресс MLC-245: <plansql>/<dump> не должны лежать ВНУТРИ <log> ни в одном сценарии.
+        foreach (var scenario in Enum.GetValues<TechLogScenario>())
+        {
+            var doc = BuildDoc(scenario);
+            var log = doc.Descendants().Single(e => e.Name.LocalName == "log");
+            log.Descendants().Any(e => e.Name.LocalName is "plansql" or "dump")
+                .Should().BeFalse($"сценарий {scenario}: теги-обогатители не внутри <log>");
+        }
     }
 
     [Fact]
