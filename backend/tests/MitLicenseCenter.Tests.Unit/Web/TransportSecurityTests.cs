@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using MitLicenseCenter.Web;
 using Xunit;
@@ -65,5 +66,45 @@ public sealed class TransportSecurityTests
         // Override для внутреннего admin-only периметра.
         var config = Config((TransportSecurity.EnableSwaggerKey, "true"));
         TransportSecurity.ShouldEnableSwagger(isDevelopment: false, config).Should().BeTrue();
+    }
+
+    // ── SecurePolicy auth-куки (ADR-59) ─────────────────────────────────────────────
+
+    [Fact]
+    public void AuthCookie_SameAsRequest_in_Development()
+    {
+        // dev по http — Always выбросил бы куку на не-localhost.
+        var config = Config((TransportSecurity.RequireSecureCookieKey, "true"));
+        TransportSecurity.AuthCookieSecurePolicy(isDevelopment: true, config)
+            .Should().Be(CookieSecurePolicy.SameAsRequest);
+    }
+
+    [Fact]
+    public void AuthCookie_SameAsRequest_in_Production_by_default()
+    {
+        // Штатный http-LAN мастера ("Urls":"http://+:port", EnforceHttps=false): без
+        // SameAsRequest вход из локальной сети невозможен (регресс — баг MLC-240).
+        var config = Config();
+        TransportSecurity.AuthCookieSecurePolicy(isDevelopment: false, config)
+            .Should().Be(CookieSecurePolicy.SameAsRequest);
+    }
+
+    [Fact]
+    public void AuthCookie_Always_in_Production_when_EnforceHttps_true()
+    {
+        // Сервис сам терминирует TLS — кука обязана быть Secure.
+        var config = Config((TransportSecurity.EnforceHttpsKey, "true"));
+        TransportSecurity.AuthCookieSecurePolicy(isDevelopment: false, config)
+            .Should().Be(CookieSecurePolicy.Always);
+    }
+
+    [Fact]
+    public void AuthCookie_Always_in_Production_when_RequireSecureCookie_true()
+    {
+        // За TLS-реверс-прокси (EnforceHttps=false, redirect/HSTS делает прокси): оператор
+        // явно сохраняет Secure-куку, хотя Kestrel видит http от прокси.
+        var config = Config((TransportSecurity.RequireSecureCookieKey, "true"));
+        TransportSecurity.AuthCookieSecurePolicy(isDevelopment: false, config)
+            .Should().Be(CookieSecurePolicy.Always);
     }
 }
