@@ -6,6 +6,7 @@ using MitLicenseCenter.Application.Auditing;
 using MitLicenseCenter.Application.Settings;
 using MitLicenseCenter.Application.TechLog;
 using MitLicenseCenter.Domain.Audit;
+using MitLicenseCenter.Domain.Settings;
 using MitLicenseCenter.Domain.TechLog;
 using MitLicenseCenter.Infrastructure.Persistence;
 using MitLicenseCenter.Infrastructure.TechLog;
@@ -183,6 +184,199 @@ public sealed class TechLogCollectionServiceTests
 
         fx.Store.RestoreCalls.Should().Be(0, "при активном деле конфиг остаётся (orphan-recovery — MLC-231)");
         fx.Audit.Entries.Should().BeEmpty();
+    }
+
+    // --- MLC-231: безопасный сбор (окно/диск/single-active по БД/orphan-recovery) ---
+
+    [Fact]
+    public async Task InstallAsync_when_active_row_in_db_but_inmemory_lost_returns_AlreadyActive()
+    {
+        using var fx = new Fixture();
+        // Активное дело в БД, но in-memory _active пуст (как после рестарта процесса до orphan-recovery).
+        var existingId = Guid.NewGuid();
+        await fx.QueryAsync(async db =>
+        {
+            db.TechLogCollections.Add(new TechLogCollection
+            {
+                Id = existingId,
+                Status = TechLogCollectionStatus.Active,
+                StartedAtUtc = Start.AddMinutes(-1),
+                Scenario = "Locks",
+                CollectionDirectory = @"C:\techlog",
+                ConfigMarker = LogcfgBuilder.Marker,
+            });
+            await db.SaveChangesAsync();
+            return 0;
+        });
+
+        var result = await fx.Service.InstallAsync("admin", TechLogScenario.Locks, null, CancellationToken.None);
+
+        result.Outcome.Should().Be(TechLogStartOutcome.AlreadyActive);
+        result.CollectionId.Should().Be(existingId);
+        fx.Store.WriteCalls.Should().Be(0, "second logcfg НЕ пишется при активном деле в БД");
+    }
+
+    [Fact]
+    public async Task InstallAsync_when_free_space_below_threshold_returns_InsufficientDiskSpace()
+    {
+        using var fx = new Fixture();
+        fx.Settings.GetInt(SettingKey.TechLogMinFreeDiskMb).Returns(1024);
+        fx.Store.FreeSpaceBytes = 100L * 1024 * 1024; // 100 МБ < порога 1024 МБ
+
+        var result = await fx.Service.InstallAsync("admin", TechLogScenario.Locks, "mitpro", CancellationToken.None);
+
+        result.Outcome.Should().Be(TechLogStartOutcome.InsufficientDiskSpace);
+        result.Issue.Should().Contain("100").And.Contain("1024");
+        fx.Store.WriteCalls.Should().Be(0);
+        fx.Service.HasActiveCollection.Should().BeFalse();
+        (await fx.QueryAsync(db => db.TechLogCollections.CountAsync())).Should().Be(0);
+        fx.Audit.Entries.Should().BeEmpty("аудит — только при фактическом успехе");
+    }
+
+    [Fact]
+    public async Task InstallAsync_when_free_space_probe_null_starts_anyway()
+    {
+        using var fx = new Fixture();
+        fx.Settings.GetInt(SettingKey.TechLogMinFreeDiskMb).Returns(1024);
+        fx.Store.FreeSpaceBytes = null; // том не определить → проверка невозможна, не блокируем
+
+        var result = await fx.Service.InstallAsync("admin", TechLogScenario.Locks, null, CancellationToken.None);
+
+        result.Outcome.Should().Be(TechLogStartOutcome.Started);
+    }
+
+    [Fact]
+    public async Task MonitorActiveAsync_auto_stops_on_time_limit()
+    {
+        using var fx = new Fixture();
+        fx.Settings.GetInt(SettingKey.TechLogMaxDurationMinutes).Returns(10);
+        var start = await fx.Service.InstallAsync("admin", TechLogScenario.Locks, null, CancellationToken.None);
+
+        fx.Clock.Advance(TimeSpan.FromMinutes(10)); // достигли окна
+        await fx.Service.MonitorActiveAsync(CancellationToken.None);
+
+        fx.Service.HasActiveCollection.Should().BeFalse();
+        fx.Store.RestoreCalls.Should().Be(1, "logcfg снят при авто-стопе");
+        var row = await fx.QueryAsync(db => db.TechLogCollections.SingleAsync());
+        row.Status.Should().Be(TechLogCollectionStatus.Stopped);
+        row.StopReason.Should().Be(TechLogCollectionStopReason.TimeLimit);
+        row.StoppedAtUtc.Should().Be(Start.AddMinutes(10));
+        fx.Audit.Entries.Should().Contain(e => e.Action == AuditActionType.TechLogCollectionStopped);
+    }
+
+    [Fact]
+    public async Task MonitorActiveAsync_before_time_limit_keeps_collection_active()
+    {
+        using var fx = new Fixture();
+        fx.Settings.GetInt(SettingKey.TechLogMaxDurationMinutes).Returns(10);
+        await fx.Service.InstallAsync("admin", TechLogScenario.Locks, null, CancellationToken.None);
+
+        fx.Clock.Advance(TimeSpan.FromMinutes(5)); // окно ещё не достигнуто
+        await fx.Service.MonitorActiveAsync(CancellationToken.None);
+
+        fx.Service.HasActiveCollection.Should().BeTrue();
+        fx.Store.RestoreCalls.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task MonitorActiveAsync_auto_stops_on_disk_limit()
+    {
+        using var fx = new Fixture();
+        fx.Settings.GetInt(SettingKey.TechLogMaxDurationMinutes).Returns(60); // окно не сработает
+        fx.Settings.GetInt(SettingKey.TechLogDiskLimitMb).Returns(100);
+        await fx.Service.InstallAsync("admin", TechLogScenario.Locks, null, CancellationToken.None);
+
+        fx.Store.DirectorySizeBytes = 150L * 1024 * 1024; // 150 МБ ≥ лимита 100 МБ
+        await fx.Service.MonitorActiveAsync(CancellationToken.None);
+
+        fx.Service.HasActiveCollection.Should().BeFalse();
+        var row = await fx.QueryAsync(db => db.TechLogCollections.SingleAsync());
+        row.Status.Should().Be(TechLogCollectionStatus.Stopped);
+        row.StopReason.Should().Be(TechLogCollectionStopReason.DiskLimit);
+    }
+
+    [Fact]
+    public async Task MonitorActiveAsync_below_disk_limit_keeps_active()
+    {
+        using var fx = new Fixture();
+        fx.Settings.GetInt(SettingKey.TechLogMaxDurationMinutes).Returns(60);
+        fx.Settings.GetInt(SettingKey.TechLogDiskLimitMb).Returns(100);
+        await fx.Service.InstallAsync("admin", TechLogScenario.Locks, null, CancellationToken.None);
+
+        fx.Store.DirectorySizeBytes = 50L * 1024 * 1024; // 50 МБ < лимита
+        await fx.Service.MonitorActiveAsync(CancellationToken.None);
+
+        fx.Service.HasActiveCollection.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task MonitorActiveAsync_without_active_collection_is_noop()
+    {
+        using var fx = new Fixture();
+
+        await fx.Service.MonitorActiveAsync(CancellationToken.None);
+
+        fx.Store.RestoreCalls.Should().Be(0);
+        fx.Audit.Entries.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task RecoverInterruptedAsync_marks_active_rows_interrupted()
+    {
+        using var fx = new Fixture();
+        await fx.QueryAsync(async db =>
+        {
+            db.TechLogCollections.Add(new TechLogCollection
+            {
+                Id = Guid.NewGuid(),
+                Status = TechLogCollectionStatus.Active,
+                StartedAtUtc = Start.AddMinutes(-30),
+                Scenario = "Locks",
+                CollectionDirectory = @"C:\techlog",
+                ConfigMarker = LogcfgBuilder.Marker,
+            });
+            await db.SaveChangesAsync();
+            return 0;
+        });
+
+        await fx.Service.RecoverInterruptedAsync(CancellationToken.None);
+
+        var row = await fx.QueryAsync(db => db.TechLogCollections.SingleAsync());
+        row.Status.Should().Be(TechLogCollectionStatus.Interrupted);
+        row.StoppedAtUtc.Should().Be(Start);
+        row.StopReason.Should().BeNull("Interrupted — не «остановлено по причине»");
+    }
+
+    [Fact]
+    public async Task Startup_recover_then_reconcile_marks_interrupted_and_strips_forgotten_config()
+    {
+        using var fx = new Fixture();
+        // Осиротевшее дело в БД + наш logcfg в conf (краш ОС: in-memory стейт потерян).
+        await fx.QueryAsync(async db =>
+        {
+            db.TechLogCollections.Add(new TechLogCollection
+            {
+                Id = Guid.NewGuid(),
+                Status = TechLogCollectionStatus.Active,
+                StartedAtUtc = Start.AddMinutes(-30),
+                Scenario = "Locks",
+                CollectionDirectory = @"C:\techlog",
+                ConfigMarker = LogcfgBuilder.Marker,
+            });
+            await db.SaveChangesAsync();
+            return 0;
+        });
+        fx.Store.Current = $"<!-- {LogcfgBuilder.Marker} --><config/>";
+
+        // Порядок драйвера: сначала orphan-recovery, ПОТОМ стартовая сверка файла.
+        await fx.Service.RecoverInterruptedAsync(CancellationToken.None);
+        await fx.Service.ReconcileOnStartupAsync(CancellationToken.None);
+
+        var row = await fx.QueryAsync(db => db.TechLogCollections.SingleAsync());
+        row.Status.Should().Be(TechLogCollectionStatus.Interrupted, "осиротевшее дело помечено прерванным");
+        fx.Store.RestoreCalls.Should().Be(1, "после перевода дела в Interrupted активного нет → logcfg снят");
+        fx.Store.Current.Should().BeNull("«забытый» конфиг снят (бэкапа не было → файл удалён)");
+        fx.Audit.Entries.Should().ContainSingle(e => e.Action == AuditActionType.TechLogConfigForceRestored);
     }
 
     private sealed class Fixture : IDisposable
