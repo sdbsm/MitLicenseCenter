@@ -277,6 +277,10 @@ public static class DependencyInjection
         // Парсер NDJSON-ТЖ (MLC-232, ядро этапа B) — stateless singleton, чистый C# без ФС, как
         // LogcfgBuilder. Поверх него встанут анализаторы блокировок/долгих запросов/исключений.
         services.AddSingleton<ITechLogParser, TechLogParser>();
+        // Анализатор управляемых блокировок 1С (MLC-233, этап B) — ТОЛЬКО 1С-уровень
+        // (TLOCK/TTIMEOUT/TDEADLOCK); СУБД-уровень (<dbmslocks/>/lkX) — MLC-236.
+        // Stateless singleton, чистый C# без ФС/БД (как TechLogParser/LogcfgBuilder).
+        services.AddSingleton<ILockTreeAnalyzer, LockTreeAnalyzer>();
         services.AddSingleton<ILogcfgStore, LogcfgStore>();
         services.AddSingleton<ITechLogCollectionService, TechLogCollectionService>();
         services.AddSingleton<TechLogWatchdogService>();

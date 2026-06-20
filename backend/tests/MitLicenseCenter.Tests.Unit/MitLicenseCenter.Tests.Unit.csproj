@@ -36,9 +36,10 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
-  <!-- Фикстуры NDJSON-ТЖ (MLC-232): реальные структуры полей со стенда 8.5 (40_TECHLOG §4/§8),
-       значения обезличены. Копируются рядом со сборкой — переиспользуются задачами этапа B
-       (MLC-233/234/235). -->
+  <!-- Фикстуры NDJSON-ТЖ (MLC-232/233): реальные структуры полей со стенда 8.5 (40_TECHLOG §4/§8),
+       значения обезличены. Фикстуры TTIMEOUT/TDEADLOCK собраны по семантике 40_TECHLOG §5
+       (точная структура полей подлежит подтверждению на стенде 8.5 — приёмка владельца MLC-233).
+       Копируются рядом со сборкой — переиспользуются задачами этапа B (MLC-233/234/235). -->
   <ItemGroup>
     <None Include="TechLog\Fixtures\*.ndjson" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
