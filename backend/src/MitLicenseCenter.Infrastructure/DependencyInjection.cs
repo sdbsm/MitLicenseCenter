@@ -287,6 +287,14 @@ public static class DependencyInjection
         // Привязка к ИБ через TechLogProcessName.Normalize (общий хелпер MLC-234).
         // Stateless singleton, чистый C# без ФС/БД (как LockTreeAnalyzer).
         services.AddSingleton<ISlowQueryAnalyzer, SlowQueryAnalyzer>();
+        // Анализатор исключений платформы 1С (MLC-235, этап B) — ТОЛЬКО EXCP.
+        // Строит топ по частоте (группировка по типу Exception + нормализованному Descr).
+        // Флаг IsDatabaseException выделяет кандидатов на блокировки/дедлоки СУБД
+        // (дедлок СУБД = 2 EXCP с DataBaseException, 40_TECHLOG §7; точная пара-корреляция
+        // — после подтверждения на стенде). Привязка к ИБ через TechLogProcessName.Normalize.
+        // Устойчив к «полям-призракам» (Descr/Context могут отсутствовать), ложным EXCP
+        // при окне авторизации и дублям ключей. Stateless singleton, чистый C# без ФС/БД.
+        services.AddSingleton<IExceptionAnalyzer, ExceptionAnalyzer>();
         services.AddSingleton<ILogcfgStore, LogcfgStore>();
         services.AddSingleton<ITechLogCollectionService, TechLogCollectionService>();
         services.AddSingleton<TechLogWatchdogService>();
