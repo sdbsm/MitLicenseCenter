@@ -70,7 +70,10 @@ export type AuditActionType =
   | "OneCServerRestarted"
   | "OneCServerAutoRestarted"
   | "OneCServerAutoRestartScheduleChanged"
-  | "OneCProcessRestarted";
+  | "OneCProcessRestarted"
+  | "TechLogCollectionStarted"
+  | "TechLogCollectionStopped"
+  | "TechLogConfigForceRestored";
 
 // Активно пишущиеся действия для фильтра. Исключены legacy/frozen
 // (drift/reconcile-цикл и circuit-breaker — новые строки с ними не пишутся);
@@ -129,6 +132,9 @@ export const AUDIT_ACTION_TYPES: readonly AuditActionType[] = [
   "OneCServerAutoRestarted",
   "OneCServerAutoRestartScheduleChanged",
   "OneCProcessRestarted",
+  "TechLogCollectionStarted",
+  "TechLogCollectionStopped",
+  "TechLogConfigForceRestored",
 ] as const;
 
 export type AuditReason = "LimitExceeded" | "ManualByAdmin";

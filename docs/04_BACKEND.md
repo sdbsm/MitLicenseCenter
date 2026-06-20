@@ -820,6 +820,7 @@ Cold-цикл сеансов с MLC-154 — не Hangfire-джоб, а `ColdTier
 | `RasHealthProbingService` | Независимый 30-секундный ping-loop: публикует `IRasHealthReader`-снимок для дашборда. |
 | `PerfRecordingSamplingService` | Тикает по таймеру при активной записи быстродействия, вызывает `PerfRecordingService.SampleOnceAsync`. |
 | `BackupPumpService` | Оркестратор очереди on-demand бэкапов; тикает по wake-сигналу или таймауту. |
+| `TechLogWatchdogService` | Сторож сбора ТЖ: на старте сверяет фактический `logcfg.xml` с ожидаемым и снимает «забытый» конфиг панели без активного дела. |
 
 Подробности поведения горячего цикла и enforcement — в `docs/02_ARCHITECTURE.md`.
 
@@ -831,20 +832,50 @@ Cold-цикл сеансов с MLC-154 — не Hangfire-джоб, а `ColdTier
 эндпоинт `POST /api/v1/sessions/refresh` (Viewer, 204 без тела, без аудита) под кнопкой
 «Обновить сейчас» на «Сеансах»: фронт ждёт ответ и перечитывает `GET /sessions/snapshot`.
 
-### Сервисы сбора и парсинга ТЖ (планируется, трек 1.2)
+### Сервисы управления технологическим журналом (трек 1.2)
 
-> Целевое направление версии 1.2; **код ещё не написан**. Существующие perf-сервисы выше
-> (`PerfRecording*`, probe) описаны present-tense — это работающая система.
+К существующему live-режиму «Наблюдение» добавляется режим «Расследование» (ADR-57): сбор
+технологического журнала 1С под управлением панели. Реализован слой **управления `logcfg.xml`**
+(генератор + store + сервис жизненного цикла + сторож на старте); **безопасный сбор** (окно/лимит
+места/авто-стоп), **NDJSON-парсер** и **агрегаты** под объект «Дело» — последующие задачи трека.
 
-В версии 1.2 к существующему live-режиму «Наблюдение» добавляется режим «Расследование» (ADR-57),
-для которого планируются backend-сервисы: **управление `logcfg.xml`** (генерация целевого конфига под
-сценарий + сторож на старте, который сверяет фактический конфиг с ожидаемым и восстанавливает «снятый»
-вид при отсутствии активного дела), **безопасный сбор** (окно времени, лимит места, авто-стоп по
-политике ADR-58), **NDJSON-парсер ТЖ платформы 8.5** и **агрегаты** под объект «Дело»: дерево
-управляемых 1С-блокировок из `TLOCK/TTIMEOUT/TDEADLOCK`, топ долгих `DBMSSQL`, исключения `EXCP`.
-Парсер тестируется на реальных образцах ТЖ со стенда (компиляция семантику формата не ловит —
-урок T-SQL установщика). Постановка/снятие сбора аудируется новым `AuditActionType` (новое
-int-значение — enum аудита заморожен).
+- **`ILogcfgBuilder`** (Application) / `LogcfgBuilder` (Infrastructure) — чистый генератор целевого
+  `logcfg.xml` по (сценарий, имя ИБ?, каталог сбора, history). Конфиг строго целевой (ADR-58):
+  `format="json"`, ограниченный `history`, набор событий по сценарию (`TechLogScenario`: блокировки
+  `TLOCK/TTIMEOUT/TDEADLOCK`+`SDBL`; долгие запросы `DBMSSQL/SDBL`+`<plansql/>`; исключения
+  `EXCP/EXCPCNTX`+`<dump/>`; общая медленная работа `CALL/DBMSSQL`) — никогда `<property name="all"/>`.
+  **Объём режется только типом события и `p:processName`: фильтр по длительности (`<ge property="Dur"/>`)
+  в `logcfg` для JSON-ТЖ 8.5 не ставится — он не работает (ловит 0, факт стенда MLC-229), порог
+  длительности применяет парсер на этапе разбора.** При заданном имени ИБ конфиг обязан содержать
+  точный `<eq property="p:processName" value="…"/>` (изоляция арендатора) — `<like>` не используется
+  (в JSON не фильтрует). В конфиг встроен опознавательный XML-маркер, по которому сторож отличает «наш»
+  конфиг от чужого.
+- **`ILogcfgStore`** (Application) / `LogcfgStore` (Infrastructure) — файловые операции над
+  `<корень 1С>\conf\logcfg.xml` (путь через тот же `OneCInstallRoots`, что у rac/ras): чтение/запись,
+  резервная копия исходного перед установкой и восстановление из неё при снятии, **проба прав записи**.
+  Сервисный аккаунт `NT SERVICE\MitLicenseCenter` по умолчанию прав записи в `conf` не имеет (ADR-8/58):
+  при отказе store возвращает структурный результат с точной командой
+  `icacls "…\logcfg.xml" /grant "NT SERVICE\MitLicenseCenter:(M)"` для оператора (тот же паттерн
+  «детектируем проблему прав → отдаём точную команду», что у healing службы RAS). Грант установщик
+  не выдаёт в этой задаче.
+- **`ITechLogCollectionService`** (Application) / `TechLogCollectionService` (Infrastructure, singleton)
+  — жизненный цикл «дела сбора» (зеркаль `PerfRecordingService`: один `SemaphoreSlim`,
+  `IServiceScopeFactory` для scoped `AppDbContext`/`IAuditLogger`, `TimeProvider`). `InstallAsync`:
+  проба прав → генерация конфига → бэкап исходного → запись → дело `TechLogCollection` (`Active`) →
+  аудит. `RemoveAsync`: восстановление исходного `logcfg` → дело `Stopped` (с причиной) → аудит.
+  Идемпотентно: повторная установка не переписывает конфиг, снятие хранит снимок установленного.
+- **`TechLogWatchdogService`** (hosted `BackgroundService`, зеркаль `PerfRecordingSamplingService`) —
+  **сторож на старте**: сверяет фактический `logcfg.xml` в `conf` с ожидаемым. Если в `conf` лежит наш
+  конфиг (по маркеру), но активного дела (`Status==Active`) в БД нет (краш ОС оставил «забытый»
+  конфиг) — принудительно восстанавливает исходный и пишет аудит. Полный orphan-recovery
+  (`Active`→`Interrupted`) и периодическая петля авто-стопа — следующая задача трека.
+
+Сущность `TechLogCollection` (Domain) — прокси «активного дела» (мигрирует в полноценную сущность
+расследования позже); телеметрия в `dbo.TechLogCollections`, enum'ы `TechLogCollectionStatus`/
+`TechLogCollectionStopReason` хранятся `int`'ом (`HasConversion<int>`, frozen-int как у `PerfRecording*`).
+Настройки: `TechLog.CollectionRoot` (каталог сбора, дефолт под `%PROGRAMDATA%`), `TechLog.HistoryHours`
+(короткий дефолт по политике безопасности). Аудит — `TechLogCollectionStarted/Stopped/ConfigForceRestored`
+(host-scope, новые int-значения 806–808 — enum аудита заморожен).
 
 Формат ТЖ, события, шаблоны `logcfg.xml` и грабли парсера — база знаний
 [`../research/perf-investigation/40_TECHLOG.md`](../research/perf-investigation/40_TECHLOG.md);

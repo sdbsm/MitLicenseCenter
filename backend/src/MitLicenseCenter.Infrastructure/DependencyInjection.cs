@@ -20,6 +20,7 @@ using MitLicenseCenter.Application.Reporting;
 using MitLicenseCenter.Application.Server;
 using MitLicenseCenter.Application.Sessions;
 using MitLicenseCenter.Application.Settings;
+using MitLicenseCenter.Application.TechLog;
 using MitLicenseCenter.Application.Updates;
 using MitLicenseCenter.Infrastructure.Audit;
 using MitLicenseCenter.Infrastructure.Backups;
@@ -36,6 +37,7 @@ using MitLicenseCenter.Infrastructure.Ras;
 using MitLicenseCenter.Infrastructure.Reporting;
 using MitLicenseCenter.Infrastructure.Server;
 using MitLicenseCenter.Infrastructure.Settings;
+using MitLicenseCenter.Infrastructure.TechLog;
 using MitLicenseCenter.Infrastructure.Updates;
 
 namespace MitLicenseCenter.Infrastructure;
@@ -260,6 +262,20 @@ public static class DependencyInjection
         services.AddSingleton<IPerfRecordingService, PerfRecordingService>();
         services.AddSingleton<PerfRecordingSamplingService>();
         services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<PerfRecordingSamplingService>());
+
+        // Сбор технологического журнала режима «Расследование» (MLC-230, ADR-57/58). Генератор
+        // logcfg (ILogcfgBuilder) и store (ILogcfgStore) — stateless singleton'ы (чистый XML / ФС
+        // за интерфейсом). Сервис жизненного цикла (ITechLogCollectionService) — singleton: держит
+        // активное дело между операциями и сериализует их через SemaphoreSlim (паттерн
+        // PerfRecordingService); БД и scoped IAuditLogger берёт через IServiceScopeFactory. Сторож
+        // на старте (TechLogWatchdogService) — hosted BackgroundService: сверяет фактический
+        // logcfg.xml с ожидаемым и снимает «забытый» конфиг (60_SAFETY №5). Окно/авто-стоп/лимит
+        // диска/orphan-recovery — MLC-231.
+        services.AddSingleton<ILogcfgBuilder, LogcfgBuilder>();
+        services.AddSingleton<ILogcfgStore, LogcfgStore>();
+        services.AddSingleton<ITechLogCollectionService, TechLogCollectionService>();
+        services.AddSingleton<TechLogWatchdogService>();
+        services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<TechLogWatchdogService>());
 
         // On-demand бэкап баз SQL (MLC-076, ADR-27): весь безопасный цикл одной операции
         // (sysadmin-проверка → оценка → место → BACKUP COPY_ONLY → VERIFYONLY → keep-latest).

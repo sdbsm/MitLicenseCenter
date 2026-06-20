@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using MitLicenseCenter.Domain.Infobases;
 using MitLicenseCenter.Domain.Publications;
 using MitLicenseCenter.Domain.Settings;
+using MitLicenseCenter.Domain.TechLog;
 using MitLicenseCenter.Domain.Tenants;
 using MitLicenseCenter.Infrastructure.Audit;
 using MitLicenseCenter.Infrastructure.Identity;
@@ -28,6 +29,7 @@ public sealed class AppDbContext : IdentityDbContext<AppUser, AppRole, Guid>
     public DbSet<PerfRecordingSample> PerfRecordingSamples => Set<PerfRecordingSample>();
     public DbSet<DatabaseBackup> DatabaseBackups => Set<DatabaseBackup>();
     public DbSet<HiddenClusterInfobase> HiddenClusterInfobases => Set<HiddenClusterInfobase>();
+    public DbSet<TechLogCollection> TechLogCollections => Set<TechLogCollection>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -279,6 +281,29 @@ public sealed class AppDbContext : IdentityDbContext<AppUser, AppRole, Guid>
             e.Property(x => x.Name).IsRequired().HasMaxLength(200);
             e.Property(x => x.HiddenAtUtc).IsRequired();
             e.Property(x => x.HiddenBy).IsRequired().HasMaxLength(256);
+        });
+
+        builder.Entity<TechLogCollection>(e =>
+        {
+            // MLC-230 (ADR-57/58): дело сбора ТЖ режима «Расследование». Сущность-телеметрия, конфиг
+            // inline по паттерну PerfRecording. Без FK на Tenant — сбор охватывает узел (logcfg
+            // действует на весь кластер), а изоляция арендатора — это фильтр p:processName, не FK.
+            e.ToTable("TechLogCollections", "dbo");
+            e.HasKey(x => x.Id);
+            // Enum'ы как int (HasConversion) по конвенции проекта (PerfRecording/InfobaseStatus).
+            e.Property(x => x.Status).HasConversion<int>().IsRequired();
+            e.Property(x => x.StopReason).HasConversion<int?>();
+            e.Property(x => x.StartedAtUtc).IsRequired();
+            e.Property(x => x.StoppedAtUtc);
+            e.Property(x => x.Scenario).IsRequired().HasMaxLength(50);
+            // Имя ИБ (p:processName) — как Infobase.Name (200); может включать суффикс-GUID фоновых
+            // заданий (40_TECHLOG §8), но точный <eq> ставим на голое имя.
+            e.Property(x => x.InfobaseProcessName).HasMaxLength(200);
+            e.Property(x => x.CollectionDirectory).IsRequired().HasMaxLength(512);
+            e.Property(x => x.ConfigMarker).IsRequired().HasMaxLength(256);
+            // Список дел сортируется по началу (свежие сверху); сторож ищет активное дело.
+            e.HasIndex(x => x.StartedAtUtc);
+            e.HasIndex(x => x.Status);
         });
 
         builder.Entity<SettingEntry>(e =>
