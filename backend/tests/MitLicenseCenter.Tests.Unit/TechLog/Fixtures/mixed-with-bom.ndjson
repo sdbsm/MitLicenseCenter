@@ -1,0 +1,5 @@
+﻿{"ts":"2026-06-20T03:04:58.858004","duration":"1","name":"DBMSSQL","depth":"5","level":"DEBUG","process":"rphost","p:processName":"infobase01","OSThread":"48908","t:clientID":"17","t:clientID":"19","Sql":"SELECT 1","Context":"Module.Run"}
+{"ts":"2026-06-20T03:05:00.000000","duration":"60005971","name":"CALL","depth":"1","level":"DEBUG","process":"rphost","OSThread":"48908","Method":"Execute","CallID":"100"}
+
+{this is not valid json at all,,,}
+{"ts":"2026-06-20T03:07:10.000000","duration":"0","name":"EXCP","depth":"1","level":"ERROR","process":"rphost","p:processName":"infobase01","Exception":"DataBaseException","Descr":"Lock request timeout exceeded"}
