@@ -281,6 +281,12 @@ public static class DependencyInjection
         // (TLOCK/TTIMEOUT/TDEADLOCK); СУБД-уровень (<dbmslocks/>/lkX) — MLC-236.
         // Stateless singleton, чистый C# без ФС/БД (как TechLogParser/LogcfgBuilder).
         services.AddSingleton<ILockTreeAnalyzer, LockTreeAnalyzer>();
+        // Анализатор долгих запросов к СУБД (MLC-234, этап B) — ТОЛЬКО DBMSSQL.
+        // Строит топ долгих + группы похожих (нормализация SQL). Порог длительности —
+        // в анализаторе, не в logcfg (фильтр Dur в JSON-ТЖ 8.5 не работает, §6).
+        // Привязка к ИБ через TechLogProcessName.Normalize (общий хелпер MLC-234).
+        // Stateless singleton, чистый C# без ФС/БД (как LockTreeAnalyzer).
+        services.AddSingleton<ISlowQueryAnalyzer, SlowQueryAnalyzer>();
         services.AddSingleton<ILogcfgStore, LogcfgStore>();
         services.AddSingleton<ITechLogCollectionService, TechLogCollectionService>();
         services.AddSingleton<TechLogWatchdogService>();
