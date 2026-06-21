@@ -303,6 +303,22 @@ function SlowQueriesBlock({ result }: { result: SlowQueryAnalysisResult }) {
                     max: fmtDurationShort(g.maxDurationSeconds),
                   })}
                 </p>
+                {/* MLC-251: мостик «тяжёлый SQL → код 1С» — типовой контекст (корреляция с CALL) + база. */}
+                {g.database && (
+                  <Badge variant="outline" className="font-mono text-xs">
+                    {t("investigations.detail.slowQueries.groupDatabase")}: {g.database}
+                  </Badge>
+                )}
+                {g.sampleContext && (
+                  <div>
+                    <p className="text-muted-foreground mt-1 mb-1 text-xs">
+                      {t("investigations.detail.slowQueries.groupContext")}
+                    </p>
+                    <pre className="bg-muted overflow-x-auto rounded p-2 font-mono text-xs break-words whitespace-pre-wrap">
+                      {g.sampleContext}
+                    </pre>
+                  </div>
+                )}
               </div>
             ))}
           </div>

@@ -1,0 +1,3 @@
+{"ts":"2026-06-21T10:00:10.000000","duration":"10000000","name":"CALL","process":"rphost","t:connectID":"7001","Context":"ВнешнийВызов.ТочкаВхода:1"}
+{"ts":"2026-06-21T10:00:09.000000","duration":"3000000","name":"CALL","process":"rphost","t:connectID":"7001","Context":"ВнутреннийВызов.Вложенный:99"}
+{"ts":"2026-06-21T10:00:08.500000","duration":"500000","name":"DBMSSQL","process":"rphost","p:processName":"infobase01","t:connectID":"7001","DataBase":"localhost\\BP_into","Sql":"SELECT T1._Val FROM _NestedTbl T1 WHERE T1._Ref = @P1"}
