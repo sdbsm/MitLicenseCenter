@@ -97,11 +97,19 @@ describe("investigationsPagedSchema", () => {
 });
 
 describe("findingSchema", () => {
-  it("принимает result как вложенный объект (пермиссивно, форма за этапом D)", () => {
+  // С MLC-243 result типизирован пер-Kind (Zod parity с BE-DTO анализаторов). Подробные
+  // schema-тесты каждого Kind — в findingResultSchema.test.ts; здесь sanity на findingSchema-обёртке.
+  it("принимает result как вложенный объект анализатора (SlowQueryAnalysisResult)", () => {
     const parsed = findingSchema.parse({
       kind: "SlowQueries",
       schemaVersion: 1,
-      result: { topQueries: [{ durationSeconds: 6.0 }], totalDbmssqlEvents: 3 },
+      result: {
+        topQueries: [{ durationMicroseconds: 6_000_000, durationSeconds: 6.0 }],
+        similarGroups: [],
+        totalDbmssqlEvents: 3,
+        eventsAboveThreshold: 1,
+        skippedEvents: 0,
+      },
     });
     expect(parsed.kind).toBe("SlowQueries");
     expect((parsed.result as { totalDbmssqlEvents: number }).totalDbmssqlEvents).toBe(3);

@@ -34,6 +34,10 @@
           "INVESTIGATION_START_FAILED": "Не удалось запустить расследование: {{detail}}"
         }
       },
+      "list": {
+        "title": "Расследования",
+        "newBtn": "+ Новое расследование"
+      },
       "progress": {
         "title": "Идёт сбор",
         "titleAnalyzing": "Идёт анализ",

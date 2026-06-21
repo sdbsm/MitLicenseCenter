@@ -2,16 +2,21 @@ import { z } from "zod";
 import { omittable } from "@/lib/apiSchema";
 
 /**
- * Контракт-слой «Расследование производительности» (трек 1.2, MLC-239, этап C). Зеркалит DTO бэкенда
- * (InvestigationContracts.cs) — Zod-схемы критичной границы (ADR-10.1 / MLC-016) + типы через `z.infer`.
- * Enum'ы приходят строкой (`JsonStringEnumConverter`); строки FE ТОЧНО совпадают с именами членов
- * Domain-enum'ов (frozen-int на проводе уходит именем). Экраны раздела — этап D (MLC-241+); здесь только
- * контракт + хуки + i18n-enum, без UI.
+ * Контракт-слой «Расследование производительности» (трек 1.2, MLC-239/243, этапы C/D). Зеркалит DTO бэкенда
+ * (InvestigationContracts.cs + *AnalysisResult.cs) — Zod-схемы критичной границы (ADR-10.1 / MLC-016) + типы
+ * через `z.infer`. Enum'ы приходят строкой (`JsonStringEnumConverter`); строки FE ТОЧНО совпадают с именами
+ * членов Domain-enum'ов (frozen-int на проводе уходит именем). Экраны раздела — этап D (MLC-243); контракт +
+ * хуки + i18n-enum.
  *
  * `null`-поля бэкенд ОПУСКАЕТ (`JsonIgnoreCondition.WhenWritingNull`): `stoppedAtUtc`/`stopReason`/
  * `tenantId`/`infobaseId` у активного/непривязанного дела не приходят как `null`, а отсутствуют —
  * объявлены через `omittable()` (урок [[api-omits-null-fields]]: `.nullable()` упал бы на отсутствующем
  * ключе). Parity-тесты покрывают omit-null.
+ *
+ * `finding.result` типизирован пер-Kind (MLC-243): LockAnalysisResult / SlowQueryAnalysisResult /
+ * ExceptionAnalysisResult / DbmsLockAnalysisResult — parity с BE-DTO анализаторов (camelCase на
+ * проводе, WhenWritingNull). Схемы НЕ используют .strict() — BE может добавить поля; лишние ключи
+ * Zod игнорирует (толерантность).
  */
 
 // Жизненный цикл дела (InvestigationStatus). Имена 1:1 с Domain-enum (frozen-int на проводе — именем).
@@ -35,9 +40,166 @@ export const investigationScenarioSchema = z.enum([
 // Причина остановки (InvestigationStopReason). Заполнена только у Completed; иначе поле опущено.
 export const investigationStopReasonSchema = z.enum(["Manual", "TimeLimit", "DiskLimit", "Error"]);
 
-// Вид находки (FindingKind) — какой анализатор дал результат. Точная пер-Kind типизация `result`
-// откладывается на этап D; здесь `result` пермиссивен (см. findingSchema).
+// Вид находки (FindingKind) — какой анализатор дал результат.
 export const findingKindSchema = z.enum(["ManagedLocks", "SlowQueries", "Exceptions", "DbmsLocks"]);
+
+// ─── Пер-Kind схемы result (MLC-243, parity с BE-DTO анализаторов) ─────────────────────────────
+// Поля — camelCase (JSON из C# record/class). Nullable-поля ОПУСКАЮТСЯ (WhenWritingNull) → omittable().
+// Обязательные числа (DurationMicroseconds, DurationSeconds, Count и т.п.) → z.number().
+// Не используем .strict(): BE может добавить поля; Zod по умолчанию игнорирует лишние ключи.
+
+/** Ребро ожидания управляемой блокировки 1С (LockWaitEdge, MLC-233). */
+const lockWaitEdgeSchema = z.object({
+  ts: omittable(z.string()),
+  waitingSessionId: omittable(z.string()),
+  waitingUser: omittable(z.string()),
+  waitingAppId: omittable(z.string()),
+  blockingConnections: omittable(z.string()),
+  regions: omittable(z.string()),
+  lockMode: omittable(z.string()),
+  waitDurationSeconds: omittable(z.number()),
+  infobaseName: omittable(z.string()),
+  rawProcessName: omittable(z.string()),
+  context: omittable(z.string()),
+  database: omittable(z.string()),
+});
+
+/** Таймаут ожидания управляемой блокировки 1С (LockTimeoutEntry, MLC-233). */
+const lockTimeoutEntrySchema = z.object({
+  ts: omittable(z.string()),
+  sessionId: omittable(z.string()),
+  user: omittable(z.string()),
+  regions: omittable(z.string()),
+  lockMode: omittable(z.string()),
+  waitDurationSeconds: omittable(z.number()),
+  infobaseName: omittable(z.string()),
+  rawProcessName: omittable(z.string()),
+  context: omittable(z.string()),
+  waitConnections: omittable(z.string()),
+});
+
+/** Взаимоблокировка управляемых блокировок 1С (LockDeadlockEntry, MLC-233). */
+const lockDeadlockEntrySchema = z.object({
+  ts: omittable(z.string()),
+  sessionId: omittable(z.string()),
+  user: omittable(z.string()),
+  regions: omittable(z.string()),
+  lockMode: omittable(z.string()),
+  durationSeconds: omittable(z.number()),
+  infobaseName: omittable(z.string()),
+  rawProcessName: omittable(z.string()),
+  context: omittable(z.string()),
+  waitConnections: omittable(z.string()),
+});
+
+/** LockAnalysisResult — результат анализа управляемых блокировок 1С (kind=ManagedLocks). */
+export const lockAnalysisResultSchema = z.object({
+  waitEdges: z.array(lockWaitEdgeSchema),
+  timeouts: z.array(lockTimeoutEntrySchema),
+  deadlocks: z.array(lockDeadlockEntrySchema),
+  tlockEventsProcessed: z.number(),
+  skippedEvents: z.number(),
+});
+
+/** Запись об одном медленном запросе к СУБД (SlowQueryEntry, MLC-234). */
+const slowQueryEntrySchema = z.object({
+  ts: omittable(z.string()),
+  durationMicroseconds: z.number(),
+  durationSeconds: z.number(),
+  sql: omittable(z.string()),
+  context: omittable(z.string()),
+  dbPid: omittable(z.string()),
+  rows: omittable(z.string()),
+  rowsAffected: omittable(z.string()),
+  database: omittable(z.string()),
+  infobaseName: omittable(z.string()),
+  rawProcessName: omittable(z.string()),
+  sessionId: omittable(z.string()),
+  user: omittable(z.string()),
+  planText: omittable(z.string()),
+});
+
+/** Группа похожих SQL-запросов (SlowQueryGroup, MLC-234). */
+const slowQueryGroupSchema = z.object({
+  normalizedSql: z.string(),
+  count: z.number(),
+  totalDurationMicroseconds: z.number(),
+  maxDurationMicroseconds: z.number(),
+  totalDurationSeconds: z.number(),
+  maxDurationSeconds: z.number(),
+});
+
+/** SlowQueryAnalysisResult — результат анализа долгих запросов (kind=SlowQueries). */
+export const slowQueryAnalysisResultSchema = z.object({
+  topQueries: z.array(slowQueryEntrySchema),
+  similarGroups: z.array(slowQueryGroupSchema),
+  totalDbmssqlEvents: z.number(),
+  eventsAboveThreshold: z.number(),
+  skippedEvents: z.number(),
+});
+
+/** Группа однотипных исключений 1С (ExceptionGroup, MLC-235). */
+const exceptionGroupSchema = z.object({
+  exceptionType: omittable(z.string()),
+  normalizedDescr: z.string(),
+  sampleDescr: omittable(z.string()),
+  sampleContext: omittable(z.string()),
+  count: z.number(),
+  isDatabaseException: z.boolean(),
+  infobaseName: omittable(z.string()),
+  rawProcessName: omittable(z.string()),
+  firstTs: omittable(z.string()),
+  lastTs: omittable(z.string()),
+});
+
+/** ExceptionAnalysisResult — результат анализа исключений платформы (kind=Exceptions). */
+export const exceptionAnalysisResultSchema = z.object({
+  topExceptions: z.array(exceptionGroupSchema),
+  totalExcpEvents: z.number(),
+  databaseExceptionEvents: z.number(),
+  skippedEvents: z.number(),
+});
+
+/** Ребро СУБД-блокировки: жертва → источник (DbmsLockWaitEdge, MLC-236). */
+const dbmsLockWaitEdgeSchema = z.object({
+  victimTs: omittable(z.string()),
+  victimConnectId: omittable(z.string()),
+  victimLksrc: omittable(z.string()),
+  victimLkpto: omittable(z.string()),
+  victimSql: omittable(z.string()),
+  victimContext: omittable(z.string()),
+  victimLkpid: omittable(z.string()),
+  sourceConnectId: omittable(z.string()),
+  sourceLkato: omittable(z.string()),
+  sourceLkaid: omittable(z.string()),
+  sourceSql: omittable(z.string()),
+  sourceContext: omittable(z.string()),
+  infobaseName: omittable(z.string()),
+  rawProcessName: omittable(z.string()),
+  database: omittable(z.string()),
+  sourceMatched: z.boolean(),
+});
+
+/** DbmsLockAnalysisResult — результат анализа СУБД-блокировок (kind=DbmsLocks). */
+export const dbmsLockAnalysisResultSchema = z.object({
+  waitEdges: z.array(dbmsLockWaitEdgeSchema),
+  lkEventsProcessed: z.number(),
+  unmatchedVictimCount: z.number(),
+  skippedEvents: z.number(),
+});
+
+// Экспортируемые типы для sub-схем (используются в компонентах)
+export type LockWaitEdge = z.infer<typeof lockWaitEdgeSchema>;
+export type LockTimeoutEntry = z.infer<typeof lockTimeoutEntrySchema>;
+export type LockDeadlockEntry = z.infer<typeof lockDeadlockEntrySchema>;
+export type LockAnalysisResult = z.infer<typeof lockAnalysisResultSchema>;
+export type SlowQueryEntry = z.infer<typeof slowQueryEntrySchema>;
+export type SlowQueryGroup = z.infer<typeof slowQueryGroupSchema>;
+export type SlowQueryAnalysisResult = z.infer<typeof slowQueryAnalysisResultSchema>;
+export type ExceptionGroup = z.infer<typeof exceptionGroupSchema>;
+export type ExceptionAnalysisResult = z.infer<typeof exceptionAnalysisResultSchema>;
+export type DbmsLockWaitEdge = z.infer<typeof dbmsLockWaitEdgeSchema>;
+export type DbmsLockAnalysisResult = z.infer<typeof dbmsLockAnalysisResultSchema>;
 
 // Элемент списка дел + шапка детали. nullable-поля → omittable() (бэкенд опускает при null).
 export const investigationSummarySchema = z.object({
@@ -73,13 +235,22 @@ export const collectionConfigSchema = z.object({
 });
 
 // Одна находка. `result` — разобранный объект анализатора (на проводе вложенный JSON-объект, НЕ строка).
-// ПЕРМИССИВНО `z.unknown()`: точная пер-Kind типизация результата (LockAnalysisResult/SlowQueryAnalysisResult/…)
-// откладывается на этап D (MLC-241+) — раздел пока не рендерит детали находок, только число/вид. Схема не
-// отвергает ответ из-за неизвестной формы result (она богатая и подлежит стенд-приёмке).
+// Типизирован пер-Kind (MLC-243): дискриминант — `kind`. Graceful: если result не распарсился
+// (future schemaVersion, неожиданная форма) — result будет null, деталь не падает целиком.
+// НЕ используем .strict(): BE может добавить поля; лишние ключи Zod игнорирует.
+const findingResultSchema = z
+  .union([
+    lockAnalysisResultSchema,
+    slowQueryAnalysisResultSchema,
+    exceptionAnalysisResultSchema,
+    dbmsLockAnalysisResultSchema,
+  ])
+  .catch(null as unknown as LockAnalysisResult);
+
 export const findingSchema = z.object({
   kind: findingKindSchema,
   schemaVersion: z.number(),
-  result: z.unknown(),
+  result: findingResultSchema,
 });
 
 // Деталь дела = шапка + снимок сбора (omittable: null у исторических дел) + находки.
