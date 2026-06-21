@@ -15,8 +15,15 @@ public interface ITechLogCollectionService
     // Ставит целевой ТЖ: проба прав → генерация logcfg → бэкап исходного → запись → дело Active → аудит.
     // AlreadyActive — дело уже идёт (id текущего). NoWriteAccess — нет прав на logcfg.xml (в результате
     // точная команда icacls для оператора). RootNotFound — корень 1С (conf) не найден.
+    //
+    // MLC-239: опц. привязка к арендатору/инфобазе (infobaseId/tenantId) — резолвится эндпоинтом из
+    // реестра (db.Infobases+Tenants) и персистится на Investigation.InfobaseId/TenantId. Сам сбор НЕ
+    // изолирует — logcfg глобален; изоляция арендатора выполняется фильтром p:processName
+    // (infobaseProcessName). Инвариант 60_SAFETY №2: при заданном infobaseId эндпоинт обязан передать
+    // непустой infobaseProcessName (имя ИБ), иначе EnsureProcessFilterInvariant бросит.
     Task<TechLogStartResult> InstallAsync(
-        string startedBy, TechLogScenario scenario, string? infobaseProcessName, CancellationToken ct);
+        string startedBy, TechLogScenario scenario, string? infobaseProcessName, CancellationToken ct,
+        Guid? infobaseId = null, Guid? tenantId = null);
 
     // Снимает активный сбор: восстановление исходного logcfg → дело Completed (reason) → аудит.
     // NotActive — переданный id не является текущим активным делом.

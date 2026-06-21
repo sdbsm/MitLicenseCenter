@@ -293,6 +293,7 @@ app.MapDashboardEndpoints(versionSet);
 app.MapUpdatesEndpoints(versionSet);
 app.MapReportsEndpoints(versionSet);
 app.MapPerformanceEndpoints(versionSet);
+app.MapInvestigationEndpoints(versionSet);
 app.MapBackupsEndpoints(versionSet);
 app.MapDiscoveryEndpoints(versionSet);
 app.MapRasServiceEndpoints(versionSet);

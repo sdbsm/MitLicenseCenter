@@ -155,4 +155,11 @@ public enum AuditActionType
     TechLogCollectionStarted = 806,
     TechLogCollectionStopped = 807,
     TechLogConfigForceRestored = 808,
+
+    // Удаление завершённого «Дела» расследования оператором (MLC-239, зеркаль PerfRecordingDeleted=702).
+    // DELETE /api/v1/investigations/{id} каскадом сносит Finding'и дела. Активное дело удалить нельзя
+    // (Conflict, до этого кода дело не доходит). Host/server-scope (TenantId не пишется — сбор охватывает
+    // узел; привязка к арендатору на деле — справочная, не меняет scope аудита). Frozen-int: новое число
+    // после 808, существующие не переназначаются. 810+ — резерв.
+    InvestigationDeleted = 809,
 }

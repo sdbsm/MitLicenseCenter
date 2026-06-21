@@ -159,6 +159,12 @@ internal static class AuditDescriptions
     public static string PerfRecordingDeleted(Guid id, string initiator) =>
         $"Диагностическая запись быстродействия {id:N} удалена администратором {initiator}.";
 
+    // ── «Дело» расследования производительности (MLC-239, трек 1.2) ─────────────────
+    // Host/server-scope (сбор охватывает узел; привязка дела к арендатору справочная).
+    // Дело идентифицируем по Id формата :N (без дефисов), как PerfRecording.
+    public static string InvestigationDeleted(Guid id, string initiator) =>
+        $"Дело расследования {id:N} удалено администратором {initiator}.";
+
     // ── Управление сервером 1С (MLC-213, ADR-54/55) ─────────────────────────────────
     // Server/host-scope (TenantId не пишется); секретов нет. Указываем имя службы ragent —
     // для разбора «над каким именно сервером 1С выполнено действие». Образец RasServiceStarted.

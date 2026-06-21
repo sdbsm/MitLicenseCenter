@@ -72,6 +72,7 @@ const ALL_ACTION_TYPES: Record<AuditActionType, true> = {
   TechLogCollectionStarted: true,
   TechLogCollectionStopped: true,
   TechLogConfigForceRestored: true,
+  InvestigationDeleted: true,
 };
 
 const unionMembers = Object.keys(ALL_ACTION_TYPES).sort();

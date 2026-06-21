@@ -1,0 +1,36 @@
+{
+  "investigations": {
+    "title": "Расследование производительности",
+    "status": {
+      "Collecting": "Идёт сбор",
+      "Analyzing": "Анализ",
+      "Completed": "Завершено",
+      "Interrupted": "Прервано",
+      "Failed": "Ошибка"
+    },
+    "scenario": {
+      "Locks": "Управляемые блокировки 1С",
+      "SlowQueries": "Долгие запросы к СУБД",
+      "Exceptions": "Исключения платформы",
+      "GeneralSlow": "Общая медленная работа",
+      "DbmsLocks": "Блокировки уровня СУБД"
+    },
+    "stopReason": {
+      "Manual": "вручную",
+      "TimeLimit": "лимит времени",
+      "DiskLimit": "лимит места",
+      "Error": "ошибка"
+    },
+    "findingKind": {
+      "ManagedLocks": "Управляемые блокировки 1С",
+      "SlowQueries": "Долгие запросы к СУБД",
+      "Exceptions": "Исключения платформы",
+      "DbmsLocks": "Блокировки уровня СУБД"
+    },
+    "severity": {
+      "None": "Нет находок",
+      "Info": "К сведению",
+      "Warning": "Внимание"
+    }
+  }
+}
