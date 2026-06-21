@@ -1,0 +1,8 @@
+{"ts":"2026-06-20T05:00:00.000000","duration":"100000","name":"CALL","process":"rphost","Method":"0","CallID":"600"}
+{"ts":"2026-06-20T05:00:01.000000","duration":"200000","name":"CALL","process":"rphost","MName":"5","CallID":"601"}
+{"ts":"2026-06-20T05:00:02.000000","duration":"150000","name":"CALL","process":"rphost","IName":"83","CallID":"602"}
+{"ts":"2026-06-20T05:00:03.000000","duration":"120000","name":"CALL","process":"rphost","Method":"methodsCount","CallID":"603"}
+{"ts":"2026-06-20T05:00:04.000000","duration":"90000","name":"CALL","process":"rphost","MName":"Release","CallID":"604"}
+{"ts":"2026-06-20T05:00:05.000000","duration":"80000","name":"CALL","process":"rphost","CallID":"605"}
+{"ts":"2026-06-20T05:00:06.000000","duration":"3000000","name":"CALL","process":"rphost","Context":"Документ.ЗакрытиеМесяца.МодульМенеджера:120","Method":"Posting","CallID":"606"}
+{"ts":"2026-06-20T05:00:07.000000","duration":"45000000","name":"CALL","process":"rphost","Method":"7","CallID":"607"}

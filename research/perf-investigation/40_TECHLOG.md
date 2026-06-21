@@ -325,8 +325,22 @@ value="10000"/>` (8.5, JSON; 10000 сотен µs = 1 c). До ретеста у
   - `TLOCK`: `… SessionID, AppID, Usr, DBMS, DataBase, Regions, Locks, WaitConnections, Context`
     (поля дерева управляемых блокировок — этап B).
   - `EXCP`: `… Exception, Descr` (тип исключения + текст).
-  - `CALL`: `… callWait, first, Interface, IName, Method, CallID, MName, Memory, MemoryPeak, InBytes,
-    OutBytes, CpuTime` (в части CALL **нет** `p:processName`).
+  - `CALL`: `… t:connectID, callWait, first, Interface, IName, Method, CallID, MName, Memory, MemoryPeak,
+    InBytes, OutBytes, CpuTime` (в части CALL **нет** `p:processName`). **⚠ Поле связи корреляции CALL↔DBMSSQL
+    (MLC-252 B):** транспортное поле соединения у `CALL` — `t:connectID` (то же, что у `DBMSSQL`), как и у всех
+    серверных событий; корреляция MLC-251 матчит именно по нему. Прежний снимок MLC-229 перечислял у `CALL`
+    `CallID`, но НЕ `t:connectID` — это была неполнота снимка (имена снимались выборочно), а не его отсутствие;
+    фикстуры (`dbmssql-call-correlation.ndjson`/`dbmssql-call-nested.ndjson`) и логика анализатора исходят из
+    наличия `t:connectID` у `CALL`. **Если на свежем дампе стенда у реального `CALL` `t:connectID` всё же
+    отсутствует** — корреляция по нему не сцепится (BuildCallIndex отбросит CALL без connectId); тогда нужен
+    дамп `CALL`+`DBMSSQL` со стенда, чтобы определить фактическое транспортное поле и починить матчинг
+    (НЕ домысливать форму). На текущих данных предполагается `t:connectID`.
+  - **⚠ Время `CALL` ВЛОЖЕННОЕ (gross), MLC-252 A-2:** длительность серверного вызова `CALL` ВКЛЮЧАЕТ время
+    вложенных `DBMSSQL`/под-вызовов (родительский вызов содержит дочерние). Поэтому длительности `CALL`
+    **нельзя суммировать** как независимые слагаемые (в отличие от `DBMSSQL`, где каждое событие — лист):
+    «общий итог по вызовам» некорректен и убран с FE. Анализатор сортирует группы по собственному (gross)
+    времени и помечает фоновый вызов-обёртку (большая длительность + неосмысленный контекст), чтобы он не
+    доминировал в топе.
   - Живая таксономия событий (закрытие месяца): `DBMSSQL, SDBL, SCALL, TLOCK, CALL, CONN, CLSTR,
     VRSREQUEST/VRSRESPONSE, SCOM, DBCOPIES, HASP, DBMSSQLCONN, EXCP, FTEXTUpd`.
 - **Объём (живое подтверждение ADR-58):** полный ТЖ (`<ne property="name" value=""/>`) при закрытии

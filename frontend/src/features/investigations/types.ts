@@ -146,6 +146,11 @@ export const slowQueryAnalysisResultSchema = z.object({
   totalDbmssqlEvents: z.number(),
   eventsAboveThreshold: z.number(),
   skippedEvents: z.number(),
+  // MLC-252 B: счётчик покрытия привязки контекста (корреляция SQL↔CALL). BE всегда пишет, но
+  // ИСТОРИЧЕСКИЕ дела (Finding.result сохранён до MLC-252) этих полей не имеют → .optional()
+  // (FE читает с `?? 0`). Не nullable: новые дела всегда несут число.
+  groupsTotal: z.number().optional(),
+  groupsWithContext: z.number().optional(),
 });
 
 /** Группа однотипных исключений 1С (ExceptionGroup, MLC-235). */
@@ -209,7 +214,7 @@ const callEntrySchema = z.object({
   memory: omittable(z.string()),
 });
 
-/** Группа серверных вызовов 1С по контексту (CallGroup, MLC-249). */
+/** Группа серверных вызовов 1С по контексту (CallGroup, MLC-249/252). */
 const callGroupSchema = z.object({
   context: z.string(),
   count: z.number(),
@@ -217,6 +222,12 @@ const callGroupSchema = z.object({
   maxDurationMicroseconds: z.number(),
   totalDurationSeconds: z.number(),
   maxDurationSeconds: z.number(),
+  // MLC-252 A-1/A-2: булевы флаги. isUnspecified — группа-«мусорка» «контекст не указан» (числовые
+  // коды/служебные токены); isWrapper — фоновый вызов-обёртка (большая gross-длительность, окно содержит
+  // почти всё). FE помечает их и не суммирует gross-время. .optional() — ИСТОРИЧЕСКИЕ дела (Finding.result
+  // до MLC-252) флагов не имеют (FE читает с `?? false`); новые дела всегда несут булево.
+  isUnspecified: z.boolean().optional(),
+  isWrapper: z.boolean().optional(),
 });
 
 /** CallAnalysisResult — результат анализа серверных вызовов 1С (kind=Call). */

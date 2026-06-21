@@ -1,0 +1,2 @@
+{"ts":"2026-06-21T23:07:10.000000","duration":"1000000","name":"CALL","process":"rphost","t:connectID":"42","Context":"ОбщийМодуль.Отчёт.Сформировать:88"}
+{"ts":"2026-06-21T23:07:15.000000","duration":"500000","name":"DBMSSQL","process":"rphost","p:processName":"infobase01","t:connectID":"42","DataBase":"localhost\\BP_into","Sql":"SELECT T1._Val FROM _ReportTbl T1 WHERE T1._Ref = @P1"}

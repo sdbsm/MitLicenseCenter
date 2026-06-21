@@ -199,6 +199,10 @@ internal sealed partial class SlowQueryAnalyzer : ISlowQueryAnalyzer
             })
             .ToList();
 
+        // MLC-252 B: счётчик покрытия привязки контекста. Считаем по ВОЗВРАЩЁННЫМ группам (то, что видит
+        // оператор): сколько из них получили SampleContext. Пустота теперь видна явно, а не молчит.
+        var groupsWithContext = similarGroups.Count(g => g.SampleContext is not null);
+
         return new SlowQueryAnalysisResult
         {
             TopQueries = topQueries,
@@ -206,6 +210,8 @@ internal sealed partial class SlowQueryAnalyzer : ISlowQueryAnalyzer
             TotalDbmssqlEvents = totalDbmssql,
             EventsAboveThreshold = aboveThreshold.Count,
             SkippedEvents = skipped,
+            GroupsTotal = similarGroups.Count,
+            GroupsWithContext = groupsWithContext,
         };
     }
 
@@ -285,6 +291,13 @@ internal sealed partial class SlowQueryAnalyzer : ISlowQueryAnalyzer
     // или null. Пустой connectId/ts не парсится/нет совпадения → null (контекст не учитываем).
     // Поиск: бинарно по Start (верхняя граница Start ≤ ts), затем шаг назад с проверкой End ≥ ts —
     // первое окно с End ≥ ts при движении к меньшим Start и есть самое внутреннее охватывающее.
+    //
+    // MLC-252 B (fallback): если строго охватывающего CALL нет, берём БЛИЖАЙШИЙ по времени CALL того же
+    // соединения, чьё окно ЗАКАНЧИВАЕТСЯ не позже ts запроса (CALL завершился до/в момент запроса) — это
+    // самый поздний предшествующий вызов с контекстом. На параллельном прогоне (фоновый/отчётный SQL без
+    // строго охватывающего CALL) это даёт правдоподобную привязку «какой код 1С работал рядом», не ломая
+    // точную семантику охватывающего окна (она проверяется первой). Окна индекса содержат ТОЛЬКО CALL с
+    // непустым Context (BuildCallIndex), поэтому fallback не подставит пустой контекст.
     private static string? ResolveCallContext(
         Dictionary<string, List<CallWindow>> callIndex,
         string? connectId,
@@ -325,7 +338,21 @@ internal sealed partial class SlowQueryAnalyzer : ISlowQueryAnalyzer
             }
         }
 
-        return null;
+        // MLC-252 B fallback: строго охватывающего нет → ближайший предшествующий CALL (End ≤ ts) с
+        // максимальным End. Окна отсортированы по Start, не по End, поэтому ищем линейно среди кандидатов
+        // со Start ≤ ts (индексы 0..upper) — их немного на одно соединение (CALL кратно реже DBMSSQL).
+        string? nearest = null;
+        var nearestEnd = DateTime.MinValue;
+        for (var i = upper; i >= 0; i--)
+        {
+            if (windows[i].End <= ts && windows[i].End > nearestEnd)
+            {
+                nearestEnd = windows[i].End;
+                nearest = windows[i].Context;
+            }
+        }
+
+        return nearest;
     }
 
     // Толерантный разбор ts ТЖ: «2026-06-21T23:07:18.573002» (микросекунды, 6 знаков), InvariantCulture.

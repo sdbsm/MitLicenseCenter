@@ -518,6 +518,82 @@ describe("callAnalysisResultSchema (kind=Call)", () => {
     expect(parsed.kind).toBe("Call");
     expect(parsed.result).not.toBeNull();
   });
+
+  // MLC-252 A-1/A-2: флаги группы isUnspecified/isWrapper парятся.
+  it("MLC-252: группа Call с флагами isUnspecified/isWrapper парсится", () => {
+    const parsed = callAnalysisResultSchema.parse({
+      topCalls: [],
+      similarGroups: [
+        {
+          context: "(контекст не указан)",
+          count: 7,
+          totalDurationMicroseconds: 45000000,
+          maxDurationMicroseconds: 45000000,
+          totalDurationSeconds: 45,
+          maxDurationSeconds: 45,
+          isUnspecified: true,
+          isWrapper: true,
+        },
+      ],
+      totalCallEvents: 8,
+      eventsAboveThreshold: 1,
+      skippedEvents: 0,
+    });
+    expect(parsed.similarGroups[0].isUnspecified).toBe(true);
+    expect(parsed.similarGroups[0].isWrapper).toBe(true);
+  });
+
+  // MLC-252: исторические дела (Finding.result до MLC-252) без флагов — не падают (.optional()).
+  it("MLC-252: группа Call без флагов (историческое дело) парсится, флаги undefined", () => {
+    const parsed = callAnalysisResultSchema.parse({
+      topCalls: [],
+      similarGroups: [
+        {
+          context: "Документ.Закрытие:1",
+          count: 1,
+          totalDurationMicroseconds: 1000000,
+          maxDurationMicroseconds: 1000000,
+          totalDurationSeconds: 1,
+          maxDurationSeconds: 1,
+        },
+      ],
+      totalCallEvents: 1,
+      eventsAboveThreshold: 1,
+      skippedEvents: 0,
+    });
+    expect(parsed.similarGroups[0].isUnspecified).toBeUndefined();
+    expect(parsed.similarGroups[0].isWrapper).toBeUndefined();
+  });
+});
+
+// ─── MLC-252 B: счётчик покрытия в SlowQueryAnalysisResult ────────────────────
+
+describe("slowQueryAnalysisResultSchema — MLC-252 B счётчик покрытия", () => {
+  it("парсит groupsTotal/groupsWithContext", () => {
+    const parsed = slowQueryAnalysisResultSchema.parse({
+      topQueries: [],
+      similarGroups: [],
+      totalDbmssqlEvents: 100,
+      eventsAboveThreshold: 0,
+      skippedEvents: 0,
+      groupsTotal: 5,
+      groupsWithContext: 2,
+    });
+    expect(parsed.groupsTotal).toBe(5);
+    expect(parsed.groupsWithContext).toBe(2);
+  });
+
+  it("исторические дела без счётчика покрытия — не падают (optional)", () => {
+    const parsed = slowQueryAnalysisResultSchema.parse({
+      topQueries: [],
+      similarGroups: [],
+      totalDbmssqlEvents: 10,
+      eventsAboveThreshold: 0,
+      skippedEvents: 0,
+    });
+    expect(parsed.groupsTotal).toBeUndefined();
+    expect(parsed.groupsWithContext).toBeUndefined();
+  });
 });
 
 // ─── FindingKind parity (MLC-249) ────────────────────────────────────────────
