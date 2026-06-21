@@ -29,7 +29,8 @@ public sealed class AppDbContext : IdentityDbContext<AppUser, AppRole, Guid>
     public DbSet<PerfRecordingSample> PerfRecordingSamples => Set<PerfRecordingSample>();
     public DbSet<DatabaseBackup> DatabaseBackups => Set<DatabaseBackup>();
     public DbSet<HiddenClusterInfobase> HiddenClusterInfobases => Set<HiddenClusterInfobase>();
-    public DbSet<TechLogCollection> TechLogCollections => Set<TechLogCollection>();
+    public DbSet<Investigation> Investigations => Set<Investigation>();
+    public DbSet<Finding> Findings => Set<Finding>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -283,27 +284,69 @@ public sealed class AppDbContext : IdentityDbContext<AppUser, AppRole, Guid>
             e.Property(x => x.HiddenBy).IsRequired().HasMaxLength(256);
         });
 
-        builder.Entity<TechLogCollection>(e =>
+        builder.Entity<Investigation>(e =>
         {
-            // MLC-230 (ADR-57/58): дело сбора ТЖ режима «Расследование». Сущность-телеметрия, конфиг
-            // inline по паттерну PerfRecording. Без FK на Tenant — сбор охватывает узел (logcfg
-            // действует на весь кластер), а изоляция арендатора — это фильтр p:processName, не FK.
-            e.ToTable("TechLogCollections", "dbo");
+            // MLC-237 (трек 1.2, этап C): аггрегат «Дело» расследования. ЗАМЕНЯЕТ TechLogCollection
+            // (MLC-230) — её данные мигрированы в эту таблицу, старая таблица удалена. Сущность-
+            // телеметрия, конфиг inline по паттерну PerfRecording. Без FK на Tenant — сбор охватывает
+            // узел (logcfg действует на весь кластер), а изоляция арендатора — фильтр p:processName, не FK.
+            e.ToTable("Investigations", "dbo");
             e.HasKey(x => x.Id);
             // Enum'ы как int (HasConversion) по конвенции проекта (PerfRecording/InfobaseStatus).
+            e.Property(x => x.Scenario).HasConversion<int>().IsRequired();
             e.Property(x => x.Status).HasConversion<int>().IsRequired();
             e.Property(x => x.StopReason).HasConversion<int?>();
             e.Property(x => x.StartedAtUtc).IsRequired();
             e.Property(x => x.StoppedAtUtc);
-            e.Property(x => x.Scenario).IsRequired().HasMaxLength(50);
+            e.Property(x => x.StartedBy).IsRequired().HasMaxLength(256);
+            // Опц. привязка к арендатору/инфобазе (изоляция — через ProcessNameFilter, не FK).
+            e.Property(x => x.TenantId);
+            e.Property(x => x.InfobaseId);
             // Имя ИБ (p:processName) — как Infobase.Name (200); может включать суффикс-GUID фоновых
             // заданий (40_TECHLOG §8), но точный <eq> ставим на голое имя.
             e.Property(x => x.InfobaseProcessName).HasMaxLength(200);
             e.Property(x => x.CollectionDirectory).IsRequired().HasMaxLength(512);
             e.Property(x => x.ConfigMarker).IsRequired().HasMaxLength(256);
-            // Список дел сортируется по началу (свежие сверху); сторож ищет активное дело.
+            // MLC-237 — оптимистическая блокировка (зеркаль Tenant/Infobase): дело получает
+            // самостоятельные мутации оркестрацией (MLC-238), конкурентный targeted-UPDATE ловится 409.
+            // IsRowVersion() → SQL Server `rowversion`, IsConcurrencyToken + ValueGeneratedOnAddOrUpdate.
+            e.Property(x => x.RowVersion).IsRowVersion();
+            // CollectionConfig — owned 1:1 (колонки Config_* в этой же таблице); неизменяемый снимок
+            // включённого сбора (аудит/воспроизводимость). Опционален: исторические перенесённые дела
+            // снимка не имеют → вся owned-группа NULL.
+            e.OwnsOne(x => x.CollectionConfig, cfg =>
+            {
+                cfg.Property(c => c.LogcfgLocation).HasColumnName("Config_LogcfgLocation").HasMaxLength(512);
+                cfg.Property(c => c.Events).HasColumnName("Config_Events").HasMaxLength(1024);
+                cfg.Property(c => c.DurationThresholdMicros).HasColumnName("Config_DurationThresholdMicros");
+                cfg.Property(c => c.ProcessNameFilter).HasColumnName("Config_ProcessNameFilter").HasMaxLength(200);
+                cfg.Property(c => c.Format).HasColumnName("Config_Format").HasMaxLength(16);
+                cfg.Property(c => c.HistoryHours).HasColumnName("Config_HistoryHours");
+            });
+            // Список дел сортируется по началу (свежие сверху); сторож ищет активное дело (orphan-recovery).
             e.HasIndex(x => x.StartedAtUtc);
             e.HasIndex(x => x.Status);
+        });
+
+        builder.Entity<Finding>(e =>
+        {
+            // MLC-237 (этап C): результат анализатора ТЖ под «Дело». Версионированный JSON (решение
+            // куратора Q1), НЕ нормализованные таблицы. Один Finding на результат анализатора этапа B.
+            // Дочерняя таблица Investigations, каскадное удаление с делом.
+            e.ToTable("Findings", "dbo");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.InvestigationId).IsRequired();
+            e.Property(x => x.Kind).HasConversion<int>().IsRequired();
+            e.Property(x => x.SchemaVersion).IsRequired();
+            // ResultJson — payload анализатора, nvarchar(max) (как PerfRecordingSample.*Json).
+            e.Property(x => x.ResultJson).IsRequired();
+            // Чтение результатов дела — по InvestigationId.
+            e.HasIndex(x => x.InvestigationId);
+            // Cascade: удаление дела сносит его Findings (как PerfRecording→Samples).
+            e.HasOne<Investigation>()
+                .WithMany(i => i.Findings)
+                .HasForeignKey(x => x.InvestigationId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         builder.Entity<SettingEntry>(e =>

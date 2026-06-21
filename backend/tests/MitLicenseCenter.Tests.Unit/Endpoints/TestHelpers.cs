@@ -83,6 +83,10 @@ internal static class TestHelpers
 
         public AppDbContext NewContext() => new(_options);
 
+        // MLC-237: открытое соединение SQLite-БД — нужно concurrency-тесту Investigation.RowVersion, чтобы
+        // навесить триггер, эмулирующий серверный bump rowversion на UPDATE (SQLite сам токен не трогает).
+        public SqliteConnection Connection => _connection;
+
         public void Dispose() => _connection.Dispose();
     }
 
@@ -108,7 +112,11 @@ internal static class TestHelpers
             {
                 var columnType = property.GetColumnType();
                 if (columnType is not null &&
-                    columnType.Contains("varbinary", StringComparison.OrdinalIgnoreCase))
+                    (columnType.Contains("varbinary", StringComparison.OrdinalIgnoreCase) ||
+                     // MLC-237: Investigation.RowVersion маппит на SQL-Server `rowversion` — SQLite такого
+                     // типа не знает, переписываем на нативный BLOB (как varbinary). Контрактные инварианты
+                     // (concurrency-токен энфорсится триггером в тесте) к типу колонки не относятся.
+                     columnType.Contains("rowversion", StringComparison.OrdinalIgnoreCase)))
                 {
                     property.SetColumnType("BLOB");
                 }

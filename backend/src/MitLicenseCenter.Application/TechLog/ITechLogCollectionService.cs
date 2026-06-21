@@ -18,9 +18,9 @@ public interface ITechLogCollectionService
     Task<TechLogStartResult> InstallAsync(
         string startedBy, TechLogScenario scenario, string? infobaseProcessName, CancellationToken ct);
 
-    // Снимает активный сбор: восстановление исходного logcfg → дело Stopped (reason) → аудит.
+    // Снимает активный сбор: восстановление исходного logcfg → дело Completed (reason) → аудит.
     // NotActive — переданный id не является текущим активным делом.
-    Task<TechLogStopOutcome> RemoveAsync(Guid collectionId, TechLogCollectionStopReason reason, CancellationToken ct);
+    Task<TechLogStopOutcome> RemoveAsync(Guid collectionId, InvestigationStopReason reason, CancellationToken ct);
 
     // Сторож на старте (60_SAFETY №5): сверяет фактический logcfg.xml в conf с ожидаемым. Если в conf
     // лежит НАШ logcfg (по маркеру), но нет активного дела в БД (краш ОС оставил «забытый» конфиг) —

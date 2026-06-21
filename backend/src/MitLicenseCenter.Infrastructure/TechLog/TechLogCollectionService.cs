@@ -86,8 +86,8 @@ internal sealed partial class TechLogCollectionService : ITechLogCollectionServi
             using (var checkScope = _scopeFactory.CreateScope())
             {
                 var checkDb = checkScope.ServiceProvider.GetRequiredService<AppDbContext>();
-                var existing = await checkDb.TechLogCollections
-                    .FirstOrDefaultAsync(c => c.Status == TechLogCollectionStatus.Active, ct)
+                var existing = await checkDb.Investigations
+                    .FirstOrDefaultAsync(c => c.Status == InvestigationStatus.Collecting, ct)
                     .ConfigureAwait(false);
                 if (existing is not null)
                 {
@@ -159,12 +159,15 @@ internal sealed partial class TechLogCollectionService : ITechLogCollectionServi
 
             var id = Guid.NewGuid();
             var now = _clock.GetUtcNow().UtcDateTime;
-            var collection = new TechLogCollection
+            var collection = new Investigation
             {
                 Id = id,
-                Status = TechLogCollectionStatus.Active,
+                Status = InvestigationStatus.Collecting,
                 StartedAtUtc = now,
-                Scenario = scenario.ToString(),
+                // int-значения TechLogScenario и InvestigationScenario совпадают 1:1 (см. оба enum'а) —
+                // прямой каст; Domain не зависит от Application, поэтому маппинг здесь, в адаптере.
+                Scenario = (InvestigationScenario)(int)scenario,
+                StartedBy = string.IsNullOrWhiteSpace(startedBy) ? "Unknown" : startedBy,
                 InfobaseProcessName = infobaseProcessName,
                 CollectionDirectory = collectionDir,
                 ConfigMarker = LogcfgBuilder.Marker,
@@ -173,7 +176,7 @@ internal sealed partial class TechLogCollectionService : ITechLogCollectionServi
             using var scope = _scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             var audit = scope.ServiceProvider.GetRequiredService<IAuditLogger>();
-            db.TechLogCollections.Add(collection);
+            db.Investigations.Add(collection);
 
             var initiator = string.IsNullOrWhiteSpace(startedBy) ? "Unknown" : startedBy;
             var scopeText = infobaseProcessName is null ? "весь кластер" : $"ИБ {infobaseProcessName}";
@@ -195,7 +198,7 @@ internal sealed partial class TechLogCollectionService : ITechLogCollectionServi
     }
 
     public async Task<TechLogStopOutcome> RemoveAsync(
-        Guid collectionId, TechLogCollectionStopReason reason, CancellationToken ct)
+        Guid collectionId, InvestigationStopReason reason, CancellationToken ct)
     {
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
@@ -229,7 +232,7 @@ internal sealed partial class TechLogCollectionService : ITechLogCollectionServi
             var now = _clock.GetUtcNow().UtcDateTime;
             if (now - active.StartedAtUtc >= TimeSpan.FromMinutes(maxDurationMinutes))
             {
-                await FinalizeActiveLockedAsync(TechLogCollectionStopReason.TimeLimit, ct).ConfigureAwait(false);
+                await FinalizeActiveLockedAsync(InvestigationStopReason.TimeLimit, ct).ConfigureAwait(false);
                 return;
             }
 
@@ -239,7 +242,7 @@ internal sealed partial class TechLogCollectionService : ITechLogCollectionServi
             var sizeBytes = _store.GetDirectorySizeBytes(active.CollectionDirectory);
             if (sizeBytes >= (long)diskLimitMb * BytesPerMb)
             {
-                await FinalizeActiveLockedAsync(TechLogCollectionStopReason.DiskLimit, ct).ConfigureAwait(false);
+                await FinalizeActiveLockedAsync(InvestigationStopReason.DiskLimit, ct).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException)
@@ -270,8 +273,8 @@ internal sealed partial class TechLogCollectionService : ITechLogCollectionServi
             using var scope = _scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-            var orphaned = await db.TechLogCollections
-                .Where(c => c.Status == TechLogCollectionStatus.Active)
+            var orphaned = await db.Investigations
+                .Where(c => c.Status == InvestigationStatus.Collecting)
                 .ToListAsync(ct)
                 .ConfigureAwait(false);
 
@@ -282,7 +285,7 @@ internal sealed partial class TechLogCollectionService : ITechLogCollectionServi
 
             foreach (var collection in orphaned)
             {
-                collection.Status = TechLogCollectionStatus.Interrupted;
+                collection.Status = InvestigationStatus.Interrupted;
                 collection.StoppedAtUtc = now;
             }
 
@@ -306,7 +309,7 @@ internal sealed partial class TechLogCollectionService : ITechLogCollectionServi
     // Закрывает активное дело (вызывается под _gate): восстановление исходного logcfg → дело Stopped
     // (reason) → аудит. Восстановление конфига — главная гарантия (60_SAFETY №5): даже если БД-запись
     // упадёт, конфиг уже снят. Идемпотентно: повторный restore без бэкапа — no-op.
-    private async Task FinalizeActiveLockedAsync(TechLogCollectionStopReason reason, CancellationToken ct)
+    private async Task FinalizeActiveLockedAsync(InvestigationStopReason reason, CancellationToken ct)
     {
         var active = _active!;
         _store.RestoreOriginal();
@@ -316,12 +319,12 @@ internal sealed partial class TechLogCollectionService : ITechLogCollectionServi
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var audit = scope.ServiceProvider.GetRequiredService<IAuditLogger>();
 
-        var collection = await db.TechLogCollections
+        var collection = await db.Investigations
             .FirstOrDefaultAsync(c => c.Id == active.Id, ct)
             .ConfigureAwait(false);
         if (collection is not null)
         {
-            collection.Status = TechLogCollectionStatus.Stopped;
+            collection.Status = InvestigationStatus.Completed;
             collection.StopReason = reason;
             collection.StoppedAtUtc = now;
             audit.Enlist(
@@ -354,8 +357,8 @@ internal sealed partial class TechLogCollectionService : ITechLogCollectionServi
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             var audit = scope.ServiceProvider.GetRequiredService<IAuditLogger>();
 
-            var hasActive = await db.TechLogCollections
-                .AnyAsync(c => c.Status == TechLogCollectionStatus.Active, ct)
+            var hasActive = await db.Investigations
+                .AnyAsync(c => c.Status == InvestigationStatus.Collecting, ct)
                 .ConfigureAwait(false);
             if (hasActive)
             {
@@ -430,7 +433,7 @@ internal sealed partial class TechLogCollectionService : ITechLogCollectionServi
 
     [LoggerMessage(Level = LogLevel.Information,
         Message = "Tech-log collection {CollectionId} removed ({Reason})")]
-    private static partial void LogRemoved(ILogger logger, Guid collectionId, TechLogCollectionStopReason reason);
+    private static partial void LogRemoved(ILogger logger, Guid collectionId, InvestigationStopReason reason);
 
     [LoggerMessage(Level = LogLevel.Warning,
         Message = "Startup watchdog force-restored a forgotten managed logcfg.xml (no active tech-log collection)")]
