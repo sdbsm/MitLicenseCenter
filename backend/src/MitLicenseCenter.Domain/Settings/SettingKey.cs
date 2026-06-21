@@ -115,6 +115,15 @@ public static class SettingKey
     public const string TechLogDiskLimitMb = "TechLog.DiskLimitMb";
     public const string TechLogMinFreeDiskMb = "TechLog.MinFreeDiskMb";
 
+    // Windows-аккаунт, под которым работают процессы 1С/агент кластера и который ПИШЕТ ТЖ (MLC-247 A2,
+    // 41_LOGCFG_SPEC §6: процессы 1С пишут файлы ТЖ под своим аккаунтом и должны иметь ПОЛНЫЕ права на
+    // каталог сбора и \dumps). Панель (служба NT SERVICE\MitLicenseCenter) лишь создаёт каталог сбора —
+    // без гранта агенту платформа молча не пишет ТЖ → «пустые дела». Пусто (дефолт) — панель не знает
+    // аккаунт: установка не блокируется, но логируется предупреждение с шаблоном команды icacls. Пример:
+    // «.\mitpro» или доменный аккаунт. Проба прав — best-effort (паттерн RAS-healing): детект → точная
+    // команда оператору, без авто-гранта.
+    public const string TechLogCollectionAgentAccount = "TechLog.CollectionAgentAccount";
+
     // Расписание авто-рестартов сервера 1С (MLC-218, ADR-55): ночной профилактический
     // рестарт всех запущенных служб ragent. Enabled — рубильник (0/1, читается GetInt);
     // Time — время суток HH:mm по часам хоста (cron строится из него, местный пояс ADR-52);

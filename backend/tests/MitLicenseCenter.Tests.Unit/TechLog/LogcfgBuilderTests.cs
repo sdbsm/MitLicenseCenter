@@ -264,4 +264,16 @@ public sealed class LogcfgBuilderTests
         var act = () => _builder.Build(TechLogScenario.Locks, null, "  ", 2);
         act.Should().Throw<ArgumentException>();
     }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void Build_rejects_non_positive_history(int historyHours)
+    {
+        // MLC-247 B3 (41_LOGCFG_SPEC §3): history=0 = «НЕ удалять» (переполнение диска). Генератор
+        // обязан быть защищён сам, даже если валидация настройки (Min=1) обойдена.
+        var act = () => _builder.Build(TechLogScenario.Locks, null, Location, historyHours);
+        act.Should().Throw<ArgumentOutOfRangeException>()
+            .WithParameterName(nameof(historyHours));
+    }
 }

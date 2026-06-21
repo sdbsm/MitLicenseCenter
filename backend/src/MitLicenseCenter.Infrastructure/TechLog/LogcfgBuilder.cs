@@ -35,6 +35,16 @@ internal sealed class LogcfgBuilder : ILogcfgBuilder
             throw new ArgumentException("Каталог сбора ТЖ (location) обязателен.", nameof(collectionLocation));
         }
 
+        // Guard history≥1 (MLC-247 B3, 41_LOGCFG_SPEC §3): history=0 = «НЕ удалять» — опасно
+        // (переполнение диска). Валидация Min=1 есть в настройках (TechLog.HistoryHours), но генератор
+        // обязан быть защищён сам (контракт «никогда не генерируем небезопасный конфиг»).
+        if (historyHours < 1)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(historyHours), historyHours,
+                "history (часы) должен быть ≥ 1 — 0 означает 'не удалять' (переполнение диска), спека §3.");
+        }
+
         XNamespace ns = TechLogNs;
 
         var log = new XElement(

@@ -1,3 +1,6 @@
+using System.Runtime.Versioning;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using MitLicenseCenter.Application.TechLog;
 using MitLicenseCenter.Infrastructure.Discovery;
 
@@ -159,6 +162,89 @@ internal sealed class LogcfgStore : ILogcfgStore
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
         {
             return 0;
+        }
+    }
+
+    public DirectoryAclProbeResult ProbeAgentDirectoryAccess(string directory, string agentAccount)
+    {
+        // MLC-247 A2 (41_LOGCFG_SPEC §6): процессы 1С пишут ТЖ под аккаунтом агента и должны иметь
+        // полные права (Modify/FullControl) на каталог сбора. Никогда не бросаем — структурная
+        // диагностика (зеркаль ProbeWriteAccess). На не-Windows ACL недоступны → «проверка невозможна».
+        var grantCommand = BuildGrantCommand(directory, agentAccount);
+
+        if (!OperatingSystem.IsWindows())
+        {
+            return new DirectoryAclProbeResult(
+                HasAccess: false, Determined: false, GrantCommand: grantCommand,
+                Issue: "Проверка прав на каталог сбора возможна только на Windows.");
+        }
+
+        return ProbeAgentDirectoryAccessWindows(directory, agentAccount, grantCommand);
+    }
+
+    // Точная команда гранта для оператора (наследование (OI)(CI) на подкаталоги <процесс>_<pid> и \dumps,
+    // рекурсивно /T, право Modify (M)). 41_LOGCFG_SPEC §6: полные права на каталог сбора и \dumps.
+    private static string BuildGrantCommand(string directory, string agentAccount)
+        => $"icacls \"{directory}\" /grant \"{agentAccount}:(OI)(CI)(M)\" /T";
+
+    [SupportedOSPlatform("windows")]
+    private static DirectoryAclProbeResult ProbeAgentDirectoryAccessWindows(
+        string directory, string agentAccount, string grantCommand)
+    {
+        try
+        {
+            if (!Directory.Exists(directory))
+            {
+                // Каталог ещё не создан — проверять нечего; не блокируем (создаст панель, грант — отдельно).
+                return new DirectoryAclProbeResult(
+                    HasAccess: false, Determined: false, GrantCommand: grantCommand,
+                    Issue: $"Каталог сбора {directory} ещё не существует — права проверим после создания.");
+            }
+
+            var rules = new DirectoryInfo(directory)
+                .GetAccessControl()
+                .GetAccessRules(includeExplicit: true, includeInherited: true, typeof(NTAccount));
+
+            // best-effort: ищем Allow-правило для agentAccount (по имени NTAccount) с правом записи
+            // (Modify/FullControl/Write). Членство в группах НЕ разворачиваем — возможен ложный «нет».
+            const FileSystemRights writeRights =
+                FileSystemRights.Write | FileSystemRights.Modify | FileSystemRights.FullControl;
+
+            foreach (FileSystemAccessRule rule in rules)
+            {
+                if (rule.AccessControlType != AccessControlType.Allow)
+                {
+                    continue;
+                }
+
+                if (!string.Equals(rule.IdentityReference.Value, agentAccount, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if ((rule.FileSystemRights & writeRights) != 0)
+                {
+                    return new DirectoryAclProbeResult(
+                        HasAccess: true, Determined: true, GrantCommand: null, Issue: null);
+                }
+            }
+
+            // Прямого Allow-правила записи для аккаунта не нашли — отдаём команду (best-effort).
+            return new DirectoryAclProbeResult(
+                HasAccess: false, Determined: true, GrantCommand: grantCommand,
+                Issue: $"У аккаунта {agentAccount} не обнаружено прав записи на каталог сбора {directory}. " +
+                       "Процессы 1С пишут ТЖ под своим аккаунтом — без полных прав журнал не пишется. " +
+                       "Выдайте право Modify приведённой командой icacls (от администратора). " +
+                       "Если право дано через группу — это ожидаемая ложная тревога (проверка прямых прав).");
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException
+                                       or System.Security.SecurityException
+                                       or PlatformNotSupportedException or InvalidOperationException)
+        {
+            // Прочитать ACL не удалось → «проверка невозможна», толерантно не блокируем.
+            return new DirectoryAclProbeResult(
+                HasAccess: false, Determined: false, GrantCommand: grantCommand,
+                Issue: $"Не удалось проверить права на каталог сбора {directory}: {ex.Message}");
         }
     }
 
