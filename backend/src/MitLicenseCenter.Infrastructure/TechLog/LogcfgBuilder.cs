@@ -54,10 +54,18 @@ internal sealed class LogcfgBuilder : ILogcfgBuilder
                 new XAttribute("value", ev))));
         }
 
-        // Теги-обогатители (<plansql>/<dump>) — это глобальные директивы УРОВНЯ <config>, рядом с
-        // <log>, а НЕ внутри него (шаблоны infostart 2020498/1431026; <dump>/<plansql>/<dbmslocks> —
-        // config-level сборщики). Раньше они ошибочно клались внутрь <log> (MLC-245): план/дампы могли
-        // не собираться. Порядок детей <config>: <dump> (если нужен) → <log> → <plansql> (если нужен).
+        // Целевые свойства lkX для сценария DbmsLocks (40_TECHLOG §5, infostart 1431026).
+        // Только при этом сценарии — инвариант 60_SAFETY №1 «целевой, не полный» (не <property name="all"/>).
+        // ⚠ Точная форма свойств в JSON-ТЖ 8.5 подлежит подтверждению на стенде (приёмка владельца).
+        foreach (var prop in PropertiesFor(scenario))
+        {
+            log.Add(new XElement(ns + "property", new XAttribute("name", prop)));
+        }
+
+        // Теги-обогатители (<plansql>/<dump>/<dbmslocks>) — это глобальные директивы УРОВНЯ <config>,
+        // рядом с <log>, а НЕ внутри него (шаблоны infostart 2020498/1431026; подтверждено MLC-245).
+        // Раньше они ошибочно клались внутрь <log> (MLC-245): план/дампы могли не собираться.
+        // Порядок детей <config>: <dump> (если нужен) → <log> → <plansql> (если нужен) → <dbmslocks> (если нужен).
         var config = new XElement(ns + "config");
 
         // Дамп аварий (сценарий Exceptions). Пишем в подкаталог каталога сбора → объём дампов учитывает
@@ -78,6 +86,15 @@ internal sealed class LogcfgBuilder : ILogcfgBuilder
         if (NeedsPlanSql(scenario))
         {
             config.Add(new XElement(ns + "plansql"));
+        }
+
+        // СУБД-блокировки (сценарий DbmsLocks): config-level тег <dbmslocks/> (сиблинг <log>).
+        // 40_TECHLOG §6: размещение на уровне <config>, как <plansql/> и <dump/> — шаблоны infostart 2020498/1431026.
+        // ⚠ Точная семантика тега и структура полей lkX в JSON-ТЖ 8.5 подлежат подтверждению на стенде
+        // (приёмка владельца). Объём без отборов → >6 ГБ/час (источник 1431026); короткое окно обязательно.
+        if (NeedsDbmsLocks(scenario))
+        {
+            config.Add(new XElement(ns + "dbmslocks"));
         }
 
         var doc = new XDocument(
@@ -102,7 +119,29 @@ internal sealed class LogcfgBuilder : ILogcfgBuilder
         TechLogScenario.Exceptions => new[] { "EXCP", "EXCPCNTX" },
         // Общая медленная серверная работа.
         TechLogScenario.GeneralSlow => new[] { "CALL", "DBMSSQL" },
+        // СУБД-блокировки: поля lkX едут на событиях DBMSSQL (шаблон infostart 1431026).
+        // 40_TECHLOG §5: lka/lkp — флаги источника/жертвы блокировки на уровне СУБД.
+        TechLogScenario.DbmsLocks => new[] { "DBMSSQL" },
         _ => throw new ArgumentOutOfRangeException(nameof(scenario), scenario, "Неизвестный сценарий сбора ТЖ."),
+    };
+
+    // Целевые свойства lkX внутри <log> (сценарий DbmsLocks, 40_TECHLOG §5, infostart 1431026).
+    // Список — целевой (инвариант 60_SAFETY №1: никогда <property name="all"/>).
+    // ⚠ Точные имена и состав полей в JSON-ТЖ 8.5 подлежат подтверждению на стенде (приёмка владельца).
+    // Для остальных сценариев — пусто: поведение не меняется.
+    private static string[] PropertiesFor(TechLogScenario scenario) => scenario switch
+    {
+        TechLogScenario.DbmsLocks => new[]
+        {
+            "lka",    // поток — источник блокировки (lka=1)
+            "lkp",    // поток — жертва блокировки (lkp=1)
+            "lkpid",  // номер запроса к СУБД у жертвы (кто её заблокировал)
+            "lkaid",  // список номеров запросов у источника
+            "lksrc",  // номер соединения источника (у жертвы) — связка «жертва → виновник»
+            "lkpto",  // секунд с момента признания потока жертвой
+            "lkato",  // секунд с момента признания потока источником
+        },
+        _ => Array.Empty<string>(),
     };
 
     // План запросов <plansql/> (config-level) — только для долгих запросов; по умолчанию НЕ собирается
@@ -111,6 +150,10 @@ internal sealed class LogcfgBuilder : ILogcfgBuilder
 
     // Дамп аварий <dump/> (config-level) — только для исключений/падений (40_TECHLOG §6).
     private static bool NeedsDump(TechLogScenario scenario) => scenario == TechLogScenario.Exceptions;
+
+    // СУБД-блокировки <dbmslocks/> (config-level) — только для сценария DbmsLocks (40_TECHLOG §6,
+    // infostart 1431026). Сиблинг <log>, как <plansql/> и <dump/>.
+    private static bool NeedsDbmsLocks(TechLogScenario scenario) => scenario == TechLogScenario.DbmsLocks;
 
     private static string Serialize(XDocument doc)
     {

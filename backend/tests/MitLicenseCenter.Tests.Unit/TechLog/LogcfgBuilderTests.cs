@@ -92,6 +92,7 @@ public sealed class LogcfgBuilderTests
     [InlineData(TechLogScenario.SlowQueries, new[] { "DBMSSQL", "SDBL" })]
     [InlineData(TechLogScenario.Exceptions, new[] { "EXCP", "EXCPCNTX" })]
     [InlineData(TechLogScenario.GeneralSlow, new[] { "CALL", "DBMSSQL" })]
+    [InlineData(TechLogScenario.DbmsLocks, new[] { "DBMSSQL" })]
     public void Build_selects_events_by_scenario(TechLogScenario scenario, string[] expectedEvents)
     {
         var doc = BuildDoc(scenario);
@@ -168,5 +169,95 @@ public sealed class LogcfgBuilderTests
     {
         var act = () => _builder.Build(TechLogScenario.Locks, null, "  ", 2);
         act.Should().Throw<ArgumentException>();
+    }
+
+    // MLC-236: DbmsLocks эмитит событие DBMSSQL.
+    [Fact]
+    public void Build_dbmslocks_emits_dbmssql_event()
+    {
+        var doc = BuildDoc(TechLogScenario.DbmsLocks);
+        var events = doc.Descendants()
+            .Where(e => e.Name.LocalName == "event")
+            .SelectMany(e => e.Descendants().Where(c => c.Name.LocalName == "eq"))
+            .Where(eq => eq.Attribute("property")?.Value == "name")
+            .Select(eq => eq.Attribute("value")!.Value)
+            .ToArray();
+
+        events.Should().BeEquivalentTo(["DBMSSQL"], "DbmsLocks собирает только DBMSSQL");
+    }
+
+    // MLC-236: тег <dbmslocks/> должен быть на уровне <config> (не внутри <log>).
+    [Fact]
+    public void Build_dbmslocks_emits_dbmslocks_tag_at_config_level()
+    {
+        var dbmslocks = BuildDoc(TechLogScenario.DbmsLocks)
+            .Descendants().SingleOrDefault(e => e.Name.LocalName == "dbmslocks");
+
+        dbmslocks.Should().NotBeNull("<dbmslocks/> обязан быть в конфиге для сценария DbmsLocks");
+        dbmslocks!.Parent!.Name.LocalName.Should().Be("config",
+            "<dbmslocks/> обязан быть на уровне <config>, а не внутри <log>");
+    }
+
+    // MLC-236: свойства lka/lkp/lkpid/lkaid/lksrc/lkpto/lkato присутствуют как
+    // <property name=...> ВНУТРИ <log> (целевой сбор, не <property name="all"/>).
+    [Fact]
+    public void Build_dbmslocks_includes_lkx_properties_inside_log()
+    {
+        var doc = BuildDoc(TechLogScenario.DbmsLocks);
+        var log = doc.Descendants().Single(e => e.Name.LocalName == "log");
+        var propNames = log.Descendants()
+            .Where(e => e.Name.LocalName == "property")
+            .Select(e => e.Attribute("name")?.Value)
+            .Where(v => v != null)
+            .ToArray();
+
+        string[] expected = ["lka", "lkp", "lkpid", "lkaid", "lksrc", "lkpto", "lkato"];
+        propNames.Should().Contain(expected, "все целевые lkX-свойства должны быть в <log>");
+    }
+
+    // MLC-236: при заданной ИБ в DbmsLocks присутствует <eq p:processName>.
+    [Fact]
+    public void Build_dbmslocks_with_infobase_includes_process_name_filter()
+    {
+        var doc = BuildDoc(TechLogScenario.DbmsLocks, infobase: "mitpro");
+        var eq = doc.Descendants()
+            .Where(e => e.Name.LocalName == "eq")
+            .SingleOrDefault(e => e.Attribute("property")?.Value == "p:processName");
+
+        eq.Should().NotBeNull("при заданной ИБ обязан быть фильтр p:processName");
+        eq!.Attribute("value")!.Value.Should().Be("mitpro");
+    }
+
+    // MLC-236: DbmsLocks НЕ эмитит <property name="all"/> — целевой, не полный сбор (60_SAFETY №1).
+    [Fact]
+    public void Build_dbmslocks_never_emits_all_property()
+    {
+        var xml = _builder.Build(TechLogScenario.DbmsLocks, null, Location, 2);
+
+        xml.Should().NotContain("\"all\"", "DbmsLocks: запрещён полный ТЖ (<property name=\"all\"/>)");
+    }
+
+    // MLC-236: <dbmslocks/> НЕ вложен внутрь <log> (регресс MLC-245 — обогатители не внутри <log>).
+    [Fact]
+    public void Build_dbmslocks_tag_is_not_nested_inside_log()
+    {
+        var doc = BuildDoc(TechLogScenario.DbmsLocks);
+        var log = doc.Descendants().Single(e => e.Name.LocalName == "log");
+
+        log.Descendants().Any(e => e.Name.LocalName == "dbmslocks")
+            .Should().BeFalse("<dbmslocks/> не должен быть вложен внутрь <log>");
+    }
+
+    // Для не-DbmsLocks сценариев тег <dbmslocks/> не эмитится.
+    [Theory]
+    [InlineData(TechLogScenario.Locks)]
+    [InlineData(TechLogScenario.SlowQueries)]
+    [InlineData(TechLogScenario.Exceptions)]
+    [InlineData(TechLogScenario.GeneralSlow)]
+    public void Build_non_dbmslocks_scenarios_do_not_emit_dbmslocks_tag(TechLogScenario scenario)
+    {
+        var doc = BuildDoc(scenario);
+        doc.Descendants().Any(e => e.Name.LocalName == "dbmslocks")
+            .Should().BeFalse($"сценарий {scenario}: тег <dbmslocks/> не должен появляться");
     }
 }

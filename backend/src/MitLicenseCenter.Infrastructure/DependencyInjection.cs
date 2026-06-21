@@ -295,6 +295,12 @@ public static class DependencyInjection
         // Устойчив к «полям-призракам» (Descr/Context могут отсутствовать), ложным EXCP
         // при окне авторизации и дублям ключей. Stateless singleton, чистый C# без ФС/БД.
         services.AddSingleton<IExceptionAnalyzer, ExceptionAnalyzer>();
+        // Анализатор СУБД-блокировок (MLC-236, этап B) — СУБД-уровень (отдельно от 1С-уровня MLC-233).
+        // Строит дерево «жертва.lksrc → источник.connectID» из событий DBMSSQL с полями lkX.
+        // ⚠ Структура полей lkX за стенд-приёмкой (infostart 1431026, 40_TECHLOG §5).
+        // Устойчив к «полям-призракам» lkX, вариантам имён connectID, дублям ключей. Never-throws.
+        // Привязка к ИБ через TechLogProcessName.Normalize. Stateless singleton, чистый C# без ФС/БД.
+        services.AddSingleton<IDbmsLockAnalyzer, DbmsLockAnalyzer>();
         services.AddSingleton<ILogcfgStore, LogcfgStore>();
         services.AddSingleton<ITechLogCollectionService, TechLogCollectionService>();
         services.AddSingleton<TechLogWatchdogService>();
