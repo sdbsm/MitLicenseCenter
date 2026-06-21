@@ -73,7 +73,8 @@ export type AuditActionType =
   | "OneCProcessRestarted"
   | "TechLogCollectionStarted"
   | "TechLogCollectionStopped"
-  | "TechLogConfigForceRestored";
+  | "TechLogConfigForceRestored"
+  | "InvestigationDeleted";
 
 // Активно пишущиеся действия для фильтра. Исключены legacy/frozen
 // (drift/reconcile-цикл и circuit-breaker — новые строки с ними не пишутся);
@@ -135,6 +136,7 @@ export const AUDIT_ACTION_TYPES: readonly AuditActionType[] = [
   "TechLogCollectionStarted",
   "TechLogCollectionStopped",
   "TechLogConfigForceRestored",
+  "InvestigationDeleted",
 ] as const;
 
 export type AuditReason = "LimitExceeded" | "ManualByAdmin";

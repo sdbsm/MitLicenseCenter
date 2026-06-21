@@ -82,7 +82,8 @@
       "OneCProcessRestarted": "Рабочий процесс 1С перезапущен",
       "TechLogCollectionStarted": "Сбор технологического журнала запущен",
       "TechLogCollectionStopped": "Сбор технологического журнала остановлен",
-      "TechLogConfigForceRestored": "Конфигурация технологического журнала восстановлена сторожем"
+      "TechLogConfigForceRestored": "Конфигурация технологического журнала восстановлена сторожем",
+      "InvestigationDeleted": "Дело расследования удалено"
     },
     "empty": {
       "title": "Записей нет",

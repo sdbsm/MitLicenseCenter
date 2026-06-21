@@ -50,6 +50,15 @@ public static class ProblemCodes
     // MLC-070 — нельзя удалить идущую запись быстродействия (сначала остановить).
     public const string RecordingActive = "RECORDING_ACTIVE";
 
+    // MLC-239 — операции над «Делом» расследования:
+    //  • InvestigationActive — нельзя удалить активное дело (сначала остановить);
+    //  • InvestigationNotActive — стоп переданного дела невозможен (оно не текущее активное);
+    //  • InvestigationStartFailed — старт сбора не удался (нет прав/места/корень 1С/уже идёт) —
+    //    detail несёт причину, а где применимо — точную команду icacls для оператора.
+    public const string InvestigationActive = "INVESTIGATION_ACTIVE";
+    public const string InvestigationNotActive = "INVESTIGATION_NOT_ACTIVE";
+    public const string InvestigationStartFailed = "INVESTIGATION_START_FAILED";
+
     // MLC-077 — бэкапы баз SQL (ADR-27): дубль активной базы / незаданная папка /
     // провал server-side удаления файла.
     public const string BackupActive = "BACKUP_ACTIVE";
@@ -255,6 +264,29 @@ public static class Problems
             ProblemCodes.RecordingActive,
             "Запись идёт",
             "Эта запись быстродействия ещё идёт. Сначала остановите её, затем удалите.");
+
+    // MLC-239 — нельзя удалить активное «Дело» расследования (идёт сбор ТЖ): сначала остановить,
+    // затем удалять. Зеркаль RecordingActive.
+    public static ProblemDetails InvestigationActive() =>
+        Conflict(
+            ProblemCodes.InvestigationActive,
+            "Дело активно",
+            "Это расследование ещё идёт (собирается технологический журнал). Сначала остановите его, затем удалите.");
+
+    // MLC-239 — стоп переданного дела невозможен: оно не является текущим активным сбором (уже снято/
+    // завершено/не существует). 409 — оператору обновить список.
+    public static ProblemDetails InvestigationNotActive() =>
+        Conflict(
+            ProblemCodes.InvestigationNotActive,
+            "Дело не активно",
+            "Это расследование не является текущим активным сбором (возможно, уже остановлено или завершено). Обновите список.");
+
+    // MLC-239 — старт сбора ТЖ не удался (исход TechLogStartOutcome ≠ Started). detail санитизирован
+    // (русский текст причины из сервиса: нет прав на logcfg.xml / корень 1С не найден / мало места /
+    // нет прав агента — где применимо, с точной командой icacls). Уже-идёт обрабатывается отдельно
+    // (AlreadyActive → 409 InvestigationActive с id текущего дела).
+    public static ProblemDetails InvestigationStartFailed(string detail) =>
+        Conflict(ProblemCodes.InvestigationStartFailed, "Не удалось запустить расследование", detail);
 
     // MLC-077 — у этой базы уже есть бэкап в очереди или выполняется (per-db замок, ADR-27).
     // Общий и для POST-дубля, и для DELETE идущего бэкапа — фронт подбирает формулировку

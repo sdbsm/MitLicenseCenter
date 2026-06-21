@@ -120,6 +120,9 @@ public sealed class AuditLogEnumMappingTests
     [InlineData(AuditActionType.TechLogCollectionStarted, 806)]
     [InlineData(AuditActionType.TechLogCollectionStopped, 807)]
     [InlineData(AuditActionType.TechLogConfigForceRestored, 808)]
+    // MLC-239 — удаление завершённого «Дела» расследования (809, зеркаль PerfRecordingDeleted=702).
+    // Frozen-int: новое число после 808, не переиспользуется.
+    [InlineData(AuditActionType.InvestigationDeleted, 809)]
     public void AuditActionType_int_values_are_stable(AuditActionType action, int expected)
     {
         ((int)action).Should().Be(expected);

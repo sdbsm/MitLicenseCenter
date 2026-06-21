@@ -88,7 +88,8 @@ internal sealed partial class TechLogCollectionService : ITechLogCollectionServi
     public bool HasActiveCollection => _hasActive;
 
     public async Task<TechLogStartResult> InstallAsync(
-        string startedBy, TechLogScenario scenario, string? infobaseProcessName, CancellationToken ct)
+        string startedBy, TechLogScenario scenario, string? infobaseProcessName, CancellationToken ct,
+        Guid? infobaseId = null, Guid? tenantId = null)
     {
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
@@ -195,6 +196,10 @@ internal sealed partial class TechLogCollectionService : ITechLogCollectionServi
                 // прямой каст; Domain не зависит от Application, поэтому маппинг здесь, в адаптере.
                 Scenario = (InvestigationScenario)(int)scenario,
                 StartedBy = string.IsNullOrWhiteSpace(startedBy) ? "Unknown" : startedBy,
+                // MLC-239: привязка к арендатору/инфобазе (резолв эндпоинтом из реестра). Закрывает разрыв
+                // MLC-238: дело теперь несёт InfobaseId/TenantId, EnsureProcessFilterInvariant содержателен.
+                InfobaseId = infobaseId,
+                TenantId = tenantId,
                 InfobaseProcessName = infobaseProcessName,
                 CollectionDirectory = collectionDir,
                 ConfigMarker = LogcfgBuilder.Marker,
