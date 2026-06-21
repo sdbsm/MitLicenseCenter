@@ -35,13 +35,15 @@ import {
  * Карточка «Дело» — экран 3 (MLC-243, ADR-57, спека §Экран 3).
  *
  * Показывается при выборе дела из списка. Загружает detail + report по id.
- * Кнопка «Отчёт» — disabled-заглушка (полноценный документ = MLC-244).
+ * Кнопка «Отчёт» — открывает экран «Отчёт» (MLC-244) через onOpenReport(id).
  * Кнопка «Назад» — возвращает к списку через onBack().
  */
 
 interface InvestigationDetailProps {
   investigationId: string;
   onBack: () => void;
+  /** Открыть экран «Отчёт» (MLC-244). */
+  onOpenReport: (id: string) => void;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -378,7 +380,11 @@ function DbmsLocksBlock({ result }: { result: DbmsLockAnalysisResult }) {
 
 // ─── Главный компонент ────────────────────────────────────────────────────────
 
-export function InvestigationDetail({ investigationId, onBack }: InvestigationDetailProps) {
+export function InvestigationDetail({
+  investigationId,
+  onBack,
+  onOpenReport,
+}: InvestigationDetailProps) {
   const { t } = useTranslation();
 
   const { data: detail, isLoading: detailLoading } = useInvestigationDetail(investigationId);
@@ -440,12 +446,7 @@ export function InvestigationDetail({ investigationId, onBack }: InvestigationDe
             <dd>{summary.startedBy}</dd>
           </dl>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled
-          title={t("investigations.detail.reportBtnHint")}
-        >
+        <Button variant="outline" size="sm" onClick={() => onOpenReport(investigationId)}>
           <FileTextIcon className="size-4" />
           {t("investigations.detail.reportBtn")}
         </Button>

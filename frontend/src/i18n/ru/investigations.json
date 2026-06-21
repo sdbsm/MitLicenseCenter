@@ -131,6 +131,36 @@
         "unmatched": "Источник не найден в окне",
         "context": "Контекст"
       }
+    },
+    "report": {
+      "title": "Отчёт по расследованию",
+      "openDeal": "Открыть дело",
+      "backToList": "К списку",
+      "exportPdf": "Экспорт PDF",
+      "exportPdfPending": "Формирую…",
+      "exportPdfError": "Не удалось сформировать PDF",
+      "generatedAt": "Сформирован",
+      "period": "Период",
+      "node": "Узел",
+      "startedBy": "Запустил",
+      "target": "Цель",
+      "currentNode": "текущий узел",
+      "summaryTitle": "Резюме",
+      "summaryEmpty": "Существенных проблем не выявлено.",
+      "collectedTitle": "Что собрано",
+      "collectedEvents": "События ТЖ",
+      "collectedFormat": "Формат",
+      "collectedHistory": "Окно истории",
+      "collectedHistoryHours": "{{hours}} ч",
+      "collectedThreshold": "Порог длительности",
+      "collectedThresholdMicros": "{{micros}} мкс",
+      "collectedProcessFilter": "Фильтр процесса (изоляция ИБ)",
+      "collectedRetention": "Сырьё технологического журнала удалено после разбора.",
+      "collectedNoConfig": "Данные о конфигурации сбора недоступны (историческое дело).",
+      "findingsTitle": "Находки",
+      "findingsCount": "{{count}} находок",
+      "findingsEmpty": "Находок нет.",
+      "footer": "Сырьё удалено по retention; дело доступно post-mortem. Источники методик — ИТС (its.1c.ru)."
     }
   }
 }

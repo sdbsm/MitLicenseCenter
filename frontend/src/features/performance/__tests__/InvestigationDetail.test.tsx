@@ -4,15 +4,15 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import "@/i18n";
 
 /**
- * Тесты компонента InvestigationDetail — экран 3 (MLC-243, ADR-57).
+ * Тесты компонента InvestigationDetail — экран 3 (MLC-243/244, ADR-57).
  *
  * Проверяем:
- *   - Шапка (статус, сценарий, период, кнопка «Назад», disabled «Отчёт»)
+ *   - Шапка (статус, сценарий, период, кнопка «Назад», кнопка «Отчёт» теперь активна)
  *   - Вердикт из useInvestigationReport
  *   - Блоки по kind найденных находок (ManagedLocks / SlowQueries / Exceptions / DbmsLocks)
  *   - Пустые состояния блоков (нет находок)
  *   - Кнопка «Назад» → onBack
- *   - Кнопка «Отчёт» → disabled
+ *   - Кнопка «Отчёт» → вызывает onOpenReport (MLC-244)
  */
 
 // ── Фиктивные данные ─────────────────────────────────────────────────────────
@@ -180,22 +180,25 @@ vi.mock("@/features/infobases/useInfobases", () => ({
 import { InvestigationDetail } from "../InvestigationDetail";
 
 const mockOnBack = vi.fn();
+const mockOnOpenReport = vi.fn();
 
 function renderDetail() {
   return render(
     <InvestigationDetail
       investigationId="11111111-2222-3333-4444-555555555555"
       onBack={mockOnBack}
+      onOpenReport={mockOnOpenReport}
     />
   );
 }
 
 // ── Тесты ────────────────────────────────────────────────────────────────────
 
-describe("InvestigationDetail — карточка дела (MLC-243, экран 3)", () => {
+describe("InvestigationDetail — карточка дела (MLC-243/244, экран 3)", () => {
   beforeEach(() => {
     mockDetailData = null;
     mockReportData = null;
+    mockOnOpenReport.mockReset();
     vi.clearAllMocks();
   });
 
@@ -215,7 +218,8 @@ describe("InvestigationDetail — карточка дела (MLC-243, экран
     expect(screen.getByText("Управляемые блокировки 1С")).toBeInTheDocument();
     // Кнопки
     expect(screen.getByRole("button", { name: /К списку/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Отчёт/i })).toBeDisabled();
+    // Кнопка «Отчёт» теперь активна (MLC-244)
+    expect(screen.getByRole("button", { name: /Отчёт/i })).not.toBeDisabled();
   });
 
   it("кнопка «Назад» → вызывает onBack", async () => {
@@ -226,10 +230,14 @@ describe("InvestigationDetail — карточка дела (MLC-243, экран
     expect(mockOnBack).toHaveBeenCalled();
   });
 
-  it("кнопка «Отчёт» — disabled (заглушка MLC-244)", () => {
+  it("кнопка «Отчёт» активна и вызывает onOpenReport (MLC-244)", async () => {
+    const user = userEvent.setup();
     mockDetailData = makeDetail();
     renderDetail();
-    expect(screen.getByRole("button", { name: /Отчёт/i })).toBeDisabled();
+    const btn = screen.getByRole("button", { name: /Отчёт/i });
+    expect(btn).not.toBeDisabled();
+    await user.click(btn);
+    expect(mockOnOpenReport).toHaveBeenCalledWith("11111111-2222-3333-4444-555555555555");
   });
 
   it("вердикт из useInvestigationReport отображается с headline и рекомендацией", () => {
