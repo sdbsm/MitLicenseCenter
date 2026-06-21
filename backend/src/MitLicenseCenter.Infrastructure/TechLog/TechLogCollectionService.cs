@@ -129,9 +129,32 @@ internal sealed partial class TechLogCollectionService : ITechLogCollectionServi
             var historyHours = ResolveHistoryHours();
             var content = _builder.Build(scenario, infobaseProcessName, collectionDir, historyHours);
 
-            // Бэкап исходного + запись целевого. Каталог сбора создаём (платформа пишет ТЖ под
-            // аккаунтом агента — ACL каталога настраивается на этапе C/MLC-231).
+            // Бэкап исходного + запись целевого. Каталог сбора создаём (платформа пишет ТЖ под аккаунтом
+            // агента 1С — см. проверку прав ниже).
             Directory.CreateDirectory(collectionDir);
+
+            // Проба прав агента на каталог сбора (MLC-247 A2, 41_LOGCFG_SPEC §6, паттерн RAS-healing).
+            // Процессы 1С пишут ТЖ под СВОИМ аккаунтом и должны иметь полные права на каталог; панель лишь
+            // создаёт его. Аккаунт задан + прав нет → структурный отказ с точной командой icacls (сбор НЕ
+            // стартует, чтобы не было «пустых дел»). Аккаунт пуст → НЕ блокируем (панель не знает аккаунт),
+            // лишь предупреждение с шаблоном команды. «Проверка невозможна» (не-Windows/группы) — не блок.
+            var agentAccount = _settings.GetString(SettingKey.TechLogCollectionAgentAccount);
+            if (!string.IsNullOrWhiteSpace(agentAccount))
+            {
+                var aclProbe = _store.ProbeAgentDirectoryAccess(collectionDir, agentAccount);
+                if (aclProbe is { Determined: true, HasAccess: false })
+                {
+                    return new TechLogStartResult(
+                        TechLogStartOutcome.AgentNoCollectionAccess, Guid.Empty,
+                        GrantCommand: aclProbe.GrantCommand, Issue: aclProbe.Issue);
+                }
+            }
+            else
+            {
+                // Аккаунт не задан: панель не может проверить права — предупреждаем оператора шаблоном.
+                LogAgentAccountUnset(_logger, collectionDir);
+            }
+
             _store.WriteLogcfg(content);
 
             var id = Guid.NewGuid();
@@ -425,4 +448,8 @@ internal sealed partial class TechLogCollectionService : ITechLogCollectionServi
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Tech-log active-collection monitor tick failed")]
     private static partial void LogMonitorFailed(ILogger logger, Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Tech-log: agent account (TechLog.CollectionAgentAccount) is not set — cannot verify write access on the collection directory {Directory}. If the platform writes nothing, grant the 1C agent account Modify: icacls \"{Directory}\" /grant \"<account>:(OI)(CI)(M)\" /T")]
+    private static partial void LogAgentAccountUnset(ILogger logger, string directory);
 }

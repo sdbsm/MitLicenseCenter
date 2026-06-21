@@ -245,6 +245,76 @@ public sealed class TechLogCollectionServiceTests
         result.Outcome.Should().Be(TechLogStartOutcome.Started);
     }
 
+    // --- MLC-247 A2: проба прав аккаунта агента 1С на каталог сбора (паттерн RAS-healing) ---
+
+    [Fact]
+    public async Task InstallAsync_when_agent_account_set_and_no_access_returns_grant_command_and_no_case()
+    {
+        using var fx = new Fixture();
+        fx.Settings.GetString(SettingKey.TechLogCollectionAgentAccount).Returns(".\\mitpro");
+        fx.Store.AgentAclResult = new DirectoryAclProbeResult(
+            HasAccess: false, Determined: true,
+            GrantCommand: "icacls \"C:\\techlog\" /grant \".\\mitpro:(OI)(CI)(M)\" /T",
+            Issue: "нет прав записи у агента");
+
+        var result = await fx.Service.InstallAsync("admin", TechLogScenario.Locks, "mitpro", CancellationToken.None);
+
+        result.Outcome.Should().Be(TechLogStartOutcome.AgentNoCollectionAccess);
+        result.GrantCommand.Should().Contain("icacls").And.Contain("mitpro").And.Contain("(OI)(CI)(M)");
+        fx.Service.HasActiveCollection.Should().BeFalse();
+        fx.Store.WriteCalls.Should().Be(0, "сбор не стартует без прав агента — иначе «пустые дела»");
+        (await fx.QueryAsync(db => db.TechLogCollections.CountAsync())).Should().Be(0);
+        fx.Audit.Entries.Should().BeEmpty("аудит — только при фактическом успехе");
+        fx.Store.AgentAclProbedAccount.Should().Be(".\\mitpro");
+    }
+
+    [Fact]
+    public async Task InstallAsync_when_agent_account_set_and_has_access_starts()
+    {
+        using var fx = new Fixture();
+        fx.Settings.GetString(SettingKey.TechLogCollectionAgentAccount).Returns(".\\mitpro");
+        fx.Store.AgentAclResult = new DirectoryAclProbeResult(
+            HasAccess: true, Determined: true, GrantCommand: null, Issue: null);
+
+        var result = await fx.Service.InstallAsync("admin", TechLogScenario.Locks, "mitpro", CancellationToken.None);
+
+        result.Outcome.Should().Be(TechLogStartOutcome.Started);
+        fx.Store.WriteCalls.Should().Be(1);
+        fx.Service.HasActiveCollection.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task InstallAsync_when_agent_account_empty_starts_without_blocking()
+    {
+        using var fx = new Fixture();
+        // Аккаунт не задан (дефолт) → панель не знает аккаунт, не блокирует (предупреждение в лог).
+        // Проба прав даже не вызывается.
+        fx.Store.AgentAclResult = new DirectoryAclProbeResult(
+            HasAccess: false, Determined: true, GrantCommand: "icacls ...", Issue: "нет прав");
+
+        var result = await fx.Service.InstallAsync("admin", TechLogScenario.Locks, "mitpro", CancellationToken.None);
+
+        result.Outcome.Should().Be(TechLogStartOutcome.Started, "пустой аккаунт установку не блокирует");
+        fx.Store.WriteCalls.Should().Be(1);
+        fx.Store.AgentAclProbedAccount.Should().BeNull("при пустом аккаунте проба прав не вызывается");
+    }
+
+    [Fact]
+    public async Task InstallAsync_when_agent_acl_undetermined_starts_without_blocking()
+    {
+        using var fx = new Fixture();
+        fx.Settings.GetString(SettingKey.TechLogCollectionAgentAccount).Returns(".\\mitpro");
+        // «Проверка невозможна» (не-Windows / права через группу) → толерантно НЕ блокируем.
+        fx.Store.AgentAclResult = new DirectoryAclProbeResult(
+            HasAccess: false, Determined: false, GrantCommand: "icacls ...", Issue: "проверка невозможна");
+
+        var result = await fx.Service.InstallAsync("admin", TechLogScenario.Locks, "mitpro", CancellationToken.None);
+
+        result.Outcome.Should().Be(TechLogStartOutcome.Started,
+            "недетерминированная проба прав не блокирует старт (best-effort)");
+        fx.Store.WriteCalls.Should().Be(1);
+    }
+
     [Fact]
     public async Task MonitorActiveAsync_auto_stops_on_time_limit()
     {

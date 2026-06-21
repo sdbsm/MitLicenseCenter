@@ -76,4 +76,19 @@ internal sealed class FakeLogcfgStore : ILogcfgStore
     public long? GetAvailableFreeSpaceBytes(string directory) => FreeSpaceBytes;
 
     public long GetDirectorySizeBytes(string directory) => DirectorySizeBytes;
+
+    // MLC-247 A2: проба прав агента на каталог сбора (seam). Тест выставляет AgentAclResult, чтобы
+    // детерминированно проверить InstallAsync без реальных ACL/ФС. По умолчанию — «есть доступ».
+    public DirectoryAclProbeResult AgentAclResult { get; set; } =
+        new(HasAccess: true, Determined: true, GrantCommand: null, Issue: null);
+
+    public string? AgentAclProbedDirectory { get; private set; }
+    public string? AgentAclProbedAccount { get; private set; }
+
+    public DirectoryAclProbeResult ProbeAgentDirectoryAccess(string directory, string agentAccount)
+    {
+        AgentAclProbedDirectory = directory;
+        AgentAclProbedAccount = agentAccount;
+        return AgentAclResult;
+    }
 }

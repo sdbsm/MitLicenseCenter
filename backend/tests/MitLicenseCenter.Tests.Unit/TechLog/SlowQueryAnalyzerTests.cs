@@ -251,6 +251,42 @@ public sealed class SlowQueryAnalyzerTests
         result.Should().Be(result.Trim(), "результат не должен иметь ведущих/хвостовых пробелов");
     }
 
+    // (k) MLC-247 A1: поле плана называется planSQLText (офиц. спека §7, строчная p, SQL заглавными).
+    //     TechLogEvent.First сравнивает ключи через StringComparison.Ordinal — при неверном регистре
+    //     (прежнее «PlanSQLText») план НИКОГДА не прочитался бы (тихий null). Здесь plansql задан в JSON →
+    //     анализатор кладёт его в PlanText.
+    [Fact]
+    public void Plan_field_planSQLText_is_captured_into_plan_text()
+    {
+        const string line =
+            "{\"ts\":\"2026-06-20T05:00:00.000000\",\"duration\":\"2000000\",\"name\":\"DBMSSQL\"," +
+            "\"process\":\"rphost\",\"p:processName\":\"infobase01\",\"DataBase\":\"localhost\\\\infobase01\"," +
+            "\"Sql\":\"SELECT T1._Field FROM _Table T1\"," +
+            "\"planSQLText\":\"Rows,Executes,StmtText\\n5,1,SELECT ...\"}";
+        var ev = _parser.ParseLine(line);
+        ev.Should().NotBeNull();
+
+        var result = _analyzer.Analyze([ev!], thresholdMicroseconds: 1_000_000);
+
+        result.TopQueries.Should().HaveCount(1);
+        result.TopQueries[0].PlanText.Should().NotBeNull("поле planSQLText (спека §7) должно читаться");
+        result.TopQueries[0].PlanText.Should().Contain("StmtText");
+    }
+
+    // (k) MLC-247 A1: отсутствие поля плана — не ошибка (best-effort): PlanText = null, без падения.
+    [Fact]
+    public void Missing_plan_field_yields_null_plan_text_without_throwing()
+    {
+        var lines = ReadFixtureLines("dbmssql.ndjson");
+        var ev = _parser.ParseLine(lines[0]); // полная запись, но без planSQLText
+        ev.Should().NotBeNull();
+
+        var result = _analyzer.Analyze([ev!], thresholdMicroseconds: 0);
+
+        result.TopQueries.Should().HaveCount(1);
+        result.TopQueries[0].PlanText.Should().BeNull("планов нет в фикстуре — best-effort null, не падение");
+    }
+
     // (j) NormalizeSql: строковые литералы схлопываются (в том числе содержащие цифры).
     [Fact]
     public void NormalizeSql_replaces_string_literals_before_numbers()

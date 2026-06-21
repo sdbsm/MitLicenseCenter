@@ -864,7 +864,10 @@ Cold-цикл сеансов с MLC-154 — не Hangfire-джоб, а `ColdTier
   содержать точный `<eq property="p:processName" value="…"/>` **внутри каждого `<event>`** (изоляция
   арендатора, объединение по «И» с `name`; bare-`<eq>` под `<log>` платформа игнорирует) — `<like>` не
   используется (в JSON не фильтрует). В конфиг встроен опознавательный XML-маркер, по которому сторож
-  отличает «наш» конфиг от чужого.
+  отличает «наш» конфиг от чужого. **Генератор защищён guard'ом `history ≥ 1` (бросает
+  `ArgumentOutOfRangeException` при `historyHours < 1`): `history=0` по спеке `41_LOGCFG_SPEC` §3 =
+  «не удалять» (переполнение диска); валидация настройки `TechLog.HistoryHours` (`Min=1`) дублируется
+  на уровне генератора как контракт «никогда не генерируем небезопасный конфиг» (MLC-247 B3).**
 - **`ITechLogParser`** (Application) / `TechLogParser` (Infrastructure) — построчный парсер собранного
   ТЖ. Чистый C# без файловой системы (как `ILogcfgBuilder`): принимает строки/`TextReader`, ленивое
   потоковое перечисление событий (память не растёт на больших журналах). По фактам стенда (KB
@@ -913,8 +916,11 @@ Cold-цикл сеансов с MLC-154 — не Hangfire-джоб, а `ColdTier
   общий хелпер `TechLogProcessName.Normalize` (`40_TECHLOG §8`): отсекает GUID-суффикс фоновых
   сессий, сохраняет сырое значение в `RawProcessName`. Текст плана запроса — best-effort: поле
   плана собирается **только при явном теге `<plansql/>`** в logcfg (`40_TECHLOG §5/§6`); по
-  умолчанию не собирается; точное имя поля плана на стенде 8.5 подлежит подтверждению (кандидат
-  `PlanSQLText`). Устойчив к «полям-призракам» (`Sql` у DBMSSQL иногда отсутствует): запись без
+  умолчанию не собирается. **Имя поля плана — `planSQLText` (офиц. спека `41_LOGCFG_SPEC` §7, строчная
+  `p`, `SQL` заглавными); регистр критичен — `TechLogEvent.First` сравнивает ключи через
+  `StringComparison.Ordinal`, поэтому прежний неверный регистр (`PlanSQLText`) давал тихий `null`
+  (MLC-247 A1). Точную форму на стенде 8.5 стоит подтвердить вживую, имя берётся из спеки.** Устойчив
+  к «полям-призракам» (`Sql` у DBMSSQL иногда отсутствует): запись без
   `Sql` попадает в `TopQueries` с `Sql=null`, но в `SimilarGroups` не входит (нечего нормализовать,
   `40_TECHLOG §7`). **Никогда не бросает**. Stateless singleton.
 - **`IExceptionAnalyzer`** (Application) / `ExceptionAnalyzer` (Infrastructure) — анализатор
@@ -936,14 +942,27 @@ Cold-цикл сеансов с MLC-154 — не Hangfire-джоб, а `ColdTier
   при отказе store возвращает структурный результат с точной командой
   `icacls "…\logcfg.xml" /grant "NT SERVICE\MitLicenseCenter:(M)"` для оператора (тот же паттерн
   «детектируем проблему прав → отдаём точную команду», что у healing службы RAS). Грант установщик
-  не выдаёт в этой задаче.
+  не выдаёт в этой задаче. **Дополнительно — проба прав аккаунта агента 1С на каталог сбора
+  (`ProbeAgentDirectoryAccess`, MLC-247 A2): процессы 1С пишут ТЖ под СВОИМ аккаунтом и должны иметь
+  полные права на каталог сбора (и `\dumps`, спека `41_LOGCFG_SPEC` §6); панель лишь создаёт каталог.
+  Тот же паттерн RAS-healing — детект отсутствия `Modify`/`FullControl` → точная команда
+  `icacls "<каталог>" /grant "<аккаунт>:(OI)(CI)(M)" /T` (наследование на подкаталоги `<процесс>_<pid>`
+  и `\dumps`). Проба — best-effort: проверяется прямое Allow-правило на каталоге для
+  `NTAccount`-имени; членство в группах/эффективные права полностью не разворачиваются (возможна ложная
+  «нет доступа» при правах через группу). На не-Windows/ошибке доступа — «проверка невозможна»
+  (`Determined=false`, толерантно).** Аккаунт агента задаётся настройкой
+  **`TechLog.CollectionAgentAccount`** (строка, по умолчанию пусто — например `.\mitpro` или доменный).
 - **`ITechLogCollectionService`** (Application) / `TechLogCollectionService` (Infrastructure, singleton)
   — жизненный цикл «дела сбора» (зеркаль `PerfRecordingService`: один `SemaphoreSlim`,
   `IServiceScopeFactory` для scoped `AppDbContext`/`IAuditLogger`, `TimeProvider`). `InstallAsync`:
   **single-active по БД** (есть `Status==Active` дело → `AlreadyActive`, ещё до записи конфига —
   переживает потерю in-memory стейта при рестарте) → проба прав → **сторож свободного места** (меньше
   `TechLog.MinFreeDiskMb` → структурный отказ `InsufficientDiskSpace`, конфиг не пишется) → генерация
-  конфига → бэкап исходного → запись → дело `TechLogCollection` (`Active`) → аудит. `RemoveAsync`:
+  конфига → создание каталога сбора → **проба прав аккаунта агента на каталог** (если
+  `TechLog.CollectionAgentAccount` задан и прав нет → структурный отказ `AgentNoCollectionAccess` с
+  командой `icacls`, сбор НЕ стартует — иначе «пустые дела»; если аккаунт пуст → не блокируем, лишь
+  предупреждение в лог с шаблоном команды; «проверка невозможна» → не блокируем, MLC-247 A2) → бэкап
+  исходного → запись → дело `TechLogCollection` (`Active`) → аудит. `RemoveAsync`:
   восстановление исходного `logcfg` → дело `Stopped` (с причиной) → аудит. `MonitorActiveAsync`
   (периодический сторож активного дела): по окну времени (`TechLog.MaxDurationMinutes` → авто-стоп
   `TimeLimit`) и размеру каталога сбора (`TechLog.DiskLimitMb` → авто-стоп `DiskLimit`). Измерение

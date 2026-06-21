@@ -55,11 +55,17 @@ public enum TechLogStartOutcome
     // Свободного места на диске каталога сбора меньше порога TechLog.MinFreeDiskMb (60_SAFETY №3):
     // не стартуем (полный ТЖ забивает диск за минуты — место критичнее обычного, MLC-229/40_TECHLOG §8).
     InsufficientDiskSpace,
+
+    // У аккаунта агента 1С (TechLog.CollectionAgentAccount) нет прав записи на каталог сбора (MLC-247 A2,
+    // 41_LOGCFG_SPEC §6): процессы 1С пишут ТЖ под своим аккаунтом — без полных прав журнал не пишется
+    // («пустые дела»). Не стартуем; в результате — точная команда icacls для оператора (зеркаль NoWriteAccess).
+    // Возникает ТОЛЬКО при заданном аккаунте; пустой аккаунт установку не блокирует (лишь предупреждение в лог).
+    AgentNoCollectionAccess,
 }
 
-// AlreadyActive → CollectionId указывает на текущее дело. NoWriteAccess → GrantCommand несёт точную
-// команду icacls для оператора (зеркаль RAS-healing). InsufficientDiskSpace → Issue несёт причину
-// (сколько свободно / сколько нужно). Иначе оба null/Empty.
+// AlreadyActive → CollectionId указывает на текущее дело. NoWriteAccess / AgentNoCollectionAccess →
+// GrantCommand несёт точную команду icacls для оператора (зеркаль RAS-healing). InsufficientDiskSpace →
+// Issue несёт причину (сколько свободно / сколько нужно). Иначе оба null/Empty.
 public sealed record TechLogStartResult(
     TechLogStartOutcome Outcome,
     Guid CollectionId,

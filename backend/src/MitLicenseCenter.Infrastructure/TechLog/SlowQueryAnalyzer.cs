@@ -42,9 +42,11 @@ internal sealed partial class SlowQueryAnalyzer : ISlowQueryAnalyzer
 
     // Поле плана запроса (best-effort): собирается ТОЛЬКО при явном теге <plansql/>
     // в logcfg (40_TECHLOG §5/§6). По умолчанию НЕ собирается.
-    // ⚠ Имя поля плана на стенде 8.5 НЕ снято — кандидат «PlanSQLText»;
-    //   точное имя подлежит подтверждению на стенде (40_TECHLOG §5).
-    private const string PlanFieldCandidate = "PlanSQLText";
+    // Имя поля — по ОФИЦ. спеке §7 (41_LOGCFG_SPEC): «Сам план попадает в свойство planSQLText»
+    // (строчная p, SQL заглавными). Регистр критичен: TechLogEvent.First сравнивает ключи через
+    // StringComparison.Ordinal (MLC-247 B4), и при неверном регистре план НИКОГДА не прочитался бы.
+    // Спека авторитетна; точную форму на стенде 8.5 ещё стоит подтвердить вживую, но имя берём из спеки.
+    private const string PlanField = "planSQLText";
 
     public SlowQueryAnalysisResult Analyze(
         IEnumerable<TechLogEvent> events,
@@ -99,8 +101,8 @@ internal sealed partial class SlowQueryAnalyzer : ISlowQueryAnalyzer
                     RawProcessName = rawProcessName,
                     SessionId = ev.First("SessionID"),
                     User = ev.First("Usr"),
-                    // ⚠ Имя поля плана — кандидат «PlanSQLText», подтвердить на стенде.
-                    PlanText = ev.First(PlanFieldCandidate),
+                    // Имя поля плана — planSQLText по офиц. спеке §7 (регистр критичен для Ordinal-First).
+                    PlanText = ev.First(PlanField),
                 };
 
                 aboveThreshold.Add(entry);
