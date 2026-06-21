@@ -648,20 +648,32 @@ Discovery-запросы кешируются 5 минут (`staleTime`), что
 `ObservationMode` или `InvestigationMode`. Из «Наблюдения» кнопка-CTA «Начать расследование»
 (в `ObservationMode`) переключает режим программно через `onStartInvestigation`.
 LiveControls и индикатор свежести живут только в `ObservationMode` — в «Расследовании» live-управление неуместно.
-**`InvestigationMode` (MLC-242/243)** = воронка расследования; хранит под-состояние `list`/`wizard`/
-`progress`/`detail(id)` (маршрут остаётся `/performance`). **Приоритет прогресса:** при активном деле
+**`InvestigationMode` (MLC-242/243/244)** = воронка расследования; хранит под-состояние `list`/`wizard`/
+`progress`/`detail(id)`/`report(id)` (маршрут остаётся `/performance`). **Приоритет прогресса:** при активном деле
 (`Collecting`/`Analyzing` по `useInvestigations`) рендерит **Прогресс** (`InvestigationProgress`, экран 6:
 статус/сценарий/цель/время/объём + «Остановить сейчас» для Admin) — застрять на Мастере с активным делом
-нельзя (после старта `onStarted` уводит на список → активное форсирует Прогресс). **Дефолт** (активного нет) —
+нельзя (после старта `onStarted` уводит на список → активное форсирует Прогресс); прогресс не перебивает
+`detail`/`report` (пользователь смотрит завершённое дело). **Дефолт** (активного нет) —
 **Список дел** (`InvestigationList`, экран 5: таблица дел + клиентские фильтры + удаление для Admin + баннер
 активного сбора + «+ Новое расследование» → Мастер). Клик по делу → **Дело** (`InvestigationDetail`, экран 3:
 вердикт/рекомендации из `useInvestigationReport`, сводка-метрики, блоки находок — блокировки 1С / долгие
-запросы / исключения / СУБД-блокировки из типизированных `Finding`; «Отчёт» — disabled-заглушка). **Мастер**
-(`InvestigationWizard`, экран 2: сценарий + scope из реестра ИБ + плашка безопасности + «Запустить» Admin).
-**Документ-«Отчёт» (экран 4) + экспорт — планируются MLC-244.** `finding.result` типизирован пер-`Kind`
-(Zod parity с BE-DTO анализаторов, см. строку таблицы `performance` выше). Целевой UX (концепция) —
-[`30_TARGET_DESIGN.md`](../research/perf-investigation/30_TARGET_DESIGN.md), спека 6 экранов —
-[`70_UI_SPEC.md`](../research/perf-investigation/70_UI_SPEC.md); архитектурное решение — ADR-57.
+запросы / исключения / СУБД-блокировки из типизированных `Finding`; кнопка **«Отчёт»** активна →
+`onOpenReport(id)` → под-состояние `report`). **Мастер** (`InvestigationWizard`, экран 2: сценарий + scope из
+реестра ИБ + плашка безопасности + «Запустить» Admin). **Документ-«Отчёт»** (`InvestigationReport`, экран 4,
+MLC-244): документ-вид дела — шапка (№/сформирован/период/узел/кто запустил/цель), **Резюме** (ранжированные
+`items[]` — `severity` `StatusBadge` + `headline` + `recommendation`; пустой → «существенных проблем не
+выявлено»), **«Что собрано»** (`collectionConfig` из `useInvestigationDetail`: события ТЖ / формат / окно
+истории / порог длительности / фильтр процесса + подпись о retention; без config — нейтральная подпись
+исторического дела), **Находки** (ранжированы по severity: `count` + `headline` + `recommendation`), **Подвал**
+(retention / post-mortem / ИТС). Кнопка **«Экспорт PDF»**: динамический import `toInvestigationPdf`
+(`features/investigations/toInvestigationPdf.ts`) — текстовый PDF без графиков, переиспользует паттерн
+`reports/export/toPdf.ts`: `jsPDF` + кириллический Roboto (`addFileToVFS`/`addFont` из
+`reports/export/fonts/robotoCyrillic`) + `splitTextToSize` + постраничный `addPage()`; скачивание через
+`downloadBlob`; состояние «Формирую…» + обработка ошибки (toast). Навигация: «Открыть дело» → `detail(id)`,
+«К списку» → `list`. Все 6 экранов спеки `70_UI_SPEC.md` реализованы (этап D трека 1.2 завершён, MLC-244).
+`finding.result` типизирован пер-`Kind` (Zod parity с BE-DTO анализаторов, см. строку таблицы `performance`
+выше). Целевой UX (концепция) — [`30_TARGET_DESIGN.md`](../research/perf-investigation/30_TARGET_DESIGN.md),
+спека 6 экранов — [`70_UI_SPEC.md`](../research/perf-investigation/70_UI_SPEC.md); архитектурное решение — ADR-57.
 
 ### 7.2 `ProtectedRoute`
 

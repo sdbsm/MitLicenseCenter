@@ -9,29 +9,30 @@ import { InvestigationDetail } from "./InvestigationDetail";
 import { InvestigationList } from "./InvestigationList";
 import { InvestigationWizard } from "./InvestigationWizard";
 import { InvestigationProgress } from "./InvestigationProgress";
+import { InvestigationReport } from "./InvestigationReport";
 
 /**
- * Режим «Расследование» — точка входа воронки (MLC-242/243, ADR-57).
+ * Режим «Расследование» — точка входа воронки (MLC-242/243/244, ADR-57).
  *
  * Под-состояния (хранятся локально — маршрут остаётся /performance):
  *   • "list"       — Список дел (экран 5, ДЕФОЛТ при отсутствии активного сбора).
  *   • "wizard"     — Мастер запуска нового расследования (экран 2).
  *   • "progress"   — Прогресс активного сбора (экран 6), приоритет над "list".
  *   • "detail(id)" — Карточка «Дело» (экран 3).
+ *   • "report(id)" — Документ-отчёт (экран 4, MLC-244): кнопка «Отчёт» в деталях.
  *
  * Логика приоритетов:
- *   1. Если есть активное дело (Collecting / Analyzing) И подсостояние не "detail" —
+ *   1. Если есть активное дело (Collecting / Analyzing) И подсостояние не "detail"/"report" —
  *      форсируем "progress" (баннер в списке ведёт сюда напрямую).
- *   2. Иначе — показываем текущее подсостояние (list / wizard / detail).
- *
- * Документ-«Отчёт» (экран 4) — MLC-244 (кнопка «Отчёт» в деталях = disabled-заглушка).
+ *   2. Иначе — показываем текущее подсостояние (list / wizard / detail / report).
  */
 
 type SubView =
   | { kind: "list" }
   | { kind: "wizard" }
   | { kind: "progress" }
-  | { kind: "detail"; id: string };
+  | { kind: "detail"; id: string }
+  | { kind: "report"; id: string };
 
 /** Вспомогательный хук: поллит прогресс только при наличии активного id. */
 function useActiveProgress(activeId: string | null) {
@@ -58,11 +59,11 @@ export function InvestigationMode() {
     return <Skeleton className="h-64 w-full" />;
   }
 
-  // Приоритет прогресса: есть активное дело и мы не смотрим на конкретную деталь → Прогресс.
+  // Приоритет прогресса: есть активное дело и мы не смотрим на конкретную деталь/отчёт → Прогресс.
   // Мастер достижим только из списка (а список — лишь когда активного нет), поэтому застрять
   // на Мастере с активным делом нельзя: после старта `onStarted` уводит на список, и активное
   // (только что созданное) дело форсирует Прогресс здесь же.
-  if (activeSummary && view.kind !== "detail") {
+  if (activeSummary && view.kind !== "detail" && view.kind !== "report") {
     return <InvestigationProgress summary={activeSummary} progress={progressData ?? null} />;
   }
 
@@ -75,9 +76,23 @@ export function InvestigationMode() {
     );
   }
 
+  if (view.kind === "report") {
+    return (
+      <InvestigationReport
+        investigationId={view.id}
+        onOpenDeal={() => setView({ kind: "detail", id: view.id })}
+        onBackToList={() => setView({ kind: "list" })}
+      />
+    );
+  }
+
   if (view.kind === "detail") {
     return (
-      <InvestigationDetail investigationId={view.id} onBack={() => setView({ kind: "list" })} />
+      <InvestigationDetail
+        investigationId={view.id}
+        onBack={() => setView({ kind: "list" })}
+        onOpenReport={(id) => setView({ kind: "report", id })}
+      />
     );
   }
 

@@ -4,11 +4,12 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import "@/i18n";
 
 /**
- * Тесты режима «Расследование» (MLC-242/243, ADR-57):
+ * Тесты режима «Расследование» (MLC-242/243/244, ADR-57):
  *   - Список дел (InvestigationList, экран 5, ДЕФОЛТ при отсутствии активного сбора)
  *   - Мастер запуска (InvestigationWizard, экран 2, открывается из списка)
  *   - Прогресс активного сбора (InvestigationProgress, экран 6)
  *   - Переключение InvestigationMode по состоянию активного дела
+ *   - Навигация detail → report → detail (MLC-244)
  *
  * Мокаем сетевые хуки (useInvestigations / useStartInvestigation /
  * useStopInvestigation / useInvestigationProgress / useInfobases / useMe /
@@ -122,6 +123,44 @@ vi.mock("@/features/infobases/useInfobases", () => ({
     },
     isLoading: false,
   }),
+}));
+
+// Мок InvestigationDetail — показывает заглушку с кнопками навигации
+vi.mock("../InvestigationDetail", () => ({
+  InvestigationDetail: ({
+    investigationId,
+    onBack,
+    onOpenReport,
+  }: {
+    investigationId: string;
+    onBack: () => void;
+    onOpenReport: (id: string) => void;
+  }) => (
+    <div>
+      <span>Дело-{investigationId.slice(0, 8)}</span>
+      <button onClick={onBack}>К списку</button>
+      <button onClick={() => onOpenReport(investigationId)}>Отчёт</button>
+    </div>
+  ),
+}));
+
+// Мок InvestigationReport — показывает заглушку с кнопками навигации
+vi.mock("../InvestigationReport", () => ({
+  InvestigationReport: ({
+    investigationId,
+    onOpenDeal,
+    onBackToList,
+  }: {
+    investigationId: string;
+    onOpenDeal: () => void;
+    onBackToList: () => void;
+  }) => (
+    <div>
+      <span>Отчёт-{investigationId.slice(0, 8)}</span>
+      <button onClick={onOpenDeal}>Открыть дело</button>
+      <button onClick={onBackToList}>К списку из отчёта</button>
+    </div>
+  ),
 }));
 
 // ── Импорты после мок-объявлений ─────────────────────────────────────────────
@@ -367,5 +406,59 @@ describe("InvestigationProgress — прогресс сбора (MLC-242, экр
     const summary = makeInvestigation("Collecting");
     render(<InvestigationProgress summary={summary} progress={makeProgress()} />);
     expect(screen.getByText(/logcfg снимется автоматически/i)).toBeInTheDocument();
+  });
+});
+
+// ── Тесты навигации detail ↔ report (MLC-244) ────────────────────────────────
+
+describe("InvestigationMode — навигация detail ↔ report (MLC-244)", () => {
+  beforeEach(() => {
+    mockInvestigationsData = { items: [makeInvestigation("Completed")] };
+    mockIsAdmin = true;
+    mockProgressData = undefined;
+    vi.clearAllMocks();
+  });
+
+  it("клик по строке в списке → показывает Дело (detail)", async () => {
+    const user = userEvent.setup();
+    renderMode();
+    // Кликаем по строке в таблице (InvestigationList показывает id дела)
+    await user.click(screen.getByText("inv-001"));
+    expect(screen.getByText("Дело-inv-001".slice(0, 12))).toBeInTheDocument();
+  });
+
+  it("из Дела клик «Отчёт» → показывает экран «Отчёт»", async () => {
+    const user = userEvent.setup();
+    renderMode();
+    // Открываем Дело
+    await user.click(screen.getByText("inv-001"));
+    // Жмём «Отчёт»
+    await user.click(screen.getByRole("button", { name: "Отчёт" }));
+    // Должен появиться экран Отчёт
+    expect(screen.getByText(/Отчёт-inv-001/)).toBeInTheDocument();
+  });
+
+  it("из Отчёта клик «Открыть дело» → возвращает к Делу", async () => {
+    const user = userEvent.setup();
+    renderMode();
+    // Список → Дело → Отчёт
+    await user.click(screen.getByText("inv-001"));
+    await user.click(screen.getByRole("button", { name: "Отчёт" }));
+    // Из Отчёта → Дело
+    await user.click(screen.getByRole("button", { name: "Открыть дело" }));
+    expect(screen.getByText(/Дело-inv/)).toBeInTheDocument();
+    expect(screen.queryByText(/Отчёт-inv/)).not.toBeInTheDocument();
+  });
+
+  it("из Отчёта клик «К списку из отчёта» → возвращает к списку", async () => {
+    const user = userEvent.setup();
+    renderMode();
+    // Список → Дело → Отчёт
+    await user.click(screen.getByText("inv-001"));
+    await user.click(screen.getByRole("button", { name: "Отчёт" }));
+    // Из Отчёта → список
+    await user.click(screen.getByRole("button", { name: "К списку из отчёта" }));
+    expect(screen.getByText("Расследования")).toBeInTheDocument();
+    expect(screen.queryByText(/Отчёт-inv/)).not.toBeInTheDocument();
   });
 });
