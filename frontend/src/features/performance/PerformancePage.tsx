@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { InvestigationPlaceholder } from "./InvestigationPlaceholder";
+import { InvestigationMode } from "./InvestigationMode";
 import { ObservationMode } from "./ObservationMode";
 
 /** Режим просмотра раздела «Производительность» (ADR-57). */
@@ -13,8 +13,8 @@ type PerformanceMode = "observation" | "investigation";
  * Переключатель режимов в шапке:
  *   «Наблюдение»    — вся live-панель (ObservationMode): вердикт / светофор /
  *                     drill-down / блокировки / запись по требованию. Дефолт.
- *   «Расследование» — точка входа-заглушка (InvestigationPlaceholder); полноценные
- *                     экраны Мастер/Дело/Отчёт/Список/Прогресс — MLC-242..244.
+ *   «Расследование» — InvestigationMode: Мастер запуска (экран 2) или Прогресс
+ *                     активного сбора (экран 6); Дело/Отчёт/Список — MLC-243/244.
  *
  * LiveControls и индикатор свежести живут внутри ObservationMode — в режиме
  * «Расследование» live-управление неуместно.
@@ -45,7 +45,7 @@ export function PerformancePage() {
       {mode === "observation" ? (
         <ObservationMode onStartInvestigation={() => setMode("investigation")} />
       ) : (
-        <InvestigationPlaceholder />
+        <InvestigationMode />
       )}
     </div>
   );
