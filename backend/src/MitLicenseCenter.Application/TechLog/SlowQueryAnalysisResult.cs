@@ -77,6 +77,8 @@ public sealed record SlowQueryEntry
 /// MLC-248: агрегат НЕЗАВИСИМ от порога TopQueries — учитывает ВСЕ DBMSSQL с непустым Sql,
 /// включая под-пороговые, чтобы «много мелких в сумме» всплывало даже когда ни один запрос
 /// не длиннее порога. Группы отсортированы по суммарной длительности убыв., ограничены topN.
+/// MLC-251: группа обогащается SampleContext (типовой контекст 1С — корреляция DBMSSQL↔CALL по
+/// t:connectID + окну вызова) и Database/InfobaseName (самые частые среди вхождений, прямо из DBMSSQL).
 /// </summary>
 public sealed record SlowQueryGroup
 {
@@ -98,6 +100,21 @@ public sealed record SlowQueryGroup
 
     // Максимальная длительность в секундах.
     public double MaxDurationSeconds { get; init; }
+
+    // ─── MLC-251: обогащение группы корреляцией SQL↔CALL + база ─────────────────
+    // Типовой контекст 1С (стек кода) — самый частый Context породившего CALL среди вхождений
+    // группы (корреляция по t:connectID + окну [ts−duration, ts] вызова; см. SlowQueryAnalyzer).
+    // null — если у DBMSSQL этой формы нет ни одного охватывающего CALL с непустым Context
+    // (например, сценарий SlowQueries без сбора CALL): это ШТАТНО, не ошибка.
+    public string? SampleContext { get; init; }
+
+    // Самая частая база СУБД среди вхождений (поле DataBase события DBMSSQL, напр. «localhost\infobase01»).
+    // Корреляция не нужна — берётся прямо из самого DBMSSQL. null — если DataBase нигде не задан.
+    public string? Database { get; init; }
+
+    // Самое частое нормализованное имя ИБ среди вхождений (из p:processName через
+    // TechLogProcessName.Normalize). Из самого DBMSSQL, корреляция не нужна. null — если нигде нет.
+    public string? InfobaseName { get; init; }
 }
 
 /// <summary>

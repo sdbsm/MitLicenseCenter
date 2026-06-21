@@ -321,6 +321,59 @@ describe("InvestigationDetail — карточка дела (MLC-243/244, экр
     expect(screen.getByText(/1000 раз/)).toBeInTheDocument();
   });
 
+  it("MLC-251: в группе показывается типовой контекст 1С и база, когда они есть", () => {
+    const result = {
+      ...makeSlowQueryResult(),
+      topQueries: [],
+      similarGroups: [
+        {
+          normalizedSql: "SELECT T1._Field FROM _AccumRgT1 T1 WHERE T1._Code = ?",
+          count: 436,
+          totalDurationMicroseconds: 9_000_000,
+          maxDurationMicroseconds: 60_000,
+          totalDurationSeconds: 9,
+          maxDurationSeconds: 0.06,
+          sampleContext: "Документ.ЗакрытиеМесяца.МодульМенеджера.Провести:42",
+          database: "localhost\\BP_into",
+          infobaseName: "BP_into",
+        },
+      ],
+    };
+    mockDetailData = makeDetail([{ kind: "SlowQueries", result }]);
+    renderDetail();
+    // Контекст 1С (типовой) — подпись + сам контекст.
+    expect(screen.getByText("Контекст 1С (типовой)")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Документ\.ЗакрытиеМесяца\.МодульМенеджера\.Провести:42/)
+    ).toBeInTheDocument();
+    // База — бейдж.
+    expect(screen.getByText(/localhost\\BP_into/)).toBeInTheDocument();
+  });
+
+  it("MLC-251: нет sampleContext → строка контекста не показывается (но база — да)", () => {
+    const result = {
+      ...makeSlowQueryResult(),
+      topQueries: [],
+      similarGroups: [
+        {
+          normalizedSql: "SELECT ? FROM _NoCtx",
+          count: 10,
+          totalDurationMicroseconds: 1_000_000,
+          maxDurationMicroseconds: 200_000,
+          totalDurationSeconds: 1,
+          maxDurationSeconds: 0.2,
+          sampleContext: null,
+          database: "localhost\\BP_into",
+          infobaseName: "BP_into",
+        },
+      ],
+    };
+    mockDetailData = makeDetail([{ kind: "SlowQueries", result }]);
+    renderDetail();
+    expect(screen.queryByText("Контекст 1С (типовой)")).not.toBeInTheDocument();
+    expect(screen.getByText(/localhost\\BP_into/)).toBeInTheDocument();
+  });
+
   it("кейс «много мелких»: topQueries пуст, но similarGroups есть → агрегат показан (MLC-248)", () => {
     const result = {
       ...makeSlowQueryResult(),

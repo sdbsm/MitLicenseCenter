@@ -125,7 +125,7 @@ const slowQueryEntrySchema = z.object({
   planText: omittable(z.string()),
 });
 
-/** Группа похожих SQL-запросов (SlowQueryGroup, MLC-234). */
+/** Группа похожих SQL-запросов (SlowQueryGroup, MLC-234/251). */
 const slowQueryGroupSchema = z.object({
   normalizedSql: z.string(),
   count: z.number(),
@@ -133,6 +133,10 @@ const slowQueryGroupSchema = z.object({
   maxDurationMicroseconds: z.number(),
   totalDurationSeconds: z.number(),
   maxDurationSeconds: z.number(),
+  // MLC-251: типовой контекст 1С (корреляция SQL↔CALL) + база/ИБ (из DBMSSQL). Бэкенд опускает при null.
+  sampleContext: omittable(z.string()),
+  database: omittable(z.string()),
+  infobaseName: omittable(z.string()),
 });
 
 /** SlowQueryAnalysisResult — результат анализа долгих запросов (kind=SlowQueries). */

@@ -157,6 +157,10 @@ describe("slowQueryAnalysisResultSchema (kind=SlowQueries)", () => {
           maxDurationMicroseconds: 7000000,
           totalDurationSeconds: 32.5,
           maxDurationSeconds: 7.0,
+          // MLC-251: корреляция SQL↔CALL → типовой контекст + база/ИБ.
+          sampleContext: "Документ.ЗакрытиеМесяца.МодульМенеджера:42",
+          database: "localhost\\demodb",
+          infobaseName: "demodb",
         },
       ],
       totalDbmssqlEvents: 100,
@@ -169,8 +173,40 @@ describe("slowQueryAnalysisResultSchema (kind=SlowQueries)", () => {
     expect(parsed.topQueries[0].durationMicroseconds).toBe(6500000);
     expect(parsed.similarGroups).toHaveLength(1);
     expect(parsed.similarGroups[0].count).toBe(5);
+    // MLC-251: новые поля группы парсятся.
+    expect(parsed.similarGroups[0].sampleContext).toBe(
+      "Документ.ЗакрытиеМесяца.МодульМенеджера:42"
+    );
+    expect(parsed.similarGroups[0].database).toBe("localhost\\demodb");
+    expect(parsed.similarGroups[0].infobaseName).toBe("demodb");
     expect(parsed.totalDbmssqlEvents).toBe(100);
     expect(parsed.eventsAboveThreshold).toBe(5);
+  });
+
+  it("MLC-251 omit: sampleContext/database/infobaseName отсутствуют → null, не падают", () => {
+    const parsed = slowQueryAnalysisResultSchema.parse({
+      topQueries: [],
+      similarGroups: [
+        {
+          // sampleContext/database/infobaseName ОТСУТСТВУЮТ (WhenWritingNull) — сценарий без CALL/базы.
+          normalizedSql: "SELECT ? FROM _Hot",
+          count: 1000,
+          totalDurationMicroseconds: 50000000,
+          maxDurationMicroseconds: 50000,
+          totalDurationSeconds: 50,
+          maxDurationSeconds: 0.05,
+        },
+      ],
+      totalDbmssqlEvents: 1000,
+      eventsAboveThreshold: 0,
+      skippedEvents: 0,
+    });
+
+    const g = parsed.similarGroups[0];
+    expect(g.sampleContext).toBeNull();
+    expect(g.database).toBeNull();
+    expect(g.infobaseName).toBeNull();
+    expect(g.count).toBe(1000);
   });
 
   it("omit-null: nullable-поля отсутствуют → нормализуются в null, не падают", () => {

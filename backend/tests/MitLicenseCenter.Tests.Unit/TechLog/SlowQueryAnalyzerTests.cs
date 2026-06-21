@@ -340,4 +340,149 @@ public sealed class SlowQueryAnalyzerTests
         normA.Should().Be(normB,
             "строковые литералы с разным содержимым (включая цифры) схлопываются одинаково");
     }
+
+    // ─── MLC-251: корреляция SQL↔CALL по t:connectID + временно́му окну ──────────────────────────
+    // Окно вызова CALL = [ts − duration, ts] (событие логируется в момент окончания). DBMSSQL того же
+    // connectID с ts внутри окна принадлежит этому вызову → группа получает типовой контекст 1С.
+    // Фикстуры обезличены (репозиторий публичный).
+
+    // (251-a) DBMSSQL внутри окна CALL того же connectID → группа получает SampleContext = контекст CALL.
+    //         База/ИБ берутся прямо из DBMSSQL (без корреляции).
+    [Fact]
+    public void Query_inside_call_window_gets_sample_context_from_call()
+    {
+        var events = ParseFixture("dbmssql-call-correlation.ndjson");
+
+        // Порог 0 — все DBMSSQL в топе; группы строятся независимо от порога.
+        var result = _analyzer.Analyze(events, thresholdMicroseconds: 0);
+
+        // Запрос #1 (ts 23:07:18.5) лежит в окне CALL [23:07:18.0, 23:07:20.0] connectID=15579;
+        // запрос #2 (ts 23:07:30) той же формы — ВНЕ окна. Оба нормализуются в одну группу (_AccumRgT1).
+        var group = result.SimilarGroups
+            .FirstOrDefault(g => g.NormalizedSql.Contains("_AccumRgT1", StringComparison.Ordinal));
+        group.Should().NotBeNull("две формы SELECT _AccumRgT1 — одна группа");
+        group!.Count.Should().Be(2);
+        group.SampleContext.Should().Be("Документ.ЗакрытиеМесяца.МодульМенеджера.Провести:42",
+            "контекст берётся из охватывающего CALL того же connectID");
+        group.Database.Should().Be("localhost\\BP_into", "база — прямо из DBMSSQL");
+        group.InfobaseName.Should().Be("infobase01", "ИБ — нормализована из p:processName DBMSSQL");
+    }
+
+    // (251-b) DBMSSQL вне любого окна / другой connectId → контекст null (но база/ИБ есть).
+    [Fact]
+    public void Query_outside_any_call_window_or_other_connect_id_has_null_context()
+    {
+        var events = ParseFixture("dbmssql-call-correlation.ndjson");
+
+        var result = _analyzer.Analyze(events, thresholdMicroseconds: 0);
+
+        // Запрос #3 (connectID=99999) — нет CALL для этого connectID → контекста нет.
+        var group = result.SimilarGroups
+            .FirstOrDefault(g => g.NormalizedSql.Contains("_OtherTable", StringComparison.Ordinal));
+        group.Should().NotBeNull();
+        group!.SampleContext.Should().BeNull("нет CALL на connectID=99999 → контекст не атрибутируется");
+        group.Database.Should().Be("localhost\\BP_into", "база всё равно из DBMSSQL");
+        group.InfobaseName.Should().Be("infobase01");
+    }
+
+    // (251-c) Вложенные CALL одного connectID → берётся самый ВНУТРЕННИЙ (последний по Start) охватывающий.
+    [Fact]
+    public void Nested_calls_pick_innermost_enclosing_context()
+    {
+        var events = ParseFixture("dbmssql-call-nested.ndjson");
+
+        var result = _analyzer.Analyze(events, thresholdMicroseconds: 0);
+
+        var group = result.SimilarGroups
+            .FirstOrDefault(g => g.NormalizedSql.Contains("_NestedTbl", StringComparison.Ordinal));
+        group.Should().NotBeNull();
+        // Запрос (ts 10:00:08.5) лежит и во внешнем [10:00:00,10:00:10], и во внутреннем [10:00:06,10:00:09]
+        // окне — берём внутренний (более точная привязка к коду).
+        group!.SampleContext.Should().Be("ВнутреннийВызов.Вложенный:99",
+            "при вложенности выбирается самый внутренний охватывающий CALL");
+    }
+
+    // (251-d) Битый ts запроса → не падает, контекст null (корреляция пропускается толерантно).
+    [Fact]
+    public void Broken_query_ts_does_not_throw_and_yields_null_context()
+    {
+        const string callLine =
+            "{\"ts\":\"2026-06-21T23:07:20.000000\",\"duration\":\"2000000\",\"name\":\"CALL\"," +
+            "\"t:connectID\":\"15579\",\"Context\":\"Док.Закрытие:42\"}";
+        // ts запроса — мусор, не парсится.
+        const string sqlLine =
+            "{\"ts\":\"НЕ-ДАТА\",\"duration\":\"100000\",\"name\":\"DBMSSQL\",\"process\":\"rphost\"," +
+            "\"p:processName\":\"infobase01\",\"t:connectID\":\"15579\",\"DataBase\":\"localhost\\\\BP_into\"," +
+            "\"Sql\":\"SELECT T1._A FROM _BadTs T1\"}";
+
+        var events = _parser.ParseLines([callLine, sqlLine]).Events;
+
+        var act = () => _analyzer.Analyze(events, thresholdMicroseconds: 0);
+        act.Should().NotThrow("битый ts — never-throws (40_TECHLOG §7)");
+
+        var result = _analyzer.Analyze(events, thresholdMicroseconds: 0);
+        var group = result.SimilarGroups
+            .FirstOrDefault(g => g.NormalizedSql.Contains("_BadTs", StringComparison.Ordinal));
+        group.Should().NotBeNull();
+        group!.SampleContext.Should().BeNull("ts запроса не распарсился → корреляция пропущена");
+    }
+
+    // (251-d2) Битый ts у CALL → этот CALL не индексируется, не падает; запрос остаётся без контекста.
+    [Fact]
+    public void Broken_call_ts_is_skipped_from_index_without_throwing()
+    {
+        const string callLine =
+            "{\"ts\":\"МУСОР\",\"duration\":\"2000000\",\"name\":\"CALL\"," +
+            "\"t:connectID\":\"15579\",\"Context\":\"Док.Закрытие:42\"}";
+        const string sqlLine =
+            "{\"ts\":\"2026-06-21T23:07:18.500000\",\"duration\":\"100000\",\"name\":\"DBMSSQL\"," +
+            "\"process\":\"rphost\",\"p:processName\":\"infobase01\",\"t:connectID\":\"15579\"," +
+            "\"DataBase\":\"localhost\\\\BP_into\",\"Sql\":\"SELECT T1._A FROM _BadCallTs T1\"}";
+
+        var events = _parser.ParseLines([callLine, sqlLine]).Events;
+
+        var result = _analyzer.Analyze(events, thresholdMicroseconds: 0);
+        var group = result.SimilarGroups
+            .FirstOrDefault(g => g.NormalizedSql.Contains("_BadCallTs", StringComparison.Ordinal));
+        group.Should().NotBeNull();
+        group!.SampleContext.Should().BeNull("CALL с битым ts не попал в индекс → контекста нет");
+    }
+
+    // (251-e) Database/InfobaseName берутся из самого DBMSSQL ВСЕГДА — даже когда CALL нет в потоке.
+    [Fact]
+    public void Database_and_infobase_come_from_dbmssql_even_without_any_call()
+    {
+        // dbmssql-slow.ndjson: только DBMSSQL, без CALL.
+        var events = ParseFixture("dbmssql-slow.ndjson");
+
+        var result = _analyzer.Analyze(events, thresholdMicroseconds: 1_000_000);
+
+        var selectGroup = result.SimilarGroups
+            .FirstOrDefault(g => g.NormalizedSql.Contains("_TableX", StringComparison.Ordinal));
+        selectGroup.Should().NotBeNull();
+        selectGroup!.Database.Should().Be("localhost\\infobase01", "база — из DataBase DBMSSQL");
+        selectGroup.InfobaseName.Should().Be("infobase01", "ИБ — из p:processName DBMSSQL");
+        selectGroup.SampleContext.Should().BeNull("CALL в потоке нет → контекст не атрибутируется (штатно)");
+    }
+
+    // (251-f) CALL без Context в индекс не идёт (нечего атрибутировать) — запрос остаётся без контекста.
+    [Fact]
+    public void Call_without_context_is_not_indexed()
+    {
+        const string callLine =
+            "{\"ts\":\"2026-06-21T23:07:20.000000\",\"duration\":\"2000000\",\"name\":\"CALL\"," +
+            "\"t:connectID\":\"15579\"}"; // нет Context
+        const string sqlLine =
+            "{\"ts\":\"2026-06-21T23:07:18.500000\",\"duration\":\"100000\",\"name\":\"DBMSSQL\"," +
+            "\"process\":\"rphost\",\"p:processName\":\"infobase01\",\"t:connectID\":\"15579\"," +
+            "\"DataBase\":\"localhost\\\\BP_into\",\"Sql\":\"SELECT T1._A FROM _NoCtx T1\"}";
+
+        var events = _parser.ParseLines([callLine, sqlLine]).Events;
+
+        var result = _analyzer.Analyze(events, thresholdMicroseconds: 0);
+        var group = result.SimilarGroups
+            .FirstOrDefault(g => g.NormalizedSql.Contains("_NoCtx", StringComparison.Ordinal));
+        group.Should().NotBeNull();
+        group!.SampleContext.Should().BeNull("CALL без Context не индексируется → контекст null");
+    }
 }
