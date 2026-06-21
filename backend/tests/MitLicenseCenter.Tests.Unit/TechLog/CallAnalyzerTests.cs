@@ -239,4 +239,94 @@ public sealed class CallAnalyzerTests
         result.TopCalls[0].Method.Should().Be("Execute", "Method задан");
         result.SkippedEvents.Should().Be(1, "второй CALL без duration пропущен");
     }
+
+    // ─── MLC-252 A: чистка CALL-группировки ──────────────────────────────────────────────────────
+    // Стенд-приёмка 1.2 (параллельные нагрузки) показала мусорные группы `0`/`5`/`7`/`83`/`methodsCount`/
+    // `Release` (числовые коды/служебные токены) и некорректный итог суммой вложенного времени.
+    // Фикстура call-noisy.ndjson: 5 шумных ключей (0/5/83/methodsCount/Release) + вызов без Context/метода
+    // + 1 осмысленный Context (3 c, "Документ.ЗакрытиеМесяца…") + 1 шумной "7" длительностью 45 c (обёртка).
+
+    // (252-a) Числовые коды и служебные токены НЕ создают отдельных групп — все сводятся в ОДНУ группу
+    //         «контекст не указан» (IsUnspecified). Осмысленный Context — отдельной группой.
+    [Fact]
+    public void Numeric_and_denylist_keys_collapse_into_single_unspecified_group()
+    {
+        var events = ParseFixture("call-noisy.ndjson");
+
+        var result = _analyzer.Analyze(events, thresholdMicroseconds: 0);
+
+        // Ровно две группы: осмысленный контекст + единая «контекст не указан».
+        result.SimilarGroups.Should().HaveCount(2,
+            "числовые/служебные ключи не плодят группы — всё в одну «контекст не указан»");
+
+        // Нет групп с ключами-мусором 0/5/7/83/methodsCount/Release.
+        var noisyKeys = new[] { "0", "5", "7", "83", "methodsCount", "Release" };
+        result.SimilarGroups.Should().NotContain(
+            g => noisyKeys.Contains(g.Context),
+            "мусорные числовые/служебные ключи не должны быть ключами групп");
+
+        // Единая «контекст не указан» группа существует и помечена IsUnspecified.
+        var unspecified = result.SimilarGroups.FirstOrDefault(g => g.IsUnspecified);
+        unspecified.Should().NotBeNull("числовые/служебные/пустые сведены в одну группу «контекст не указан»");
+        // В неё вошли: 0/5/83/methodsCount/Release/605(без метода)/7 = 7 вызовов.
+        unspecified!.Count.Should().Be(7, "все шумные + безымянный вызов — в одной группе");
+
+        // Осмысленный контекст — отдельная не-unspecified группа.
+        var real = result.SimilarGroups.FirstOrDefault(
+            g => g.Context.Contains("МодульМенеджера", StringComparison.Ordinal));
+        real.Should().NotBeNull("осмысленный Context — отдельной группой");
+        real!.IsUnspecified.Should().BeFalse();
+        real.Count.Should().Be(1);
+    }
+
+    // (252-b) Обёртка: вызов без осмысленного контекста с очень большой длительностью (45 c ≥ порога
+    //         обёртки 30 c) помечается IsWrapper и уходит В КОНЕЦ сортировки (не доминирует в топе).
+    [Fact]
+    public void Long_unspecified_call_is_flagged_as_wrapper_and_sorted_last()
+    {
+        var events = ParseFixture("call-noisy.ndjson");
+
+        var result = _analyzer.Analyze(events, thresholdMicroseconds: 0);
+
+        var wrapper = result.SimilarGroups.FirstOrDefault(g => g.IsWrapper);
+        wrapper.Should().NotBeNull("вызов 45 c без осмысленного контекста — обёртка");
+        wrapper!.IsUnspecified.Should().BeTrue("обёртка всегда без осмысленного контекста");
+
+        // Несмотря на самое большое суммарное время (45 c доминирует), обёртка — ПОСЛЕДНЯЯ.
+        result.SimilarGroups[^1].IsWrapper.Should().BeTrue(
+            "обёртка вынесена в конец, чтобы не доминировать в топе");
+        result.SimilarGroups[0].IsWrapper.Should().BeFalse(
+            "первой идёт осмысленная группа, а не обёртка");
+    }
+
+    // (252-c) Осмысленный метод (не числовой, не денлист) остаётся отдельной группой (не «контекст не
+    //         указан»). call-slow.ndjson: вызов с MName="ИдлеХендлер" — осмысленный.
+    [Fact]
+    public void Meaningful_named_method_stays_its_own_group()
+    {
+        var events = ParseFixture("call-slow.ndjson");
+
+        var result = _analyzer.Analyze(events, thresholdMicroseconds: 0);
+
+        var byMethod = result.SimilarGroups.FirstOrDefault(g => g.Context == "ИдлеХендлер");
+        byMethod.Should().NotBeNull("осмысленное имя метода — отдельная группа");
+        byMethod!.IsUnspecified.Should().BeFalse("имя метода — осмысленный ключ, не «контекст не указан»");
+    }
+
+    // (252-d) Группы без обёртки сортируются по собственному (gross) времени убыв.; общая сумма НЕ считается
+    //         (нельзя складывать вложенное). Проверяем только корректную сортировку не-обёрток.
+    [Fact]
+    public void Non_wrapper_groups_sorted_by_own_gross_duration_descending()
+    {
+        var events = ParseFixture("call-slow.ndjson");
+
+        var result = _analyzer.Analyze(events, thresholdMicroseconds: 0);
+
+        var nonWrappers = result.SimilarGroups.Where(g => !g.IsWrapper).ToList();
+        for (var i = 1; i < nonWrappers.Count; i++)
+        {
+            nonWrappers[i].TotalDurationMicroseconds.Should()
+                .BeLessOrEqualTo(nonWrappers[i - 1].TotalDurationMicroseconds);
+        }
+    }
 }

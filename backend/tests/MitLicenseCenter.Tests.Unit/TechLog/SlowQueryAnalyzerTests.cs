@@ -485,4 +485,73 @@ public sealed class SlowQueryAnalyzerTests
         group.Should().NotBeNull();
         group!.SampleContext.Should().BeNull("CALL без Context не индексируется → контекст null");
     }
+
+    // ─── MLC-252 B: счётчик покрытия привязки контекста + fallback ───────────────────────────────
+
+    // (252-B-a) Счётчик покрытия: GroupsTotal == число групп, GroupsWithContext — сколько получили контекст.
+    //           dbmssql-call-correlation.ndjson: 2 группы (_AccumRgT1 с контекстом, _OtherTable без).
+    [Fact]
+    public void Context_coverage_counter_reports_groups_with_and_without_context()
+    {
+        var events = ParseFixture("dbmssql-call-correlation.ndjson");
+
+        var result = _analyzer.Analyze(events, thresholdMicroseconds: 0);
+
+        result.GroupsTotal.Should().Be(result.SimilarGroups.Count, "счётчик всего = число возвращённых групп");
+        result.GroupsTotal.Should().Be(2, "две формы запросов: _AccumRgT1 и _OtherTable");
+        result.GroupsWithContext.Should().Be(1,
+            "контекст привязался только к _AccumRgT1 (у _OtherTable нет CALL на его connectID)");
+    }
+
+    // (252-B-b) Пустое покрытие видно явно: нет CALL вовсе → GroupsWithContext=0, GroupsTotal>0.
+    [Fact]
+    public void Context_coverage_is_zero_when_no_calls_present()
+    {
+        var events = ParseFixture("dbmssql-slow.ndjson"); // только DBMSSQL, без CALL
+
+        var result = _analyzer.Analyze(events, thresholdMicroseconds: 1_000_000);
+
+        result.GroupsTotal.Should().BeGreaterThan(0, "группы есть");
+        result.GroupsWithContext.Should().Be(0, "без CALL контекст не привязывается — пустота видна счётчиком");
+    }
+
+    // (252-B-c) Fallback: SQL ВНЕ строго охватывающего окна, но на том же соединении после CALL с
+    //           контекстом → берётся ближайший предшествующий CALL (фоновый/отчётный SQL без обёртки).
+    [Fact]
+    public void Fallback_attributes_nearest_preceding_call_context_when_no_enclosing_window()
+    {
+        var events = ParseFixture("dbmssql-call-fallback.ndjson");
+
+        var result = _analyzer.Analyze(events, thresholdMicroseconds: 0);
+
+        var group = result.SimilarGroups
+            .FirstOrDefault(g => g.NormalizedSql.Contains("_ReportTbl", StringComparison.Ordinal));
+        group.Should().NotBeNull();
+        // CALL окно [23:07:09, 23:07:10]; запрос ts 23:07:15 — НЕ внутри, но это ближайший предшествующий
+        // CALL того же connectID с контекстом → fallback подставляет его контекст.
+        group!.SampleContext.Should().Be("ОбщийМодуль.Отчёт.Сформировать:88",
+            "fallback берёт ближайший предшествующий CALL с контекстом на том же соединении");
+    }
+
+    // (252-B-d) Fallback НЕ срабатывает через границу соединения: другой connectId → контекст null.
+    //           Подтверждает, что fallback ограничен тем же соединением (не «любой CALL рядом»).
+    [Fact]
+    public void Fallback_does_not_cross_connection_boundary()
+    {
+        const string callLine =
+            "{\"ts\":\"2026-06-21T23:07:10.000000\",\"duration\":\"1000000\",\"name\":\"CALL\"," +
+            "\"t:connectID\":\"100\",\"Context\":\"ОбщийМодуль.Чужой:1\"}";
+        const string sqlLine =
+            "{\"ts\":\"2026-06-21T23:07:15.000000\",\"duration\":\"500000\",\"name\":\"DBMSSQL\"," +
+            "\"process\":\"rphost\",\"p:processName\":\"infobase01\",\"t:connectID\":\"200\"," +
+            "\"DataBase\":\"localhost\\\\BP_into\",\"Sql\":\"SELECT T1._A FROM _OtherConn T1\"}";
+
+        var events = _parser.ParseLines([callLine, sqlLine]).Events;
+
+        var result = _analyzer.Analyze(events, thresholdMicroseconds: 0);
+        var group = result.SimilarGroups
+            .FirstOrDefault(g => g.NormalizedSql.Contains("_OtherConn", StringComparison.Ordinal));
+        group.Should().NotBeNull();
+        group!.SampleContext.Should().BeNull("fallback не пересекает границу соединения (другой connectID)");
+    }
 }

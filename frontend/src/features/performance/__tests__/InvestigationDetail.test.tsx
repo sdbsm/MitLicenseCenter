@@ -406,8 +406,62 @@ describe("InvestigationDetail — карточка дела (MLC-243/244, экр
     expect(screen.getByText("Серверных вызовов 1С")).toBeInTheDocument();
     expect(screen.getByText("Групп вызовов по контексту")).toBeInTheDocument();
     // Агрегат по контексту
-    expect(screen.getByText("Вызовы по контексту (по суммарному времени)")).toBeInTheDocument();
+    expect(screen.getByText("Вызовы по контексту (по собственному времени)")).toBeInTheDocument();
     expect(screen.getByText(/3 раз/)).toBeInTheDocument();
+  });
+
+  it("MLC-252: строки-итога «Вызовы всего» нет; есть подпись о вложенном времени", () => {
+    mockDetailData = makeDetail([{ kind: "Call", result: makeCallResult() }]);
+    renderDetail();
+    expect(screen.queryByText(/Вызовы всего/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Время вызовов вложенное/)).toBeInTheDocument();
+  });
+
+  it("MLC-252: группа-обёртка помечена «обёртка» и контекст «контекст не указан»", () => {
+    const result = {
+      ...makeCallResult(),
+      topCalls: [],
+      eventsAboveThreshold: 0,
+      similarGroups: [
+        {
+          context: "(контекст не указан)",
+          count: 7,
+          totalDurationMicroseconds: 45_000_000,
+          maxDurationMicroseconds: 45_000_000,
+          totalDurationSeconds: 45,
+          maxDurationSeconds: 45,
+          isUnspecified: true,
+          isWrapper: true,
+        },
+      ],
+    };
+    mockDetailData = makeDetail([{ kind: "Call", result }]);
+    renderDetail();
+    expect(screen.getByText("обёртка")).toBeInTheDocument();
+    // Контекст показывается как «контекст не указан» (не сырой ключ-маркер не важен).
+    expect(screen.getAllByText(/контекст не указан/i).length).toBeGreaterThan(0);
+  });
+
+  it("MLC-252 B: счётчик покрытия контекста показан над группами долгих запросов", () => {
+    const result = {
+      ...makeSlowQueryResult(),
+      topQueries: [],
+      groupsTotal: 3,
+      groupsWithContext: 1,
+      similarGroups: [
+        {
+          normalizedSql: "SELECT ? FROM _A",
+          count: 100,
+          totalDurationMicroseconds: 6_000_000,
+          maxDurationMicroseconds: 80_000,
+          totalDurationSeconds: 6,
+          maxDurationSeconds: 0.08,
+        },
+      ],
+    };
+    mockDetailData = makeDetail([{ kind: "SlowQueries", result }]);
+    renderDetail();
+    expect(screen.getByText(/Контекст 1С привязан к 1 из 3 групп/)).toBeInTheDocument();
   });
 
   it("под-секундные агрегаты Call показываются в мс, а не «0.0 с» (MLC-249)", () => {

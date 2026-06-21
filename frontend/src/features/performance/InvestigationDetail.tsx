@@ -289,6 +289,16 @@ function SlowQueriesBlock({ result }: { result: SlowQueryAnalysisResult }) {
           <p className="text-sm font-medium">
             {t("investigations.detail.slowQueries.similarGroupsTitle")}
           </p>
+          {/* MLC-252 B: счётчик покрытия привязки контекста (корреляция SQL↔CALL) — чтобы пустота была
+              видна. groupsTotal/groupsWithContext опускаются у исторических дел → читаем с `?? 0`. */}
+          {(result.groupsTotal ?? 0) > 0 && (
+            <p className="text-muted-foreground text-xs">
+              {t("investigations.detail.slowQueries.contextCoverage", {
+                withContext: result.groupsWithContext ?? 0,
+                total: result.groupsTotal ?? 0,
+              })}
+            </p>
+          )}
           <div className="space-y-2">
             {result.similarGroups.map((g, i) => (
               <div key={i} className="bg-muted/40 space-y-1 rounded-md p-3 text-sm">
@@ -397,11 +407,36 @@ function CallBlock({ result }: { result: CallAnalysisResult }) {
       {hasGroups && (
         <div className="space-y-2">
           <p className="text-sm font-medium">{t("investigations.detail.call.groupsTitle")}</p>
+          {/* MLC-252 A-2: время вызовов ВЛОЖЕННОЕ (gross) — родительский вызов включает вложенные
+              SQL/под-вызовы. Не суммируем по группам (строка «Вызовы всего» убрана как вводящая в
+              заблуждение); явно подписываем «вложенное». */}
+          <p className="text-muted-foreground text-xs">
+            {t("investigations.detail.call.nestedHint")}
+          </p>
           <div className="space-y-2">
             {result.similarGroups.map((g, i) => (
               <div key={i} className="bg-muted/40 space-y-1 rounded-md p-3 text-sm">
+                {/* MLC-252 A-1/A-2: метки группы «контекст не указан» и «обёртка». */}
+                {(g.isUnspecified || g.isWrapper) && (
+                  <div className="flex flex-wrap gap-1">
+                    {g.isWrapper && (
+                      <Badge
+                        variant="outline"
+                        className="text-xs"
+                        title={t("investigations.detail.call.wrapperHint")}
+                      >
+                        {t("investigations.detail.call.wrapper")}
+                      </Badge>
+                    )}
+                    {g.isUnspecified && !g.isWrapper && (
+                      <Badge variant="outline" className="text-xs">
+                        {t("investigations.detail.call.unspecified")}
+                      </Badge>
+                    )}
+                  </div>
+                )}
                 <pre className="overflow-x-auto font-mono text-xs break-words whitespace-pre-wrap">
-                  {g.context}
+                  {g.isUnspecified ? t("investigations.detail.call.unspecified") : g.context}
                 </pre>
                 <p className="text-muted-foreground text-xs">
                   {t("investigations.detail.call.groupStats", {
@@ -413,13 +448,6 @@ function CallBlock({ result }: { result: CallAnalysisResult }) {
               </div>
             ))}
           </div>
-          <p className="text-sm font-medium">
-            {t("investigations.detail.call.callsTotal", {
-              total: fmtSeconds(
-                result.similarGroups.reduce((acc, g) => acc + g.totalDurationSeconds, 0)
-              ),
-            })}
-          </p>
         </div>
       )}
     </div>
