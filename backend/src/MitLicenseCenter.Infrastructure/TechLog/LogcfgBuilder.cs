@@ -5,11 +5,19 @@ using MitLicenseCenter.Application.TechLog;
 
 namespace MitLicenseCenter.Infrastructure.TechLog;
 
-// Генератор целевого logcfg.xml (ядро MLC-230) — чистый C# без ФС, максимально юнит-тестируемый.
-// Собирает XML по фактам стенда MLC-229 (40_TECHLOG §6/§8):
+// Генератор целевого logcfg.xml (ядро MLC-230; сверка с офиц. спекой 41_LOGCFG_SPEC §4 — MLC-246).
+// Чистый C# без ФС, максимально юнит-тестируемый. Собирает XML по официальной модели <event>/<property>:
 //   • format="json", location = каталог сбора, ограниченный history;
-//   • НИКАКОГО фильтра по длительности (<ge property="Dur"/>) — он не работает для JSON-ТЖ 8.5;
-//   • при заданном имени ИБ — <eq property="p:processName" value="<ИБ>"/> (изоляция арендатора);
+//   • НИКАКОГО фильтра по длительности (<ge property="Dur"/>) — свойство звалось "Dur", его нет в перечне
+//     (41_LOGCFG_SPEC §5: фильтр — Duration/Durationus, не Dur); ретест с Duration за стендом (F-3).
+//     До ретеста порог длительности делает парсер (этап B), фильтр в logcfg не ставим;
+//   • при заданном имени ИБ — <eq property="p:processName"> лежит ВНУТРИ КАЖДОГО <event>, рядом с
+//     условием name (объединение по «И» внутри <event>, 41_LOGCFG_SPEC §4.1) — изоляция арендатора
+//     (60_SAFETY №2 = event-scope). НЕ прямым ребёнком <log> (структурно недопустимо, игнорируется → утечка);
+//   • <property name="all"/> в <log> — иначе свойства событий НЕ пишутся вовсе (41_LOGCFG_SPEC §4.2:
+//     «свойство выводится, ТОЛЬКО если есть элемент <property>») → парсер этапа B получил бы пусто.
+//     Это property-scope (все поля УЖЕ отобранных событий), НЕ «полный ТЖ»: event-scope режут фильтры
+//     типа события + p:processName (60_SAFETY №1);
 //   • маркер-комментарий — по нему сторож отличает «наш» конфиг от чужого.
 // Целевой namespace logcfg платформы 1С — http://v8.1c.ru/v8/tech-log.
 internal sealed class LogcfgBuilder : ILogcfgBuilder
@@ -35,24 +43,38 @@ internal sealed class LogcfgBuilder : ILogcfgBuilder
             new XAttribute("history", historyHours.ToString(CultureInfo.InvariantCulture)),
             new XAttribute("format", "json"));
 
-        // Изоляция арендатора (60_SAFETY №2): при заданном имени ИБ — точный <eq> по p:processName.
-        // НЕ <like> (в JSON ловит 0, 40_TECHLOG §6). Один фильтр на весь <log>: режет ВСЕ события.
-        if (!string.IsNullOrWhiteSpace(infobaseProcessName))
-        {
-            log.Add(new XElement(
-                ns + "eq",
-                new XAttribute("property", "p:processName"),
-                new XAttribute("value", infobaseProcessName)));
-        }
+        // Изоляция арендатора (60_SAFETY №2, event-scope): при заданном имени ИБ условие
+        // <eq property="p:processName"> кладётся ВНУТРЬ КАЖДОГО <event>, рядом с условием name —
+        // объединение по «И» внутри одного <event> (41_LOGCFG_SPEC §4.1). НЕ прямым ребёнком <log>
+        // (структурно недопустимо → игнорируется платформой → собирался бы ТЖ ВСЕХ арендаторов: утечка).
+        // НЕ <like> (в JSON ловит 0, 40_TECHLOG §6) — точный <eq>.
+        var isolated = !string.IsNullOrWhiteSpace(infobaseProcessName);
+        var tenantProcessName = infobaseProcessName ?? string.Empty;
 
-        // Целевой набор событий по сценарию. БЕЗ фильтра длительности и без
-        // <property name="all"/> — «целевой, не полный» сбор (60_SAFETY №1).
+        // Целевой набор событий по сценарию (event-scope: тип события [+ арендатор]).
         foreach (var ev in EventsFor(scenario))
         {
-            log.Add(new XElement(ns + "event", new XElement(ns + "eq",
+            var evElement = new XElement(ns + "event", new XElement(ns + "eq",
                 new XAttribute("property", "name"),
-                new XAttribute("value", ev))));
+                new XAttribute("value", ev)));
+
+            if (isolated)
+            {
+                evElement.Add(new XElement(ns + "eq",
+                    new XAttribute("property", "p:processName"),
+                    new XAttribute("value", tenantProcessName)));
+            }
+
+            log.Add(evElement);
         }
+
+        // Свойства событий (property-scope): без <property> платформа пишет события ЛИШЬ с базовыми
+        // полями (ts/duration/name/depth/level/process) — без Sql/Context/Locks/Descr/p:processName/…,
+        // и анализаторы этапа B получили бы пусто (41_LOGCFG_SPEC §4.2). <property name="all"/> пишет
+        // все свойства УЖЕ ОТОБРАННЫХ (по типу события + арендатору) событий — это property-scope, а
+        // НЕ «полный ТЖ»: инвариант 60_SAFETY №1 «никогда полный ТЖ» про event-scope (фильтр события +
+        // p:processName), который тут целевой. Робастно к «полям-призракам» и вариантам имён (Usr/UserName).
+        log.Add(new XElement(ns + "property", new XAttribute("name", "all")));
 
         // Теги-обогатители (<plansql>/<dump>) — это глобальные директивы УРОВНЯ <config>, рядом с
         // <log>, а НЕ внутри него (шаблоны infostart 2020498/1431026; <dump>/<plansql>/<dbmslocks> —
@@ -75,6 +97,8 @@ internal sealed class LogcfgBuilder : ILogcfgBuilder
         config.Add(log);
 
         // План запросов (сценарий SlowQueries): config-level директива, по умолчанию НЕ собирается.
+        // Сам план попадает в свойство planSQLText события СУБД — оно пишется благодаря <property name="all"/>
+        // выше (41_LOGCFG_SPEC §7: без <property name="planSQLText"/>/sql план в журнал не записывается).
         if (NeedsPlanSql(scenario))
         {
             config.Add(new XElement(ns + "plansql"));
