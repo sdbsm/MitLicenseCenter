@@ -53,6 +53,7 @@ internal sealed partial class TechLogCollectionService : ITechLogCollectionServi
     private readonly ISlowQueryAnalyzer _slowQueryAnalyzer;
     private readonly IExceptionAnalyzer _exceptionAnalyzer;
     private readonly IDbmsLockAnalyzer _dbmsLockAnalyzer;
+    private readonly ICallAnalyzer _callAnalyzer;
     private readonly ISettingsSnapshot _settings;
     private readonly TimeProvider _clock;
     private readonly ILogger<TechLogCollectionService> _logger;
@@ -70,6 +71,7 @@ internal sealed partial class TechLogCollectionService : ITechLogCollectionServi
         ISlowQueryAnalyzer slowQueryAnalyzer,
         IExceptionAnalyzer exceptionAnalyzer,
         IDbmsLockAnalyzer dbmsLockAnalyzer,
+        ICallAnalyzer callAnalyzer,
         ISettingsSnapshot settings,
         TimeProvider clock,
         ILogger<TechLogCollectionService> logger)
@@ -82,6 +84,7 @@ internal sealed partial class TechLogCollectionService : ITechLogCollectionServi
         _slowQueryAnalyzer = slowQueryAnalyzer;
         _exceptionAnalyzer = exceptionAnalyzer;
         _dbmsLockAnalyzer = dbmsLockAnalyzer;
+        _callAnalyzer = callAnalyzer;
         _settings = settings;
         _clock = clock;
         _logger = logger;
@@ -483,10 +486,12 @@ internal sealed partial class TechLogCollectionService : ITechLogCollectionServi
     }
 
     // Прогон анализаторов этапа B по сценарию дела → Finding'и (по одному на результат анализатора).
-    // GeneralSlow — комбинированный сценарий (CALL/DBMSSQL): разумный набор = долгие запросы + исключения
-    // (две находки), даёт картину «что медленно и что падает» без перегрузки. ResultJson = System.Text.Json
-    // сериализация DTO анализатора; SchemaVersion=1; Kind соответствует анализатору. Привязку к арендатору
-    // (нормализация p:processName) анализаторы делают сами внутри DTO — здесь не дублируем.
+    // GeneralSlow — комбинированный сценарий: собирает CALL+DBMSSQL (LogcfgBuilder.EventsForInternal), значит
+    // разбирает обе стороны «общей медленной серверной работы» = долгие запросы (DBMSSQL) + серверные вызовы
+    // 1С (CALL, MLC-249). Прежний набор включал Exceptions — он ВСЕГДА пуст (EXCP этим сценарием не
+    // собирается), это был мёртвый блок: убран. ResultJson = System.Text.Json сериализация DTO анализатора;
+    // SchemaVersion=1; Kind соответствует анализатору. Привязку к арендатору анализаторы делают сами внутри
+    // DTO — здесь не дублируем (у CALL p:processName нет, 40_TECHLOG §8 — привязки по процессу нет).
     private List<Finding> BuildFindings(
         Guid investigationId, InvestigationScenario scenario, IReadOnlyList<TechLogEvent> events,
         long slowQueryThresholdMicros)
@@ -509,10 +514,12 @@ internal sealed partial class TechLogCollectionService : ITechLogCollectionServi
                 findings.Add(NewFinding(investigationId, FindingKind.DbmsLocks, _dbmsLockAnalyzer.Analyze(events)));
                 break;
             case InvestigationScenario.GeneralSlow:
-                // Комбинированный: долгие запросы + исключения (решение MLC-238).
+                // Комбинированный (CALL+DBMSSQL): долгие запросы к СУБД + серверные вызовы 1С (MLC-249).
+                // Exceptions убран — он всегда пуст (EXCP этим сценарием не собирается, мёртвый блок).
                 findings.Add(NewFinding(investigationId, FindingKind.SlowQueries,
                     _slowQueryAnalyzer.Analyze(events, slowQueryThresholdMicros)));
-                findings.Add(NewFinding(investigationId, FindingKind.Exceptions, _exceptionAnalyzer.Analyze(events)));
+                findings.Add(NewFinding(investigationId, FindingKind.Call,
+                    _callAnalyzer.Analyze(events, slowQueryThresholdMicros)));
                 break;
             default:
                 throw new ArgumentOutOfRangeException(

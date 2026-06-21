@@ -40,8 +40,14 @@ export const investigationScenarioSchema = z.enum([
 // Причина остановки (InvestigationStopReason). Заполнена только у Completed; иначе поле опущено.
 export const investigationStopReasonSchema = z.enum(["Manual", "TimeLimit", "DiskLimit", "Error"]);
 
-// Вид находки (FindingKind) — какой анализатор дал результат.
-export const findingKindSchema = z.enum(["ManagedLocks", "SlowQueries", "Exceptions", "DbmsLocks"]);
+// Вид находки (FindingKind) — какой анализатор дал результат. MLC-249: добавлен "Call" (frozen-int 4).
+export const findingKindSchema = z.enum([
+  "ManagedLocks",
+  "SlowQueries",
+  "Exceptions",
+  "DbmsLocks",
+  "Call",
+]);
 
 // ─── Пер-Kind схемы result (MLC-243, parity с BE-DTO анализаторов) ─────────────────────────────
 // Поля — camelCase (JSON из C# record/class). Nullable-поля ОПУСКАЮТСЯ (WhenWritingNull) → omittable().
@@ -188,6 +194,36 @@ export const dbmsLockAnalysisResultSchema = z.object({
   skippedEvents: z.number(),
 });
 
+/** Запись об одном серверном вызове 1С (CallEntry, MLC-249). ⚠ У CALL нет p:processName → нет infobaseName. */
+const callEntrySchema = z.object({
+  ts: omittable(z.string()),
+  durationMicroseconds: z.number(),
+  durationSeconds: z.number(),
+  context: omittable(z.string()),
+  method: omittable(z.string()),
+  cpuTime: omittable(z.string()),
+  memory: omittable(z.string()),
+});
+
+/** Группа серверных вызовов 1С по контексту (CallGroup, MLC-249). */
+const callGroupSchema = z.object({
+  context: z.string(),
+  count: z.number(),
+  totalDurationMicroseconds: z.number(),
+  maxDurationMicroseconds: z.number(),
+  totalDurationSeconds: z.number(),
+  maxDurationSeconds: z.number(),
+});
+
+/** CallAnalysisResult — результат анализа серверных вызовов 1С (kind=Call). */
+export const callAnalysisResultSchema = z.object({
+  topCalls: z.array(callEntrySchema),
+  similarGroups: z.array(callGroupSchema),
+  totalCallEvents: z.number(),
+  eventsAboveThreshold: z.number(),
+  skippedEvents: z.number(),
+});
+
 // Экспортируемые типы для sub-схем (используются в компонентах)
 export type LockWaitEdge = z.infer<typeof lockWaitEdgeSchema>;
 export type LockTimeoutEntry = z.infer<typeof lockTimeoutEntrySchema>;
@@ -200,6 +236,9 @@ export type ExceptionGroup = z.infer<typeof exceptionGroupSchema>;
 export type ExceptionAnalysisResult = z.infer<typeof exceptionAnalysisResultSchema>;
 export type DbmsLockWaitEdge = z.infer<typeof dbmsLockWaitEdgeSchema>;
 export type DbmsLockAnalysisResult = z.infer<typeof dbmsLockAnalysisResultSchema>;
+export type CallEntry = z.infer<typeof callEntrySchema>;
+export type CallGroup = z.infer<typeof callGroupSchema>;
+export type CallAnalysisResult = z.infer<typeof callAnalysisResultSchema>;
 
 // Элемент списка дел + шапка детали. nullable-поля → omittable() (бэкенд опускает при null).
 export const investigationSummarySchema = z.object({
@@ -244,6 +283,7 @@ const findingResultSchema = z
     slowQueryAnalysisResultSchema,
     exceptionAnalysisResultSchema,
     dbmsLockAnalysisResultSchema,
+    callAnalysisResultSchema,
   ])
   .catch(null as unknown as LockAnalysisResult);
 

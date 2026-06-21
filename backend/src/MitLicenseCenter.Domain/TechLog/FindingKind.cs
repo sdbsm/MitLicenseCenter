@@ -21,4 +21,8 @@ public enum FindingKind
 
     // СУБД-блокировки: DBMSSQL с полями lkX (DbmsLockAnalyzer, MLC-236).
     DbmsLocks = 3,
+
+    // Серверные вызовы 1С: CALL (CallAnalyzer, MLC-249). Часть сценария GeneralSlow (CALL+DBMSSQL):
+    // время «между запросами» на стороне 1С (вычисления), в отличие от SlowQueries (время в СУБД).
+    Call = 4,
 }

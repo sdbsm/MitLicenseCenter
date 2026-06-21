@@ -15,8 +15,10 @@ import {
   REPORT_SEVERITY_VARIANT,
   fmtDate,
   fmtSeconds,
+  fmtDurationShort,
 } from "@/features/investigations/investigationUtils";
 import type {
+  CallAnalysisResult,
   DbmsLockAnalysisResult,
   ExceptionAnalysisResult,
   Finding,
@@ -29,6 +31,7 @@ import {
   slowQueryAnalysisResultSchema,
   exceptionAnalysisResultSchema,
   dbmsLockAnalysisResultSchema,
+  callAnalysisResultSchema,
 } from "@/features/investigations/types";
 
 /**
@@ -60,6 +63,8 @@ function parseResult(finding: Finding): unknown {
         return exceptionAnalysisResultSchema.parse(finding.result);
       case "DbmsLocks":
         return dbmsLockAnalysisResultSchema.parse(finding.result);
+      case "Call":
+        return callAnalysisResultSchema.parse(finding.result);
     }
   } catch {
     return null;
@@ -291,15 +296,114 @@ function SlowQueriesBlock({ result }: { result: SlowQueryAnalysisResult }) {
                   {g.normalizedSql}
                 </pre>
                 <p className="text-muted-foreground text-xs">
+                  {/* MLC-249: под-секундные total/max в мс («макс 6 мс»), а не «0.0 с». */}
                   {t("investigations.detail.slowQueries.groupStats", {
                     count: g.count,
-                    total: fmtSeconds(g.totalDurationSeconds),
-                    max: fmtSeconds(g.maxDurationSeconds),
+                    total: fmtDurationShort(g.totalDurationSeconds),
+                    max: fmtDurationShort(g.maxDurationSeconds),
                   })}
                 </p>
               </div>
             ))}
           </div>
+          {/* MLC-249: строка-итог «SQL всего» = сумма totalDurationSeconds по всем группам. */}
+          <p className="text-sm font-medium">
+            {t("investigations.detail.slowQueries.sqlTotal", {
+              total: fmtSeconds(
+                result.similarGroups.reduce((acc, g) => acc + g.totalDurationSeconds, 0)
+              ),
+            })}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Блок серверных вызовов 1С (MLC-249) ──────────────────────────────────────
+
+function CallBlock({ result }: { result: CallAnalysisResult }) {
+  const { t } = useTranslation();
+
+  const hasTop = result.topCalls.length > 0;
+  const hasGroups = result.similarGroups.length > 0;
+
+  if (!hasTop && !hasGroups) {
+    return <p className="text-muted-foreground text-sm">{t("investigations.detail.call.empty")}</p>;
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Топ единичных долгих вызовов (гейт по порогу) — разворот по контексту/методу. */}
+      {hasTop ? (
+        <div className="space-y-3">
+          {result.topCalls.map((c, i) => (
+            <details key={i} className="group rounded-md border">
+              <summary className="flex cursor-pointer items-start gap-3 p-3 text-sm marker:content-none">
+                <span className="text-muted-foreground w-16 shrink-0 tabular-nums">
+                  {fmtSeconds(c.durationSeconds)}
+                </span>
+                <span className="text-muted-foreground min-w-0 flex-1 truncate">
+                  {c.context ?? c.method ?? t("investigations.detail.call.noContext")}
+                </span>
+              </summary>
+              <div className="space-y-2 border-t p-3 text-sm">
+                {c.method && (
+                  <div>
+                    <p className="text-muted-foreground mb-1 text-xs">
+                      {t("investigations.detail.call.method")}
+                    </p>
+                    <p className="font-mono text-xs">{c.method}</p>
+                  </div>
+                )}
+                {c.context && (
+                  <div>
+                    <p className="text-muted-foreground mb-1 text-xs">
+                      {t("investigations.detail.call.context")}
+                    </p>
+                    <pre className="bg-muted overflow-x-auto rounded p-2 text-xs break-words whitespace-pre-wrap">
+                      {c.context}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            </details>
+          ))}
+        </div>
+      ) : (
+        // Топ пуст, но есть агрегат — кейс «много мелких вызовов между запросами».
+        <p className="text-muted-foreground text-sm">
+          {t("investigations.detail.call.topEmptyGroupsPresent")}
+        </p>
+      )}
+
+      {/* Агрегат по контексту (независим от порога топа). */}
+      {hasGroups && (
+        <div className="space-y-2">
+          <p className="text-sm font-medium">{t("investigations.detail.call.groupsTitle")}</p>
+          <div className="space-y-2">
+            {result.similarGroups.map((g, i) => (
+              <div key={i} className="bg-muted/40 space-y-1 rounded-md p-3 text-sm">
+                <pre className="overflow-x-auto font-mono text-xs break-words whitespace-pre-wrap">
+                  {g.context}
+                </pre>
+                <p className="text-muted-foreground text-xs">
+                  {t("investigations.detail.call.groupStats", {
+                    count: g.count,
+                    total: fmtDurationShort(g.totalDurationSeconds),
+                    max: fmtDurationShort(g.maxDurationSeconds),
+                  })}
+                </p>
+              </div>
+            ))}
+          </div>
+          <p className="text-sm font-medium">
+            {t("investigations.detail.call.callsTotal", {
+              total: fmtSeconds(
+                result.similarGroups.reduce((acc, g) => acc + g.totalDurationSeconds, 0)
+              ),
+            })}
+          </p>
         </div>
       )}
     </div>
@@ -454,6 +558,7 @@ export function InvestigationDetail({
   const slowQueriesResult = getFinding<SlowQueryAnalysisResult>(findings, "SlowQueries");
   const exceptionsResult = getFinding<ExceptionAnalysisResult>(findings, "Exceptions");
   const dbmsLocksResult = getFinding<DbmsLockAnalysisResult>(findings, "DbmsLocks");
+  const callResult = getFinding<CallAnalysisResult>(findings, "Call");
 
   return (
     <div className="space-y-6">
@@ -598,6 +703,22 @@ export function InvestigationDetail({
                 <dd className="font-medium tabular-nums">{dbmsLocksResult.waitEdges.length}</dd>
               </div>
             )}
+            {callResult && (
+              <>
+                <div className="contents">
+                  <dt className="text-muted-foreground">
+                    {t("investigations.detail.metrics.serverCalls")}
+                  </dt>
+                  <dd className="font-medium tabular-nums">{callResult.topCalls.length}</dd>
+                </div>
+                <div className="contents">
+                  <dt className="text-muted-foreground">
+                    {t("investigations.detail.metrics.callGroups")}
+                  </dt>
+                  <dd className="font-medium tabular-nums">{callResult.similarGroups.length}</dd>
+                </div>
+              </>
+            )}
           </dl>
         </CardContent>
       </Card>
@@ -624,6 +745,18 @@ export function InvestigationDetail({
           </CardHeader>
           <CardContent>
             <SlowQueriesBlock result={slowQueriesResult} />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Блок серверных вызовов 1С (MLC-249) — рядом с долгими запросами (CALL-сторона GeneralSlow) */}
+      {callResult && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">{t("investigations.detail.call.title")}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <CallBlock result={callResult} />
           </CardContent>
         </Card>
       )}

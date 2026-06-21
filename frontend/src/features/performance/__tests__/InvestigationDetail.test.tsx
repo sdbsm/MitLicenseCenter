@@ -125,6 +125,33 @@ const makeDbmsLockResult = () => ({
   skippedEvents: 0,
 });
 
+const makeCallResult = () => ({
+  topCalls: [
+    {
+      ts: "2026-06-20T05:00:00.000000",
+      durationMicroseconds: 5000000,
+      durationSeconds: 5.0,
+      context: "Документ.ЗакрытиеМесяца.МодульМенеджера:120",
+      method: "Posting",
+      cpuTime: "3000000",
+      memory: "4194304",
+    },
+  ],
+  similarGroups: [
+    {
+      context: "Документ.ЗакрытиеМесяца.МодульМенеджера:120",
+      count: 3,
+      totalDurationMicroseconds: 15000000,
+      maxDurationMicroseconds: 7000000,
+      totalDurationSeconds: 15.0,
+      maxDurationSeconds: 7.0,
+    },
+  ],
+  totalCallEvents: 7,
+  eventsAboveThreshold: 1,
+  skippedEvents: 0,
+});
+
 const makeReport = (overrides = {}) => ({
   summary: makeSummary(),
   generatedAtUtc: "2026-06-21T11:00:00Z",
@@ -316,6 +343,70 @@ describe("InvestigationDetail — карточка дела (MLC-243/244, экр
     expect(screen.getByText("Топ долгих запросов к СУБД")).toBeInTheDocument();
     expect(screen.getByText("Похожие запросы (по суммарному времени)")).toBeInTheDocument();
     expect(screen.getByText(/500 раз/)).toBeInTheDocument();
+  });
+
+  it("блок «Серверные вызовы 1С» рендерится при kind=Call (MLC-249)", () => {
+    mockDetailData = makeDetail([{ kind: "Call", result: makeCallResult() }]);
+    renderDetail();
+    expect(screen.getByText("Серверные вызовы 1С (по контексту)")).toBeInTheDocument();
+    // Метрики Call
+    expect(screen.getByText("Серверных вызовов 1С")).toBeInTheDocument();
+    expect(screen.getByText("Групп вызовов по контексту")).toBeInTheDocument();
+    // Агрегат по контексту
+    expect(screen.getByText("Вызовы по контексту (по суммарному времени)")).toBeInTheDocument();
+    expect(screen.getByText(/3 раз/)).toBeInTheDocument();
+  });
+
+  it("под-секундные агрегаты Call показываются в мс, а не «0.0 с» (MLC-249)", () => {
+    const result = {
+      ...makeCallResult(),
+      topCalls: [],
+      eventsAboveThreshold: 0,
+      similarGroups: [
+        {
+          context: "ОбщийМодуль.Фон.Шаг:10",
+          count: 500,
+          totalDurationMicroseconds: 3_000_000,
+          maxDurationMicroseconds: 6_000, // 6 мс
+          totalDurationSeconds: 3.0,
+          maxDurationSeconds: 0.006,
+        },
+      ],
+    };
+    mockDetailData = makeDetail([{ kind: "Call", result }]);
+    renderDetail();
+    // макс 0.006 c → «6 мс», не «0.0 с»
+    expect(screen.getByText(/макс 6 мс/)).toBeInTheDocument();
+  });
+
+  it("SQL-итог «SQL всего: ~X c» в блоке долгих запросов (MLC-249)", () => {
+    const result = {
+      ...makeSlowQueryResult(),
+      similarGroups: [
+        {
+          normalizedSql: "SELECT ? FROM _A",
+          count: 100,
+          totalDurationMicroseconds: 6_000_000,
+          maxDurationMicroseconds: 80_000,
+          totalDurationSeconds: 6.0,
+          maxDurationSeconds: 0.08,
+        },
+        {
+          normalizedSql: "SELECT ? FROM _B",
+          count: 50,
+          totalDurationMicroseconds: 3_000_000,
+          maxDurationMicroseconds: 60_000,
+          totalDurationSeconds: 3.0,
+          maxDurationSeconds: 0.06,
+        },
+      ],
+    };
+    mockDetailData = makeDetail([{ kind: "SlowQueries", result }]);
+    renderDetail();
+    // Сумма 6 + 3 = 9 c → «SQL всего: ~9,0 с»
+    expect(screen.getByText(/SQL всего: ~9[.,]0 с/)).toBeInTheDocument();
+    // Под-секундный max в мс
+    expect(screen.getByText(/макс 80 мс/)).toBeInTheDocument();
   });
 
   it("блок «Исключения» рендерится с типом и описанием при kind=Exceptions", () => {

@@ -837,10 +837,10 @@ Cold-цикл сеансов с MLC-154 — не Hangfire-джоб, а `ColdTier
 К существующему live-режиму «Наблюдение» добавляется режим «Расследование» (ADR-57): сбор
 технологического журнала 1С под управлением панели. Реализованы слой **управления `logcfg.xml`**
 (генератор + store + сервис жизненного цикла + сторож на старте), **безопасный сбор** (окно/лимит
-места/авто-стоп, single-active по БД, orphan-recovery), **NDJSON-парсер** собранного ТЖ и четыре
-агрегатора-анализатора: **управляемых блокировок 1С** (MLC-233), **долгих запросов к СУБД**
-(MLC-234), **исключений платформы** (MLC-235) и **СУБД-блокировок** (MLC-236, дерево по `lkX`).
-Этап B (парсер + анализаторы) завершён.
+места/авто-стоп, single-active по БД, orphan-recovery), **NDJSON-парсер** собранного ТЖ и пять
+агрегаторов-анализаторов: **управляемых блокировок 1С** (MLC-233), **долгих запросов к СУБД**
+(MLC-234), **исключений платформы** (MLC-235), **СУБД-блокировок** (MLC-236, дерево по `lkX`) и
+**серверных вызовов 1С** (MLC-249, `CALL`). Этап B (парсер + анализаторы) завершён.
 
 - **`ILogcfgBuilder`** (Application) / `LogcfgBuilder` (Infrastructure) — чистый генератор целевого
   `logcfg.xml` по (сценарий, имя ИБ?, каталог сбора, history). Конфиг строго целевой по event-scope
@@ -930,6 +930,20 @@ Cold-цикл сеансов с MLC-154 — не Hangfire-джоб, а `ColdTier
   `Sql` попадает в `TopQueries` с `Sql=null`, но в `SimilarGroups` не входит (нечего нормализовать,
   `40_TECHLOG §7`). Группы аккумулируются стримово (счётчик + суммы на форму запроса, без удержания
   под-пороговых событий) — приемлемо на журналах в гигабайты. **Никогда не бросает**. Stateless singleton.
+- **`ICallAnalyzer`** (Application) / `CallAnalyzer` (Infrastructure) — анализатор **серверных вызовов
+  1С** (MLC-249, результат `CallAnalysisResult`). Строит из `IEnumerable<TechLogEvent>` топ долгих
+  вызовов (`TopCalls`, по длительности убыв., топ-N, **гейт по порогу** — единичные тяжёлые) и
+  агрегат **групп по контексту** (`SimilarGroups`: ключ — сырой `Context`, при пустом `Context` — имя
+  метода; счётчик/суммарное/макс; отсортированы по суммарной длительности убыв., топ-N). **Граница:
+  ТОЛЬКО `CALL`**. Зачем отдельно от `ISlowQueryAnalyzer`: `DBMSSQL` = время В СУБД, а `CALL` =
+  серверные вызовы 1С (вычисления МЕЖДУ запросами) — закрывает вопрос «почему медленно на стороне 1С».
+  Запись `CallEntry`: длительность, `Context`, метод (первое непустое из `Method`/`MName`/`IName`),
+  `CpuTime`/`Memory` (как сырые строки). **Агрегат `SimilarGroups` НЕЗАВИСИМ от порога** (как у
+  `SlowQueryAnalyzer`, MLC-248): «много мелких вызовов одного контекста» всплывает суммарным временем.
+  Порог — тот же из снимка дела (для `GeneralSlow`). ⚠ **У `CALL` НЕТ `p:processName`** (`40_TECHLOG §8`)
+  → привязки к арендатору по процессу нет (`InfobaseName` не вычисляется, в отличие от долгих запросов).
+  Устойчив к «полям-призракам» (`Context`/`Method`/`duration` могут отсутствовать; без длительности —
+  пропуск со счётчиком). Группы аккумулируются стримово. **Никогда не бросает**. Stateless singleton.
 - **`IExceptionAnalyzer`** (Application) / `ExceptionAnalyzer` (Infrastructure) — анализатор
   **исключений платформы** (MLC-235). Строит из `IEnumerable<TechLogEvent>` топ по частоте
   (`TopExceptions`, группировка по паре «тип `Exception` + нормализованный `Descr`»: числа/hex-литералы
@@ -982,6 +996,13 @@ Cold-цикл сеансов с MLC-154 — не Hangfire-джоб, а `ColdTier
   Эндпоинт старта (`POST /api/v1/investigations`) принимает порог В СЕКУНДАХ
   (`StartInvestigationRequest.SlowQueryThresholdSeconds`, валидация ≥ 0, отрицательное → 400; `null` → дефолт;
   явный `0` допустим), конвертирует сек→микросек.
+  **Конвейер анализа (`BuildFindings`) по сценарию дела → `Finding`-и** (по одному на результат анализатора,
+  `Kind` ∈ `FindingKind`, версионированный JSON): `Locks`→`ManagedLocks`; `SlowQueries`→`SlowQueries`;
+  `Exceptions`→`Exceptions`; `DbmsLocks`→`DbmsLocks`; **`GeneralSlow` (собирает `CALL`+`DBMSSQL`) →
+  `SlowQueries` + `Call`** (обе стороны «общей медленной серверной работы»: время в СУБД + серверные
+  вызовы 1С, MLC-249). `Exceptions` из `GeneralSlow` убран — он всегда был пуст (`EXCP` этим сценарием не
+  собирается, мёртвый блок). **`FindingKind` — frozen-int** (`HasConversion<int>`): `ManagedLocks=0`,
+  `SlowQueries=1`, `Exceptions=2`, `DbmsLocks=3`, **`Call=4`** (аддитивно, без миграции).
 - **`TechLogWatchdogService`** (hosted `BackgroundService`, зеркаль `PerfRecordingSamplingService`) —
   **драйвер безопасного сбора**. На старте — orphan-recovery (`RecoverInterruptedAsync`,
   `Active`→`Interrupted`), **затем** стартовая сверка файла (`ReconcileOnStartupAsync`): если в `conf`

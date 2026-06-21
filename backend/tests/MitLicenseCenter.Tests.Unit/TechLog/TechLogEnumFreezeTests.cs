@@ -84,8 +84,32 @@ public sealed class TechLogEnumFreezeTests
     [InlineData(FindingKind.SlowQueries, 1)]
     [InlineData(FindingKind.Exceptions, 2)]
     [InlineData(FindingKind.DbmsLocks, 3)]
+    [InlineData(FindingKind.Call, 4)]
     public void FindingKind_int_values_are_stable(FindingKind kind, int expected)
         => ((int)kind).Should().Be(expected);
+
+    [Fact]
+    public void FindingKind_all_members_covered_by_freeze_table()
+    {
+        // frozen-enum (HasConversion<int>): добавление члена без обновления этой таблицы ловится здесь.
+        // MLC-249: добавлен Call=4 (аддитивно, существующие не переназначены).
+        var expected = new Dictionary<FindingKind, int>
+        {
+            { FindingKind.ManagedLocks, 0 },
+            { FindingKind.SlowQueries, 1 },
+            { FindingKind.Exceptions, 2 },
+            { FindingKind.DbmsLocks, 3 },
+            { FindingKind.Call, 4 },
+        };
+
+        var actual = Enum.GetValues<FindingKind>();
+        actual.Should().HaveCount(expected.Count);
+        foreach (var member in actual)
+        {
+            expected.Should().ContainKey(member);
+            ((int)member).Should().Be(expected[member]);
+        }
+    }
 
     // Совместимость int Domain-сценария с Application-сценарием: миграция данных и адаптер
     // (TechLogCollectionService) переносят TechLogScenario → InvestigationScenario прямым кастом по int.
