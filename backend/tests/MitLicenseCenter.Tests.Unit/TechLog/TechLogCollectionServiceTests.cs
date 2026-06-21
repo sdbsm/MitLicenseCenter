@@ -468,10 +468,17 @@ public sealed class TechLogCollectionServiceTests
             Settings = Substitute.For<ISettingsSnapshot>(); // GetString/GetInt → null → дефолты сервиса
             Clock = new MutableClock(new DateTimeOffset(Start, TimeSpan.Zero));
 
+            // Парсер и анализаторы — реальные stateless-реализации этапа B (как в DI): конвейер MLC-238
+            // гоняет их по сырью из Store. Без ФС/БД — детерминированно.
             Service = new TechLogCollectionService(
                 _sp.GetRequiredService<IServiceScopeFactory>(),
                 new LogcfgBuilder(),
                 Store,
+                new TechLogParser(),
+                new LockTreeAnalyzer(),
+                new SlowQueryAnalyzer(),
+                new ExceptionAnalyzer(),
+                new DbmsLockAnalyzer(),
                 Settings,
                 Clock,
                 NullLogger<TechLogCollectionService>.Instance);
