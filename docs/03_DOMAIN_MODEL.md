@@ -182,6 +182,64 @@ Infrastructure (по прецеденту `AuditLog`) и читаются Web н
 | `ProcessGroupsJson` | `string` (JSON) | Атрибуция по семьям процессов; дефолт `[]`. |
 | `OneCLoadJson`, `SqlLoadJson` | `string?` (JSON) | Топ-виновники 1С/SQL; `null`, если источник не настроен/недоступен. |
 
+**Investigation — «Дело» расследования производительности (ADR-57, трек 1.2).**
+Аггрегат режима «Расследование»: окно времени поверх сбора и разбора
+технологического журнала 1С (ТЖ). Сущность доменного ядра
+(`MitLicenseCenter.Domain.TechLog`), но хранится телеметрийной таблицей в `dbo`
+(конфиг inline в `AppDbContext`, как `PerfRecording`). FK на клиента нет — сбор
+охватывает узел (`logcfg` действует на весь кластер), изоляция арендатора — фильтр
+`p:processName` в снимке сбора, не FK. Заменил лёгкий прокси `TechLogCollection`
+(MLC-230): его данные мигрированы в эту таблицу, старая удалена.
+
+| Поле | Тип | Смысл |
+|---|---|---|
+| `Id` | `Guid` | Первичный ключ. |
+| `Scenario` | `InvestigationScenario` | Сценарий сбора (набор событий `logcfg`); хранится `int`. |
+| `Status` | `InvestigationStatus` | Статус дела (жизненный цикл — §3.6). |
+| `StartedAtUtc` | `DateTime` | Старт сбора. |
+| `StoppedAtUtc` | `DateTime?` | Снятие сбора; `null` для активного. |
+| `StopReason` | `InvestigationStopReason?` | Причина остановки; заполнена только для `Completed`. |
+| `StartedBy` | `string` | Логин оператора (Admin), запустившего дело. |
+| `TenantId`, `InfobaseId` | `Guid?` | Опц. справочная привязка к арендатору/инфобазе; сама по себе **не** изолирует сбор. |
+| `InfobaseProcessName` | `string?` | Имя ИБ (`p:processName`) для изоляции арендатора; `null` = весь кластер. |
+| `CollectionDirectory` | `string` | Каталог сбора ТЖ (атрибут `location` в `logcfg`), под контролем панели. |
+| `ConfigMarker` | `string` | Маркер-комментарий установленного `logcfg`; по нему сторож на старте отличает «наш» конфиг. |
+| `RowVersion` | `byte[]?` | Optimistic-concurrency токен (как `Tenant`/`Infobase`); конкурентный targeted-UPDATE ловится 409. |
+| `CollectionConfig` | owned 1:1 | Снимок включённого сбора (см. ниже); `null` для перенесённых исторических дел. |
+| `Findings` | коллекция | Навигация на результаты анализа (дочерняя таблица, cascade). |
+
+Инвариант изоляции арендатора (`EnsureProcessFilterInvariant`): если задан
+`InfobaseId`, снимок сбора **обязан** нести непустой `ProcessNameFilter`
+(`p:processName`) — иначе `logcfg` пишет ТЖ всех арендаторов (ADR-58 №2).
+
+**CollectionConfig — снимок включённого сбора (ADR-58).** Неизменяемый снимок
+момента установки: что именно собирали и что безопасно снять. Owned-entity
+`Investigation` — колонки `Config_*` в той же таблице `dbo.Investigations` (1:1),
+отдельной таблицы/ключа нет.
+
+| Поле | Тип | Смысл |
+|---|---|---|
+| `LogcfgLocation` | `string` | Каталог сбора ТЖ (атрибут `location`). |
+| `Events` | `string` (CSV) | Включённые события (напр. `TLOCK,TTIMEOUT,TDEADLOCK`). |
+| `DurationThresholdMicros` | `long?` | Порог длительности в микросекундах; `null` = без порога. |
+| `ProcessNameFilter` | `string?` | Значение `p:processName` (имя ИБ); обязателен при заданном `InfobaseId`. |
+| `Format` | `string` | Целевой формат ТЖ (всегда `json` для 8.5). |
+| `HistoryHours` | `int` | Лимит ротации (атрибут `history`), в часах. |
+
+**Finding — результат анализатора ТЖ под «Дело» (ADR-57).** Один `Finding` на
+результат анализатора: `Kind` различает, что разбирали, `ResultJson` несёт сам
+версионированный результат (богатый DTO анализатора хранится JSON, как
+`PerfRecordingSample.*Json` — не нормализованными таблицами). Дочерняя таблица
+`Investigations`, каскадное удаление с делом.
+
+| Поле | Тип | Смысл |
+|---|---|---|
+| `Id` | `Guid` | Первичный ключ. |
+| `InvestigationId` | `Guid` | Родительское дело (FK, cascade). |
+| `Kind` | `FindingKind` | Какой анализатор дал результат; различает форму `ResultJson`. |
+| `SchemaVersion` | `int` | Версия формы payload'а `ResultJson` (форвард-совместимость без EF-миграции). |
+| `ResultJson` | `string` (JSON) | Сериализованный результат анализатора (`nvarchar(max)`). |
+
 **DatabaseBackup — учётная запись бэкапа (ADR-27).** Одна строка = один
 запрошенный бэкап. Таблица одновременно служит очередью оркестратора: строки
 `Queued` — очередь FIFO, `Running` — выполняющиеся. FK на инфобазу нет — запись
@@ -233,6 +291,8 @@ Infrastructure (по прецеденту `AuditLog`) и читаются Web н
 | `AuditLog.TenantId → Tenant.Id` | many-to-one (nullable) | **SetNull** | Удаление клиента обнуляет ссылку, но запись аудита остаётся — история сохраняется всегда. |
 | `LicenseUsageSnapshot.TenantId → Tenant.Id` | many-to-one (nullable) | **SetNull** | Телеметрия переживает удаление клиента (как аудит). |
 | `PerfRecordingSample.RecordingId → PerfRecording.Id` | many-to-one | **Cascade** | Удаление записи сносит её сэмплы. |
+| `Finding.InvestigationId → Investigation.Id` | many-to-one | **Cascade** | Удаление «Дела» сносит его находки. |
+| `Investigation.TenantId`/`InfobaseId` | — | **FK нет** | Простой `Guid?`; справочная привязка, сбор охватывает узел (изоляция — `p:processName`). |
 | `DatabaseBackup.InfobaseId` | — | **FK нет** | Простой `Guid`; запись переживает удаление инфобазы. |
 | `HiddenClusterInfobase` | — | **FK нет** | База кластера панели не принадлежит; снапшот решения оператора. |
 
@@ -258,6 +318,9 @@ Infrastructure (по прецеденту `AuditLog`) и читаются Web н
 | `LicenseUsageSnapshots` | `(TenantId, BucketStartUtc)` | нет | Дорога чтения отчётов: фильтр по клиенту + диапазон бакетов. |
 | `PerfRecordings` | `(StartedAtUtc)` | нет | Список расследований (свежие сверху). |
 | `PerfRecordingSamples` | `(RecordingId, SampleUtc)` | нет | Ряд сэмплов записи по времени. |
+| `Investigations` | `(StartedAtUtc)` | нет | Список дел (свежие сверху). |
+| `Investigations` | `(Status)` | нет | Поиск активного дела сторожем (orphan-recovery). |
+| `Findings` | `IX_Findings_InvestigationId` `(InvestigationId)` | нет | Чтение результатов дела по `InvestigationId`. |
 | `DatabaseBackups` | `(RequestedAtUtc)` | нет | Список бэкапов (свежие сверху). |
 | `DatabaseBackups` | `(DatabaseServer, DatabaseName, Status)` | нет | Дорога насоса: есть ли активный бэкап пары server+db; выборка самой старой `Queued`. |
 
@@ -369,6 +432,31 @@ request-record'ах minimal API в рантайме не срабатывают,
 Defense-in-depth: `WebinstArgs.BuildConnStr` отдельно отвергает имя инфобазы с
 `; = "` (последний рубеж против connstr-инъекции; первичная защита — валидация
 имени на входе).
+
+### 3.6 «Дело» расследования (`InvestigationStatus` / `InvestigationStopReason`)
+
+```mermaid
+stateDiagram-v2
+    [*] --> Collecting
+    Collecting --> Analyzing: снятие сбора (оператор / авто-стоп)
+    Collecting --> Interrupted: рестарт процесса / ОС
+    Analyzing --> Completed: отчёт сформирован
+    Analyzing --> Failed: ошибка разбора
+    Completed --> [*]
+    Interrupted --> [*]
+    Failed --> [*]
+```
+
+`Collecting` — идёт сбор ТЖ (наш `logcfg.xml` установлен в `conf` платформы). Сбор
+снимается оператором (`StopReason = Manual`) либо авто-стопом по политике
+безопасности — окно времени (`TimeLimit`) или лимит места (`DiskLimit`) (ADR-58).
+После снятия дело переходит в `Analyzing` (идёт разбор сырья ТЖ анализаторами в
+`Finding`), затем в `Completed` (отчёт готов). Сбой сбора/разбора закрывает дело как
+`Failed` (`StopReason = Error`). Осиротевшее активное дело после рестарта процесса/ОС
+закрывается сторожем как `Interrupted` (`StopReason` остаётся `null` — это несёт сам
+статус). `StopReason` заполнен только у `Completed`; у `Collecting`/`Analyzing`/
+`Interrupted` — `null`. Активное дело (`Collecting`/`Analyzing`) удалить нельзя —
+эндпоинт отвечает `409 INVESTIGATION_ACTIVE` (сначала остановить).
 
 ---
 
@@ -489,6 +577,16 @@ Consuming`, сгруппированных по `TenantId` (`Pending`/`NotConsum
 | 700 | PerfRecordingStarted | «Быстродействие» (MLC-179): старт диагностической записи (host-уровень, `TenantId=null`) |
 | 701 | PerfRecordingStopped | Ручной стоп активной записи |
 | 702 | PerfRecordingDeleted | Удаление завершённой записи (+ каскад сэмплов) |
+| 800 | OneCServerStarted | Управление сервером 1С (ADR-55, server-scope): верифицированный старт службы узла |
+| 801 | OneCServerStopped | Верифицированный стоп службы узла |
+| 802 | OneCServerRestarted | Верифицированный рестарт службы узла |
+| 803 | OneCServerAutoRestarted | Срабатывание ночной джобы авто-рестарта (initiator `system`) |
+| 804 | OneCServerAutoRestartScheduleChanged | Admin изменил расписание авто-рестартов |
+| 805 | OneCProcessRestarted | Рестарт рабочего процесса `rphost` по `Pid` (ADR-56) |
+| 806 | TechLogCollectionStarted | «Расследование» (ADR-57/58): старт сбора ТЖ (установлен целевой `logcfg.xml`) |
+| 807 | TechLogCollectionStopped | Снятие сбора (исходный `logcfg` восстановлен; причина — в описании) |
+| 808 | TechLogConfigForceRestored | Сторож на старте снял «забытый» `logcfg` панели без активного дела |
+| 809 | InvestigationDeleted | Удаление завершённого «Дела» (+ каскад находок; зеркаль `PerfRecordingDeleted` 702) |
 
 ### 5.2 `AuditReason`
 
@@ -549,12 +647,28 @@ Consuming`, сгруппированных по `TenantId` (`Pending`/`NotConsum
 
 `PerfRecordingStopReason`: `Manual` = 0, `TimeLimit` = 1, `SampleLimit` = 2.
 
+### 5.9 «Дело» расследования — `InvestigationStatus`, `InvestigationStopReason`, `FindingKind`, `InvestigationScenario`
+
+`InvestigationStatus`: `Collecting` = 0, `Analyzing` = 1, `Completed` = 2,
+`Interrupted` = 3, `Failed` = 4.
+
+`InvestigationStopReason`: `Manual` = 0, `TimeLimit` = 1, `DiskLimit` = 2,
+`Error` = 3.
+
+`FindingKind`: `ManagedLocks` = 0 (управляемые блокировки 1С — TLOCK/TTIMEOUT/
+TDEADLOCK), `SlowQueries` = 1 (долгие запросы к СУБД — DBMSSQL), `Exceptions` = 2
+(исключения платформы — EXCP), `DbmsLocks` = 3 (СУБД-блокировки — DBMSSQL c полями
+`lkX`), `Call` = 4 (серверные вызовы 1С — CALL).
+
+`InvestigationScenario` (int 1:1 с `Application.TechLogScenario`): `Locks` = 0,
+`SlowQueries` = 1, `Exceptions` = 2, `GeneralSlow` = 3, `DbmsLocks` = 4.
+
 ---
 
 ## 6. Схема БД «как построено»
 
-База развёрнута 19 EF-миграциями (от `20260518010940_InitialCreate` до
-`20260610212042_MLC092HiddenClusterInfobases`). Состояние схемы соответствует
+База развёрнута 23 EF-миграциями (от `20260518010940_InitialCreate` до
+`20260621014956_MLC237InvestigationModel`). Состояние схемы соответствует
 `AppDbContextModelSnapshot.cs`.
 
 ### 6.1 Схема `dbo` — доменные и телеметрийные таблицы
@@ -568,6 +682,8 @@ Consuming`, сгруппированных по `TenantId` (`Pending`/`NotConsum
 | `LicenseUsageSnapshots` | История потребления | `ConsumedMin/Max int`, `ConsumedAvg float`, `Limit int`. |
 | `PerfRecordings` | Записи быстродействия | `StartedBy nvarchar(256)`; `Status int`, `StopReason int?`. |
 | `PerfRecordingSamples` | Сэмплы записей | host-метрики `float`; `ProcessGroupsJson`/`OneCLoadJson`/`SqlLoadJson nvarchar(max)`. |
+| `Investigations` | «Дела» расследования (трек 1.2) | `Scenario`/`Status int`, `StopReason int?`; `StartedBy nvarchar(256)`, `InfobaseProcessName nvarchar(200)`, `CollectionDirectory nvarchar(512)`, `ConfigMarker nvarchar(256)`; `TenantId`/`InfobaseId uniqueidentifier?` (без FK); `RowVersion rowversion`; снимок сбора — owned-колонки `Config_*` (`Config_Events nvarchar(1024)`, `Config_DurationThresholdMicros bigint?`, `Config_ProcessNameFilter nvarchar(200)`, …). |
+| `Findings` | Результаты анализаторов под «Дело» | `InvestigationId uniqueidentifier` (FK→`Investigations`, Cascade); `Kind int`, `SchemaVersion int`; `ResultJson nvarchar(max)`. |
 | `DatabaseBackups` | Учёт/очередь бэкапов | `DatabaseServer`/`DatabaseName nvarchar(200)`, `RequestedBy nvarchar(256)`, `FilePath nvarchar(512)`, `FileSizeBytes bigint?`; `Status`/`FailureReason int`. |
 | `HiddenClusterInfobases` | Игнор-лист баз кластера | PK `ClusterInfobaseId`; `Name nvarchar(200)`, `HiddenBy nvarchar(256)`. |
 | `Settings` | Runtime-параметры | PK `Key nvarchar(200)`; `ValueText nvarchar(max)`, `Value varbinary(max)`, `Description nvarchar(500)`, `UpdatedBy nvarchar(256)`. |
@@ -598,7 +714,8 @@ Hangfire размещает свои рабочие таблицы (очеред
 
 Диаграмма охватывает доменное ядро и связанные телеметрийные таблицы.
 `LicenseUsageSnapshot` и `AuditLog` ссылаются на клиента «мягко» (FK с SetNull,
-nullable). `DatabaseBackup` и `HiddenClusterInfobase` ссылок-FK не имеют.
+nullable). `DatabaseBackup`, `HiddenClusterInfobase` и `Investigation` ссылок-FK
+на клиента/инфобазу не имеют (привязка — простой `Guid?`).
 
 ```mermaid
 erDiagram
@@ -607,6 +724,7 @@ erDiagram
     TENANT |o..o{ AUDITLOG : "SetNull / nullable"
     TENANT |o..o{ LICENSEUSAGESNAPSHOT : "SetNull / nullable"
     PERFRECORDING ||--o{ PERFRECORDINGSAMPLE : "сэмплы (Cascade)"
+    INVESTIGATION ||--o{ FINDING : "находки (Cascade)"
 
     TENANT {
         Guid Id PK
@@ -654,6 +772,20 @@ erDiagram
         Guid Id PK
         Guid RecordingId FK
         DateTime SampleUtc
+    }
+    INVESTIGATION {
+        Guid Id PK
+        int Scenario
+        int Status
+        DateTime StartedAtUtc
+        Guid TenantId
+        Guid InfobaseId
+    }
+    FINDING {
+        Guid Id PK
+        Guid InvestigationId FK
+        int Kind
+        int SchemaVersion
     }
     DATABASEBACKUP {
         Guid Id PK
