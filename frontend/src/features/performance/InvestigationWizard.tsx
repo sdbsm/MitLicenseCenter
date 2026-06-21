@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { AlertCircleIcon, ShieldCheckIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -17,7 +18,10 @@ import { useMe } from "@/features/auth/useAuth";
 import { useInfobases } from "@/features/infobases/useInfobases";
 import { matchConflictCode } from "@/lib/apiErrors";
 import { ApiError } from "@/lib/api";
-import { type InvestigationScenario } from "@/features/investigations/types";
+import {
+  type InvestigationScenario,
+  type StartInvestigationRequest,
+} from "@/features/investigations/types";
 import { useStartInvestigation } from "@/features/investigations/useInvestigations";
 
 /**
@@ -37,6 +41,15 @@ const WIZARD_SCENARIOS: InvestigationScenario[] = [
   "GeneralSlow",
 ];
 
+/** Сценарии, к которым применяется порог «долгих запросов» (MLC-248): SlowQueries и GeneralSlow. */
+const THRESHOLD_SCENARIOS: ReadonlySet<InvestigationScenario> = new Set<InvestigationScenario>([
+  "SlowQueries",
+  "GeneralSlow",
+]);
+
+/** Дефолтный порог длительности, секунды (совпадает с дефолтом бэкенда MLC-248). */
+const DEFAULT_THRESHOLD_SECONDS = 1;
+
 type ScopeType = "all" | "infobase";
 
 interface InvestigationWizardProps {
@@ -53,7 +66,14 @@ export function InvestigationWizard({ onCancel, onStarted }: InvestigationWizard
   const [scenario, setScenario] = useState<InvestigationScenario | "">("");
   const [scope, setScope] = useState<ScopeType>("all");
   const [infobaseId, setInfobaseId] = useState<string | null>(null);
+  // Порог «долгих запросов», секунды (MLC-248). Строка — чтобы поле можно было очистить; на отправке
+  // пустое/невалидное трактуем как дефолт. Показывается только для SlowQueries/GeneralSlow.
+  const [thresholdSeconds, setThresholdSeconds] = useState<string>(
+    String(DEFAULT_THRESHOLD_SECONDS)
+  );
   const [inlineError, setInlineError] = useState<string | null>(null);
+
+  const showThreshold = scenario !== "" && THRESHOLD_SCENARIOS.has(scenario);
 
   // Список инфобаз для scope-дропдауна: одна страница с запасом
   const { data: infobasesData } = useInfobases(
@@ -71,7 +91,17 @@ export function InvestigationWizard({ onCancel, onStarted }: InvestigationWizard
     if (!scenario) return;
     setInlineError(null);
 
-    const body = scope === "infobase" && infobaseId ? { scenario, infobaseId } : { scenario };
+    const body: StartInvestigationRequest =
+      scope === "infobase" && infobaseId ? { scenario, infobaseId } : { scenario };
+
+    // Порог шлём ТОЛЬКО для сценариев долгих запросов и только если введено валидное число ≥ 0.
+    // Иначе поле опускаем — бэкенд применит дефолт (1 c). Поле скрыто (другой сценарий) → не шлём.
+    if (showThreshold) {
+      const parsed = Number(thresholdSeconds);
+      if (thresholdSeconds.trim() !== "" && Number.isFinite(parsed) && parsed >= 0) {
+        body.slowQueryThresholdSeconds = parsed;
+      }
+    }
 
     try {
       await startInvestigation.mutateAsync(body);
@@ -193,7 +223,28 @@ export function InvestigationWizard({ onCancel, onStarted }: InvestigationWizard
           )}
         </fieldset>
 
-        {/* 3. Плашка безопасности (информационно; лимиты — глобальные настройки панели ADR-58) */}
+        {/* 3. Порог длительности запроса (MLC-248) — только для SlowQueries/GeneralSlow */}
+        {showThreshold && (
+          <div className="space-y-2">
+            <Label htmlFor="wizard-threshold">
+              {t("performance.investigation.wizard.thresholdLabel")}
+            </Label>
+            <Input
+              id="wizard-threshold"
+              type="number"
+              min={0}
+              step={0.5}
+              value={thresholdSeconds}
+              onChange={(e) => setThresholdSeconds(e.target.value)}
+              className="w-40"
+            />
+            <p className="text-muted-foreground text-xs">
+              {t("performance.investigation.wizard.thresholdHint")}
+            </p>
+          </div>
+        )}
+
+        {/* 4. Плашка безопасности (информационно; лимиты — глобальные настройки панели ADR-58) */}
         <div className="bg-muted/60 flex gap-3 rounded-lg p-4">
           <ShieldCheckIcon
             className="text-muted-foreground mt-0.5 size-4 shrink-0"
@@ -224,7 +275,7 @@ export function InvestigationWizard({ onCancel, onStarted }: InvestigationWizard
           </p>
         )}
 
-        {/* 4. Кнопки */}
+        {/* 5. Кнопки */}
         <div className="flex justify-end gap-3">
           {onCancel && (
             <Button variant="ghost" onClick={onCancel} disabled={startInvestigation.isPending}>

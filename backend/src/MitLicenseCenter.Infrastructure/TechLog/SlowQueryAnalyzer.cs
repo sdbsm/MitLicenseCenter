@@ -21,6 +21,11 @@ namespace MitLicenseCenter.Infrastructure.TechLog;
 //   • запись без Sql попадает в TopQueries (Sql=null), но в SimilarGroups не идёт
 //     (нечего нормализовать);
 //   • любое нераспознанное/неполное — пропускаем, не бросаем.
+//
+// Агрегат «много мелких» (MLC-248): TopQueries гейтит по thresholdMicroseconds (единичные тяжёлые),
+// а SimilarGroups строится по ВСЕМ DBMSSQL с непустым Sql (НЕЗАВИСИМО от порога) — типовая медленность
+// «закрытия месяца» (тысячи быстрых запросов одной формы) всплывает суммарным временем, даже когда ни
+// один запрос не длиннее порога. Сортировка групп по TotalDurationMicroseconds убыв., лимит topN.
 internal sealed partial class SlowQueryAnalyzer : ISlowQueryAnalyzer
 {
     // Нормализация SQL: схлопываем строковые литералы ('...'), числовые литералы (123, 1.5)
@@ -59,6 +64,11 @@ internal sealed partial class SlowQueryAnalyzer : ISlowQueryAnalyzer
         var totalDbmssql = 0;
         var skipped = 0;
 
+        // Аккумулятор групп — по ВСЕМ DBMSSQL с непустым Sql (НЕ только прошедшим порог): «много мелких в
+        // сумме» (MLC-248). Держим лёгкое состояние на форму запроса (счётчик + суммы), стримово, без
+        // материализации каждого под-порогового события — на больших журналах (1+ ГБ) это важно.
+        var groups = new Dictionary<string, GroupAccumulator>(StringComparer.Ordinal);
+
         foreach (var ev in events)
         {
             // Только DBMSSQL — всё остальное игнорируем (TLOCK, SDBL, EXCP, CALL…).
@@ -71,7 +81,7 @@ internal sealed partial class SlowQueryAnalyzer : ISlowQueryAnalyzer
 
             try
             {
-                // Длительность обязана быть — без неё в топ не попадаем.
+                // Длительность обязана быть — без неё ни в топ, ни в агрегат.
                 var durationMicros = ev.DurationMicroseconds;
                 if (durationMicros is null)
                 {
@@ -79,7 +89,26 @@ internal sealed partial class SlowQueryAnalyzer : ISlowQueryAnalyzer
                     continue;
                 }
 
+                var durationSeconds = ev.DurationSeconds ?? durationMicros.Value / 1_000_000d;
+                var sql = ev.First("Sql");
+
+                // Агрегат «похожие запросы» — НЕЗАВИСИМ от порога: учитываем КАЖДОЕ событие с непустым Sql,
+                // включая под-пороговые (тысячи быстрых запросов одной формы → группа с большим суммарным
+                // временем). Запись без Sql в группировку не входит (нечего нормализовать, §7).
+                if (!string.IsNullOrWhiteSpace(sql))
+                {
+                    var key = NormalizeSql(sql);
+                    if (!groups.TryGetValue(key, out var acc))
+                    {
+                        acc = new GroupAccumulator(key);
+                        groups[key] = acc;
+                    }
+
+                    acc.Add(durationMicros.Value, durationSeconds);
+                }
+
                 // Порог: 40_TECHLOG §6 — фильтр Dur в logcfg не работает, делаем здесь.
+                // Под-пороговые в TopQueries не идут (единичные тяжёлые), но уже учтены в агрегате выше.
                 if (durationMicros.Value < thresholdMicroseconds)
                 {
                     continue;
@@ -90,8 +119,8 @@ internal sealed partial class SlowQueryAnalyzer : ISlowQueryAnalyzer
                 {
                     Ts = ev.Ts,
                     DurationMicroseconds = durationMicros.Value,
-                    DurationSeconds = ev.DurationSeconds ?? durationMicros.Value / 1_000_000d,
-                    Sql = ev.First("Sql"),
+                    DurationSeconds = durationSeconds,
+                    Sql = sql,
                     Context = ev.First("Context"),
                     DbPid = ev.First("dbpid"),
                     Rows = ev.First("Rows"),
@@ -115,27 +144,26 @@ internal sealed partial class SlowQueryAnalyzer : ISlowQueryAnalyzer
             }
         }
 
-        // Топ-N по длительности убывающим.
+        // Топ-N по длительности убывающим (единичные тяжёлые, гейт по порогу).
         var topQueries = aboveThreshold
             .OrderByDescending(e => e.DurationMicroseconds)
             .Take(topN)
             .ToList();
 
-        // Группировка похожих: только записи с непустым Sql.
-        // Запись без Sql в SimilarGroups не входит (нечего нормализовать, §7).
-        var similarGroups = aboveThreshold
-            .Where(e => !string.IsNullOrWhiteSpace(e.Sql))
-            .GroupBy(e => NormalizeSql(e.Sql!))
+        // Группы похожих: по всем вхождениям формы (Count/Total/Max — по ВСЕМ событиям, не только пороговым).
+        // Сортировка по суммарному времени убыв.; ограничение topN (раньше группы были без лимита).
+        var similarGroups = groups.Values
+            .OrderByDescending(g => g.TotalDurationMicroseconds)
+            .Take(topN)
             .Select(g => new SlowQueryGroup
             {
-                NormalizedSql = g.Key,
-                Count = g.Count(),
-                TotalDurationMicroseconds = g.Sum(e => e.DurationMicroseconds),
-                MaxDurationMicroseconds = g.Max(e => e.DurationMicroseconds),
-                TotalDurationSeconds = g.Sum(e => e.DurationSeconds),
-                MaxDurationSeconds = g.Max(e => e.DurationSeconds),
+                NormalizedSql = g.NormalizedSql,
+                Count = g.Count,
+                TotalDurationMicroseconds = g.TotalDurationMicroseconds,
+                MaxDurationMicroseconds = g.MaxDurationMicroseconds,
+                TotalDurationSeconds = g.TotalDurationSeconds,
+                MaxDurationSeconds = g.MaxDurationSeconds,
             })
-            .OrderByDescending(g => g.TotalDurationMicroseconds)
             .ToList();
 
         return new SlowQueryAnalysisResult
@@ -146,6 +174,34 @@ internal sealed partial class SlowQueryAnalyzer : ISlowQueryAnalyzer
             EventsAboveThreshold = aboveThreshold.Count,
             SkippedEvents = skipped,
         };
+    }
+
+    // Лёгкий аккумулятор группы похожих запросов (MLC-248): копит счётчик и суммы по форме запроса
+    // стримово, не держа отдельные события под порогом в памяти (важно на журналах в гигабайты).
+    private sealed class GroupAccumulator(string normalizedSql)
+    {
+        public string NormalizedSql { get; } = normalizedSql;
+        public int Count { get; private set; }
+        public long TotalDurationMicroseconds { get; private set; }
+        public long MaxDurationMicroseconds { get; private set; }
+        public double TotalDurationSeconds { get; private set; }
+        public double MaxDurationSeconds { get; private set; }
+
+        public void Add(long durationMicros, double durationSeconds)
+        {
+            Count++;
+            TotalDurationMicroseconds += durationMicros;
+            TotalDurationSeconds += durationSeconds;
+            if (durationMicros > MaxDurationMicroseconds)
+            {
+                MaxDurationMicroseconds = durationMicros;
+            }
+
+            if (durationSeconds > MaxDurationSeconds)
+            {
+                MaxDurationSeconds = durationSeconds;
+            }
+        }
     }
 
     // Нормализация текста SQL к «шаблону» для группировки похожих запросов.

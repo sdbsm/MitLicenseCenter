@@ -272,6 +272,52 @@ describe("InvestigationDetail — карточка дела (MLC-243/244, экр
     expect(screen.getByText("Долгих запросов")).toBeInTheDocument();
   });
 
+  it("агрегат «похожие запросы» рендерится из similarGroups (MLC-248)", () => {
+    const result = {
+      ...makeSlowQueryResult(),
+      similarGroups: [
+        {
+          normalizedSql: "SELECT T1._Field FROM _Hot T1 WHERE T1._Code = ?",
+          count: 1000,
+          totalDurationMicroseconds: 50_000_000,
+          maxDurationMicroseconds: 50_000,
+          totalDurationSeconds: 50,
+          maxDurationSeconds: 0.05,
+        },
+      ],
+    };
+    mockDetailData = makeDetail([{ kind: "SlowQueries", result }]);
+    renderDetail();
+    expect(screen.getByText("Похожие запросы (по суммарному времени)")).toBeInTheDocument();
+    expect(screen.getByText(/SELECT T1\._Field FROM _Hot/)).toBeInTheDocument();
+    // count/total/max в статистике группы
+    expect(screen.getByText(/1000 раз/)).toBeInTheDocument();
+  });
+
+  it("кейс «много мелких»: topQueries пуст, но similarGroups есть → агрегат показан (MLC-248)", () => {
+    const result = {
+      ...makeSlowQueryResult(),
+      topQueries: [],
+      eventsAboveThreshold: 0,
+      similarGroups: [
+        {
+          normalizedSql: "SELECT ? FROM _Hot",
+          count: 500,
+          totalDurationMicroseconds: 25_000_000,
+          maxDurationMicroseconds: 80_000,
+          totalDurationSeconds: 25,
+          maxDurationSeconds: 0.08,
+        },
+      ],
+    };
+    mockDetailData = makeDetail([{ kind: "SlowQueries", result }]);
+    renderDetail();
+    // Блок и агрегат присутствуют, несмотря на пустой топ.
+    expect(screen.getByText("Топ долгих запросов к СУБД")).toBeInTheDocument();
+    expect(screen.getByText("Похожие запросы (по суммарному времени)")).toBeInTheDocument();
+    expect(screen.getByText(/500 раз/)).toBeInTheDocument();
+  });
+
   it("блок «Исключения» рендерится с типом и описанием при kind=Exceptions", () => {
     mockDetailData = makeDetail([{ kind: "Exceptions", result: makeExceptionResult() }]);
     renderDetail();

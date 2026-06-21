@@ -108,19 +108,20 @@ public sealed class SlowQueryAnalyzerTests
 
     // (e) Из dbmssql-slow.ndjson: три SELECT с _Code=100/999/777 схлопываются в одну группу.
     //     UPDATE и отдельный SELECT — отдельные группы.
-    //     Четвёртая запись (500000 µs) ниже порога 1 000 000 µs — не попадает ни куда.
+    //     MLC-248: агрегат SimilarGroups НЕЗАВИСИМ от порога — под-пороговый SELECT T2 (500000 µs)
+    //     теперь ВХОДИТ в группы (но НЕ в TopQueries). Группы по ВСЕМ DBMSSQL с непустым Sql.
     [Fact]
     public void Similar_selects_with_different_literals_form_single_group()
     {
         var events = ParseFixture("dbmssql-slow.ndjson");
 
-        // Порог 1 000 000 µs: пройдут записи 5123456/7654321/2000000/3500000 µs (4 шт),
-        // не пройдёт только 500000 µs (#4 — SELECT T2).
+        // Порог 1 000 000 µs: в TopQueries пройдут 5123456/7654321/2000000/3500000 µs (4 шт),
+        // не пройдёт только 500000 µs (#4 — SELECT T2). Но в SimilarGroups — ВСЕ 5 событий.
         var result = _analyzer.Analyze(events, thresholdMicroseconds: 1_000_000);
 
         // Три SELECT с _Code=100/999/777 нормализуются одинаково → одна группа с Count=3
         var selectGroup = result.SimilarGroups
-            .FirstOrDefault(g => g.Count == 3);
+            .FirstOrDefault(g => g.NormalizedSql.Contains("_TableX", StringComparison.Ordinal));
         selectGroup.Should().NotBeNull("три SELECT с разными _Code должны быть в одной группе");
         selectGroup!.Count.Should().Be(3);
         selectGroup.NormalizedSql.Should().Contain("_TableX", "нормализованный SQL узнаём по имени таблицы");
@@ -133,6 +134,43 @@ public sealed class SlowQueryAnalyzerTests
             .FirstOrDefault(g => g.NormalizedSql.StartsWith("UPDATE", StringComparison.OrdinalIgnoreCase));
         updateGroup.Should().NotBeNull("UPDATE — отдельная группа");
         updateGroup!.Count.Should().Be(1);
+
+        // MLC-248: под-пороговый SELECT _TableZ (500000 µs) — отдельная группа, в TopQueries его нет.
+        var underThresholdGroup = result.SimilarGroups
+            .FirstOrDefault(g => g.NormalizedSql.Contains("_TableZ", StringComparison.Ordinal));
+        underThresholdGroup.Should().NotBeNull("под-пороговый запрос всё равно учитывается в агрегате");
+        underThresholdGroup!.Count.Should().Be(1);
+        underThresholdGroup.TotalDurationMicroseconds.Should().Be(500_000);
+        result.TopQueries.Should().NotContain(q => q.Sql != null && q.Sql.Contains("_TableZ", StringComparison.Ordinal),
+            "под-пороговый запрос не попадает в топ единичных долгих");
+    }
+
+    // (e2) MLC-248 — ЯДРО: «много быстрых запросов одной формы» → группа есть, TopQueries пуст
+    //      при высоком пороге. Это кейс «закрытия месяца» (стенд-приёмка 1.2): тысячи мелких в сумме.
+    [Fact]
+    public void Many_fast_queries_form_group_even_when_top_is_empty_at_high_threshold()
+    {
+        // 1000 быстрых запросов одной формы по 50 000 µs (0.05 c) — ни один не дотягивает до порога 1 c.
+        var lines = Enumerable.Range(0, 1000).Select(i =>
+            "{\"ts\":\"2026-06-20T05:00:00.000000\",\"duration\":\"50000\",\"name\":\"DBMSSQL\"," +
+            "\"process\":\"rphost\",\"p:processName\":\"infobase01\"," +
+            $"\"Sql\":\"SELECT T1._Field FROM _Hot T1 WHERE T1._Ref = @P1 AND T1._Code = {i}\"}}");
+        var events = _parser.ParseLines(lines).Events;
+
+        // Порог 1 000 000 µs (1 c): НИ ОДИН запрос не проходит в TopQueries.
+        var result = _analyzer.Analyze(events, thresholdMicroseconds: 1_000_000);
+
+        result.TopQueries.Should().BeEmpty("ни один запрос не длиннее порога 1 c");
+        result.EventsAboveThreshold.Should().Be(0);
+        result.TotalDbmssqlEvents.Should().Be(1000);
+
+        // Но агрегат «похожие» ВСПЛЫВАЕТ: одна группа со всеми 1000 вхождениями.
+        result.SimilarGroups.Should().ContainSingle("разные _Code нормализуются в одну форму");
+        var group = result.SimilarGroups[0];
+        group.Count.Should().Be(1000);
+        group.TotalDurationMicroseconds.Should().Be(1000L * 50_000, "1000 × 50 000 µs = суммарно 50 c");
+        group.MaxDurationMicroseconds.Should().Be(50_000);
+        group.NormalizedSql.Should().Contain("_Hot");
     }
 
     // (f) Привязка к ИБ: запись с p:processName="infobase01_<GUID>" → InfobaseName="infobase01",
@@ -155,17 +193,22 @@ public sealed class SlowQueryAnalyzerTests
     }
 
     // (g) Параметры thresholdMicroseconds и topN уважаются анализатором.
+    //     MLC-248: высокий порог опустошает TopQueries, но SimilarGroups (независимый агрегат) — нет:
+    //     первая запись dbmssql.ndjson имеет Sql (1 µs) → попадает в группу даже под порогом.
     [Fact]
-    public void High_threshold_yields_empty_top()
+    public void High_threshold_yields_empty_top_but_groups_still_aggregate_sql_events()
     {
         var events = ParseFixture("dbmssql.ndjson");
 
         var result = _analyzer.Analyze(events, thresholdMicroseconds: long.MaxValue);
 
         result.TopQueries.Should().BeEmpty("порог выше любой длительности в файле");
-        result.SimilarGroups.Should().BeEmpty();
         result.TotalDbmssqlEvents.Should().Be(2);
         result.EventsAboveThreshold.Should().Be(0);
+        // Первая запись имеет Sql (1 µs) → агрегат «похожие» учитывает её независимо от порога (MLC-248).
+        result.SimilarGroups.Should().ContainSingle("событие с Sql попадает в группу под любым порогом");
+        result.SimilarGroups[0].Count.Should().Be(1);
+        result.SimilarGroups[0].TotalDurationMicroseconds.Should().Be(1);
     }
 
     [Fact]

@@ -46,7 +46,8 @@ public sealed class InvestigationOrchestrationTests
         cfg.Format.Should().Be("json");
         cfg.HistoryHours.Should().Be(2);
         cfg.LogcfgLocation.Should().NotBeNullOrEmpty();
-        cfg.DurationThresholdMicros.Should().Be(5_000_000, "порог расследования для долгих запросов (5 c)");
+        cfg.DurationThresholdMicros.Should().Be(1_000_000,
+            "MLC-248: дефолтный порог долгих запросов — 1 c, когда оператор не задал его в Мастере");
     }
 
     [Fact]
@@ -86,6 +87,34 @@ public sealed class InvestigationOrchestrationTests
 
         fx.Store.DeleteCalls.Should().Be(1, "сырьё ТЖ удалено после успешного анализа (MLC-237 Q2)");
         fx.Store.DeletedDirectory.Should().Be(row.CollectionDirectory);
+    }
+
+    [Fact]
+    public async Task Custom_threshold_is_persisted_and_used_by_analysis_pipeline()
+    {
+        using var fx = new Fixture();
+        fx.Store.CollectionLines = FixtureLines("dbmssql-slow.ndjson");
+
+        // Высокий порог 10 c (10 000 000 µs): ни один запрос фикстуры (макс 7.6 c) не пройдёт в топ,
+        // но агрегат «похожие» (MLC-248) от порога не зависит → similarGroups не пуст.
+        var start = await fx.Service.InstallAsync(
+            "admin", TechLogScenario.SlowQueries, "infobase01", CancellationToken.None,
+            slowQueryThresholdMicros: 10_000_000);
+
+        // Снимок несёт фактически применённый порог.
+        var row = await fx.QueryAsync(db => db.Investigations.SingleAsync());
+        row.CollectionConfig!.DurationThresholdMicros.Should().Be(10_000_000,
+            "порог из Мастера сохраняется в снимок CollectionConfig");
+
+        await fx.Service.RemoveAsync(start.CollectionId, InvestigationStopReason.Manual, CancellationToken.None);
+
+        var findings = await fx.QueryAsync(db => db.Findings.ToListAsync());
+        var slow = findings.Single(f => f.Kind == FindingKind.SlowQueries);
+        // Конвейер применил порог 10 c из снимка (не хардкод): topQueries пуст, агрегат — нет.
+        slow.ResultJson.Should().Contain("\"topQueries\":[]",
+            "при пороге 10 c ни один запрос фикстуры не попадает в топ — порог взят из снимка дела");
+        slow.ResultJson.Should().Contain("_TableX",
+            "агрегат similarGroups НЕЗАВИСИМ от порога — похожие запросы всплывают (MLC-248)");
     }
 
     [Fact]

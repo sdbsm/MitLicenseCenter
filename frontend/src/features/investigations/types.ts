@@ -303,7 +303,10 @@ export type InvestigationReport = z.infer<typeof reportSchema>;
 export type InvestigationProgress = z.infer<typeof progressSchema>;
 
 // Тело запроса старта (StartInvestigationRequest). infobaseId опционален (задан ⇒ дело привязано к ИБ).
+// slowQueryThresholdSeconds (MLC-248) — порог «долгих запросов» В СЕКУНДАХ; релевантен только сценариям
+// SlowQueries/GeneralSlow (Мастер шлёт его лишь для них). ≥ 0; не задан ⇒ дефолт 1 c на бэкенде.
 export interface StartInvestigationRequest {
   scenario: InvestigationScenario;
   infobaseId?: string | null;
+  slowQueryThresholdSeconds?: number;
 }
