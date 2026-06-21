@@ -104,6 +104,17 @@ internal sealed class LogcfgBuilder : ILogcfgBuilder
             config.Add(new XElement(ns + "plansql"));
         }
 
+        // СУБД-блокировки (сценарий DbmsLocks): config-level тег <dbmslocks/> (сиблинг <log>, как
+        // <plansql>/<dump>). Включает формирование полей lkX на событиях СУБД (41_LOGCFG_SPEC §8,
+        // infostart 1431026); сами поля выводятся благодаря <property name="all"/> выше — отдельные
+        // <property name="lkX"/> НЕ нужны. ⚠ Объём без отборов по длительности → >6 ГБ/час (1431026):
+        // короткое окно + лимит места (MLC-231) обязательны. Точная семантика тега и форма lkX в
+        // JSON-ТЖ 8.5 — за стенд-приёмкой.
+        if (NeedsDbmsLocks(scenario))
+        {
+            config.Add(new XElement(ns + "dbmslocks"));
+        }
+
         var doc = new XDocument(
             new XDeclaration("1.0", "UTF-8", null),
             new XComment($" {Marker}: scenario={scenario}; не редактировать вручную — управляется панелью "),
@@ -126,6 +137,9 @@ internal sealed class LogcfgBuilder : ILogcfgBuilder
         TechLogScenario.Exceptions => new[] { "EXCP", "EXCPCNTX" },
         // Общая медленная серверная работа.
         TechLogScenario.GeneralSlow => new[] { "CALL", "DBMSSQL" },
+        // СУБД-блокировки: поля lkX едут на событиях DBMSSQL (тег <dbmslocks/> их формирует,
+        // 41_LOGCFG_SPEC §8, infostart 1431026).
+        TechLogScenario.DbmsLocks => new[] { "DBMSSQL" },
         _ => throw new ArgumentOutOfRangeException(nameof(scenario), scenario, "Неизвестный сценарий сбора ТЖ."),
     };
 
@@ -135,6 +149,10 @@ internal sealed class LogcfgBuilder : ILogcfgBuilder
 
     // Дамп аварий <dump/> (config-level) — только для исключений/падений (40_TECHLOG §6).
     private static bool NeedsDump(TechLogScenario scenario) => scenario == TechLogScenario.Exceptions;
+
+    // СУБД-блокировки <dbmslocks/> (config-level) — только для сценария DbmsLocks (40_TECHLOG §6,
+    // 41_LOGCFG_SPEC §8, infostart 1431026). Сиблинг <log>, как <plansql/> и <dump/>.
+    private static bool NeedsDbmsLocks(TechLogScenario scenario) => scenario == TechLogScenario.DbmsLocks;
 
     private static string Serialize(XDocument doc)
     {
