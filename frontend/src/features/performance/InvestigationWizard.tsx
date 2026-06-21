@@ -41,9 +41,11 @@ type ScopeType = "all" | "infobase";
 
 interface InvestigationWizardProps {
   onCancel?: () => void;
+  /** Вызывается после успешного старта — родитель уводит на список (активное дело → Прогресс). */
+  onStarted?: () => void;
 }
 
-export function InvestigationWizard({ onCancel }: InvestigationWizardProps) {
+export function InvestigationWizard({ onCancel, onStarted }: InvestigationWizardProps) {
   const { t } = useTranslation();
   const { data: me } = useMe();
   const isAdmin = me?.roles?.includes("Admin") ?? false;
@@ -73,7 +75,9 @@ export function InvestigationWizard({ onCancel }: InvestigationWizardProps) {
 
     try {
       await startInvestigation.mutateAsync(body);
-      // После успешного старта список инвалидируется хуком → режим переключится на Прогресс.
+      // После успешного старта список инвалидируется хуком; уводим на список → активное дело
+      // (только что созданное) форсирует Прогресс в InvestigationMode.
+      onStarted?.();
     } catch (error) {
       const conflictKey = matchConflictCode(error, {
         INVESTIGATION_ACTIVE: "performance.investigation.wizard.errors.INVESTIGATION_ACTIVE",
