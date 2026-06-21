@@ -15,6 +15,7 @@ import design from "./ru/design.json";
 import discovery from "./ru/discovery.json";
 import errors from "./ru/errors.json";
 import infobases from "./ru/infobases.json";
+import investigations from "./ru/investigations.json";
 import nav from "./ru/nav.json";
 import performance from "./ru/performance.json";
 import profile from "./ru/profile.json";
@@ -41,6 +42,7 @@ export const ru = {
   ...tenants,
   ...users,
   ...infobases,
+  ...investigations,
   ...backups,
   ...publications,
   ...reports,

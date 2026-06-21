@@ -20,6 +20,7 @@ const TOP_LEVEL_KEYS = [
   "tenants",
   "users",
   "infobases",
+  "investigations",
   "backups",
   "publications",
   "reports",

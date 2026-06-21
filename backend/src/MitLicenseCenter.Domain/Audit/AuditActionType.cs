@@ -145,4 +145,21 @@ public enum AuditActionType
     // rac process list + guard по имени), кластер 1С авто-поднимает новый. Описание несёт
     // завершённый Pid (без секретов). Server/host-scope (TenantId не пишется). 806+ — резерв.
     OneCProcessRestarted = 805,
+
+    // Сбор технологического журнала режима «Расследование» (MLC-230, ADR-57/58). Started — оператор
+    // запустил сбор (установлен целевой logcfg.xml в conf); Stopped — сбор снят (исходный logcfg
+    // восстановлен), причина — в описании; ConfigForceRestored — сработал сторож на старте: снят
+    // «забытый» logcfg панели без активного дела (ценно для безопасности — конфиг не остаётся на
+    // проде после краха ОС). Server/host-scope (TenantId не пишется — сбор охватывает узел, не
+    // клиента). Frozen-int: новые числа после 805, не переиспользуются. 809+ — резерв (лимит/окно — MLC-231).
+    TechLogCollectionStarted = 806,
+    TechLogCollectionStopped = 807,
+    TechLogConfigForceRestored = 808,
+
+    // Удаление завершённого «Дела» расследования оператором (MLC-239, зеркаль PerfRecordingDeleted=702).
+    // DELETE /api/v1/investigations/{id} каскадом сносит Finding'и дела. Активное дело удалить нельзя
+    // (Conflict, до этого кода дело не доходит). Host/server-scope (TenantId не пишется — сбор охватывает
+    // узел; привязка к арендатору на деле — справочная, не меняет scope аудита). Frozen-int: новое число
+    // после 808, существующие не переназначаются. 810+ — резерв.
+    InvestigationDeleted = 809,
 }

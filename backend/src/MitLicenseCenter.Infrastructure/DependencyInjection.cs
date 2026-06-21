@@ -20,6 +20,7 @@ using MitLicenseCenter.Application.Reporting;
 using MitLicenseCenter.Application.Server;
 using MitLicenseCenter.Application.Sessions;
 using MitLicenseCenter.Application.Settings;
+using MitLicenseCenter.Application.TechLog;
 using MitLicenseCenter.Application.Updates;
 using MitLicenseCenter.Infrastructure.Audit;
 using MitLicenseCenter.Infrastructure.Backups;
@@ -36,6 +37,7 @@ using MitLicenseCenter.Infrastructure.Ras;
 using MitLicenseCenter.Infrastructure.Reporting;
 using MitLicenseCenter.Infrastructure.Server;
 using MitLicenseCenter.Infrastructure.Settings;
+using MitLicenseCenter.Infrastructure.TechLog;
 using MitLicenseCenter.Infrastructure.Updates;
 
 namespace MitLicenseCenter.Infrastructure;
@@ -260,6 +262,54 @@ public static class DependencyInjection
         services.AddSingleton<IPerfRecordingService, PerfRecordingService>();
         services.AddSingleton<PerfRecordingSamplingService>();
         services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<PerfRecordingSamplingService>());
+
+        // Сбор технологического журнала режима «Расследование» (MLC-230/231, ADR-57/58). Генератор
+        // logcfg (ILogcfgBuilder) и store (ILogcfgStore) — stateless singleton'ы (чистый XML / ФС
+        // за интерфейсом). Сервис жизненного цикла (ITechLogCollectionService) — singleton: держит
+        // активное дело между операциями и сериализует их через SemaphoreSlim (паттерн
+        // PerfRecordingService); БД и scoped IAuditLogger берёт через IServiceScopeFactory. Драйвер
+        // безопасного сбора (TechLogWatchdogService) — hosted BackgroundService: на старте
+        // orphan-recovery (Active→Interrupted) → стартовая сверка файла (снимает «забытый» конфиг),
+        // затем периодический сторож активного дела — авто-стоп по окну времени (TimeLimit) и лимиту
+        // места (DiskLimit). Single-active по БД и сторож места перед стартом — в InstallAsync
+        // (60_SAFETY №3/№4/№5).
+        services.AddSingleton<ILogcfgBuilder, LogcfgBuilder>();
+        // Парсер NDJSON-ТЖ (MLC-232, ядро этапа B) — stateless singleton, чистый C# без ФС, как
+        // LogcfgBuilder. Поверх него встанут анализаторы блокировок/долгих запросов/исключений.
+        services.AddSingleton<ITechLogParser, TechLogParser>();
+        // Анализатор управляемых блокировок 1С (MLC-233, этап B) — ТОЛЬКО 1С-уровень
+        // (TLOCK/TTIMEOUT/TDEADLOCK); СУБД-уровень (<dbmslocks/>/lkX) — MLC-236.
+        // Stateless singleton, чистый C# без ФС/БД (как TechLogParser/LogcfgBuilder).
+        services.AddSingleton<ILockTreeAnalyzer, LockTreeAnalyzer>();
+        // Анализатор долгих запросов к СУБД (MLC-234, этап B) — ТОЛЬКО DBMSSQL.
+        // Строит топ долгих + группы похожих (нормализация SQL). Порог длительности —
+        // в анализаторе, не в logcfg (фильтр Dur в JSON-ТЖ 8.5 не работает, §6).
+        // Привязка к ИБ через TechLogProcessName.Normalize (общий хелпер MLC-234).
+        // Stateless singleton, чистый C# без ФС/БД (как LockTreeAnalyzer).
+        services.AddSingleton<ISlowQueryAnalyzer, SlowQueryAnalyzer>();
+        // Анализатор исключений платформы 1С (MLC-235, этап B) — ТОЛЬКО EXCP.
+        // Строит топ по частоте (группировка по типу Exception + нормализованному Descr).
+        // Флаг IsDatabaseException выделяет кандидатов на блокировки/дедлоки СУБД
+        // (дедлок СУБД = 2 EXCP с DataBaseException, 40_TECHLOG §7; точная пара-корреляция
+        // — после подтверждения на стенде). Привязка к ИБ через TechLogProcessName.Normalize.
+        // Устойчив к «полям-призракам» (Descr/Context могут отсутствовать), ложным EXCP
+        // при окне авторизации и дублям ключей. Stateless singleton, чистый C# без ФС/БД.
+        services.AddSingleton<IExceptionAnalyzer, ExceptionAnalyzer>();
+        // Анализатор СУБД-блокировок (MLC-236, этап B) — ТОЛЬКО DBMSSQL с полями lkX.
+        // Строит дерево «жертва.lksrc → источник.connectID» (40_TECHLOG §5, infostart 1431026).
+        // ОТДЕЛЬНЫЙ механизм от управляемых блокировок 1С (LockTreeAnalyzer). Привязка к ИБ через
+        // TechLogProcessName.Normalize, never-throws. ⚠ Структура lkX — за стенд-приёмкой.
+        // Stateless singleton, чистый C# без ФС/БД.
+        services.AddSingleton<IDbmsLockAnalyzer, DbmsLockAnalyzer>();
+        // Анализатор серверных вызовов 1С (MLC-249) — ТОЛЬКО CALL. Разбирает CALL-сторону сценария
+        // GeneralSlow (CALL+DBMSSQL): время «между запросами» на стороне 1С. Топ долгих вызовов +
+        // агрегат по контексту (независимо от порога, как SlowQuery). ⚠ У CALL нет p:processName —
+        // привязки к арендатору по процессу нет. Stateless singleton, чистый C# без ФС/БД.
+        services.AddSingleton<ICallAnalyzer, CallAnalyzer>();
+        services.AddSingleton<ILogcfgStore, LogcfgStore>();
+        services.AddSingleton<ITechLogCollectionService, TechLogCollectionService>();
+        services.AddSingleton<TechLogWatchdogService>();
+        services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<TechLogWatchdogService>());
 
         // On-demand бэкап баз SQL (MLC-076, ADR-27): весь безопасный цикл одной операции
         // (sysadmin-проверка → оценка → место → BACKUP COPY_ONLY → VERIFYONLY → keep-latest).

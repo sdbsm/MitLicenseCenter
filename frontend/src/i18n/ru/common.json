@@ -25,6 +25,7 @@
     "copy": "Копировать",
     "copied": "Скопировано",
     "loading": "Загрузка…",
+    "deleted": "Удалено.",
     "noData": "Нет данных",
     "notUpdatedYet": "ещё не обновлялось",
     "pagination": {

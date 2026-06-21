@@ -79,7 +79,11 @@
       "OneCServerRestarted": "Сервер 1С перезапущен",
       "OneCServerAutoRestarted": "Сервер 1С перезапущен по расписанию",
       "OneCServerAutoRestartScheduleChanged": "Расписание авто-рестарта сервера 1С изменено",
-      "OneCProcessRestarted": "Рабочий процесс 1С перезапущен"
+      "OneCProcessRestarted": "Рабочий процесс 1С перезапущен",
+      "TechLogCollectionStarted": "Сбор технологического журнала запущен",
+      "TechLogCollectionStopped": "Сбор технологического журнала остановлен",
+      "TechLogConfigForceRestored": "Конфигурация технологического журнала восстановлена сторожем",
+      "InvestigationDeleted": "Дело расследования удалено"
     },
     "empty": {
       "title": "Записей нет",

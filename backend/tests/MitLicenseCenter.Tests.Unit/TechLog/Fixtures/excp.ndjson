@@ -1,0 +1,2 @@
+{"ts":"2026-06-20T03:07:10.000000","duration":"0","name":"EXCP","depth":"1","level":"ERROR","process":"rphost","p:processName":"infobase01","OSThread":"48908","t:clientID":"17","Exception":"DataBaseException","Descr":"Lock request timeout exceeded"}
+{"ts":"2026-06-20T03:07:10.000200","duration":"0","name":"EXCP","depth":"1","level":"ERROR","process":"rphost","p:processName":"infobase01","OSThread":"48908","t:clientID":"17","Exception":"DataBaseException","Descr":"Lock request timeout exceeded"}
