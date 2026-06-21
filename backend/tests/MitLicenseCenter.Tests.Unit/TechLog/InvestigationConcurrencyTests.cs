@@ -63,6 +63,50 @@ public sealed class InvestigationConcurrencyTests
             "конкурентный targeted-UPDATE с устаревшим RowVersion должен ловиться, а не молча терять запись");
     }
 
+    // MLC-238: конвейер даёт несколько targeted-UPDATE статуса (Collecting→Analyzing→Completed). Сторож
+    // авто-стопа и ручное снятие могут конкурировать на ПРОМЕЖУТОЧНОМ переходе из Analyzing: второй
+    // UPDATE со старым токеном должен ловиться 409, а не молча перетереть результат анализа.
+    [Fact]
+    public void Concurrent_update_from_analyzing_state_throws_DbUpdateConcurrencyException()
+    {
+        using var sqlite = TestHelpers.SqliteTestDb.Create();
+        InstallRowVersionTrigger(sqlite.Connection);
+
+        var id = Guid.NewGuid();
+        using (var seed = sqlite.NewContext())
+        {
+            seed.Investigations.Add(new Investigation
+            {
+                Id = id,
+                Scenario = InvestigationScenario.SlowQueries,
+                Status = InvestigationStatus.Analyzing, // дело уже снято, идёт разбор
+                StartedAtUtc = DateTime.UtcNow,
+                StartedBy = "admin",
+                CollectionDirectory = @"C:\techlog",
+                ConfigMarker = "managed by MitLicenseCenter",
+                RowVersion = [0, 0, 0, 0, 0, 0, 0, 1],
+            });
+            seed.SaveChanges();
+        }
+
+        using var ctx1 = sqlite.NewContext();
+        using var ctx2 = sqlite.NewContext();
+        var row1 = ctx1.Investigations.Single(x => x.Id == id);
+        var row2 = ctx2.Investigations.Single(x => x.Id == id);
+
+        // Конвейер завершает дело: Analyzing → Completed.
+        row1.Status = InvestigationStatus.Completed;
+        row1.StopReason = InvestigationStopReason.Manual;
+        ctx1.SaveChanges();
+
+        // Конкурент (напр. перевод в Failed из другого контекста) со старым токеном → 0 строк → конфликт.
+        row2.Status = InvestigationStatus.Failed;
+        var act = () => ctx2.SaveChanges();
+
+        act.Should().Throw<DbUpdateConcurrencyException>(
+            "конкурентный переход из Analyzing с устаревшим RowVersion должен ловиться, а не терять результат");
+    }
+
     // Триггер, эмулирующий серверный rowversion: после каждого UPDATE строки RowVersion получает новое
     // значение (randomblob(8) гарантированно отличается от старого). FOR EACH ROW + AFTER UPDATE.
     private static void InstallRowVersionTrigger(SqliteConnection connection)

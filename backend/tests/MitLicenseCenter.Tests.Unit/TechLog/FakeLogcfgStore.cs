@@ -77,6 +77,32 @@ internal sealed class FakeLogcfgStore : ILogcfgStore
 
     public long GetDirectorySizeBytes(string directory) => DirectorySizeBytes;
 
+    // MLC-238: сырьё ТЖ (seam чтения) — тест выставляет фиксированные NDJSON-строки. ThrowOnRead
+    // моделирует обрыв чтения диска (путь Failed конвейера). DeleteCalls/DeletedDirectory фиксируют
+    // удаление сырья после анализа (решение MLC-237 Q2).
+    public IReadOnlyList<string> CollectionLines { get; set; } = [];
+    public bool ThrowOnRead { get; set; }
+    public int DeleteCalls { get; private set; }
+    public string? DeletedDirectory { get; private set; }
+    public string? ReadDirectory { get; private set; }
+
+    public IEnumerable<string> ReadCollectionLines(string directory)
+    {
+        ReadDirectory = directory;
+        if (ThrowOnRead)
+        {
+            throw new IOException("симуляция обрыва чтения сырья ТЖ");
+        }
+
+        return CollectionLines;
+    }
+
+    public void DeleteCollectionFiles(string directory)
+    {
+        DeleteCalls++;
+        DeletedDirectory = directory;
+    }
+
     // MLC-247 A2: проба прав агента на каталог сбора (seam). Тест выставляет AgentAclResult, чтобы
     // детерминированно проверить InstallAsync без реальных ACL/ФС. По умолчанию — «есть доступ».
     public DirectoryAclProbeResult AgentAclResult { get; set; } =

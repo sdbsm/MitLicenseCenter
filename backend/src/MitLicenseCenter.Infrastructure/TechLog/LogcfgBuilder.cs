@@ -62,7 +62,7 @@ internal sealed class LogcfgBuilder : ILogcfgBuilder
         var tenantProcessName = infobaseProcessName ?? string.Empty;
 
         // Целевой набор событий по сценарию (event-scope: тип события [+ арендатор]).
-        foreach (var ev in EventsFor(scenario))
+        foreach (var ev in EventsForInternal(scenario))
         {
             var evElement = new XElement(ns + "event", new XElement(ns + "eq",
                 new XAttribute("property", "name"),
@@ -136,8 +136,12 @@ internal sealed class LogcfgBuilder : ILogcfgBuilder
     public bool IsManaged(string? content)
         => !string.IsNullOrEmpty(content) && content.Contains(Marker, StringComparison.Ordinal);
 
+    // Единый источник истины маппинга сценарий→события (MLC-238): оркестрация наполняет им
+    // CollectionConfig.Events. Делегирует приватному EventsForInternal (тот же набор, что в logcfg).
+    public IReadOnlyList<string> EventsFor(TechLogScenario scenario) => EventsForInternal(scenario);
+
     // Набор событий <event> под сценарий (40_TECHLOG §6). Все значения — точные имена событий ТЖ.
-    private static string[] EventsFor(TechLogScenario scenario) => scenario switch
+    private static string[] EventsForInternal(TechLogScenario scenario) => scenario switch
     {
         // Управляемые блокировки 1С + контекст транзакций (SDBL).
         TechLogScenario.Locks => new[] { "TLOCK", "TTIMEOUT", "TDEADLOCK", "SDBL" },

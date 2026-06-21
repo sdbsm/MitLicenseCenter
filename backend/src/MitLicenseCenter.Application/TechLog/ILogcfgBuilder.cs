@@ -19,4 +19,9 @@ public interface ILogcfgBuilder
     // Распознаёт «наш» logcfg по маркеру (для сторожа и идемпотентной сверки). content — текст
     // фактического logcfg.xml из conf; true — это конфиг, поставленный панелью.
     bool IsManaged(string? content);
+
+    // Набор событий <event> сценария (40_TECHLOG §6) — тот же, что кладётся в собранный logcfg.
+    // Единый источник истины маппинга сценарий→события: оркестрация (MLC-238) наполняет им снимок
+    // CollectionConfig.Events, не дублируя таблицу. Порядок — как в logcfg.
+    IReadOnlyList<string> EventsFor(TechLogScenario scenario);
 }

@@ -1,6 +1,7 @@
 using System.Runtime.Versioning;
 using System.Security.AccessControl;
 using System.Security.Principal;
+using System.Text;
 using MitLicenseCenter.Application.TechLog;
 using MitLicenseCenter.Infrastructure.Discovery;
 
@@ -162,6 +163,101 @@ internal sealed class LogcfgStore : ILogcfgStore
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
         {
             return 0;
+        }
+    }
+
+    public IEnumerable<string> ReadCollectionLines(string directory)
+    {
+        // Потоковое чтение сырья ТЖ (MLC-238): перечисляем NDJSON-файлы каталога (рекурсивно) и отдаём
+        // их строки ленивым перечислением — память не растёт на больших журналах. Never-throws: каталога
+        // нет/ошибка перечисления → пустая последовательность; ошибка чтения отдельного файла → файл
+        // пропускается (best-effort, как сторож размера каталога).
+        string[] files;
+        try
+        {
+            if (!Directory.Exists(directory))
+            {
+                yield break;
+            }
+
+            files = Directory.GetFiles(directory, "*", SearchOption.AllDirectories);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            yield break;
+        }
+
+        Array.Sort(files, StringComparer.Ordinal);
+
+        foreach (var file in files)
+        {
+            // Открытие файла отделено от перечисления строк: ошибку открытия глотаем и пропускаем файл,
+            // а во время самого чтения yield не может быть внутри try/catch — читаем построчно через
+            // ReadLineSafely (FileShare.ReadWrite — платформа 1С может держать файл на запись).
+            StreamReader? reader = null;
+            try
+            {
+                var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                reader = new StreamReader(stream, Encoding.UTF8);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+            {
+                reader?.Dispose();
+                continue;
+            }
+
+            using (reader)
+            {
+                while (true)
+                {
+                    string? line;
+                    try
+                    {
+                        line = reader.ReadLine();
+                    }
+                    catch (Exception ex) when (ex is IOException or System.Security.SecurityException)
+                    {
+                        break; // обрыв чтения файла — переходим к следующему (best-effort)
+                    }
+
+                    if (line is null)
+                    {
+                        break;
+                    }
+
+                    yield return line;
+                }
+            }
+        }
+    }
+
+    public void DeleteCollectionFiles(string directory)
+    {
+        // Удаление сырья ТЖ после успешного анализа (MLC-238, решение MLC-237 Q2). Идемпотентно и
+        // never-throws: каталога нет → no-op; отдельный занятый/недоступный файл пропускаем (best-effort).
+        // Удаляем только файлы, сам каталог сбора оставляем (под него выдан ACL агента, MLC-247).
+        try
+        {
+            if (!Directory.Exists(directory))
+            {
+                return;
+            }
+
+            foreach (var file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
+            {
+                try
+                {
+                    File.Delete(file);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+                {
+                    // Файл занят/недоступен — пропускаем (повторная ротация платформы/следующий цикл доснесёт).
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            // Перечисление не удалось — no-op (best-effort).
         }
     }
 
