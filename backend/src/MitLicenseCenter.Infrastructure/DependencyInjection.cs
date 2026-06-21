@@ -301,6 +301,11 @@ public static class DependencyInjection
         // TechLogProcessName.Normalize, never-throws. ⚠ Структура lkX — за стенд-приёмкой.
         // Stateless singleton, чистый C# без ФС/БД.
         services.AddSingleton<IDbmsLockAnalyzer, DbmsLockAnalyzer>();
+        // Анализатор серверных вызовов 1С (MLC-249) — ТОЛЬКО CALL. Разбирает CALL-сторону сценария
+        // GeneralSlow (CALL+DBMSSQL): время «между запросами» на стороне 1С. Топ долгих вызовов +
+        // агрегат по контексту (независимо от порога, как SlowQuery). ⚠ У CALL нет p:processName —
+        // привязки к арендатору по процессу нет. Stateless singleton, чистый C# без ФС/БД.
+        services.AddSingleton<ICallAnalyzer, CallAnalyzer>();
         services.AddSingleton<ILogcfgStore, LogcfgStore>();
         services.AddSingleton<ITechLogCollectionService, TechLogCollectionService>();
         services.AddSingleton<TechLogWatchdogService>();

@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  findingKindSchema,
   findingSchema,
   lockAnalysisResultSchema,
   slowQueryAnalysisResultSchema,
   exceptionAnalysisResultSchema,
   dbmsLockAnalysisResultSchema,
+  callAnalysisResultSchema,
 } from "../types";
 
 /**
@@ -389,6 +391,110 @@ describe("dbmsLockAnalysisResultSchema (kind=DbmsLocks)", () => {
         newBEField: true,
       })
     ).not.toThrow();
+  });
+});
+
+// ─── Call (MLC-249) ──────────────────────────────────────────────────────────
+
+describe("callAnalysisResultSchema (kind=Call)", () => {
+  it("парсит полный payload с topCalls и similarGroups", () => {
+    const parsed = callAnalysisResultSchema.parse({
+      topCalls: [
+        {
+          ts: "2026-06-20T05:00:00.000000",
+          durationMicroseconds: 5000000,
+          durationSeconds: 5.0,
+          context: "Документ.ЗакрытиеМесяца.МодульМенеджера:120",
+          method: "Posting",
+          cpuTime: "3000000",
+          memory: "4194304",
+        },
+      ],
+      similarGroups: [
+        {
+          context: "Документ.ЗакрытиеМесяца.МодульМенеджера:120",
+          count: 3,
+          totalDurationMicroseconds: 15000000,
+          maxDurationMicroseconds: 7000000,
+          totalDurationSeconds: 15.0,
+          maxDurationSeconds: 7.0,
+        },
+      ],
+      totalCallEvents: 7,
+      eventsAboveThreshold: 4,
+      skippedEvents: 1,
+    });
+
+    expect(parsed.topCalls).toHaveLength(1);
+    expect(parsed.topCalls[0].method).toBe("Posting");
+    expect(parsed.similarGroups[0].count).toBe(3);
+    expect(parsed.totalCallEvents).toBe(7);
+  });
+
+  it("omit-null: nullable-поля (context/method/cpuTime/memory) отсутствуют → null", () => {
+    const parsed = callAnalysisResultSchema.parse({
+      topCalls: [
+        {
+          // только обязательные числа
+          durationMicroseconds: 4000000,
+          durationSeconds: 4.0,
+        },
+      ],
+      similarGroups: [],
+      totalCallEvents: 1,
+      eventsAboveThreshold: 1,
+      skippedEvents: 0,
+    });
+
+    const c = parsed.topCalls[0];
+    expect(c.ts).toBeNull();
+    expect(c.context).toBeNull();
+    expect(c.method).toBeNull();
+    expect(c.cpuTime).toBeNull();
+    expect(c.memory).toBeNull();
+  });
+
+  it("лишний неизвестный ключ не валит схему", () => {
+    expect(() =>
+      callAnalysisResultSchema.parse({
+        topCalls: [],
+        similarGroups: [],
+        totalCallEvents: 0,
+        eventsAboveThreshold: 0,
+        skippedEvents: 0,
+        futureField: "x",
+      })
+    ).not.toThrow();
+  });
+
+  it("findingSchema с kind=Call типизирует result", () => {
+    const parsed = findingSchema.parse({
+      kind: "Call",
+      schemaVersion: 1,
+      result: {
+        topCalls: [{ durationMicroseconds: 5000000, durationSeconds: 5.0 }],
+        similarGroups: [],
+        totalCallEvents: 1,
+        eventsAboveThreshold: 1,
+        skippedEvents: 0,
+      },
+    });
+    expect(parsed.kind).toBe("Call");
+    expect(parsed.result).not.toBeNull();
+  });
+});
+
+// ─── FindingKind parity (MLC-249) ────────────────────────────────────────────
+
+describe("findingKindSchema — parity BE↔FE (frozen-enum имена)", () => {
+  it("принимает все имена членов FindingKind, включая Call (MLC-249)", () => {
+    for (const kind of ["ManagedLocks", "SlowQueries", "Exceptions", "DbmsLocks", "Call"]) {
+      expect(() => findingKindSchema.parse(kind)).not.toThrow();
+    }
+  });
+
+  it("отвергает неизвестное имя вида находки", () => {
+    expect(() => findingKindSchema.parse("UnknownKind")).toThrow();
   });
 });
 

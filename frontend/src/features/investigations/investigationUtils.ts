@@ -36,3 +36,13 @@ export function fmtSeconds(seconds: number): string {
   const s = (seconds % 60).toFixed(0);
   return `${m} мин ${s} с`;
 }
+
+/**
+ * Форматирует длительность для агрегатов (MLC-249, полировка приёмки): под-секундные значения
+ * показывает в МИЛЛИСЕКУНДАХ («6 мс»), а не «0.0 с» — иначе «много мелких» выглядит как ноль.
+ * < 1 c → «N мс» (целые мс); иначе → fmtSeconds («X,X с» / «X мин Y с»).
+ */
+export function fmtDurationShort(seconds: number): string {
+  if (seconds < 1) return `${Math.round(seconds * 1000)} мс`;
+  return fmtSeconds(seconds);
+}

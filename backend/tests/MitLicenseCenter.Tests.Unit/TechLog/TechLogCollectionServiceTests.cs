@@ -479,6 +479,7 @@ public sealed class TechLogCollectionServiceTests
                 new SlowQueryAnalyzer(),
                 new ExceptionAnalyzer(),
                 new DbmsLockAnalyzer(),
+                new CallAnalyzer(),
                 Settings,
                 Clock,
                 NullLogger<TechLogCollectionService>.Instance);

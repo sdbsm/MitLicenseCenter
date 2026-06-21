@@ -131,18 +131,27 @@ public sealed class InvestigationOrchestrationTests
     }
 
     [Fact]
-    public async Task GeneralSlow_scenario_produces_slowqueries_and_exceptions_findings()
+    public async Task GeneralSlow_scenario_produces_slowqueries_and_call_findings()
     {
         using var fx = new Fixture();
-        fx.Store.CollectionLines = FixtureLines("dbmssql-slow.ndjson");
+        // Сырьё: долгие запросы (DBMSSQL) + серверные вызовы (CALL) — обе стороны GeneralSlow.
+        fx.Store.CollectionLines = FixtureLines("dbmssql-slow.ndjson").Concat(FixtureLines("call-slow.ndjson")).ToArray();
         var start = await fx.Service.InstallAsync("admin", TechLogScenario.GeneralSlow, "infobase01", CancellationToken.None);
 
         await fx.Service.RemoveAsync(start.CollectionId, InvestigationStopReason.Manual, CancellationToken.None);
 
         var findings = await fx.QueryAsync(db => db.Findings.ToListAsync());
         findings.Select(f => f.Kind).Should().BeEquivalentTo(
-            new[] { FindingKind.SlowQueries, FindingKind.Exceptions },
-            "GeneralSlow = долгие запросы + исключения (решение MLC-238)");
+            new[] { FindingKind.SlowQueries, FindingKind.Call },
+            "MLC-249: GeneralSlow = долгие запросы + серверные вызовы CALL (Exceptions убран как мёртвый)");
+
+        // Реальный CallAnalyzer разобрал CALL-сторону: контекст «закрытие месяца» во вложенном JSON.
+        var call = findings.Single(f => f.Kind == FindingKind.Call);
+        call.SchemaVersion.Should().Be(1);
+        call.ResultJson.Should().Contain("topCalls");
+        // Кириллица в JSON эскейпится (\u…); проверяем по ASCII-якорям наполнения агрегата по контексту.
+        call.ResultJson.Should().Contain("similarGroups");
+        call.ResultJson.Should().Contain("\"count\":3", "три CALL одного контекста схлопнулись в группу");
     }
 
     [Fact]
@@ -247,6 +256,7 @@ public sealed class InvestigationOrchestrationTests
                 new SlowQueryAnalyzer(),
                 new ExceptionAnalyzer(),
                 new DbmsLockAnalyzer(),
+                new CallAnalyzer(),
                 Settings,
                 Clock,
                 NullLogger<TechLogCollectionService>.Instance);
