@@ -320,9 +320,11 @@ describe("InvestigationWizard — Мастер запуска (MLC-242, экра
     expect(startBtn).not.toBeDisabled();
     await user.click(startBtn);
 
+    // MLC-248: для SlowQueries Мастер несёт порог (дефолт 1 c).
     expect(mockMutateAsyncStart).toHaveBeenCalledWith({
       scenario: "SlowQueries",
       infobaseId: "ib-1",
+      slowQueryThresholdSeconds: 1,
     });
   });
 

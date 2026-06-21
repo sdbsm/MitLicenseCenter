@@ -12,9 +12,13 @@ namespace MitLicenseCenter.Web.Endpoints;
 // Тело запроса старта расследования (POST /investigations). Scenario обязателен; InfobaseId
 // опционален — задан ⇒ эндпоинт резолвит инфобазу из реестра (имя→p:processName, TenantId) и
 // привязывает дело к арендатору (иначе сбор охватывает весь кластер).
+// SlowQueryThresholdSeconds (MLC-248) — порог «долгих запросов» В СЕКУНДАХ (оператору понятнее микросекунд),
+// релевантен только сценариям SlowQueries/GeneralSlow. Валидация: ≥ 0; отрицательное → 400. null/не задано →
+// дефолт 1 c. Явный 0 допустим (все запросы попадут в «топ долгих»). Эндпоинт конвертирует сек→микросек.
 public sealed record StartInvestigationRequest(
     InvestigationScenario Scenario,
-    Guid? InfobaseId);
+    Guid? InfobaseId,
+    double? SlowQueryThresholdSeconds = null);
 
 // Элемент списка дел + шапка детали. Поля nullable (StoppedAtUtc/StopReason/TenantId/InfobaseId)
 // бэкенд ОПУСКАЕТ при null (WhenWritingNull) — на FE это omittable(). FindingsCount — число

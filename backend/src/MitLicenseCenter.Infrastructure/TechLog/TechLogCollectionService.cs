@@ -32,11 +32,13 @@ internal sealed partial class TechLogCollectionService : ITechLogCollectionServi
     private const long BytesPerMb = 1024L * 1024L;
     private const string SystemInitiator = "system";
 
-    // Порог длительности для анализа долгих запросов в расследовании (5 000 000 µs = 5 c). Фильтр Dur в
-    // logcfg для JSON-ТЖ 8.5 не работает (MLC-229) — порог применяет ISlowQueryAnalyzer. Рекомендация
-    // интерфейса для расследований — 5 c (дефолт метода 1 c слишком шумный). Кладётся в снимок
+    // Дефолтный порог длительности «долгих запросов» (MLC-248: 1 000 000 µs = 1 c), когда оператор не задал
+    // его в Мастере. Фильтр Dur в logcfg для JSON-ТЖ 8.5 не работает (MLC-229) — порог применяет
+    // ISlowQueryAnalyzer. Раньше был жёстко 5 c → «закрытие месяца» (тысячи быстрых запросов 0.0001–0.1 c)
+    // давало 0 находок (стенд-приёмка 1.2). Порог теперь настраивается пер-расследование (InstallAsync), а
+    // агрегат «похожие запросы» (SimilarGroups) от порога НЕ зависит вовсе. Кладётся в снимок
     // CollectionConfig.DurationThresholdMicros (фактически применённый порог).
-    private const long InvestigationSlowQueryThresholdMicros = 5_000_000;
+    private const long DefaultSlowQueryThresholdMicros = 1_000_000;
 
     // Версия формы payload'а Finding.ResultJson (System.Text.Json-сериализация DTO анализатора).
     private const int FindingSchemaVersion = 1;
@@ -89,7 +91,7 @@ internal sealed partial class TechLogCollectionService : ITechLogCollectionServi
 
     public async Task<TechLogStartResult> InstallAsync(
         string startedBy, TechLogScenario scenario, string? infobaseProcessName, CancellationToken ct,
-        Guid? infobaseId = null, Guid? tenantId = null)
+        Guid? infobaseId = null, Guid? tenantId = null, long? slowQueryThresholdMicros = null)
     {
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
@@ -214,8 +216,10 @@ internal sealed partial class TechLogCollectionService : ITechLogCollectionServi
                 {
                     LogcfgLocation = collectionDir,
                     Events = string.Join(',', _builder.EventsFor(scenario)),
+                    // MLC-248: фактический порог = заданный оператором (микросек) или дефолт 1 c. Релевантен
+                    // только сценариям с долгими запросами (SlowQueries/GeneralSlow); прочим — null.
                     DurationThresholdMicros = ScenarioUsesDurationThreshold(scenario)
-                        ? InvestigationSlowQueryThresholdMicros
+                        ? slowQueryThresholdMicros ?? DefaultSlowQueryThresholdMicros
                         : null,
                     ProcessNameFilter = infobaseProcessName,
                     Format = "json",
@@ -430,8 +434,7 @@ internal sealed partial class TechLogCollectionService : ITechLogCollectionServi
             var parseResult = _parser.ParseLines(_store.ReadCollectionLines(collectionDirectory));
             var events = parseResult.Events.ToList();
 
-            var findings = BuildFindings(investigationId, scenario, events);
-
+            var findingsCount = 0;
             using (var scope = _scopeFactory.CreateScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -442,6 +445,13 @@ internal sealed partial class TechLogCollectionService : ITechLogCollectionServi
                 {
                     return; // дело исчезло между переходами — нечего завершать
                 }
+
+                // MLC-248: порог долгих запросов берём из снимка дела (фактически применённый при старте),
+                // НЕ из хардкод-константы. Null у сценария с порогом (теоретически) → дефолт 1 c.
+                var thresholdMicros = collection.CollectionConfig?.DurationThresholdMicros
+                                      ?? DefaultSlowQueryThresholdMicros;
+                var findings = BuildFindings(investigationId, scenario, events, thresholdMicros);
+                findingsCount = findings.Count;
 
                 foreach (var finding in findings)
                 {
@@ -457,7 +467,7 @@ internal sealed partial class TechLogCollectionService : ITechLogCollectionServi
             // Сырьё ТЖ удаляем только после успешного наполнения Finding'ов (решение MLC-237 Q2):
             // разобранный результат уже в БД, сырое держать незачем (объём, ПДн арендаторов).
             _store.DeleteCollectionFiles(collectionDirectory);
-            LogAnalyzed(_logger, investigationId, scenario, findings.Count);
+            LogAnalyzed(_logger, investigationId, scenario, findingsCount);
         }
         catch (OperationCanceledException)
         {
@@ -478,7 +488,8 @@ internal sealed partial class TechLogCollectionService : ITechLogCollectionServi
     // сериализация DTO анализатора; SchemaVersion=1; Kind соответствует анализатору. Привязку к арендатору
     // (нормализация p:processName) анализаторы делают сами внутри DTO — здесь не дублируем.
     private List<Finding> BuildFindings(
-        Guid investigationId, InvestigationScenario scenario, IReadOnlyList<TechLogEvent> events)
+        Guid investigationId, InvestigationScenario scenario, IReadOnlyList<TechLogEvent> events,
+        long slowQueryThresholdMicros)
     {
         var findings = new List<Finding>();
 
@@ -489,7 +500,7 @@ internal sealed partial class TechLogCollectionService : ITechLogCollectionServi
                 break;
             case InvestigationScenario.SlowQueries:
                 findings.Add(NewFinding(investigationId, FindingKind.SlowQueries,
-                    _slowQueryAnalyzer.Analyze(events, InvestigationSlowQueryThresholdMicros)));
+                    _slowQueryAnalyzer.Analyze(events, slowQueryThresholdMicros)));
                 break;
             case InvestigationScenario.Exceptions:
                 findings.Add(NewFinding(investigationId, FindingKind.Exceptions, _exceptionAnalyzer.Analyze(events)));
@@ -500,7 +511,7 @@ internal sealed partial class TechLogCollectionService : ITechLogCollectionServi
             case InvestigationScenario.GeneralSlow:
                 // Комбинированный: долгие запросы + исключения (решение MLC-238).
                 findings.Add(NewFinding(investigationId, FindingKind.SlowQueries,
-                    _slowQueryAnalyzer.Analyze(events, InvestigationSlowQueryThresholdMicros)));
+                    _slowQueryAnalyzer.Analyze(events, slowQueryThresholdMicros)));
                 findings.Add(NewFinding(investigationId, FindingKind.Exceptions, _exceptionAnalyzer.Analyze(events)));
                 break;
             default:

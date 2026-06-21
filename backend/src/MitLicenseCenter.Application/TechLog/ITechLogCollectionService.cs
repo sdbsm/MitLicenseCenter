@@ -21,9 +21,13 @@ public interface ITechLogCollectionService
     // изолирует — logcfg глобален; изоляция арендатора выполняется фильтром p:processName
     // (infobaseProcessName). Инвариант 60_SAFETY №2: при заданном infobaseId эндпоинт обязан передать
     // непустой infobaseProcessName (имя ИБ), иначе EnsureProcessFilterInvariant бросит.
+    //
+    // MLC-248: slowQueryThresholdMicros — порог «долгих запросов» в МИКРОсекундах (фактически применит
+    // ISlowQueryAnalyzer и положит в снимок CollectionConfig.DurationThresholdMicros для сценариев
+    // SlowQueries/GeneralSlow). null → дефолт 1 c (1 000 000 µs). Конверсия сек→микросек — на эндпоинте.
     Task<TechLogStartResult> InstallAsync(
         string startedBy, TechLogScenario scenario, string? infobaseProcessName, CancellationToken ct,
-        Guid? infobaseId = null, Guid? tenantId = null);
+        Guid? infobaseId = null, Guid? tenantId = null, long? slowQueryThresholdMicros = null);
 
     // Снимает активный сбор: восстановление исходного logcfg → дело Completed (reason) → аудит.
     // NotActive — переданный id не является текущим активным делом.

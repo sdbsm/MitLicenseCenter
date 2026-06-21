@@ -201,7 +201,11 @@ function Locks1cBlock({ result }: { result: LockAnalysisResult }) {
 function SlowQueriesBlock({ result }: { result: SlowQueryAnalysisResult }) {
   const { t } = useTranslation();
 
-  if (result.topQueries.length === 0) {
+  const hasTop = result.topQueries.length > 0;
+  const hasGroups = result.similarGroups.length > 0;
+
+  // Пусто и там, и там — нейтральная подпись (анализатор отработал, находок нет).
+  if (!hasTop && !hasGroups) {
     return (
       <p className="text-muted-foreground text-sm">
         {t("investigations.detail.slowQueries.empty")}
@@ -210,59 +214,94 @@ function SlowQueriesBlock({ result }: { result: SlowQueryAnalysisResult }) {
   }
 
   return (
-    <div className="space-y-3">
-      {result.topQueries.map((q, i) => (
-        <details key={i} className="group rounded-md border">
-          <summary className="flex cursor-pointer items-start gap-3 p-3 text-sm marker:content-none">
-            <span className="text-muted-foreground w-16 shrink-0 tabular-nums">
-              {fmtSeconds(q.durationSeconds)}
-            </span>
-            <span className="text-muted-foreground min-w-0 flex-1 truncate">
-              {q.context ?? t("investigations.detail.slowQueries.sql")}
-            </span>
-          </summary>
-          <div className="space-y-2 border-t p-3 text-sm">
-            {q.context && (
-              <div>
-                <p className="text-muted-foreground mb-1 text-xs">
-                  {t("investigations.detail.slowQueries.context")}
-                </p>
-                <pre className="bg-muted overflow-x-auto rounded p-2 text-xs break-words whitespace-pre-wrap">
-                  {q.context}
-                </pre>
+    <div className="space-y-6">
+      {/* Топ единичных долгих запросов (гейт по порогу). */}
+      {hasTop ? (
+        <div className="space-y-3">
+          {result.topQueries.map((q, i) => (
+            <details key={i} className="group rounded-md border">
+              <summary className="flex cursor-pointer items-start gap-3 p-3 text-sm marker:content-none">
+                <span className="text-muted-foreground w-16 shrink-0 tabular-nums">
+                  {fmtSeconds(q.durationSeconds)}
+                </span>
+                <span className="text-muted-foreground min-w-0 flex-1 truncate">
+                  {q.context ?? t("investigations.detail.slowQueries.sql")}
+                </span>
+              </summary>
+              <div className="space-y-2 border-t p-3 text-sm">
+                {q.context && (
+                  <div>
+                    <p className="text-muted-foreground mb-1 text-xs">
+                      {t("investigations.detail.slowQueries.context")}
+                    </p>
+                    <pre className="bg-muted overflow-x-auto rounded p-2 text-xs break-words whitespace-pre-wrap">
+                      {q.context}
+                    </pre>
+                  </div>
+                )}
+                {q.sql ? (
+                  <div>
+                    <p className="text-muted-foreground mb-1 text-xs">
+                      {t("investigations.detail.slowQueries.sql")}
+                    </p>
+                    <pre className="bg-muted overflow-x-auto rounded p-2 text-xs break-words whitespace-pre-wrap">
+                      {q.sql}
+                    </pre>
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground text-xs">
+                    {t("investigations.detail.slowQueries.noSql")}
+                  </p>
+                )}
+                {q.planText ? (
+                  <div>
+                    <p className="text-muted-foreground mb-1 text-xs">
+                      {t("investigations.detail.slowQueries.planTitle")}
+                    </p>
+                    <pre className="bg-muted max-h-48 overflow-x-auto rounded p-2 text-xs break-words whitespace-pre-wrap">
+                      {q.planText}
+                    </pre>
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground text-xs">
+                    {t("investigations.detail.slowQueries.noPlan")}
+                  </p>
+                )}
               </div>
-            )}
-            {q.sql ? (
-              <div>
-                <p className="text-muted-foreground mb-1 text-xs">
-                  {t("investigations.detail.slowQueries.sql")}
-                </p>
-                <pre className="bg-muted overflow-x-auto rounded p-2 text-xs break-words whitespace-pre-wrap">
-                  {q.sql}
+            </details>
+          ))}
+        </div>
+      ) : (
+        // Топ пуст, но есть агрегат — это и есть кейс «много мелких» (MLC-248): поясняем оператору.
+        <p className="text-muted-foreground text-sm">
+          {t("investigations.detail.slowQueries.topEmptyGroupsPresent")}
+        </p>
+      )}
+
+      {/* Агрегат «похожие запросы» по суммарному времени (MLC-248) — независим от порога топа. */}
+      {hasGroups && (
+        <div className="space-y-2">
+          <p className="text-sm font-medium">
+            {t("investigations.detail.slowQueries.similarGroupsTitle")}
+          </p>
+          <div className="space-y-2">
+            {result.similarGroups.map((g, i) => (
+              <div key={i} className="bg-muted/40 space-y-1 rounded-md p-3 text-sm">
+                <pre className="overflow-x-auto font-mono text-xs break-words whitespace-pre-wrap">
+                  {g.normalizedSql}
                 </pre>
-              </div>
-            ) : (
-              <p className="text-muted-foreground text-xs">
-                {t("investigations.detail.slowQueries.noSql")}
-              </p>
-            )}
-            {q.planText ? (
-              <div>
-                <p className="text-muted-foreground mb-1 text-xs">
-                  {t("investigations.detail.slowQueries.planTitle")}
+                <p className="text-muted-foreground text-xs">
+                  {t("investigations.detail.slowQueries.groupStats", {
+                    count: g.count,
+                    total: fmtSeconds(g.totalDurationSeconds),
+                    max: fmtSeconds(g.maxDurationSeconds),
+                  })}
                 </p>
-                <pre className="bg-muted max-h-48 overflow-x-auto rounded p-2 text-xs break-words whitespace-pre-wrap">
-                  {q.planText}
-                </pre>
               </div>
-            ) : (
-              <p className="text-muted-foreground text-xs">
-                {t("investigations.detail.slowQueries.noPlan")}
-              </p>
-            )}
+            ))}
           </div>
-        </details>
-      ))}
+        </div>
+      )}
     </div>
   );
 }

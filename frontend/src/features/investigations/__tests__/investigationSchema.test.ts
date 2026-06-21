@@ -6,6 +6,7 @@ import {
   investigationsPagedSchema,
   progressSchema,
   reportSchema,
+  type StartInvestigationRequest,
 } from "../types";
 
 /**
@@ -186,6 +187,35 @@ describe("reportSchema", () => {
     });
     expect(parsed.items[0].severity).toBe("Warning");
     expect(parsed.items[0].count).toBe(12);
+  });
+});
+
+describe("StartInvestigationRequest body (MLC-248 parity)", () => {
+  // Контракт старта — TS-интерфейс (Zod-схемы запроса нет); проверяем форму тела на проводе.
+  it("сериализует slowQueryThresholdSeconds как число (имя поля 1:1 с BE-DTO)", () => {
+    const body: StartInvestigationRequest = {
+      scenario: "SlowQueries",
+      slowQueryThresholdSeconds: 2.5,
+    };
+    const json = JSON.parse(JSON.stringify(body));
+    expect(json.scenario).toBe("SlowQueries");
+    expect(json.slowQueryThresholdSeconds).toBe(2.5);
+  });
+
+  it("omit-null: без порога поле отсутствует в теле (бэкенд применит дефолт 1 c)", () => {
+    const body: StartInvestigationRequest = { scenario: "Locks", infobaseId: "ib-1" };
+    const json = JSON.parse(JSON.stringify(body));
+    expect("slowQueryThresholdSeconds" in json).toBe(false);
+    expect(json.infobaseId).toBe("ib-1");
+  });
+
+  it("явный 0 — валидное значение и сериализуется (все запросы в топ)", () => {
+    const body: StartInvestigationRequest = {
+      scenario: "GeneralSlow",
+      slowQueryThresholdSeconds: 0,
+    };
+    const json = JSON.parse(JSON.stringify(body));
+    expect(json.slowQueryThresholdSeconds).toBe(0);
   });
 });
 

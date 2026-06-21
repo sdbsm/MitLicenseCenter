@@ -18,6 +18,8 @@
         "scopeLabel": "На что нацелить",
         "scopeAll": "Весь узел (все инфобазы)",
         "scopeInfobase": "Конкретная инфобаза",
+        "thresholdLabel": "Порог длительности запроса, c",
+        "thresholdHint": "Запросы короче порога не попадут в «топ долгих», но войдут в агрегат «похожие запросы».",
         "infobaseLabel": "Инфобаза",
         "infobasePlaceholder": "Выберите инфобазу",
         "infobaseSearchPlaceholder": "Поиск по имени",

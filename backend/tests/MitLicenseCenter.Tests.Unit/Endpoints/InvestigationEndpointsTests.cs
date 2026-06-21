@@ -44,7 +44,7 @@ public sealed class InvestigationEndpointsTests
         var svc = Substitute.For<ITechLogCollectionService>();
         svc.InstallAsync(
                 Arg.Any<string>(), Arg.Any<TechLogScenario>(), Arg.Any<string?>(), Arg.Any<CancellationToken>(),
-                Arg.Any<Guid?>(), Arg.Any<Guid?>())
+                Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<long?>())
             .Returns(new TechLogStartResult(TechLogStartOutcome.Started, caseId));
 
         // Сервис персистит дело в своём scope; in-memory store общий — эмулируем строкой с резолвнутыми привязками.
@@ -74,8 +74,93 @@ public sealed class InvestigationEndpointsTests
         created.Location.Should().Be($"/api/v1/investigations/{caseId}");
 
         // Резолв передал имя ИБ как p:processName и InfobaseId/TenantId в сервис (закрытие разрыва MLC-238).
+        // Порог не задан → null (сервис применит дефолт 1 c, MLC-248).
         await svc.Received(1).InstallAsync(
-            "admin", TechLogScenario.SlowQueries, "infobase01", Arg.Any<CancellationToken>(), infobaseId, tenantId);
+            "admin", TechLogScenario.SlowQueries, "infobase01", Arg.Any<CancellationToken>(), infobaseId, tenantId, null);
+    }
+
+    [Fact]
+    public async Task Start_passes_threshold_seconds_as_microseconds_to_service()
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+        var caseId = Guid.NewGuid();
+        var svc = Substitute.For<ITechLogCollectionService>();
+        svc.InstallAsync(
+                Arg.Any<string>(), Arg.Any<TechLogScenario>(), Arg.Any<string?>(), Arg.Any<CancellationToken>(),
+                Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<long?>())
+            .Returns(new TechLogStartResult(TechLogStartOutcome.Started, caseId));
+        db.Investigations.Add(NewCase(caseId, InvestigationStatus.Collecting));
+        await db.SaveChangesAsync();
+
+        // 2.5 c → 2 500 000 µs (конверсия сек→микросек на эндпоинте).
+        var result = await InvestigationEndpoints.StartInvestigationAsync(
+            new StartInvestigationRequest(InvestigationScenario.SlowQueries, InfobaseId: null, SlowQueryThresholdSeconds: 2.5),
+            svc, db, TestHelpers.NewHttpContext("admin"), CancellationToken.None);
+
+        result.Result.Should().BeOfType<Created<InvestigationSummary>>();
+        await svc.Received(1).InstallAsync(
+            "admin", TechLogScenario.SlowQueries, null, Arg.Any<CancellationToken>(), null, null, 2_500_000L);
+    }
+
+    [Fact]
+    public async Task Start_without_threshold_passes_null_so_service_applies_default()
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+        var caseId = Guid.NewGuid();
+        var svc = Substitute.For<ITechLogCollectionService>();
+        svc.InstallAsync(
+                Arg.Any<string>(), Arg.Any<TechLogScenario>(), Arg.Any<string?>(), Arg.Any<CancellationToken>(),
+                Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<long?>())
+            .Returns(new TechLogStartResult(TechLogStartOutcome.Started, caseId));
+        db.Investigations.Add(NewCase(caseId, InvestigationStatus.Collecting));
+        await db.SaveChangesAsync();
+
+        var result = await InvestigationEndpoints.StartInvestigationAsync(
+            new StartInvestigationRequest(InvestigationScenario.SlowQueries, InfobaseId: null),
+            svc, db, TestHelpers.NewHttpContext("admin"), CancellationToken.None);
+
+        result.Result.Should().BeOfType<Created<InvestigationSummary>>();
+        await svc.Received(1).InstallAsync(
+            "admin", TechLogScenario.SlowQueries, null, Arg.Any<CancellationToken>(), null, null, null);
+    }
+
+    [Fact]
+    public async Task Start_with_zero_threshold_is_valid_and_passes_zero_micros()
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+        var caseId = Guid.NewGuid();
+        var svc = Substitute.For<ITechLogCollectionService>();
+        svc.InstallAsync(
+                Arg.Any<string>(), Arg.Any<TechLogScenario>(), Arg.Any<string?>(), Arg.Any<CancellationToken>(),
+                Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<long?>())
+            .Returns(new TechLogStartResult(TechLogStartOutcome.Started, caseId));
+        db.Investigations.Add(NewCase(caseId, InvestigationStatus.Collecting));
+        await db.SaveChangesAsync();
+
+        // Явный 0 допустим (все запросы в топ); конверсия = 0 µs.
+        var result = await InvestigationEndpoints.StartInvestigationAsync(
+            new StartInvestigationRequest(InvestigationScenario.GeneralSlow, InfobaseId: null, SlowQueryThresholdSeconds: 0),
+            svc, db, TestHelpers.NewHttpContext("admin"), CancellationToken.None);
+
+        result.Result.Should().BeOfType<Created<InvestigationSummary>>();
+        await svc.Received(1).InstallAsync(
+            "admin", TechLogScenario.GeneralSlow, null, Arg.Any<CancellationToken>(), null, null, 0L);
+    }
+
+    [Fact]
+    public async Task Start_with_negative_threshold_returns_validation_problem_and_does_not_install()
+    {
+        using var db = TestHelpers.NewInMemoryDb();
+        var svc = Substitute.For<ITechLogCollectionService>();
+
+        var result = await InvestigationEndpoints.StartInvestigationAsync(
+            new StartInvestigationRequest(InvestigationScenario.SlowQueries, InfobaseId: null, SlowQueryThresholdSeconds: -1),
+            svc, db, TestHelpers.NewHttpContext("admin"), CancellationToken.None);
+
+        result.Result.Should().BeOfType<ValidationProblem>();
+        await svc.DidNotReceive().InstallAsync(
+            Arg.Any<string>(), Arg.Any<TechLogScenario>(), Arg.Any<string?>(), Arg.Any<CancellationToken>(),
+            Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<long?>());
     }
 
     [Fact]
@@ -86,7 +171,7 @@ public sealed class InvestigationEndpointsTests
         var svc = Substitute.For<ITechLogCollectionService>();
         svc.InstallAsync(
                 Arg.Any<string>(), Arg.Any<TechLogScenario>(), Arg.Any<string?>(), Arg.Any<CancellationToken>(),
-                Arg.Any<Guid?>(), Arg.Any<Guid?>())
+                Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<long?>())
             .Returns(new TechLogStartResult(TechLogStartOutcome.Started, caseId));
         db.Investigations.Add(NewCase(caseId, InvestigationStatus.Collecting));
         await db.SaveChangesAsync();
@@ -97,7 +182,7 @@ public sealed class InvestigationEndpointsTests
 
         result.Result.Should().BeOfType<Created<InvestigationSummary>>();
         await svc.Received(1).InstallAsync(
-            "admin", TechLogScenario.Locks, null, Arg.Any<CancellationToken>(), null, null);
+            "admin", TechLogScenario.Locks, null, Arg.Any<CancellationToken>(), null, null, null);
     }
 
     [Fact]
@@ -113,7 +198,7 @@ public sealed class InvestigationEndpointsTests
         result.Result.Should().BeOfType<NotFound>();
         await svc.DidNotReceive().InstallAsync(
             Arg.Any<string>(), Arg.Any<TechLogScenario>(), Arg.Any<string?>(), Arg.Any<CancellationToken>(),
-            Arg.Any<Guid?>(), Arg.Any<Guid?>());
+            Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<long?>());
     }
 
     [Fact]
@@ -123,7 +208,7 @@ public sealed class InvestigationEndpointsTests
         var svc = Substitute.For<ITechLogCollectionService>();
         svc.InstallAsync(
                 Arg.Any<string>(), Arg.Any<TechLogScenario>(), Arg.Any<string?>(), Arg.Any<CancellationToken>(),
-                Arg.Any<Guid?>(), Arg.Any<Guid?>())
+                Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<long?>())
             .Returns(new TechLogStartResult(TechLogStartOutcome.AlreadyActive, Guid.NewGuid()));
 
         var result = await InvestigationEndpoints.StartInvestigationAsync(
@@ -141,7 +226,7 @@ public sealed class InvestigationEndpointsTests
         var svc = Substitute.For<ITechLogCollectionService>();
         svc.InstallAsync(
                 Arg.Any<string>(), Arg.Any<TechLogScenario>(), Arg.Any<string?>(), Arg.Any<CancellationToken>(),
-                Arg.Any<Guid?>(), Arg.Any<Guid?>())
+                Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<long?>())
             .Returns(new TechLogStartResult(
                 TechLogStartOutcome.NoWriteAccess, Guid.Empty,
                 GrantCommand: "icacls \"C:\\conf\" /grant ...", Issue: "Нет прав на logcfg.xml."));

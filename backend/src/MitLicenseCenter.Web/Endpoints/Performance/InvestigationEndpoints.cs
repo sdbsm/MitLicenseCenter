@@ -162,13 +162,32 @@ public static class InvestigationEndpoints
     }
 
     // ── Старт расследования (Admin). Резолвит инфобазу из реестра, привязывает дело к арендатору. ──
-    internal static async Task<Results<Created<InvestigationSummary>, Conflict<ProblemDetails>, NotFound>> StartInvestigationAsync(
+    internal static async Task<Results<Created<InvestigationSummary>, Conflict<ProblemDetails>, NotFound, ValidationProblem>> StartInvestigationAsync(
         StartInvestigationRequest request,
         [FromServices] ITechLogCollectionService service,
         [FromServices] AppDbContext db,
         HttpContext httpContext,
         CancellationToken ct)
     {
+        // MLC-248: порог долгих запросов (сек). Отрицательное недопустимо (NaN тоже) → 400. null/не задано →
+        // дефолт применит сервис (1 c). Явный 0 допустим (все запросы в «топ»). Конверсия сек→микросек —
+        // единственное место, здесь: long микросекунд уходит в сервис → CollectionConfig → анализатор.
+        long? slowQueryThresholdMicros = null;
+        if (request.SlowQueryThresholdSeconds is { } seconds)
+        {
+            if (double.IsNaN(seconds) || seconds < 0)
+            {
+                return TypedResults.ValidationProblem(
+                    new Dictionary<string, string[]>(StringComparer.Ordinal)
+                    {
+                        [nameof(request.SlowQueryThresholdSeconds)] =
+                            ["Порог длительности должен быть не меньше 0 секунд."],
+                    });
+            }
+
+            slowQueryThresholdMicros = (long)(seconds * 1_000_000d);
+        }
+
         // Резолв инфобазы (как PerformanceEndpoints.GetSqlAsync сшивает базу→клиент): из InfobaseId
         // берём Name (→ p:processName) и TenantId. Несуществующий InfobaseId → 404 (нечего собирать).
         Guid? tenantId = null;
@@ -194,7 +213,8 @@ public static class InvestigationEndpoints
         var initiator = httpContext.ResolveInitiator();
         var scenario = (TechLogScenario)(int)request.Scenario;
         var result = await service
-            .InstallAsync(initiator, scenario, infobaseProcessName, ct, request.InfobaseId, tenantId)
+            .InstallAsync(initiator, scenario, infobaseProcessName, ct, request.InfobaseId, tenantId,
+                slowQueryThresholdMicros)
             .ConfigureAwait(false);
 
         if (result.Outcome != TechLogStartOutcome.Started)
