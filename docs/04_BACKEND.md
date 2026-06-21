@@ -983,8 +983,9 @@ Cold-цикл сеансов с MLC-154 — не Hangfire-джоб, а `ColdTier
   `TechLog.CollectionAgentAccount` задан и прав нет → структурный отказ `AgentNoCollectionAccess` с
   командой `icacls`, сбор НЕ стартует — иначе «пустые дела»; если аккаунт пуст → не блокируем, лишь
   предупреждение в лог с шаблоном команды; «проверка невозможна» → не блокируем, MLC-247 A2) → бэкап
-  исходного → запись → дело `TechLogCollection` (`Active`) → аудит. `RemoveAsync`:
-  восстановление исходного `logcfg` → дело `Stopped` (с причиной) → аудит. `MonitorActiveAsync`
+  исходного → запись → дело `Investigation` (`Collecting`) → аудит. `RemoveAsync`:
+  восстановление исходного `logcfg` (ДО анализа) → конвейер `Collecting→Analyzing→Completed`/`Failed`
+  (с причиной) → аудит. `MonitorActiveAsync`
   (периодический сторож активного дела): по окну времени (`TechLog.MaxDurationMinutes` → авто-стоп
   `TimeLimit`) и размеру каталога сбора (`TechLog.DiskLimitMb` → авто-стоп `DiskLimit`). Измерение
   свободного места и размера каталога — за seam'ом `ILogcfgStore` (детерминированные тесты).
@@ -1012,10 +1013,11 @@ Cold-цикл сеансов с MLC-154 — не Hangfire-джоб, а `ColdTier
   прерванным, и его конфиг снимается. Затем — петля с коротким фиксированным интервалом, на каждом тике
   `MonitorActiveAsync` (авто-стоп по окну/лимиту места), no-op при отсутствии активного дела.
 
-Сущность `TechLogCollection` (Domain) — прокси «активного дела» (мигрирует в полноценную сущность
-расследования позже); телеметрия в `dbo.TechLogCollections`, enum'ы `TechLogCollectionStatus`/
-`TechLogCollectionStopReason` (`Manual`/`TimeLimit`/`DiskLimit`) хранятся `int`'ом (`HasConversion<int>`,
-frozen-int как у `PerfRecording*`). Настройки: `TechLog.CollectionRoot` (каталог сбора, дефолт под
+Сущность `Investigation` (Domain, MLC-237 — заменила прокси `TechLogCollection` миграцией+drop) — «дело»
+расследования; телеметрия в `dbo.Investigations`, enum'ы `InvestigationStatus` (`Collecting`/`Analyzing`/
+`Completed`/`Interrupted`/`Failed`)/`InvestigationStopReason` (`Manual`/`TimeLimit`/`DiskLimit`/`Error`)
+хранятся `int`'ом (`HasConversion<int>`, frozen-int как у `PerfRecording*`); снимок сбора — owned
+`CollectionConfig`, находки — `Finding` (`Kind`∈`FindingKind`, версионированный JSON). Настройки: `TechLog.CollectionRoot` (каталог сбора, дефолт под
 `%PROGRAMDATA%`), `TechLog.HistoryHours` (короткий дефолт по политике безопасности),
 `TechLog.MaxDurationMinutes` (окно авто-снятия), `TechLog.DiskLimitMb` (потолок размера каталога),
 `TechLog.MinFreeDiskMb` (порог свободного места перед стартом). Аудит —
