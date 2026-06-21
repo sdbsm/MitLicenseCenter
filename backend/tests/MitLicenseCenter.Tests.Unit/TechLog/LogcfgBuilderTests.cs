@@ -6,9 +6,11 @@ using Xunit;
 
 namespace MitLicenseCenter.Tests.Unit.TechLog;
 
-// MLC-230 (ADR-57/58): генератор целевого logcfg.xml — ядро задачи, чистый C#. Тесты кодируют ЗАКОН
-// по фактам стенда MLC-229 (40_TECHLOG §6/§8): format="json", НИКАКОГО фильтра длительности
-// (Dur не работает для JSON-ТЖ 8.5), изоляция арендатора через точный <eq p:processName>, маркер.
+// MLC-230 (ADR-57/58) + сверка с офиц. спекой MLC-246: генератор целевого logcfg.xml — ядро задачи,
+// чистый C#. Тесты кодируют СЕМАНТИКУ модели <event>/<property> (41_LOGCFG_SPEC §4), а не только
+// XML-структуру (слабые структурные тесты и пропустили баги F-1/F-2): format="json", НИКАКОГО фильтра
+// длительности, изоляция арендатора <eq p:processName> ВНУТРИ каждого <event> (F-1), обязательный
+// <property name="all"/> для записи свойств событий (F-2), event-scope строго целевой, маркер.
 public sealed class LogcfgBuilderTests
 {
     private const string Location = @"C:\ProgramData\MitLicenseCenter\techlog";
@@ -33,8 +35,10 @@ public sealed class LogcfgBuilderTests
     [Fact]
     public void Build_never_emits_duration_filter()
     {
-        // 🛑 Фильтр длительности (<ge property="Dur"/>) НЕ работает для JSON-ТЖ 8.5 (ловит 0) —
-        // объём режется ТОЛЬКО типом события и p:processName. Порог длительности — в парсере (этап B).
+        // F-3 (MLC-246): фильтр длительности в logcfg НЕ ставим. Прежний прогон с property="Dur" ловил 0,
+        // но "Dur" — НЕсуществующее свойство (41_LOGCFG_SPEC §5: фильтр — Duration/Durationus). Верный ли
+        // фильтр (<ge property="Duration"/>) работает в JSON — за стенд-ретестом; до него порог длительности
+        // делает парсер (этап B), а в logcfg фильтра нет (убрать безопасно). Тест закрепляет отсутствие.
         foreach (var scenario in Enum.GetValues<TechLogScenario>())
         {
             var xml = _builder.Build(scenario, "mitpro", Location, 2);
@@ -45,16 +49,33 @@ public sealed class LogcfgBuilderTests
     }
 
     [Fact]
-    public void Build_emits_exact_processName_eq_when_infobase_given()
+    public void Build_isolation_processName_lives_inside_each_event_next_to_name()
     {
-        // Инвариант изоляции арендатора (60_SAFETY №2): точный <eq property="p:processName" value=...>.
-        var doc = BuildDoc(infobase: "mitpro");
-        var eq = doc.Descendants()
-            .Where(e => e.Name.LocalName == "eq")
-            .SingleOrDefault(e => e.Attribute("property")?.Value == "p:processName");
+        // F-1 (MLC-246): изоляция арендатора — это СЕМАНТИКА event-scope (41_LOGCFG_SPEC §4.1), а не
+        // «есть где-то <eq p:processName>». Условие p:processName обязано лежать ВНУТРИ <event> (его
+        // родитель — <event>), и в КАЖДОМ <event> должны быть И name, И p:processName (объединение по «И»).
+        var doc = BuildDoc(TechLogScenario.SlowQueries, infobase: "ut11_saratov");
+        var events = doc.Descendants().Where(e => e.Name.LocalName == "event").ToArray();
+        events.Should().NotBeEmpty();
 
-        eq.Should().NotBeNull("при заданной ИБ шаблон обязан содержать фильтр p:processName");
-        eq!.Attribute("value")!.Value.Should().Be("mitpro");
+        foreach (var ev in events)
+        {
+            var props = ev.Elements()
+                .Where(c => c.Name.LocalName == "eq")
+                .Select(c => c.Attribute("property")!.Value)
+                .ToArray();
+            props.Should().Contain("name", "каждое <event> отбирает по типу события");
+            props.Should().Contain("p:processName", "каждое <event> изолировано по арендатору (И с name)");
+        }
+
+        // Каждый <eq p:processName> — прямой ребёнок <event> (НЕ прямой ребёнок <log>), значение = имя ИБ.
+        var processNameEqs = doc.Descendants()
+            .Where(e => e.Name.LocalName == "eq" && e.Attribute("property")?.Value == "p:processName")
+            .ToArray();
+        processNameEqs.Should().HaveCount(events.Length, "ровно один фильтр арендатора на каждое <event>");
+        processNameEqs.Should().OnlyContain(eq => eq.Parent!.Name.LocalName == "event",
+            "p:processName лежит ВНУТРИ <event>, а не прямым ребёнком <log> (иначе игнорируется → утечка)");
+        processNameEqs.Should().OnlyContain(eq => eq.Attribute("value")!.Value == "ut11_saratov");
     }
 
     [Fact]
@@ -77,13 +98,47 @@ public sealed class LogcfgBuilderTests
     }
 
     [Fact]
-    public void Build_never_emits_all_property()
+    public void Build_emits_all_property_inside_log_so_event_properties_are_written()
     {
-        // «Целевой, не полный» сбор (60_SAFETY №1): никогда <property name="all"/>.
+        // F-2 (MLC-246): без <property> платформа пишет события лишь с базовыми полями (41_LOGCFG_SPEC
+        // §4.2) → анализаторы B получают пусто. <property name="all"/> внутри <log> = property-scope:
+        // все свойства УЖЕ ОТОБРАННЫХ событий. Это НЕ «полный ТЖ» (тот режется event-scope ниже).
         foreach (var scenario in Enum.GetValues<TechLogScenario>())
         {
-            _builder.Build(scenario, null, Location, 2)
-                .Should().NotContain("\"all\"", $"сценарий {scenario}: запрещён полный ТЖ");
+            var doc = XDocument.Parse(_builder.Build(scenario, null, Location, 2));
+            var log = doc.Descendants().Single(e => e.Name.LocalName == "log");
+            var allProperty = log.Elements()
+                .Where(e => e.Name.LocalName == "property")
+                .SingleOrDefault(e => e.Attribute("name")?.Value == "all");
+
+            allProperty.Should().NotBeNull(
+                $"сценарий {scenario}: <property name=\"all\"/> обязателен внутри <log>, иначе свойства не пишутся");
+        }
+    }
+
+    [Fact]
+    public void Build_keeps_event_scope_targeted_never_full_techlog()
+    {
+        // F-2 граница (MLC-246): property-scope полон (all), но EVENT-scope строго целевой — инвариант
+        // 60_SAFETY №1 «никогда полный ТЖ» = никогда <ne> по name и события строго из сценария
+        // (никогда <property name="name" value="all"> и т.п.). Объём режут тип события + арендатор.
+        foreach (var scenario in Enum.GetValues<TechLogScenario>())
+        {
+            var doc = XDocument.Parse(_builder.Build(scenario, "ut11_saratov", Location, 2));
+
+            // Никаких <ne> (отрицаний) — это путь к «всё, кроме» = полному ТЖ.
+            doc.Descendants().Any(e => e.Name.LocalName == "ne")
+                .Should().BeFalse($"сценарий {scenario}: <ne> запрещён (ведёт к полному ТЖ)");
+
+            // Каждое <event> отбирает по конкретному имени из EventsFor — никаких «все события».
+            var selectedNames = doc.Descendants()
+                .Where(e => e.Name.LocalName == "event")
+                .SelectMany(e => e.Elements().Where(c => c.Name.LocalName == "eq"))
+                .Where(eq => eq.Attribute("property")?.Value == "name")
+                .Select(eq => eq.Attribute("value")!.Value)
+                .ToArray();
+            selectedNames.Should().NotBeEmpty($"сценарий {scenario}: события отбираются по name, а не «все»");
+            selectedNames.Should().OnlyContain(n => n != "all" && !string.IsNullOrEmpty(n));
         }
     }
 
