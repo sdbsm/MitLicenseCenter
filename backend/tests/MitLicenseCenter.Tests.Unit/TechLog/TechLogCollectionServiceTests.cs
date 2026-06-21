@@ -33,9 +33,9 @@ public sealed class TechLogCollectionServiceTests
         fx.Store.WriteCalls.Should().Be(1);
         fx.Store.Current.Should().Contain("p:processName").And.Contain("mitpro");
 
-        var row = await fx.QueryAsync(db => db.TechLogCollections.SingleAsync());
-        row.Status.Should().Be(TechLogCollectionStatus.Active);
-        row.Scenario.Should().Be("Locks");
+        var row = await fx.QueryAsync(db => db.Investigations.SingleAsync());
+        row.Status.Should().Be(InvestigationStatus.Collecting);
+        row.Scenario.Should().Be(InvestigationScenario.Locks);
         row.InfobaseProcessName.Should().Be("mitpro");
         row.StartedAtUtc.Should().Be(Start);
 
@@ -53,7 +53,7 @@ public sealed class TechLogCollectionServiceTests
         second.Outcome.Should().Be(TechLogStartOutcome.AlreadyActive);
         second.CollectionId.Should().Be(first.CollectionId);
         fx.Store.WriteCalls.Should().Be(1, "повторная установка не переписывает logcfg");
-        (await fx.QueryAsync(db => db.TechLogCollections.CountAsync())).Should().Be(1);
+        (await fx.QueryAsync(db => db.Investigations.CountAsync())).Should().Be(1);
     }
 
     [Fact]
@@ -68,7 +68,7 @@ public sealed class TechLogCollectionServiceTests
         result.GrantCommand.Should().Contain("icacls").And.Contain("NT SERVICE\\MitLicenseCenter:(M)");
         fx.Service.HasActiveCollection.Should().BeFalse();
         fx.Store.WriteCalls.Should().Be(0);
-        (await fx.QueryAsync(db => db.TechLogCollections.CountAsync())).Should().Be(0);
+        (await fx.QueryAsync(db => db.Investigations.CountAsync())).Should().Be(0);
         fx.Audit.Entries.Should().BeEmpty("аудит — только при фактическом успехе");
     }
 
@@ -92,16 +92,16 @@ public sealed class TechLogCollectionServiceTests
         var start = await fx.Service.InstallAsync("admin", TechLogScenario.Locks, null, CancellationToken.None);
         fx.Clock.Advance(TimeSpan.FromMinutes(5));
 
-        var outcome = await fx.Service.RemoveAsync(start.CollectionId, TechLogCollectionStopReason.Manual, CancellationToken.None);
+        var outcome = await fx.Service.RemoveAsync(start.CollectionId, InvestigationStopReason.Manual, CancellationToken.None);
 
         outcome.Should().Be(TechLogStopOutcome.Stopped);
         fx.Service.HasActiveCollection.Should().BeFalse();
         fx.Store.RestoreCalls.Should().Be(1);
         fx.Store.Current.Should().Be("<config><!-- original --></config>", "исходный logcfg восстановлен из бэкапа");
 
-        var row = await fx.QueryAsync(db => db.TechLogCollections.SingleAsync());
-        row.Status.Should().Be(TechLogCollectionStatus.Stopped);
-        row.StopReason.Should().Be(TechLogCollectionStopReason.Manual);
+        var row = await fx.QueryAsync(db => db.Investigations.SingleAsync());
+        row.Status.Should().Be(InvestigationStatus.Completed);
+        row.StopReason.Should().Be(InvestigationStopReason.Manual);
         row.StoppedAtUtc.Should().Be(Start.AddMinutes(5));
         fx.Audit.Entries.Should().Contain(e => e.Action == AuditActionType.TechLogCollectionStopped);
     }
@@ -112,7 +112,7 @@ public sealed class TechLogCollectionServiceTests
         using var fx = new Fixture();
         await fx.Service.InstallAsync("admin", TechLogScenario.Locks, null, CancellationToken.None);
 
-        var outcome = await fx.Service.RemoveAsync(Guid.NewGuid(), TechLogCollectionStopReason.Manual, CancellationToken.None);
+        var outcome = await fx.Service.RemoveAsync(Guid.NewGuid(), InvestigationStopReason.Manual, CancellationToken.None);
 
         outcome.Should().Be(TechLogStopOutcome.NotActive);
         fx.Service.HasActiveCollection.Should().BeTrue();
@@ -124,7 +124,7 @@ public sealed class TechLogCollectionServiceTests
     {
         using var fx = new Fixture();
         var start = await fx.Service.InstallAsync("admin", TechLogScenario.Locks, null, CancellationToken.None);
-        await fx.Service.RemoveAsync(start.CollectionId, TechLogCollectionStopReason.Manual, CancellationToken.None);
+        await fx.Service.RemoveAsync(start.CollectionId, InvestigationStopReason.Manual, CancellationToken.None);
 
         // Повторная установка после снятия — нормальный новый цикл, состояние не сломано.
         var again = await fx.Service.InstallAsync("admin", TechLogScenario.Locks, null, CancellationToken.None);
@@ -166,12 +166,12 @@ public sealed class TechLogCollectionServiceTests
         // Наш конфиг + активное дело в БД (штатно работающий сбор, процесс перезапущен) → не снимаем.
         await fx.QueryAsync(async db =>
         {
-            db.TechLogCollections.Add(new TechLogCollection
+            db.Investigations.Add(new Investigation
             {
                 Id = Guid.NewGuid(),
-                Status = TechLogCollectionStatus.Active,
+                Status = InvestigationStatus.Collecting,
                 StartedAtUtc = Start.AddMinutes(-1),
-                Scenario = "Locks",
+                Scenario = InvestigationScenario.Locks,
                 CollectionDirectory = @"C:\techlog",
                 ConfigMarker = LogcfgBuilder.Marker,
             });
@@ -196,12 +196,12 @@ public sealed class TechLogCollectionServiceTests
         var existingId = Guid.NewGuid();
         await fx.QueryAsync(async db =>
         {
-            db.TechLogCollections.Add(new TechLogCollection
+            db.Investigations.Add(new Investigation
             {
                 Id = existingId,
-                Status = TechLogCollectionStatus.Active,
+                Status = InvestigationStatus.Collecting,
                 StartedAtUtc = Start.AddMinutes(-1),
-                Scenario = "Locks",
+                Scenario = InvestigationScenario.Locks,
                 CollectionDirectory = @"C:\techlog",
                 ConfigMarker = LogcfgBuilder.Marker,
             });
@@ -229,7 +229,7 @@ public sealed class TechLogCollectionServiceTests
         result.Issue.Should().Contain("100").And.Contain("1024");
         fx.Store.WriteCalls.Should().Be(0);
         fx.Service.HasActiveCollection.Should().BeFalse();
-        (await fx.QueryAsync(db => db.TechLogCollections.CountAsync())).Should().Be(0);
+        (await fx.QueryAsync(db => db.Investigations.CountAsync())).Should().Be(0);
         fx.Audit.Entries.Should().BeEmpty("аудит — только при фактическом успехе");
     }
 
@@ -263,7 +263,7 @@ public sealed class TechLogCollectionServiceTests
         result.GrantCommand.Should().Contain("icacls").And.Contain("mitpro").And.Contain("(OI)(CI)(M)");
         fx.Service.HasActiveCollection.Should().BeFalse();
         fx.Store.WriteCalls.Should().Be(0, "сбор не стартует без прав агента — иначе «пустые дела»");
-        (await fx.QueryAsync(db => db.TechLogCollections.CountAsync())).Should().Be(0);
+        (await fx.QueryAsync(db => db.Investigations.CountAsync())).Should().Be(0);
         fx.Audit.Entries.Should().BeEmpty("аудит — только при фактическом успехе");
         fx.Store.AgentAclProbedAccount.Should().Be(".\\mitpro");
     }
@@ -327,9 +327,9 @@ public sealed class TechLogCollectionServiceTests
 
         fx.Service.HasActiveCollection.Should().BeFalse();
         fx.Store.RestoreCalls.Should().Be(1, "logcfg снят при авто-стопе");
-        var row = await fx.QueryAsync(db => db.TechLogCollections.SingleAsync());
-        row.Status.Should().Be(TechLogCollectionStatus.Stopped);
-        row.StopReason.Should().Be(TechLogCollectionStopReason.TimeLimit);
+        var row = await fx.QueryAsync(db => db.Investigations.SingleAsync());
+        row.Status.Should().Be(InvestigationStatus.Completed);
+        row.StopReason.Should().Be(InvestigationStopReason.TimeLimit);
         row.StoppedAtUtc.Should().Be(Start.AddMinutes(10));
         fx.Audit.Entries.Should().Contain(e => e.Action == AuditActionType.TechLogCollectionStopped);
     }
@@ -360,9 +360,9 @@ public sealed class TechLogCollectionServiceTests
         await fx.Service.MonitorActiveAsync(CancellationToken.None);
 
         fx.Service.HasActiveCollection.Should().BeFalse();
-        var row = await fx.QueryAsync(db => db.TechLogCollections.SingleAsync());
-        row.Status.Should().Be(TechLogCollectionStatus.Stopped);
-        row.StopReason.Should().Be(TechLogCollectionStopReason.DiskLimit);
+        var row = await fx.QueryAsync(db => db.Investigations.SingleAsync());
+        row.Status.Should().Be(InvestigationStatus.Completed);
+        row.StopReason.Should().Be(InvestigationStopReason.DiskLimit);
     }
 
     [Fact]
@@ -396,12 +396,12 @@ public sealed class TechLogCollectionServiceTests
         using var fx = new Fixture();
         await fx.QueryAsync(async db =>
         {
-            db.TechLogCollections.Add(new TechLogCollection
+            db.Investigations.Add(new Investigation
             {
                 Id = Guid.NewGuid(),
-                Status = TechLogCollectionStatus.Active,
+                Status = InvestigationStatus.Collecting,
                 StartedAtUtc = Start.AddMinutes(-30),
-                Scenario = "Locks",
+                Scenario = InvestigationScenario.Locks,
                 CollectionDirectory = @"C:\techlog",
                 ConfigMarker = LogcfgBuilder.Marker,
             });
@@ -411,8 +411,8 @@ public sealed class TechLogCollectionServiceTests
 
         await fx.Service.RecoverInterruptedAsync(CancellationToken.None);
 
-        var row = await fx.QueryAsync(db => db.TechLogCollections.SingleAsync());
-        row.Status.Should().Be(TechLogCollectionStatus.Interrupted);
+        var row = await fx.QueryAsync(db => db.Investigations.SingleAsync());
+        row.Status.Should().Be(InvestigationStatus.Interrupted);
         row.StoppedAtUtc.Should().Be(Start);
         row.StopReason.Should().BeNull("Interrupted — не «остановлено по причине»");
     }
@@ -424,12 +424,12 @@ public sealed class TechLogCollectionServiceTests
         // Осиротевшее дело в БД + наш logcfg в conf (краш ОС: in-memory стейт потерян).
         await fx.QueryAsync(async db =>
         {
-            db.TechLogCollections.Add(new TechLogCollection
+            db.Investigations.Add(new Investigation
             {
                 Id = Guid.NewGuid(),
-                Status = TechLogCollectionStatus.Active,
+                Status = InvestigationStatus.Collecting,
                 StartedAtUtc = Start.AddMinutes(-30),
-                Scenario = "Locks",
+                Scenario = InvestigationScenario.Locks,
                 CollectionDirectory = @"C:\techlog",
                 ConfigMarker = LogcfgBuilder.Marker,
             });
@@ -442,8 +442,8 @@ public sealed class TechLogCollectionServiceTests
         await fx.Service.RecoverInterruptedAsync(CancellationToken.None);
         await fx.Service.ReconcileOnStartupAsync(CancellationToken.None);
 
-        var row = await fx.QueryAsync(db => db.TechLogCollections.SingleAsync());
-        row.Status.Should().Be(TechLogCollectionStatus.Interrupted, "осиротевшее дело помечено прерванным");
+        var row = await fx.QueryAsync(db => db.Investigations.SingleAsync());
+        row.Status.Should().Be(InvestigationStatus.Interrupted, "осиротевшее дело помечено прерванным");
         fx.Store.RestoreCalls.Should().Be(1, "после перевода дела в Interrupted активного нет → logcfg снят");
         fx.Store.Current.Should().BeNull("«забытый» конфиг снят (бэкапа не было → файл удалён)");
         fx.Audit.Entries.Should().ContainSingle(e => e.Action == AuditActionType.TechLogConfigForceRestored);
