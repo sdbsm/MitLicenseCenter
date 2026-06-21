@@ -147,6 +147,7 @@ public sealed class LogcfgBuilderTests
     [InlineData(TechLogScenario.SlowQueries, new[] { "DBMSSQL", "SDBL" })]
     [InlineData(TechLogScenario.Exceptions, new[] { "EXCP", "EXCPCNTX" })]
     [InlineData(TechLogScenario.GeneralSlow, new[] { "CALL", "DBMSSQL" })]
+    [InlineData(TechLogScenario.DbmsLocks, new[] { "DBMSSQL" })]
     public void Build_selects_events_by_scenario(TechLogScenario scenario, string[] expectedEvents)
     {
         var doc = BuildDoc(scenario);
@@ -191,14 +192,53 @@ public sealed class LogcfgBuilderTests
     [Fact]
     public void Build_never_nests_enricher_tags_inside_log()
     {
-        // Регресс MLC-245: <plansql>/<dump> не должны лежать ВНУТРИ <log> ни в одном сценарии.
+        // Регресс MLC-245/MLC-236: <plansql>/<dump>/<dbmslocks> не должны лежать ВНУТРИ <log> ни в одном
+        // сценарии — это config-level директивы (сиблинги <log>).
         foreach (var scenario in Enum.GetValues<TechLogScenario>())
         {
             var doc = BuildDoc(scenario);
             var log = doc.Descendants().Single(e => e.Name.LocalName == "log");
-            log.Descendants().Any(e => e.Name.LocalName is "plansql" or "dump")
+            log.Descendants().Any(e => e.Name.LocalName is "plansql" or "dump" or "dbmslocks")
                 .Should().BeFalse($"сценарий {scenario}: теги-обогатители не внутри <log>");
         }
+    }
+
+    [Fact]
+    public void Build_dbms_locks_emits_config_level_dbmslocks_tag()
+    {
+        // MLC-236: сценарий DbmsLocks включает config-level тег <dbmslocks/> (сиблинг <log>), который
+        // формирует поля lkX на событиях СУБД (41_LOGCFG_SPEC §8, infostart 1431026). Поля выводятся
+        // благодаря <property name="all"/> (MLC-246) — отдельные <property name="lkX"/> не нужны.
+        var doc = BuildDoc(TechLogScenario.DbmsLocks);
+
+        var dbmslocks = doc.Descendants().SingleOrDefault(e => e.Name.LocalName == "dbmslocks");
+        dbmslocks.Should().NotBeNull("сценарий DbmsLocks обязан включать тег <dbmslocks/>");
+        dbmslocks!.Parent!.Name.LocalName.Should().Be("config", "<dbmslocks/> — на уровне <config>");
+
+        // Прочие сценарии тег НЕ эмитят.
+        foreach (var scenario in Enum.GetValues<TechLogScenario>().Where(s => s != TechLogScenario.DbmsLocks))
+        {
+            BuildDoc(scenario).Descendants().Any(e => e.Name.LocalName == "dbmslocks")
+                .Should().BeFalse($"сценарий {scenario}: <dbmslocks/> только для DbmsLocks");
+        }
+    }
+
+    [Fact]
+    public void Build_dbms_locks_isolates_tenant_inside_event()
+    {
+        // F-1 (MLC-246) распространяется и на DbmsLocks: при заданной ИБ p:processName лежит ВНУТРИ
+        // <event> рядом с name. Поля lkX выводятся через <property name="all"/> (MLC-246).
+        var doc = BuildDoc(TechLogScenario.DbmsLocks, infobase: "ut11_saratov");
+
+        var ev = doc.Descendants().Single(e => e.Name.LocalName == "event");
+        var props = ev.Elements().Where(c => c.Name.LocalName == "eq")
+            .Select(c => c.Attribute("property")!.Value).ToArray();
+        props.Should().Contain("name");
+        props.Should().Contain("p:processName");
+
+        doc.Descendants().Single(e => e.Name.LocalName == "log")
+            .Elements().Any(e => e.Name.LocalName == "property" && e.Attribute("name")?.Value == "all")
+            .Should().BeTrue("<property name=\"all\"/> выводит поля lkX (MLC-246)");
     }
 
     [Fact]
